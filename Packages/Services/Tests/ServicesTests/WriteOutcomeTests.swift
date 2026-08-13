@@ -437,6 +437,7 @@ func makeTrack(
         album: "Album",
         genre: "Rock",
         year: year,
+        trackStatus: TrackKind.subscription.rawValue,
         releaseYear: releaseYear
     )
 }

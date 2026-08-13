@@ -76,13 +76,7 @@ func makeWorkflowFixture(
 
 @MainActor
 private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowFixture {
-    let scriptClient = DashboardStateScriptClient(
-        failingTrackIDs: input.failingWriteTrackIDs,
-        cancellingTrackIDs: input.options.cancellingWriteTrackIDs,
-        outcomeTrackIDs: input.options.outcomeTrackIDs,
-        noChangeTrackIDs: input.options.noChangeWriteTrackIDs,
-        writeHold: input.options.writeHold
-    )
+    let scriptClient = makeScriptClient(input)
     let cache = DashboardStateCacheService()
     let coordinator = makeWorkflowCoordinator(
         input: input,
@@ -106,20 +100,12 @@ private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowF
     let relay = BatchRunRelay()
     let runRecords = FixtureRunRecords()
     let observationGate = FixtureSyncGate()
-    let failPersistence = input.options.failRunRecordPersistence
-    let failTerminalPersistence = input.options.failTerminalRunRecordPersistence
-    let orchestrator = RunOrchestrator(dependencies: .init(
-        synchronizeLibrary: { await observationGate.sync() },
-        persistRunRecord: { record in
-            if failPersistence || (failTerminalPersistence && record.finishedAt != nil) {
-                throw FixtureRecordWriteError()
-            }
-            await runRecords.append(record)
-        },
-        runBatchUpdate: { batchInput, runID in
-            try await relay.perform(batchInput, runID)
-        }
-    ))
+    let orchestrator = makeFixtureOrchestrator(
+        input: input,
+        relay: relay,
+        runRecords: runRecords,
+        observationGate: observationGate
+    )
     let viewModel = makeFixtureViewModel(
         input: input,
         coordinator: coordinator,
@@ -146,6 +132,39 @@ private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowF
         observationGate: observationGate,
         orchestrator: orchestrator
     )
+}
+
+private func makeScriptClient(_ input: WorkflowFixtureInput) -> DashboardStateScriptClient {
+    DashboardStateScriptClient(
+        failingTrackIDs: input.failingWriteTrackIDs,
+        cancellingTrackIDs: input.options.cancellingWriteTrackIDs,
+        outcomeTrackIDs: input.options.outcomeTrackIDs,
+        noChangeTrackIDs: input.options.noChangeWriteTrackIDs,
+        writeHold: input.options.writeHold
+    )
+}
+
+@MainActor
+private func makeFixtureOrchestrator(
+    input: WorkflowFixtureInput,
+    relay: BatchRunRelay,
+    runRecords: FixtureRunRecords,
+    observationGate: FixtureSyncGate
+) -> RunOrchestrator {
+    let failPersistence = input.options.failRunRecordPersistence
+    let failTerminalPersistence = input.options.failTerminalRunRecordPersistence
+    return RunOrchestrator(dependencies: .init(
+        synchronizeLibrary: { await observationGate.sync() },
+        persistRunRecord: { record in
+            if failPersistence || (failTerminalPersistence && record.finishedAt != nil) {
+                throw FixtureRecordWriteError()
+            }
+            await runRecords.append(record)
+        },
+        runBatchUpdate: { batchInput, runID in
+            try await relay.perform(batchInput, runID)
+        }
+    ))
 }
 
 struct FixtureRecordWriteError: Error {}
@@ -423,6 +442,7 @@ func randomAccessMemoriesTracksWithAlbumArtist(year: Int? = nil) -> [Track] {
             artist: "Pharrell Williams",
             album: "Random Access Memories",
             year: year,
+            trackStatus: TrackKind.subscription.rawValue,
             albumArtist: "Daft Punk"
         ),
         Track(
@@ -431,6 +451,7 @@ func randomAccessMemoriesTracksWithAlbumArtist(year: Int? = nil) -> [Track] {
             artist: "Julian Casablancas",
             album: "Random Access Memories",
             year: year,
+            trackStatus: TrackKind.subscription.rawValue,
             albumArtist: "Daft Punk"
         )
     ]

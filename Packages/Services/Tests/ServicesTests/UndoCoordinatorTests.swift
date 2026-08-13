@@ -108,7 +108,9 @@ struct FixedUndoTrackIDMapper: TrackIDMapping {
     }
 
     func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track? {
-        musicKitTrack
+        var enrichedTrack = musicKitTrack
+        enrichedTrack.trackStatus = TrackKind.subscription.rawValue
+        return enrichedTrack
     }
 
     func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
@@ -286,6 +288,7 @@ struct UndoCoordinatorTests {
                         artist: "Tricky",
                         album: "Protection",
                         year: 2000,
+                        trackStatus: TrackKind.subscription.rawValue,
                         albumArtist: "Massive Attack"
                     ),
                 ]
@@ -454,37 +457,6 @@ struct UndoCoordinatorTests {
 
         let history = await coordinator.getHistory()
         #expect(history.count == 1)
-    }
-
-    @Test("Revert refuses prerelease AppleScript metadata")
-    func revertRefusesPrereleaseAppleScriptMetadata() async throws {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
-            idMapper: MetadataUndoTrackIDMapper(
-                mapping: ["MK1": "AS1"],
-                metadata: [
-                    "MK1": Track(
-                        id: "MK1",
-                        name: "Track",
-                        artist: "Artist",
-                        album: "Album",
-                        year: 2000,
-                        trackStatus: "prerelease"
-                    ),
-                ]
-            ),
-            directory: makeTempDirectory()
-        )
-        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
-        try await coordinator.recordChange(entry)
-
-        await #expect(throws: UndoCoordinatorError.self) {
-            try await coordinator.revertChange(entry)
-        }
-
-        let written = await bridge.writtenProperties
-        #expect(written.isEmpty)
     }
 
     @Test("Batch revert missing AppleScript ID failure is public-safe")

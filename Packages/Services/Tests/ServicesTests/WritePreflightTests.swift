@@ -23,7 +23,7 @@ struct WritePreflightTests {
             album: musicKitTrack.album,
             genre: musicKitTrack.genre,
             year: 1969,
-            trackStatus: nil,
+            trackStatus: TrackKind.subscription.rawValue,
             yearBeforeMGU: 1968,
             yearSetByMGU: 1969,
             appleScriptID: "AS1"
@@ -78,7 +78,7 @@ struct WritePreflightTests {
             album: musicKitTrack.album,
             genre: "Jazz",
             year: 1969,
-            trackStatus: nil,
+            trackStatus: TrackKind.subscription.rawValue,
             appleScriptID: "AS1"
         )
         let mapper = ProcessedIDMapper(
@@ -129,7 +129,7 @@ struct WritePreflightTests {
             album: musicKitTrack.album,
             genre: musicKitTrack.genre,
             year: 1969,
-            trackStatus: nil,
+            trackStatus: TrackKind.subscription.rawValue,
             yearBeforeMGU: 1968,
             yearSetByMGU: 1969,
             appleScriptID: "AS1"
@@ -158,6 +158,60 @@ struct WritePreflightTests {
         #expect(written.map(\.value) == ["1970"])
     }
 
+    @Test(
+        "Generated write rejects unknown authoritative status before AppleScript dispatch",
+        arguments: [String?.none, "unknown"]
+    )
+    func generatedWriteRejectsUnknownStatus(trackStatus: String?) async throws {
+        let musicKitTrack = Track(
+            id: "MK1",
+            name: "Come Together",
+            artist: "Beatles",
+            album: "Abbey Road",
+            genre: "Rock",
+            year: 1969
+        )
+        let mutationTrack = Track(
+            id: musicKitTrack.id,
+            name: musicKitTrack.name,
+            artist: musicKitTrack.artist,
+            album: musicKitTrack.album,
+            genre: musicKitTrack.genre,
+            year: musicKitTrack.year,
+            trackStatus: trackStatus,
+            appleScriptID: "AS1"
+        )
+        let mapper = ProcessedIDMapper(
+            musicKitID: musicKitTrack.id,
+            appleScriptID: "AS1",
+            enrichedTrack: mutationTrack
+        )
+        let fixture = await makeCoordinator(idMapper: mapper)
+        let change = ProposedChange(
+            track: musicKitTrack,
+            changeType: .yearUpdate,
+            oldValue: "1969",
+            newValue: "1970",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        )
+
+        do {
+            _ = try await fixture.coordinator.applyChange(change, isReviewedChange: false)
+            Issue.record("Expected unknown authoritative status to block the write")
+        } catch let error as UpdateCoordinatorError {
+            guard case let .trackNotProcessable(trackID, status) = error else {
+                Issue.record("Expected trackNotProcessable, got \(error)")
+                return
+            }
+            #expect(trackID == musicKitTrack.id)
+            #expect(status == (trackStatus ?? "unknown"))
+        }
+
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
+    }
+
     @Test("Reviewed batch write uses configured ID fetch batch size")
     func chunksIDFetches() async throws {
         let changes = batchChanges()
@@ -179,6 +233,39 @@ struct WritePreflightTests {
         #expect(fetchCalls.map(\.batchSize).allSatisfy { $0 == 2 })
         #expect(result.entries.count == 3)
         #expect(result.failedTrackIDs.isEmpty)
+    }
+
+    @Test(
+        "Reviewed batch rejects unknown status from final AppleScript refresh",
+        arguments: [String?.none, "unknown"]
+    )
+    func reviewedBatchRejectsUnknownRefreshedStatus(trackStatus: String?) async throws {
+        let changes = batchChanges()
+        let mapper = batchMapper(for: changes)
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            areBatchUpdatesEnabled: true,
+            maxBatchUpdateSize: 5
+        )
+        let fixture = await makeCoordinator(idMapper: mapper, runtimeConfiguration: runtimeConfiguration)
+        await fixture.bridge.setFetchedTracks(scriptTracks(for: changes, trackStatus: trackStatus))
+
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                changes,
+                progressHandler: ignoreAcceptedChangeProgress
+            )
+            Issue.record("Expected unknown refreshed status to block the reviewed batch")
+        } catch let error as UpdateCoordinatorError {
+            guard case let .trackNotProcessable(trackID, status) = error else {
+                Issue.record("Expected trackNotProcessable, got \(error)")
+                return
+            }
+            #expect(trackID == "MK1")
+            #expect(status == (trackStatus ?? "unknown"))
+        }
+
+        #expect(await fixture.bridge.batchUpdates.isEmpty)
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
     }
 
     private func batchChanges() -> [ProposedChange] {
@@ -214,7 +301,10 @@ struct WritePreflightTests {
         })
     }
 
-    private func scriptTracks(for changes: [ProposedChange]) -> [Track] {
+    private func scriptTracks(
+        for changes: [ProposedChange],
+        trackStatus: String? = TrackKind.subscription.rawValue
+    ) -> [Track] {
         changes.map { change in
             let appleScriptID = scriptID(for: change.track)
             return Track(
@@ -223,7 +313,7 @@ struct WritePreflightTests {
                 artist: change.track.artist,
                 album: change.track.album,
                 year: 1969,
-                trackStatus: nil,
+                trackStatus: trackStatus,
                 appleScriptID: appleScriptID
             )
         }
@@ -236,7 +326,7 @@ struct WritePreflightTests {
             artist: track.artist,
             album: track.album,
             year: 1969,
-            trackStatus: nil,
+            trackStatus: TrackKind.subscription.rawValue,
             appleScriptID: appleScriptID
         )
     }

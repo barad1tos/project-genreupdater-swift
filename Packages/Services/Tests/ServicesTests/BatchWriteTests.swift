@@ -345,7 +345,7 @@ struct BatchWriteTests {
             album: "Abbey Road",
             genre: genre,
             year: year,
-            trackStatus: nil
+            trackStatus: TrackKind.subscription.rawValue
         )
     }
 }

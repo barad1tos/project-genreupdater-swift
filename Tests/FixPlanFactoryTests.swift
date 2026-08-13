@@ -322,6 +322,7 @@ private func writeTrack() -> Track {
         artist: "Artist",
         album: "Album",
         genre: "Rock",
+        trackStatus: TrackKind.subscription.rawValue,
         appleScriptID: "AS-1"
     )
 }

@@ -290,19 +290,15 @@ public actor UndoCoordinator {
     }
 
     private func validateWriteEligibility(for track: Track) throws {
-        guard track.canEdit else {
-            throw UndoCoordinatorError.revertFailed(
-                trackID: track.id,
-                reason: UpdateCoordinatorError.trackNotEditable(trackID: track.id).localizedDescription
+        do {
+            try UpdateCoordinator.validateMutationEligibility(
+                for: track,
+                requiresKnownStatus: idMapper != nil
             )
-        }
-        guard UpdateCoordinator.isTrackAvailableForProcessing(track) else {
+        } catch let error as UpdateCoordinatorError {
             throw UndoCoordinatorError.revertFailed(
                 trackID: track.id,
-                reason: UpdateCoordinatorError.trackNotProcessable(
-                    trackID: track.id,
-                    status: track.trackStatus ?? "unknown"
-                ).localizedDescription
+                reason: error.localizedDescription
             )
         }
     }
