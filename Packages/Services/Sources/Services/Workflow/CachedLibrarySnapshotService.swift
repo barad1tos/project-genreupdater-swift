@@ -5,7 +5,7 @@ import CryptoKit
 import Foundation
 
 public actor CachedLibrarySnapshotService: LibrarySnapshotService {
-    private let cache: any CacheService
+    private let cache: any PersistentCacheService
     private let configuration: LibrarySnapshotConfig
     private let currentDate: @Sendable () -> Date
     private let libraryModificationDateProvider: (@Sendable () -> Date?)?
@@ -16,7 +16,7 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
     }
 
     public init(
-        cache: any CacheService,
+        cache: any PersistentCacheService,
         configuration: LibrarySnapshotConfig,
         currentDate: @escaping @Sendable () -> Date = { Date() },
         libraryModificationDateProvider: (@Sendable () -> Date?)? = nil
@@ -48,8 +48,7 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
         let previousMetadata = await getSnapshotMetadata()
         let now = currentDate()
         let libraryModificationDate = libraryModificationDateProvider?() ?? now
-        let ttl = snapshotTTL
-        await cache.set(key: snapshotKey, value: tracks, ttl: ttl)
+        await cache.setPersistent(key: snapshotKey, value: tracks)
         try await updateSnapshotMetadata(LibraryCacheMetadata(
             trackCount: tracks.count,
             snapshotHash: hash,
@@ -88,7 +87,7 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
 
     public func updateSnapshotMetadata(_ metadata: LibraryCacheMetadata) async throws {
         guard isEnabled else { return }
-        await cache.set(key: metadataKey, value: metadata, ttl: snapshotTTL)
+        await cache.setPersistent(key: metadataKey, value: metadata)
     }
 
     public func getLibraryModificationDate() async throws -> Date {

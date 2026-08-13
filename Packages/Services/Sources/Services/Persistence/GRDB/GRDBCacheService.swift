@@ -15,8 +15,9 @@ import OSLog
 /// TTL defaults:
 /// - Album years: 30 days
 /// - API responses: caller-configured, 15 minutes by default
-/// - Generic cache: caller-specified or configured default
-public actor GRDBCacheService: CacheService {
+/// - Expiring generic writes: caller-specified or configured default
+/// - Persistent generic writes: no time-based expiry
+public actor GRDBCacheService: PersistentCacheService {
     private let dbWriter: any DatabaseWriter
     private let log = AppLogger.cache
     private let albumYearTTL: TimeInterval
@@ -128,16 +129,23 @@ public actor GRDBCacheService: CacheService {
     }
 
     public func set(key: String, value: some Codable & Sendable, ttl: TimeInterval?) async {
+        await storeGeneric(key: key, value: value, ttl: ttl ?? defaultGenericTTL)
+    }
+
+    public func setPersistent(key: String, value: some Codable & Sendable) async {
+        await storeGeneric(key: key, value: value, ttl: nil)
+    }
+
+    private func storeGeneric(key: String, value: some Codable & Sendable, ttl: TimeInterval?) async {
         do {
             let data = try JSONEncoder().encode(value)
-            let resolvedTTL = ttl ?? defaultGenericTTL
             let now = Date.now
             let shouldCleanup = shouldRunGenericCleanup(at: now)
             try await dbWriter.write { database in
                 let row = try GenericCacheRow(
                     key: key,
                     value: data,
-                    ttl: resolvedTTL,
+                    ttl: ttl,
                     timestamp: .now,
                     accessOrder: Self.nextAccessOrder(in: database)
                 )

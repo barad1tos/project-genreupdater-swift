@@ -17,6 +17,13 @@ public protocol CacheService: Actor, Sendable {
     func syncToDisk() async throws
 }
 
+/// Cache capability for values that must not expire by time.
+public protocol PersistentCacheService: CacheService {
+    /// Stores a value without time-based expiry; it remains removable by `invalidate(key:)`, `clear()`, or capacity
+    /// eviction.
+    func setPersistent(key: String, value: some Codable & Sendable) async
+}
+
 public enum TrackStoreError: LocalizedError, Sendable {
     case missingTrack(id: String)
 

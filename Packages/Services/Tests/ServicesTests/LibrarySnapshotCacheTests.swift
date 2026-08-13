@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import Core
 @testable import Services
@@ -122,6 +123,37 @@ struct LibrarySnapshotCacheTests {
         try await service.updateSnapshotMetadata(metadata)
 
         #expect(await service.isSnapshotValid())
+    }
+
+    @Test("Unchanged library snapshot survives physical cache age")
+    func preservesUnchangedSnapshot() async throws {
+        let databaseQueue = try DatabaseQueue()
+        let cache = GRDBCacheService(dbWriter: databaseQueue, defaultGenericTTL: 300)
+        try await cache.initialize()
+        var configuration = LibrarySnapshotConfig()
+        configuration.maxAgeHours = 1
+        let now = Date.now
+        let libraryModificationDate = now.addingTimeInterval(-86400)
+        let service = CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: configuration,
+            currentDate: { now },
+            libraryModificationDateProvider: { libraryModificationDate }
+        )
+        let tracks = [
+            Track(id: "1", name: "Song", artist: "Artist", album: "Album"),
+        ]
+        _ = try await service.saveSnapshot(tracks)
+        try await databaseQueue.write { database in
+            try database.execute(
+                sql: "UPDATE generic_cache SET timestamp = ?",
+                arguments: [now.addingTimeInterval(-7200)]
+            )
+        }
+
+        let loaded = try await service.loadSnapshot()
+
+        #expect(loaded == tracks)
     }
 
     @Test("Snapshot expires by age when library file changed")
