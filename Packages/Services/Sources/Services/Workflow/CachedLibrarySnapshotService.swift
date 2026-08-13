@@ -49,6 +49,7 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
         guard isEnabled else { return hash }
 
         let previousSnapshot = await cachedSnapshot()
+        let previousMetadata = await getSnapshotMetadata()
         let now = currentDate()
         let libraryModificationDate = libraryModificationDateProvider?() ?? now
         let ttl = snapshotTTL
@@ -57,7 +58,8 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
             trackCount: tracks.count,
             snapshotHash: hash,
             timestamp: now,
-            libraryModificationDate: libraryModificationDate
+            libraryModificationDate: libraryModificationDate,
+            lastForceScanDate: previousMetadata?.lastForceScanDate
         ))
 
         if isDeltaEnabled, let previousSnapshot {

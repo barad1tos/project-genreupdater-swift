@@ -93,6 +93,44 @@ struct SyncForceScanTests {
         #expect(metadata?.lastForceScanDate == secondSyncDate)
     }
 
+    @Test("Snapshot refresh does not postpone a weekly metadata scan")
+    func refreshKeepsScanDue() async throws {
+        let forceScanDate = Self.baseDate
+        let refreshDate = forceScanDate.addingTimeInterval(8 * 86400)
+        let dateProvider = SyncDateProvider(forceScanDate)
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let snapshotService = CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: LibrarySnapshotConfig(),
+            currentDate: dateProvider.now
+        )
+        let storedTrack = Self.track(name: "Metal")
+        _ = try await snapshotService.saveSnapshot([storedTrack])
+        var metadata = try #require(await snapshotService.getSnapshotMetadata())
+        metadata.lastForceScanDate = forceScanDate
+        try await snapshotService.updateSnapshotMetadata(metadata)
+
+        dateProvider.set(refreshDate)
+        _ = try await snapshotService.saveSnapshot([storedTrack])
+
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": Self.track(name: "Alternative")])
+        await store.setStored([storedTrack])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            librarySnapshotService: snapshotService,
+            currentDate: dateProvider.now
+        )
+
+        let result = try await service.detectChanges()
+
+        #expect(result.modifiedTracks.map(\.id) == ["T1"])
+        #expect(await bridge.fetchTracksRequestCount() == 1)
+    }
+
     private static func makeFixture(
         now: Date = baseDate,
         stored: Track = track(name: "Stored"),
