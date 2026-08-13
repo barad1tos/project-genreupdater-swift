@@ -52,7 +52,7 @@ extension WorkflowViewModel {
         tracks: [Track],
         contextTracks: [Track]? = nil,
         preflightOutcome: PendingEntryOutcome = PendingEntryOutcome(),
-        yearOnlyTrackIDs: Set<String> = []
+        trackPasses: [String: UpdatePass] = [:]
     ) {
         let tracksByIndex = Self.sortedForBatchProcessing(tracks)
         guard !tracksByIndex.isEmpty else {
@@ -88,7 +88,7 @@ extension WorkflowViewModel {
             autoAccept: true
         )
         pendingBatchExecution = .fullLibrary(FullLibraryBatch(
-            scope: UpdateTrackScope(tracks: tracksByIndex, yearOnlyTrackIDs: yearOnlyTrackIDs),
+            scope: UpdateTrackScope(tracks: tracksByIndex, trackPasses: trackPasses),
             contextTracks: contextTracks ?? tracksByIndex,
             preflightOutcome: preflightOutcome,
             options: options
@@ -160,6 +160,7 @@ extension WorkflowViewModel {
             if case let .cancelled(liveProcessedCount, liveTotalCount) = batchError {
                 finishCancelledBatch(
                     preflightOutcome: execution.preflightOutcome,
+                    batchTracks: execution.scope.tracks,
                     liveProcessedCount: liveProcessedCount,
                     liveTotalCount: liveTotalCount
                 )
@@ -179,7 +180,10 @@ extension WorkflowViewModel {
 
     private func executeBatchWork(_ execution: FullLibraryBatch) async throws -> BatchUpdateResult {
         let tracksByIndex = execution.scope.tracks
-        let progressHandler = makeBatchProgressHandler(tracksByIndex: tracksByIndex)
+        let progressHandler = makeBatchProgressHandler(
+            tracksByIndex: tracksByIndex,
+            preflightOutcome: execution.preflightOutcome
+        )
         await invalidateAlbumYearCacheIfNeeded()
 
         let context = await batchContext(for: tracksByIndex, contextTracks: execution.contextTracks)
@@ -329,7 +333,11 @@ extension WorkflowViewModel {
             errorDescriptions: preflightOutcome.errorDescriptions + batchFailureDescriptions
         )
         failedCount = currentFailures.count
-        processedCount = preflightOutcome.processedCount + tracks.count
+        processedCount = Self.combinedTrackCount(
+            preflightOutcome: preflightOutcome,
+            batchTracks: tracks,
+            batchCount: tracks.count
+        )
         totalCount = max(totalCount, processedCount)
         // Stricter than the Python original on purpose: a forced Python run
         // advances the mark even with per-track failures; holding the mark
@@ -493,6 +501,7 @@ extension WorkflowViewModel {
 
     private func finishCancelledBatch(
         preflightOutcome: PendingEntryOutcome,
+        batchTracks: [Track] = [],
         liveProcessedCount: Int? = nil,
         liveTotalCount: Int? = nil
     ) {
@@ -510,10 +519,21 @@ extension WorkflowViewModel {
         }
 
         if let liveProcessedCount {
-            processedCount = preflightOutcome.processedCount + liveProcessedCount
+            processedCount = Self.combinedTrackCount(
+                preflightOutcome: preflightOutcome,
+                batchTracks: batchTracks,
+                batchCount: liveProcessedCount
+            )
         }
         if let liveTotalCount {
-            totalCount = max(totalCount, preflightOutcome.processedCount + liveTotalCount)
+            totalCount = max(
+                totalCount,
+                Self.combinedTrackCount(
+                    preflightOutcome: preflightOutcome,
+                    batchTracks: batchTracks,
+                    batchCount: liveTotalCount
+                )
+            )
         }
     }
 
@@ -581,17 +601,41 @@ extension WorkflowViewModel {
         // BatchProcessor emits the user-visible progress for full-library runs.
     }
 
-    private func makeBatchProgressHandler(tracksByIndex: [Track]) -> @Sendable (ProgressUpdate) -> Void {
+    private func makeBatchProgressHandler(
+        tracksByIndex: [Track],
+        preflightOutcome: PendingEntryOutcome
+    ) -> @Sendable (ProgressUpdate) -> Void {
         { [weak self] update in
             Task { @MainActor in
-                self?.handleBatchProgress(update, tracksByIndex: tracksByIndex)
+                self?.handleBatchProgress(
+                    update,
+                    tracksByIndex: tracksByIndex,
+                    preflightOutcome: preflightOutcome
+                )
             }
         }
     }
 
-    private func handleBatchProgress(_ update: ProgressUpdate, tracksByIndex: [Track]) {
-        progress = update
-        processedCount = update.current
+    private func handleBatchProgress(
+        _ update: ProgressUpdate,
+        tracksByIndex: [Track],
+        preflightOutcome: PendingEntryOutcome
+    ) {
+        let current = Self.combinedTrackCount(
+            preflightOutcome: preflightOutcome,
+            batchTracks: tracksByIndex,
+            batchCount: update.current
+        )
+        let total = max(
+            totalCount,
+            Self.combinedTrackCount(
+                preflightOutcome: preflightOutcome,
+                batchTracks: tracksByIndex,
+                batchCount: update.total
+            )
+        )
+        progress = ProgressUpdate(phase: update.phase, current: current, total: total, message: update.message)
+        processedCount = current
 
         guard update.current > 0 else {
             currentTrackID = nil
@@ -638,5 +682,16 @@ extension WorkflowViewModel {
                 trackStatuses[track.id] = .skipped
             }
         }
+    }
+
+    nonisolated private static func combinedTrackCount(
+        preflightOutcome: PendingEntryOutcome,
+        batchTracks: [Track],
+        batchCount: Int
+    ) -> Int {
+        let successfulTrackIDs = Set(preflightOutcome.successfulTrackIDs)
+        let boundedCount = min(max(batchCount, 0), batchTracks.count)
+        let newBatchTrackIDs = Set(batchTracks.prefix(boundedCount).map(\.id)).subtracting(successfulTrackIDs)
+        return preflightOutcome.processedCount + newBatchTrackIDs.count
     }
 }

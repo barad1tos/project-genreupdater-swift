@@ -520,7 +520,7 @@ final class WorkflowViewModel {
                 pendingVerificationOutcome = PendingEntryOutcome()
             }
 
-            let remainingScope = processingScope.excluding(
+            let remainingScope = processingScope.afterYearWrites(
                 trackIDs: Set(pendingVerificationOutcome.successfulTrackIDs)
             )
             guard !shouldStopAfterPendingPreflight(
@@ -535,7 +535,7 @@ final class WorkflowViewModel {
                     tracks: remainingScope.tracks,
                     contextTracks: tracks,
                     preflightOutcome: pendingVerificationOutcome,
-                    yearOnlyTrackIDs: remainingScope.yearOnlyTrackIDs
+                    trackPasses: remainingScope.trackPasses
                 )
             } else {
                 startDryRun(scope: processingScope, contextTracks: tracks)
@@ -627,10 +627,10 @@ final class WorkflowViewModel {
 
     private func scopeForProcessing(_ tracks: [Track]) async -> UpdateTrackScope {
         guard mode == .fullLibrary else {
-            return UpdateTrackScope(tracks: tracks, yearOnlyTrackIDs: [])
+            return UpdateTrackScope(tracks: tracks, trackPasses: [:])
         }
         if updateYear, forceYearLookup {
-            return UpdateTrackScope(tracks: tracks, yearOnlyTrackIDs: [])
+            return UpdateTrackScope(tracks: tracks, trackPasses: [:])
         }
         let primaryTracks = await resolveIncrementalTracks(
             tracks,

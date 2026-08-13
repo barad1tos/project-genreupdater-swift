@@ -227,7 +227,7 @@ public actor UpdateCoordinator {
         pass: UpdatePass
     ) async throws -> [ProposedChange] {
         var proposedChanges: [ProposedChange] = []
-        let artistRenameChange = pass == .standard
+        let artistRenameChange = pass.includesStandardMetadata
             ? Self.determineArtistRenameChange(
                 track: track,
                 mappings: runtimeConfiguration.artistRenameMappings
@@ -235,7 +235,7 @@ public actor UpdateCoordinator {
             : nil
         let policyTrack = artistRenameChange?.track ?? track
         let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(policyTrack.album)
-        let cleaningOutcome = pass == .standard
+        let cleaningOutcome = pass.includesStandardMetadata
             ? Self.cleaningOutcome(
                 policyTrack: policyTrack,
                 proposalTrack: track,
@@ -253,7 +253,7 @@ public actor UpdateCoordinator {
             artistTracks: artistTracks,
             albumTracks: albumTracks
         )
-        if pass == .standard,
+        if pass.includesStandardMetadata,
            let change = determineGenreChange(
                track: decisionTrack,
                artistTracks: genreContextTracks,
@@ -261,8 +261,8 @@ public actor UpdateCoordinator {
            ) {
             proposedChanges.append(Self.change(change, usingTrack: policyTrack))
         }
-
-        if options.updateYear,
+        if pass.includesYear,
+           options.updateYear,
            runtimeConfiguration.isYearLookupEnabled,
            let change = try await determineYearChange(
                track: decisionTrack,

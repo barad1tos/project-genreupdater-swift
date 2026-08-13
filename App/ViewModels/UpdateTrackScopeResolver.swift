@@ -14,17 +14,28 @@ struct IncrementalTrackScopeOptions: Equatable {
 
 struct UpdateTrackScope: Sendable {
     let tracks: [Track]
-    let yearOnlyTrackIDs: Set<String>
+    let trackPasses: [String: UpdatePass]
 
     func pass(for track: Track) -> UpdatePass {
-        yearOnlyTrackIDs.contains(track.id) ? .yearOnly : .standard
+        trackPasses[track.id] ?? .standard
     }
 
-    func excluding(trackIDs: Set<String>) -> Self {
-        Self(
-            tracks: tracks.filter { !trackIDs.contains($0.id) },
-            yearOnlyTrackIDs: yearOnlyTrackIDs.subtracting(trackIDs)
-        )
+    func afterYearWrites(trackIDs: Set<String>) -> Self {
+        var remainingTracks = [Track]()
+        var remainingPasses = trackPasses
+        for track in tracks {
+            guard trackIDs.contains(track.id) else {
+                remainingTracks.append(track)
+                continue
+            }
+            if pass(for: track) == .yearOnly {
+                remainingPasses[track.id] = nil
+            } else {
+                remainingTracks.append(track)
+                remainingPasses[track.id] = .standardWithoutYear
+            }
+        }
+        return Self(tracks: remainingTracks, trackPasses: remainingPasses)
     }
 }
 
@@ -76,14 +87,14 @@ enum UpdateTrackScopeResolver {
     ) -> UpdateTrackScope {
         let primaryTracks = deduplicated(primaryTracks)
         guard includesYearSweep, !primaryTracks.isEmpty else {
-            return UpdateTrackScope(tracks: primaryTracks, yearOnlyTrackIDs: [])
+            return UpdateTrackScope(tracks: primaryTracks, trackPasses: [:])
         }
 
         let primaryTrackIDs = Set(primaryTracks.map(\.id))
         let yearOnlyTracks = deduplicated(libraryTracks.filter { !primaryTrackIDs.contains($0.id) })
         return UpdateTrackScope(
             tracks: primaryTracks + yearOnlyTracks,
-            yearOnlyTrackIDs: Set(yearOnlyTracks.map(\.id))
+            trackPasses: Dictionary(uniqueKeysWithValues: yearOnlyTracks.map { ($0.id, .yearOnly) })
         )
     }
 

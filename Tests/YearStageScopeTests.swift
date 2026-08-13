@@ -7,6 +7,26 @@ import Testing
 @Suite("Workflow year stage scope")
 @MainActor
 struct YearStageScopeTests {
+    @Test("empty incremental admission skips the year stage")
+    func emptyAdmissionSkipsYearStage() async throws {
+        let fixture = makeWorkflowFixture(
+            resolveIncrementalTracks: { _, _ in [] }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = true
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+
+        viewModel.start(tracks: yearSweepTracks())
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        #expect(viewModel.proposedChanges.isEmpty)
+        #expect(viewModel.scopeTrackCount == 0)
+        #expect(viewModel.processedCount == 0)
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+    }
+
     @Test("incremental preview evaluates old album years without widening other stages")
     func previewIncludesOldAlbumYear() async throws {
         let tracks = yearSweepTracks()
