@@ -378,9 +378,17 @@ struct APIClientsTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let databaseURL = directory.appendingPathComponent("api-cache.db")
-        let requestURL = try #require(URL(
-            string: "https://itunes.apple.com/search?term=Test%20Artist%20Test%20Album&country=US&entity=album&limit=200"
-        ))
+        var requestComponents = URLComponents()
+        requestComponents.scheme = CatalogSearchClient.defaultITunesScheme
+        requestComponents.host = CatalogSearchClient.defaultITunesHost
+        requestComponents.path = "/search"
+        requestComponents.queryItems = [
+            URLQueryItem(name: "term", value: "Test Artist Test Album"),
+            URLQueryItem(name: "country", value: "US"),
+            URLQueryItem(name: "entity", value: "album"),
+            URLQueryItem(name: "limit", value: "200"),
+        ]
+        let requestURL = try #require(requestComponents.url)
 
         do {
             let legacyCache = try GRDBCacheService(databasePath: databaseURL.path, defaultGenericTTL: 31_536_000)
