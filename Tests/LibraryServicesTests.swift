@@ -159,7 +159,9 @@ struct LibraryServicesTests {
         let snapshotService = SnapshotServiceSpy()
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in }
+            configurationSaver: { _ in
+                // This load-failure test never mutates configuration.
+            }
         )
         dependencies.configureLibraryPersistenceForTesting(
             trackStore: trackStore,
@@ -512,7 +514,9 @@ struct LibraryServicesTests {
 private func makeDependencies(trackStore: TrackDataStore) -> AppDependencies {
     let dependencies = AppDependencies(
         configurationLoader: { AppConfiguration() },
-        configurationSaver: { _ in }
+        configurationSaver: { _ in
+            // Relaunch fixtures exercise track persistence only.
+        }
     )
     dependencies.configureLibraryPersistenceForTesting(
         trackStore: trackStore,
@@ -567,7 +571,9 @@ private actor GenreReadProvider: LibraryReadProvider {
 private actor FailingMirrorReadStore: TrackStateStore {
     private var savedTracks: [Core.Track] = []
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // The failure double has no backing store to initialize.
+    }
 
     func loadAllTracks() async throws -> [Core.Track] {
         throw MirrorReadError()
@@ -583,7 +589,9 @@ private actor FailingMirrorReadStore: TrackStateStore {
     func getTrack(byID _: String) async throws -> Core.Track? {
         nil
     }
-    func persistAppliedChange(_: ChangeLogEntry) async throws {}
+    func persistAppliedChange(_: ChangeLogEntry) async throws {
+        // Library loading never persists change-log entries.
+    }
     func getUnprocessedTracks() async throws -> [Core.Track] {
         []
     }
