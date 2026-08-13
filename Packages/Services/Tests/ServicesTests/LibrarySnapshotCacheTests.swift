@@ -32,6 +32,40 @@ struct LibrarySnapshotCacheTests {
         #expect(await service.isSnapshotValid())
     }
 
+    @Test("Refreshing a snapshot preserves the last force scan date")
+    func refreshKeepsForceScanDate() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let firstSnapshotDate = Date(timeIntervalSince1970: 1_800_000_000)
+        let forceScanDate = firstSnapshotDate.addingTimeInterval(-3 * 86400)
+        let refreshDate = firstSnapshotDate.addingTimeInterval(3600)
+        let dateProvider = SyncDateProvider(firstSnapshotDate)
+        let service = CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: LibrarySnapshotConfig(),
+            currentDate: dateProvider.now
+        )
+        let firstTracks = [
+            Track(id: "T1", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+        ]
+        let refreshedTracks = [
+            Track(id: "T1", name: "Song", artist: "Clutch", album: "Blast Tyrant", genre: "Rock"),
+        ]
+
+        _ = try await service.saveSnapshot(firstTracks)
+        var metadata = try #require(await service.getSnapshotMetadata())
+        metadata.lastForceScanDate = forceScanDate
+        try await service.updateSnapshotMetadata(metadata)
+        dateProvider.set(refreshDate)
+
+        _ = try await service.saveSnapshot(refreshedTracks)
+
+        let refreshedMetadata = try #require(await service.getSnapshotMetadata())
+        #expect(refreshedMetadata.lastForceScanDate == forceScanDate)
+        #expect(refreshedMetadata.timestamp == refreshDate)
+        #expect(try await service.loadSnapshot() == refreshedTracks)
+    }
+
     @Test("Snapshot validity follows configured max age")
     func snapshotValidityUsesMaxAge() async throws {
         let cache = try GRDBCacheService.createInMemory()
