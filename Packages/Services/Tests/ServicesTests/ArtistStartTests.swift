@@ -97,7 +97,78 @@ struct ArtistStartTests {
         #expect(changes.allSatisfy { $0.changeType != .yearUpdate })
     }
 
-    private func makeCoordinator(apiOrchestrator: APIOrchestrator) -> UpdateCoordinator {
+    @Test("Matching implausible year is marked for verification")
+    func marksImplausibleMatchingYear() async throws {
+        let apiResult = YearResult(
+            year: 1990,
+            confidence: 100,
+            yearScores: [1990: 100]
+        )
+        let musicBrainz = MockAPIService(
+            yearResult: apiResult,
+            artistActivityPeriod: (start: 2000, end: nil)
+        )
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: musicBrainz,
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService()
+        )
+        let pendingStore = try PendingVerificationStore(
+            modelContainer: ModelContainerFactory.createInMemory(),
+            legacyStorageURL: nil
+        )
+        try await pendingStore.initialize()
+        let coordinator = makeCoordinator(
+            apiOrchestrator: orchestrator,
+            pendingVerificationService: pendingStore
+        )
+        let track = Track(
+            id: "T1",
+            name: "Early Track",
+            artist: "Test Artist",
+            album: "Early Album",
+            year: 1990
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+        let pendingEntry = await pendingStore.getEntry(
+            artist: "Test Artist",
+            album: "Early Album"
+        )
+        let firstAttemptCount = await pendingStore.getAttemptCount(
+            artist: "Test Artist",
+            album: "Early Album"
+        )
+
+        #expect(changes.allSatisfy { $0.changeType != .yearUpdate })
+        #expect(pendingEntry?.reason == "implausible_matching_year")
+        #expect(pendingEntry?.metadata["year"] == "1990")
+        #expect(pendingEntry?.metadata["artist_start_year"] == "2000")
+        #expect(pendingEntry?.metadata["note"] == "Both library and API returned same impossible year")
+        #expect(pendingEntry?.metadata["plausibility"] == "year_before_artist_start")
+        #expect(firstAttemptCount == 1)
+
+        _ = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+        let secondAttemptCount = await pendingStore.getAttemptCount(
+            artist: "Test Artist",
+            album: "Early Album"
+        )
+
+        #expect(secondAttemptCount == 1)
+    }
+
+    private func makeCoordinator(
+        apiOrchestrator: APIOrchestrator,
+        pendingVerificationService: (any PendingVerificationService)? = nil
+    ) -> UpdateCoordinator {
         let bridge = MockAppleScriptClient()
         let store = MockTrackStore()
         let cache = MockCacheService()
@@ -114,7 +185,8 @@ struct ArtistStartTests {
                 undoCoordinator: UndoCoordinator(
                     scriptBridge: bridge,
                     directory: undoDirectory
-                )
+                ),
+                pendingVerificationService: pendingVerificationService
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),
