@@ -268,7 +268,7 @@ struct LibrarySnapshotCacheTests {
         #expect(statistics.genericCacheCount == 2)
     }
 
-    @Test("Clearing a snapshot preserves the force scan schedule")
+    @Test("Clearing a snapshot preserves the force scan schedule through replacement")
     func clearPreservesForceScanDate() async throws {
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()

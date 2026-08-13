@@ -188,7 +188,7 @@ public struct RateLimiterStats: Sendable {
 public protocol LibrarySnapshotService: Actor {
     func loadSnapshot() async throws -> [Track]?
     func saveSnapshot(_ tracks: [Track]) async throws -> String
-    /// Invalidates cached tracks while retaining metadata used to schedule force refreshes.
+    /// Invalidates cached tracks while retaining all snapshot metadata, including the force-refresh schedule.
     func clearSnapshot() async
     func isSnapshotValid() async -> Bool
     func getSnapshotMetadata() async -> LibraryCacheMetadata?
