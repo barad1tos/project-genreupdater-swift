@@ -70,6 +70,24 @@ struct ArtistStartAPITests {
         #expect(first == nil)
         #expect(second == 1998)
     }
+
+    @Test("Successful fallback after provider failure is cached")
+    func successfulFallbackIsCached() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: ArtistActivityService([.failure, .found(1988)]),
+            discogs: MockAPIService(),
+            appleMusic: ArtistActivityService([.found(1998), .found(2000)]),
+            cache: cache
+        )
+
+        let first = await orchestrator.getArtistStartYear(normalizedArtist: "test artist")
+        let second = await orchestrator.getArtistStartYear(normalizedArtist: "test artist")
+
+        #expect(first == 1998)
+        #expect(second == 1998)
+    }
 }
 
 private enum ArtistActivityResponse: Sendable {
