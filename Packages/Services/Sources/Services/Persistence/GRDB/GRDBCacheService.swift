@@ -128,16 +128,23 @@ public actor GRDBCacheService: CacheService {
     }
 
     public func set(key: String, value: some Codable & Sendable, ttl: TimeInterval?) async {
+        await storeGeneric(key: key, value: value, ttl: ttl ?? defaultGenericTTL)
+    }
+
+    public func setPersistent(key: String, value: some Codable & Sendable) async {
+        await storeGeneric(key: key, value: value, ttl: nil)
+    }
+
+    private func storeGeneric(key: String, value: some Codable & Sendable, ttl: TimeInterval?) async {
         do {
             let data = try JSONEncoder().encode(value)
-            let resolvedTTL = ttl ?? defaultGenericTTL
             let now = Date.now
             let shouldCleanup = shouldRunGenericCleanup(at: now)
             try await dbWriter.write { database in
                 let row = try GenericCacheRow(
                     key: key,
                     value: data,
-                    ttl: resolvedTTL,
+                    ttl: ttl,
                     timestamp: .now,
                     accessOrder: Self.nextAccessOrder(in: database)
                 )
