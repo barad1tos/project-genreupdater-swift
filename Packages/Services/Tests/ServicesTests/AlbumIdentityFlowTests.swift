@@ -356,16 +356,17 @@ struct AlbumIdentityFlowTests {
             id: "ram-1",
             artist: "Daft Punk",
             album: "Random Access Memories",
-            year: 2012
+            year: 2012,
+            trackStatus: TrackKind.subscription.rawValue
         )
         let secondTrack = makeTrack(
             id: "ram-2",
             artist: "Daft Punk feat. Pharrell Williams",
             album: "Random Access Memories",
-            year: 2012
+            year: 2012,
+            trackStatus: TrackKind.subscription.rawValue
         )
         await bridge.setFetchedTracks([firstTrack, secondTrack])
-
         let result = try await coordinator.applyAcceptedChanges([
             acceptedYearChange(for: firstTrack, year: 2013),
             acceptedYearChange(for: secondTrack, year: 2013),
@@ -509,6 +510,7 @@ struct AlbumIdentityFlowTests {
             name: "Get Lucky",
             artist: "Pharrell Williams",
             album: "Random Access Memories",
+            trackStatus: TrackKind.subscription.rawValue,
             metadata: .init(albumArtist: "Daft Punk")
         )
         let secondAppleScriptTrack = makeTrack(
@@ -517,6 +519,7 @@ struct AlbumIdentityFlowTests {
             artist: "Julian Casablancas",
             album: "Random Access Memories",
             year: 2001,
+            trackStatus: TrackKind.subscription.rawValue,
             metadata: .init(albumArtist: "Daft Punk")
         )
         await mapper.refreshMapping(

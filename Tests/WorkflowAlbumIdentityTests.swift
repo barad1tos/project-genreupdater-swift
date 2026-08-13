@@ -531,7 +531,13 @@ struct WorkflowAlbumIdentityTests {
             pendingVerificationService: pendingVerification,
             idMapper: WorkflowTrackIDMapper(
                 enrichedTracks: [
-                    Track(id: "deftones-1", name: "My Own Summer", artist: "Deftones", album: "Around the Fur"),
+                    Track(
+                        id: "deftones-1",
+                        name: "My Own Summer",
+                        artist: "Deftones",
+                        album: "Around the Fur",
+                        trackStatus: TrackKind.subscription.rawValue
+                    ),
                 ],
                 appleScriptIDsByMusicKitID: [
                     "deftones-1": "as-deftones-1",
@@ -625,7 +631,13 @@ struct WorkflowAlbumIdentityTests {
             pendingVerificationService: pendingVerification,
             idMapper: WorkflowTrackIDMapper(
                 enrichedTracks: [
-                    Track(id: "artist-a-1", name: "Single A", artist: "Artist A", album: "Greatest Hits"),
+                    Track(
+                        id: "artist-a-1",
+                        name: "Single A",
+                        artist: "Artist A",
+                        album: "Greatest Hits",
+                        trackStatus: TrackKind.subscription.rawValue
+                    ),
                 ],
                 appleScriptIDsByMusicKitID: [
                     "artist-a-1": "as-artist-a-1",

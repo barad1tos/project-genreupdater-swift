@@ -100,7 +100,15 @@ actor DashboardStateScriptClient: AppleScriptClient {
         batchSize _: Int,
         timeout _: Duration?
     ) async throws -> [Track] {
-        trackIDs.map { Track(id: $0, name: "Track \($0)", artist: "Artist", album: "Album") }
+        trackIDs.map {
+            Track(
+                id: $0,
+                name: "Track \($0)",
+                artist: "Artist",
+                album: "Album",
+                trackStatus: TrackKind.subscription.rawValue
+            )
+        }
     }
 
     func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {

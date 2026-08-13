@@ -238,7 +238,8 @@ func batchYearTrack(id: String = "batch-year") -> Track {
         name: "Batch Year",
         artist: "Clutch",
         album: "Pure Rock Fury",
-        year: 1999
+        year: 1999,
+        trackStatus: TrackKind.subscription.rawValue
     )
 }
 

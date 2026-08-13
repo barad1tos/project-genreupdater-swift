@@ -191,15 +191,10 @@ extension UpdateCoordinator {
 
         guard let newValue = change.newValue else { return .skipped }
         let mutationTrack = try await trackWithMutationMetadata(change.track)
-        guard mutationTrack.canEdit else {
-            throw UpdateCoordinatorError.trackNotEditable(trackID: mutationTrack.id)
-        }
-        guard Self.isTrackAvailableForProcessing(mutationTrack) else {
-            throw UpdateCoordinatorError.trackNotProcessable(
-                trackID: mutationTrack.id,
-                status: mutationTrack.trackStatus ?? "unknown"
-            )
-        }
+        try Self.validateMutationEligibility(
+            for: mutationTrack,
+            requiresKnownStatus: idMapper != nil
+        )
         let property = Self.appleScriptProperty(for: change.changeType)
         if isReviewedChange,
            try !shouldWrite(change, to: mutationTrack, property: property) {

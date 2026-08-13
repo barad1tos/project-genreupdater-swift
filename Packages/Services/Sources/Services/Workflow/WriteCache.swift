@@ -14,6 +14,27 @@ extension UpdateCoordinator {
         track.kind?.isAvailableForProcessing ?? true
     }
 
+    static func validateMutationEligibility(
+        for track: Track,
+        requiresKnownStatus: Bool
+    ) throws {
+        if requiresKnownStatus, track.kind == nil {
+            throw UpdateCoordinatorError.trackNotProcessable(
+                trackID: track.id,
+                status: mutationStatusDescription(track.trackStatus)
+            )
+        }
+        guard track.canEdit else {
+            throw UpdateCoordinatorError.trackNotEditable(trackID: track.id)
+        }
+        guard isTrackAvailableForProcessing(track) else {
+            throw UpdateCoordinatorError.trackNotProcessable(
+                trackID: track.id,
+                status: mutationStatusDescription(track.trackStatus)
+            )
+        }
+    }
+
     func invalidateCaches(for change: ProposedChange) async {
         for target in Self.cacheInvalidationTargets(for: change, cleaning: runtimeConfiguration.cleaning) {
             await cache.invalidateAlbum(artist: target.artist, album: target.album)
@@ -104,5 +125,11 @@ extension UpdateCoordinator {
 
     private static func normalizedCacheAlbum(_ value: String) -> String {
         value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    private static func mutationStatusDescription(_ status: String?) -> String {
+        let trimmed = status?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return "unknown" }
+        return trimmed
     }
 }

@@ -16,6 +16,7 @@ struct RunRuntimeTests {
             album: "Album",
             genre: "Rock",
             year: 2000,
+            trackStatus: TrackKind.subscription.rawValue,
             appleScriptID: "AS-1"
         )
         let script = RuntimeScriptSpy(track: track)

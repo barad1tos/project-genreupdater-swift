@@ -85,7 +85,7 @@ func makeEditableTrack(
         album: album,
         genre: genre,
         year: year,
-        trackStatus: nil
+        trackStatus: TrackKind.subscription.rawValue
     )
 }
 

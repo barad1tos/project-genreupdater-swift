@@ -237,6 +237,10 @@ extension UpdateCoordinator {
         currentTracksByID: [String: Track],
         isReviewedChange: Bool
     ) throws -> ReviewedBatchPreflight {
+        for preparedWrite in preparedWrites {
+            guard let currentTrack = currentTracksByID[preparedWrite.trackID] else { continue }
+            try Self.validateMutationEligibility(for: currentTrack, requiresKnownStatus: true)
+        }
         guard isReviewedChange else {
             return ReviewedBatchPreflight(
                 writeIndexes: Set(preparedWrites.indices),
