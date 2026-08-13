@@ -5,15 +5,12 @@ import Foundation
 import MusicKit
 import OSLog
 
-/// Failures that prevent an Apple Music catalog lookup from reaching a
-/// confirmed result.
-public enum CatalogSearchError: Error, Equatable {
-    /// MusicKit cannot perform the lookup without user authorization.
+enum CatalogSearchError: Error, Equatable {
     case authorizationRequired
 }
 
 extension CatalogSearchError: LocalizedError {
-    public var errorDescription: String? {
+    var errorDescription: String? {
         "Apple Music authorization is required for catalog search"
     }
 }
