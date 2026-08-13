@@ -90,6 +90,35 @@ struct LibraryServicesTests {
         }
     }
 
+    @Test("A MusicKit genre change remains visible and enters incremental scope")
+    func genreEditEntersScope() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        try await fixture.trackStore.saveTracks([
+            Core.Track(
+                id: "live",
+                name: "Song",
+                artist: "Clutch",
+                album: "Blast Tyrant",
+                genre: "Metal"
+            ),
+        ])
+        fixture.dependencies.installTestLibraryReadProvider(GenreReadProvider())
+
+        await fixture.dependencies.loadLibrary(forceRefresh: true)
+
+        let visibleTrack = try #require(fixture.dependencies.libraryTracks.first)
+        let persistedTrack = try #require(await fixture.trackStore.getTrack(byID: "live"))
+        let incrementalTracks = UpdateTrackScopeResolver.incrementalTracks(
+            fixture.dependencies.libraryTracks,
+            lastRunTime: Date(),
+            previousTracks: fixture.dependencies.previousIncrementalScopeTracks,
+            options: IncrementalTrackScopeOptions(updateGenre: false)
+        )
+        #expect(visibleTrack.genre == "Alternative")
+        #expect(persistedTrack.genre == "Alternative")
+        #expect(incrementalTracks.map(\.id) == ["live"])
+    }
+
     @Test("A partial MusicKit load preserves authoritative metadata across relaunch")
     func mirrorSurvivesRelaunch() async throws {
         let storeDirectory = FileManager.default.temporaryDirectory
@@ -517,6 +546,20 @@ private actor PartialLibraryReadProvider: LibraryReadProvider {
     func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
         LibraryReadSnapshot(tracks: [
             Core.Track(id: "live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+        ], scannedAt: Date(timeIntervalSince1970: 200))
+    }
+}
+
+private actor GenreReadProvider: LibraryReadProvider {
+    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        LibraryReadSnapshot(tracks: [
+            Core.Track(
+                id: "live",
+                name: "Song",
+                artist: "Clutch",
+                album: "Blast Tyrant",
+                genre: "Alternative"
+            ),
         ], scannedAt: Date(timeIntervalSince1970: 200))
     }
 }

@@ -7,9 +7,9 @@ public enum LibraryReadReconciler {
     /// Stored values fill metadata omitted by partial reads. When `appleScript`
     /// is present and `isAuthoritative` is `true`, `nil` genre, year, release-year,
     /// and album-artist values are explicit clears. A missing AppleScript record
-    /// falls back to stored values, then to live values where that field's
-    /// precedence permits; year falls back only to the stored mirror. Other
-    /// optional fields use their non-`nil` source precedence.
+    /// falls back according to each field's source precedence: a current live
+    /// genre wins over its stored fallback, while year falls back only to the
+    /// stored mirror. Other optional fields use their non-`nil` source precedence.
     ///
     /// - Parameters:
     ///   - live: Current provider result and source of the returned identity.
@@ -26,7 +26,7 @@ public enum LibraryReadReconciler {
     ) -> Track {
         let genre = isAuthoritative
             ? appleScript.map(\.genre) ?? stored.genre ?? live.genre
-            : appleScript?.genre ?? stored.genre ?? live.genre
+            : appleScript?.genre ?? live.genre ?? stored.genre
         let year = isAuthoritative
             ? appleScript.map(\.year) ?? stored.year
             : appleScript?.year ?? stored.year
