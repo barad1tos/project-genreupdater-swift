@@ -113,7 +113,7 @@ extension AppDependencies {
                 provider: provider,
                 scopedArtists: scopedArtists
             )
-            await applyLiveLibraryLoad(
+            try await applyLiveLibraryLoad(
                 liveLoad,
                 token: token,
                 scopedArtists: scopedArtists,
@@ -153,20 +153,23 @@ extension AppDependencies {
         token: UInt64,
         scopedArtists: [String],
         loadStart: ContinuousClock.Instant
-    ) async {
+    ) async throws {
+        guard libraryLoadGate.isCurrent(token) else { return }
+        let reconciledTracks = try await persistLibraryLoad(
+            liveLoad.tracks,
+            scopedArtists: scopedArtists
+        )
         guard libraryLoadGate.isCurrent(token) else { return }
         isLibraryReadyForUpdates = liveLoad.isLibraryReadyForUpdates
-        libraryTracks = liveLoad.tracks
-        await persistLoadedLibraryTracks(liveLoad.tracks, scopedArtists: scopedArtists)
+        libraryTracks = reconciledTracks
+        await applyBrowseTruthForLoad?(reconciledTracks, .liveLibrary(scannedAt: liveLoad.scanDate), token)
         guard libraryLoadGate.isCurrent(token) else { return }
-        await applyBrowseTruthForLoad?(liveLoad.tracks, .liveLibrary(scannedAt: liveLoad.scanDate), token)
-        guard libraryLoadGate.isCurrent(token) else { return }
-        let upsertedMetrics = await metricsSnapshotStore?.upsert(from: liveLoad.tracks)
+        let upsertedMetrics = await metricsSnapshotStore?.upsert(from: reconciledTracks)
         guard libraryLoadGate.isCurrent(token) else { return }
         lastLibraryScanDate = liveLoad.scanDate
         libraryMetrics = upsertedMetrics
-        onLibraryLoadApplied?(liveLoad.tracks)
-        await recordLibraryLoad(source: "music", count: liveLoad.tracks.count, startedAt: loadStart)
+        onLibraryLoadApplied?(reconciledTracks)
+        await recordLibraryLoad(source: "music", count: reconciledTracks.count, startedAt: loadStart)
     }
 
     private func handleLibraryLoadFailure(

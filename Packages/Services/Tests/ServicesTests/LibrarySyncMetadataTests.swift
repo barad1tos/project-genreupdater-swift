@@ -41,14 +41,7 @@ struct LibrarySyncMutationTests {
     }
 
     @Test("Read provider removal resolution preserves partial AppleScript metadata")
-    func readProviderRemovalResolutionPreservesPartialAppleScriptMetadata() async {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store
-        )
+    func removalResolutionPreservesMetadata() {
         let storedTrack = Track(
             id: "MK-1",
             name: "Existing",
@@ -68,10 +61,10 @@ struct LibrarySyncMutationTests {
             appleScriptID: "AS-1"
         )
 
-        let persistedTrack = await service.readProviderPersistenceTrack(
-            current: partialMetadataTrack,
+        let persistedTrack = LibraryReadReconciler.reconcile(
+            live: partialMetadataTrack,
             stored: storedTrack,
-            appleScriptMetadata: partialMetadataTrack
+            appleScript: partialMetadataTrack
         )
 
         #expect(persistedTrack.genre == "Metal")

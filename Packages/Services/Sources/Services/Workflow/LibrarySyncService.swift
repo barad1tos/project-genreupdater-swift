@@ -234,11 +234,11 @@ public actor LibrarySyncService {
                   let stored = storedByID[trackID]
             else { continue }
 
-            let persistedCurrent = readProviderPersistenceTrack(
-                current: current,
+            let persistedCurrent = LibraryReadReconciler.reconcile(
+                live: current,
                 stored: stored,
-                appleScriptMetadata: appleScriptMetadataByPrimaryID[trackID],
-                isAppleScriptMetadataAuthoritative: true
+                appleScript: appleScriptMetadataByPrimaryID[trackID],
+                isAuthoritative: true
             )
             if hasTrackChanged(current: persistedCurrent, stored: stored) {
                 modifiedTracks.append(persistedCurrent)
@@ -343,10 +343,10 @@ public actor LibrarySyncService {
         var resolvedTracks = storedByID
         for (trackID, metadataTrack) in mutationMetadataByID {
             guard let stored = storedByID[trackID] else { continue }
-            resolvedTracks[trackID] = readProviderPersistenceTrack(
-                current: metadataTrack,
+            resolvedTracks[trackID] = LibraryReadReconciler.reconcile(
+                live: metadataTrack,
                 stored: stored,
-                appleScriptMetadata: metadataTrack
+                appleScript: metadataTrack
             )
         }
         return resolvedTracks

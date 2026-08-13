@@ -32,6 +32,7 @@ private func isOpenReportState(_ state: RunLifecycleState) -> Bool {
 
 enum AppDependencyServiceError: LocalizedError, Equatable {
     case librarySyncUnavailable
+    case trackStoreUnavailable
     case recoveryBlocked
     case recoveryUpdateRequired
     case recoveryUnavailable
@@ -45,6 +46,8 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
         switch self {
         case .librarySyncUnavailable:
             "Library sync service is unavailable"
+        case .trackStoreUnavailable:
+            "Track state store is unavailable"
         case .recoveryBlocked:
             "Recovery needs attention before this run can be closed"
         case .recoveryUpdateRequired:
@@ -104,41 +107,42 @@ extension AppDependencies {
         }
     }
 
-    func persistLoadedLibraryTracks(
+    @discardableResult
+    func persistLibraryLoad(
         _ tracks: [Track],
         scopedArtists capturedScopedArtists: [String]? = nil
-    ) async {
+    ) async throws -> [Track] {
         let scopedArtists = capturedScopedArtists ?? ArtistAllowList.normalized(config.development.testArtists)
-        guard !tracks.isEmpty else { return }
-        let previousTracks = await loadPreviousIncrementalScopeTracks()
+        guard !tracks.isEmpty else { return [] }
+        guard let trackStore else {
+            throw AppDependencyServiceError.trackStoreUnavailable
+        }
+        let previousTracks = try await trackStore.loadAllTracks()
         replacePreviousIncrementalScopeTracks(previousTracks)
+        let previousByID = Dictionary(
+            previousTracks.map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let reconciledTracks = tracks.map { track in
+            guard let stored = previousByID[track.id] else { return track }
+            return LibraryReadReconciler.reconcile(live: track, stored: stored)
+        }
 
         do {
-            try await trackStore?.saveTracks(tracks)
+            try await trackStore.saveTracks(reconciledTracks)
         } catch {
             libraryServicesLog.error("Failed to persist loaded tracks: \(error.localizedDescription, privacy: .public)")
         }
 
         if scopedArtists.isEmpty {
             do {
-                _ = try await librarySnapshotService?.saveSnapshot(tracks)
+                _ = try await librarySnapshotService?.saveSnapshot(reconciledTracks)
             } catch {
                 libraryServicesLog
                     .warning("Failed to save library snapshot: \(error.localizedDescription, privacy: .public)")
             }
         }
-    }
-
-    private func loadPreviousIncrementalScopeTracks() async -> [Track] {
-        guard let trackStore else { return [] }
-        do {
-            return try await trackStore.loadAllTracks()
-        } catch {
-            libraryServicesLog.warning(
-                "Failed to load previous incremental scope tracks: \(error.localizedDescription, privacy: .public)"
-            )
-            return []
-        }
+        return reconciledTracks
     }
 
     func runMaintenancePreflight() async -> MaintenancePreflightResult? {

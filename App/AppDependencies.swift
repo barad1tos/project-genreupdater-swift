@@ -119,7 +119,7 @@ final class AppDependencies {
     private(set) var apiOrchestrator: APIOrchestrator?
     private(set) var pendingVerificationService: (any PendingVerificationService)?
     private(set) var cacheService: GRDBCacheService?
-    private(set) var trackStore: TrackDataStore?
+    private(set) var trackStore: (any TrackStateStore)?
     private(set) var changeLogStore: ChangeLogDataStore?
     private(set) var metricsSnapshotStore: MetricsSnapshotStore?
     private(set) var modelContainer: ModelContainer?
@@ -747,7 +747,7 @@ extension AppDependencies {
     }
 
     func configureLibraryPersistenceForTesting(
-        trackStore: TrackDataStore? = nil,
+        trackStore: (any TrackStateStore)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runRecordStore: (any RunRecordStore)? = nil,
         fixPlanStore: (any FixPlanStore)? = nil
