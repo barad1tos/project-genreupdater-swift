@@ -187,10 +187,17 @@ struct APICacheTab: View {
             Stepper(
                 value: configBinding(dependencies, \.caching.negativeResultTTL),
                 in: 0 ... 7_776_000,
-                step: 86400
+                step: 3600
             ) {
-                LabeledContent("Negative result TTL", value: negativeResultTTLDisplay)
+                LabeledContent("Confirmed miss retry", value: negativeResultTTLDisplay)
             }
+
+            Text(
+                "Longer values reduce API calls but may delay newly indexed releases. " +
+                    "Off retries every eligible lookup."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
 
             Toggle("Library snapshot cache", isOn: configBinding(dependencies, \.caching.librarySnapshot.enabled))
 

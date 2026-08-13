@@ -5,14 +5,27 @@ import Foundation
 import MusicKit
 import OSLog
 
+/// Failures that prevent an Apple Music catalog lookup from reaching a
+/// confirmed result.
+public enum CatalogSearchError: Error, Equatable {
+    /// MusicKit cannot perform the lookup without user authorization.
+    case authorizationRequired
+}
+
+extension CatalogSearchError: LocalizedError {
+    public var errorDescription: String? {
+        "Apple Music authorization is required for catalog search"
+    }
+}
+
 // MARK: - CatalogSearchClient
 
 /// Apple Music catalog search client for album year and genre data.
 ///
 /// Uses MusicKit's `MusicCatalogSearchRequest` for native catalog access.
 /// No rate limiting needed — Apple manages request throttling internally.
-/// Requires MusicKit entitlement in the app target; returns empty results
-/// gracefully when authorization is unavailable (e.g., in unit tests).
+/// Requires MusicKit entitlement in the app target. Authorization and request
+/// failures are reported to callers so they cannot be cached as catalog misses.
 ///
 /// - Note: Artist activity period and start year are not exposed by MusicKit,
 ///   so those methods always return `nil`.
@@ -28,6 +41,8 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     private let iTunesConfiguration: ITunesSearchConfiguration
     private let lookupFallbackEnabled: Bool
     private let dateProvider: @Sendable () -> Date
+    private let authorizeMusic: @Sendable () async -> MusicAuthorization.Status
+    private let findReleaseDate: @Sendable (String) async throws -> Date?
     private let log = AppLogger.api
 
     public init(
@@ -47,7 +62,9 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
             iTunesConfiguration: iTunesConfiguration,
             lookupFallbackEnabled: lookupFallbackEnabled,
             rawRequestCache: rawRequestCache,
-            dateProvider: { Date() }
+            dateProvider: { Date() },
+            authorizeMusic: { await MusicAuthorization.request() },
+            findReleaseDate: Self.findReleaseDate
         )
     }
 
@@ -59,7 +76,11 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         iTunesConfiguration: ITunesSearchConfiguration = ITunesSearchConfiguration(),
         lookupFallbackEnabled: Bool = true,
         rawRequestCache: RawAPIRequestCache? = nil,
-        dateProvider: @escaping @Sendable () -> Date
+        dateProvider: @escaping @Sendable () -> Date,
+        authorizeMusic: @escaping @Sendable () async -> MusicAuthorization.Status = {
+            await MusicAuthorization.request()
+        },
+        findReleaseDate: @escaping @Sendable (String) async throws -> Date? = Self.findReleaseDate
     ) {
         self.session = session
         self.rawRequestCache = rawRequestCache
@@ -69,6 +90,8 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         self.iTunesConfiguration = iTunesConfiguration
         self.lookupFallbackEnabled = lookupFallbackEnabled
         self.dateProvider = dateProvider
+        self.authorizeMusic = authorizeMusic
+        self.findReleaseDate = findReleaseDate
     }
 
     // MARK: - ExternalAPIService
@@ -77,7 +100,8 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     ///
     /// Performs a `MusicCatalogSearchRequest` combining artist and album name.
     /// Returns a `YearResult` with confidence 70 when a matching album is found,
-    /// or an empty result when MusicKit is not authorized or no match exists.
+    /// or an empty result when no match exists. Authorization and request
+    /// failures are thrown so callers do not cache them as confirmed misses.
     ///
     /// - Parameters:
     ///   - artist: The artist name to search for.
@@ -91,45 +115,23 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         currentLibraryYear _: Int?,
         earliestTrackAddedYear _: Int?
     ) async throws -> YearResult {
-        let authorizationStatus = await requestAuthorization()
+        let authorizationStatus = await authorizeMusic()
         guard authorizationStatus == .authorized else {
-            log.info("MusicKit not authorized, skipping Apple Music catalog search")
-            return YearResult()
+            log.info("MusicKit not authorized; Apple Music catalog search failed")
+            throw CatalogSearchError.authorizationRequired
         }
 
-        var request = MusicCatalogSearchRequest(
-            term: "\(artist) \(album)",
-            types: [Album.self]
-        )
-        request.limit = 5
-
-        let response: MusicCatalogSearchResponse
-        do {
-            response = try await request.response()
-        } catch {
-            log.error("MusicKit catalog search failed: \(error.localizedDescription, privacy: .public)")
-            return YearResult()
-        }
-
-        guard let bestMatch = response.albums.first else {
+        guard let releaseDate = try await findReleaseDate("\(artist) \(album)") else {
             log.debug(
                 "No Apple Music results for \(artist, privacy: .private) - \(album, privacy: .private)"
             )
             return YearResult()
         }
 
-        guard let releaseDate = bestMatch.releaseDate else {
-            log.debug(
-                "Apple Music match has no release date for \(artist, privacy: .private) - \(album, privacy: .private)"
-            )
-            return YearResult()
-        }
-
         let year = Calendar.current.component(.year, from: releaseDate)
-        let genres = bestMatch.genreNames
 
         log.debug(
-            "Apple Music: \(artist, privacy: .private) - \(album, privacy: .private) -> year=\(year, privacy: .public), genres=\(genres.joined(separator: ", "), privacy: .private)"
+            "Apple Music: \(artist, privacy: .private) - \(album, privacy: .private) -> year=\(year, privacy: .public)"
         )
 
         return YearResult(
@@ -229,12 +231,10 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
 
     // MARK: - Private
 
-    /// Request MusicKit authorization, returning the resulting status.
-    ///
-    /// In a running app this prompts the user; in test context it returns
-    /// the current (typically unauthorized) status without blocking.
-    private func requestAuthorization() async -> MusicAuthorization.Status {
-        await MusicAuthorization.request()
+    private static func findReleaseDate(for term: String) async throws -> Date? {
+        var request = MusicCatalogSearchRequest(term: term, types: [Album.self])
+        request.limit = 5
+        return try await request.response().albums.first?.releaseDate
     }
 
     static func buildArtistAlbumsSearchURL(

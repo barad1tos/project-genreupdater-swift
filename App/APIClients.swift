@@ -145,14 +145,17 @@ actor DiscogsAccessStore {
 }
 
 extension AppDependencies {
-    private static func makeRawRequestCache(
+    static func makeRawCache(
         configuration: AppConfiguration,
         cache: (any CacheService)?
     ) -> RawAPIRequestCache? {
         cache.map {
             RawAPIRequestCache(
                 cache: $0,
-                ttl: GRDBCacheService.resolvedAPIResultTTL(configuration: configuration)
+                ttl: min(
+                    defaultGenericCacheTTL(configuration: configuration),
+                    max(0, configuration.caching.negativeResultTTL)
+                )
             )
         }
     }
@@ -179,7 +182,7 @@ extension AppDependencies {
             configuration: configuration,
             discogsContext: discogsContext,
             factoryOverrides: factoryOverrides,
-            rawRequestCache: makeRawRequestCache(configuration: configuration, cache: cache)
+            rawRequestCache: makeRawCache(configuration: configuration, cache: cache)
         )
         return makeAPIOrchestrator(
             configuration: configuration,
@@ -212,7 +215,7 @@ extension AppDependencies {
             configuration: configuration,
             discogsContext: discogsContext,
             factoryOverrides: factoryOverrides,
-            rawRequestCache: makeRawRequestCache(configuration: configuration, cache: cache)
+            rawRequestCache: makeRawCache(configuration: configuration, cache: cache)
         )
         return makeAPIOrchestrator(
             configuration: configuration,
