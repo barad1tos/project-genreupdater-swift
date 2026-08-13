@@ -6,6 +6,12 @@ extension UpdateCoordinator {
     typealias AppliedChangeOutcome = (entry: ChangeLogEntry?, noOpEntry: ChangeLogEntry?)
     typealias UpdateTrackProviders = (album: @Sendable (Track) -> [Track], artist: @Sendable (Track) -> [Track])
 
+    struct GeneratedUpdateRequest {
+        let track: Track
+        let options: UpdateOptions
+        let pass: UpdatePass
+    }
+
     func consecutiveChangesForSameTrack(
         in changes: [ProposedChange],
         startingAt startIndex: Int
@@ -134,21 +140,21 @@ extension UpdateCoordinator {
     }
 
     func applyGeneratedAcceptedChanges(
-        for track: Track,
-        options: UpdateOptions,
+        for request: GeneratedUpdateRequest,
         trackProviders: UpdateTrackProviders,
         failedTrackIDs: inout [String],
         errorDescriptions: inout [String]
     ) async throws -> AppliedChangeEntries {
         let albumTracksWithMutationMetadata = await availableTracksWithMutationMetadata(
-            trackProviders.album(track)
+            trackProviders.album(request.track)
         )
-        let artistTracks = trackProviders.artist(track).filter(Self.isTrackAvailableForProcessing)
+        let artistTracks = trackProviders.artist(request.track).filter(Self.isTrackAvailableForProcessing)
         let changes = try await updateTrack(
-            track,
+            request.track,
             albumTracks: albumTracksWithMutationMetadata,
             artistTracks: artistTracks,
-            options: options,
+            options: request.options,
+            pass: request.pass,
             dryRun: true
         )
 

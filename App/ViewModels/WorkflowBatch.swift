@@ -18,14 +18,14 @@ enum PendingBatchExecution {
 
     var trackCount: Int {
         switch self {
-        case let .fullLibrary(batch): batch.tracksByIndex.count
+        case let .fullLibrary(batch): batch.scope.tracks.count
         case let .applyAccepted(apply): apply.trackCount
         }
     }
 }
 
 struct FullLibraryBatch {
-    let tracksByIndex: [Track]
+    let scope: UpdateTrackScope
     let contextTracks: [Track]
     let preflightOutcome: PendingEntryOutcome
     let options: UpdateOptions
@@ -51,7 +51,8 @@ extension WorkflowViewModel {
     func startBatchProcessing(
         tracks: [Track],
         contextTracks: [Track]? = nil,
-        preflightOutcome: PendingEntryOutcome = PendingEntryOutcome()
+        preflightOutcome: PendingEntryOutcome = PendingEntryOutcome(),
+        yearOnlyTrackIDs: Set<String> = []
     ) {
         let tracksByIndex = Self.sortedForBatchProcessing(tracks)
         guard !tracksByIndex.isEmpty else {
@@ -87,7 +88,7 @@ extension WorkflowViewModel {
             autoAccept: true
         )
         pendingBatchExecution = .fullLibrary(FullLibraryBatch(
-            tracksByIndex: tracksByIndex,
+            scope: UpdateTrackScope(tracks: tracksByIndex, yearOnlyTrackIDs: yearOnlyTrackIDs),
             contextTracks: contextTracks ?? tracksByIndex,
             preflightOutcome: preflightOutcome,
             options: options
@@ -177,7 +178,7 @@ extension WorkflowViewModel {
     }
 
     private func executeBatchWork(_ execution: FullLibraryBatch) async throws -> BatchUpdateResult {
-        let tracksByIndex = execution.tracksByIndex
+        let tracksByIndex = execution.scope.tracks
         let progressHandler = makeBatchProgressHandler(tracksByIndex: tracksByIndex)
         await invalidateAlbumYearCacheIfNeeded()
 
@@ -185,6 +186,7 @@ extension WorkflowViewModel {
         let operation = makeBatchTrackOperation(
             updateCoordinator: updateCoordinator,
             options: execution.options,
+            scope: execution.scope,
             albumTracksByTrackID: context.albums,
             artistTracksByTrackID: context.artists
         )
@@ -378,6 +380,7 @@ extension WorkflowViewModel {
     private func makeBatchTrackOperation(
         updateCoordinator: UpdateCoordinator,
         options: UpdateOptions,
+        scope: UpdateTrackScope,
         albumTracksByTrackID: [String: [Track]],
         artistTracksByTrackID: [String: [Track]]
     ) -> @Sendable (Track) async throws -> [ChangeLogEntry] {
@@ -386,6 +389,7 @@ extension WorkflowViewModel {
                 let batchResult = try await updateCoordinator.updateTracks(
                     [track],
                     options: options,
+                    pass: scope.pass(for: track),
                     albumTracksProvider: Self.albumTracksProvider(albumTracksByTrackID),
                     artistTracksProvider: Self.artistTracksProvider(artistTracksByTrackID),
                     progressHandler: Self.ignoreNestedTrackProgress

@@ -79,6 +79,12 @@ public struct PendingAlbumVerificationResult: Sendable {
     }
 }
 
+/// Selects which metadata stages an update invocation may evaluate.
+public enum UpdatePass: Sendable, Equatable {
+    case standard
+    case yearOnly
+}
+
 /// Configuration for an update operation.
 public struct UpdateOptions: Equatable, Sendable {
     public let updateGenre: Bool

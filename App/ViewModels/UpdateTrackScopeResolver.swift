@@ -12,6 +12,22 @@ struct IncrementalTrackScopeOptions: Equatable {
     }
 }
 
+struct UpdateTrackScope: Sendable {
+    let tracks: [Track]
+    let yearOnlyTrackIDs: Set<String>
+
+    func pass(for track: Track) -> UpdatePass {
+        yearOnlyTrackIDs.contains(track.id) ? .yearOnly : .standard
+    }
+
+    func excluding(trackIDs: Set<String>) -> Self {
+        Self(
+            tracks: tracks.filter { !trackIDs.contains($0.id) },
+            yearOnlyTrackIDs: yearOnlyTrackIDs.subtracting(trackIDs)
+        )
+    }
+}
+
 enum UpdateTrackScopeResolver {
     static func tracksForWorkflow(
         libraryTracks: [Track],
@@ -51,6 +67,24 @@ enum UpdateTrackScopeResolver {
         )
 
         return deduplicated(newTracks + missingGenreTracks + genreMismatchTracks + changedTracks)
+    }
+
+    static func stageScope(
+        libraryTracks: [Track],
+        primaryTracks: [Track],
+        includesYearSweep: Bool
+    ) -> UpdateTrackScope {
+        let primaryTracks = deduplicated(primaryTracks)
+        guard includesYearSweep, !primaryTracks.isEmpty else {
+            return UpdateTrackScope(tracks: primaryTracks, yearOnlyTrackIDs: [])
+        }
+
+        let primaryTrackIDs = Set(primaryTracks.map(\.id))
+        let yearOnlyTracks = deduplicated(libraryTracks.filter { !primaryTrackIDs.contains($0.id) })
+        return UpdateTrackScope(
+            tracks: primaryTracks + yearOnlyTracks,
+            yearOnlyTrackIDs: Set(yearOnlyTracks.map(\.id))
+        )
     }
 
     private static func deduplicated(_ tracks: [Track]) -> [Track] {

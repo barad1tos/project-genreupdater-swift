@@ -180,9 +180,9 @@ struct PendingWorkflowTests {
         let writes = await run.fixture.scriptClient.updatedProperties()
         let removals = await run.pendingVerification.removedAlbums()
 
-        #expect(writes.map(\.trackID) == ["as-batch-year"])
+        #expect(Set(writes.map(\.trackID)) == Set(["as-batch-year", "as-ram-1", "as-ram-2"]))
         #expect(removals.isEmpty)
-        #expect(viewModel.completedEntries.map(\.trackID) == ["batch-year"])
+        #expect(Set(viewModel.completedEntries.map(\.trackID)) == Set(["batch-year", "ram-1", "ram-2"]))
         #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 0)
         #expect(await run.timestampUpdates.count() == 1)
     }
@@ -198,9 +198,9 @@ struct PendingWorkflowTests {
         let writes = await run.fixture.scriptClient.updatedProperties()
         let removals = await run.pendingVerification.removedAlbums()
 
-        #expect(writes.map(\.trackID) == ["as-batch-year"])
+        #expect(Set(writes.map(\.trackID)) == Set(["as-batch-year", "as-ram-1", "as-ram-2"]))
         #expect(removals.isEmpty)
-        #expect(viewModel.completedEntries.map(\.trackID) == ["batch-year"])
+        #expect(Set(viewModel.completedEntries.map(\.trackID)) == Set(["batch-year", "ram-1", "ram-2"]))
         #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 0)
         #expect(await run.timestampUpdates.count() == 1)
     }
@@ -259,7 +259,7 @@ struct PendingWorkflowTests {
         let writes = await fixture.scriptClient.updatedProperties()
 
         #expect(preparedTrackIDBatches.count == 2)
-        #expect(preparedTrackIDBatches.first == ["batch-year"])
+        #expect(Set(preparedTrackIDBatches.first ?? []) == Set(["batch-year", "ram-1", "ram-2"]))
         if preparedTrackIDBatches.count > 1 {
             #expect(Set(preparedTrackIDBatches[1]) == Set(["ram-1", "ram-2"]))
         }
