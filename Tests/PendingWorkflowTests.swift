@@ -181,6 +181,9 @@ struct PendingWorkflowTests {
             entries: [pendingEntry],
             dueEntries: [pendingEntry]
         )
+        func isPrimaryTrack(_ track: Track) -> Bool {
+            track.id == "ram-1"
+        }
         let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
             options.idMapper = WorkflowTrackIDMapper(
                 enrichedTracks: enrichedTracks,
@@ -190,7 +193,7 @@ struct PendingWorkflowTests {
                 ]
             )
             options.resolveIncrementalTracks = { tracks, _ in
-                tracks.filter { $0.id == "ram-1" }
+                tracks.filter(isPrimaryTrack)
             }
             options.runMaintenancePreflight = { pendingDuePreflight() }
         }
