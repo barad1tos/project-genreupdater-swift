@@ -521,7 +521,8 @@ final class WorkflowViewModel {
             }
 
             let remainingScope = processingScope.afterYearWrites(
-                trackIDs: Set(pendingVerificationOutcome.successfulTrackIDs)
+                trackIDs: Set(pendingVerificationOutcome.successfulTrackIDs),
+                preserveYearPass: forceYearLookup
             )
             guard !shouldStopAfterPendingPreflight(
                 pendingVerificationOutcome,

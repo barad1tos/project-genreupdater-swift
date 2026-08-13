@@ -217,6 +217,55 @@ struct PendingWorkflowTests {
         #expect(viewModel.processedCount == 2)
     }
 
+    @Test("force year lookup rechecks pending overlap after cache invalidation")
+    func forceRechecksPendingYear() async throws {
+        let lookupProbe = YearLookupProbe()
+        let pendingEntry = randomAccessMemoriesPendingEntry()
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [pendingEntry],
+            dueEntries: [pendingEntry]
+        )
+        let apiService = DashboardStateAPIService(
+            year: 2013,
+            confidence: 100,
+            beforeAlbumYearLookup: {
+                await lookupProbe.recordLookup()
+            }
+        )
+        let fixture = makeWorkflowFixture(
+            apiService: apiService,
+            pendingVerificationService: pendingVerification,
+            idMapper: WorkflowTrackIDMapper(
+                enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(),
+                appleScriptIDsByMusicKitID: [
+                    "ram-1": "as-ram-1",
+                    "ram-2": "as-ram-2",
+                ]
+            ),
+            configure: { options in
+                options.runMaintenancePreflight = { pendingDuePreflight() }
+                options.invalidateAlbumYearCache = {
+                    await lookupProbe.recordInvalidation()
+                }
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+        viewModel.forceYearLookup = true
+
+        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        #expect(await lookupProbe.invalidationCount() == 1)
+        let lookupStates = await lookupProbe.statesAtLookup()
+        #expect(lookupStates.first == 0)
+        #expect(lookupStates.contains(1))
+    }
+
     @Test("skips auto verification when maintenance preflight is not due")
     func skipsAutoVerificationWhenMaintenancePreflightIsNotDue() async throws {
         let run = makeRandomAccessLiveBatchRun(preflightState: .notDue)
@@ -682,6 +731,27 @@ struct PendingWorkflowTests {
                 albumArtist: albumArtist
             ),
         ]
+    }
+}
+
+private actor YearLookupProbe {
+    private var invalidations = 0
+    private var lookupStates = [Int]()
+
+    func recordInvalidation() {
+        invalidations += 1
+    }
+
+    func recordLookup() {
+        lookupStates.append(invalidations)
+    }
+
+    func invalidationCount() -> Int {
+        invalidations
+    }
+
+    func statesAtLookup() -> [Int] {
+        lookupStates
     }
 }
 

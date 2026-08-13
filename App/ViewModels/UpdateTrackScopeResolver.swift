@@ -20,7 +20,7 @@ struct UpdateTrackScope: Sendable {
         trackPasses[track.id] ?? .standard
     }
 
-    func afterYearWrites(trackIDs: Set<String>) -> Self {
+    func afterYearWrites(trackIDs: Set<String>, preserveYearPass: Bool) -> Self {
         var remainingTracks = [Track]()
         var remainingPasses = trackPasses
         for track in tracks {
@@ -32,7 +32,9 @@ struct UpdateTrackScope: Sendable {
                 remainingPasses[track.id] = nil
             } else {
                 remainingTracks.append(track)
-                remainingPasses[track.id] = .standardWithoutYear
+                if !preserveYearPass {
+                    remainingPasses[track.id] = .standardWithoutYear
+                }
             }
         }
         return Self(tracks: remainingTracks, trackPasses: remainingPasses)
