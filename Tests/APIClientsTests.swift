@@ -381,7 +381,7 @@ struct APIClientsTests {
         var requestComponents = URLComponents()
         requestComponents.scheme = CatalogSearchClient.defaultITunesScheme
         requestComponents.host = CatalogSearchClient.defaultITunesHost
-        requestComponents.path = "/search"
+        requestComponents.path = ITunesSearchConfiguration().searchPath
         requestComponents.queryItems = [
             URLQueryItem(name: "term", value: "Test Artist Test Album"),
             URLQueryItem(name: "country", value: "US"),
