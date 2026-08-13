@@ -17,6 +17,7 @@ extension UpdateCoordinator {
     private static let fallbackRejectionReasons: Set<String> = [
         "suspicious_year_change",
         "implausible_existing_year",
+        "implausible_matching_year",
         "absurd_year_no_existing",
         "special_album_compilation",
         "special_album_special",
@@ -385,7 +386,15 @@ extension UpdateCoordinator {
         apiDetermination: (yearResult: YearResult, sourceLabel: String),
         releaseYearConflict: ReleaseYearConflict?
     ) async -> ProposedChange? {
-        guard let year = apiDetermination.yearResult.year, year != track.year else {
+        guard let year = apiDetermination.yearResult.year else {
+            return nil
+        }
+        if year == track.year {
+            await markImplausibleYear(
+                track: track,
+                year: year,
+                yearResult: apiDetermination.yearResult
+            )
             return nil
         }
         guard Double(apiDetermination.yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence else {
