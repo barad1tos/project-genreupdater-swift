@@ -12,6 +12,35 @@ struct IncrementalTrackScopeOptions: Equatable {
     }
 }
 
+struct UpdateTrackScope: Sendable {
+    let tracks: [Track]
+    let trackPasses: [String: UpdatePass]
+
+    func pass(for track: Track) -> UpdatePass {
+        trackPasses[track.id] ?? .standard
+    }
+
+    func afterYearWrites(trackIDs: Set<String>, preserveYearPass: Bool) -> Self {
+        var remainingTracks = [Track]()
+        var remainingPasses = trackPasses
+        for track in tracks {
+            guard trackIDs.contains(track.id) else {
+                remainingTracks.append(track)
+                continue
+            }
+            if pass(for: track) == .yearOnly {
+                remainingPasses[track.id] = nil
+            } else {
+                remainingTracks.append(track)
+                if !preserveYearPass {
+                    remainingPasses[track.id] = .standardWithoutYear
+                }
+            }
+        }
+        return Self(tracks: remainingTracks, trackPasses: remainingPasses)
+    }
+}
+
 enum UpdateTrackScopeResolver {
     static func tracksForWorkflow(
         libraryTracks: [Track],
@@ -51,6 +80,24 @@ enum UpdateTrackScopeResolver {
         )
 
         return deduplicated(newTracks + missingGenreTracks + genreMismatchTracks + changedTracks)
+    }
+
+    static func stageScope(
+        libraryTracks: [Track],
+        primaryTracks: [Track],
+        includesYearSweep: Bool
+    ) -> UpdateTrackScope {
+        let primaryTracks = deduplicated(primaryTracks)
+        guard includesYearSweep, !primaryTracks.isEmpty else {
+            return UpdateTrackScope(tracks: primaryTracks, trackPasses: [:])
+        }
+
+        let primaryTrackIDs = Set(primaryTracks.map(\.id))
+        let yearOnlyTracks = deduplicated(libraryTracks.filter { !primaryTrackIDs.contains($0.id) })
+        return UpdateTrackScope(
+            tracks: primaryTracks + yearOnlyTracks,
+            trackPasses: Dictionary(uniqueKeysWithValues: yearOnlyTracks.map { ($0.id, .yearOnly) })
+        )
     }
 
     private static func deduplicated(_ tracks: [Track]) -> [Track] {

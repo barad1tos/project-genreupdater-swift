@@ -169,6 +169,103 @@ struct PendingWorkflowTests {
         #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1", "ram-2"])
     }
 
+    @Test("successful year preflight preserves primary metadata stages")
+    func preflightKeepsPrimaryStages() async throws {
+        let tracks = pendingCleaningTracks()
+        let enrichedTracks = pendingCleaningTracks(
+            trackStatus: TrackKind.subscription.rawValue,
+            albumArtist: "Daft Punk"
+        )
+        let pendingEntry = randomAccessMemoriesPendingEntry()
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [pendingEntry],
+            dueEntries: [pendingEntry]
+        )
+        func isPrimaryTrack(_ track: Track) -> Bool {
+            track.id == "ram-1"
+        }
+        let fixture = makeRandomAccessWorkflowFixture(pendingVerificationService: pendingVerification) { options in
+            options.idMapper = WorkflowTrackIDMapper(
+                enrichedTracks: enrichedTracks,
+                appleScriptIDsByMusicKitID: [
+                    "ram-1": "as-ram-1",
+                    "ram-2": "as-ram-2",
+                ]
+            )
+            options.resolveIncrementalTracks = { tracks, _ in
+                tracks.filter(isPrimaryTrack)
+            }
+            options.runMaintenancePreflight = { pendingDuePreflight() }
+        }
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+        viewModel.cleanTrackNames = true
+
+        viewModel.start(tracks: tracks)
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let writes = await fixture.scriptClient.updatedProperties()
+        let cleanedNameWrite = writes.first { $0.property == "name" }
+
+        #expect(writes.filter { $0.property == "year" }.count == 2)
+        #expect(cleanedNameWrite?.trackID == "as-ram-1")
+        #expect(cleanedNameWrite?.value == "Get Lucky")
+        #expect(viewModel.scopeTrackCount == 2)
+        #expect(viewModel.processedCount == 2)
+    }
+
+    @Test("force year lookup rechecks pending overlap after cache invalidation")
+    func forceRechecksPendingYear() async throws {
+        let lookupProbe = YearLookupProbe()
+        let pendingEntry = randomAccessMemoriesPendingEntry()
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [pendingEntry],
+            dueEntries: [pendingEntry]
+        )
+        let apiService = DashboardStateAPIService(
+            year: 2013,
+            confidence: 100,
+            beforeAlbumYearLookup: {
+                await lookupProbe.recordLookup()
+            }
+        )
+        let fixture = makeWorkflowFixture(
+            apiService: apiService,
+            pendingVerificationService: pendingVerification,
+            idMapper: WorkflowTrackIDMapper(
+                enrichedTracks: randomAccessMemoriesTracksWithAlbumArtist(),
+                appleScriptIDsByMusicKitID: [
+                    "ram-1": "as-ram-1",
+                    "ram-2": "as-ram-2",
+                ]
+            ),
+            configure: { options in
+                options.runMaintenancePreflight = { pendingDuePreflight() }
+                options.invalidateAlbumYearCache = {
+                    await lookupProbe.recordInvalidation()
+                }
+            }
+        )
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+        viewModel.forceYearLookup = true
+
+        viewModel.start(tracks: randomAccessMemoriesMusicKitTracks())
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        #expect(await lookupProbe.invalidationCount() == 1)
+        let lookupStates = await lookupProbe.statesAtLookup()
+        #expect(lookupStates.first == 0)
+        #expect(lookupStates.contains(1))
+    }
+
     @Test("skips auto verification when maintenance preflight is not due")
     func skipsAutoVerificationWhenMaintenancePreflightIsNotDue() async throws {
         let run = makeRandomAccessLiveBatchRun(preflightState: .notDue)
@@ -180,9 +277,9 @@ struct PendingWorkflowTests {
         let writes = await run.fixture.scriptClient.updatedProperties()
         let removals = await run.pendingVerification.removedAlbums()
 
-        #expect(writes.map(\.trackID) == ["as-batch-year"])
+        #expect(Set(writes.map(\.trackID)) == Set(["as-batch-year", "as-ram-1", "as-ram-2"]))
         #expect(removals.isEmpty)
-        #expect(viewModel.completedEntries.map(\.trackID) == ["batch-year"])
+        #expect(Set(viewModel.completedEntries.map(\.trackID)) == Set(["batch-year", "ram-1", "ram-2"]))
         #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 0)
         #expect(await run.timestampUpdates.count() == 1)
     }
@@ -198,9 +295,9 @@ struct PendingWorkflowTests {
         let writes = await run.fixture.scriptClient.updatedProperties()
         let removals = await run.pendingVerification.removedAlbums()
 
-        #expect(writes.map(\.trackID) == ["as-batch-year"])
+        #expect(Set(writes.map(\.trackID)) == Set(["as-batch-year", "as-ram-1", "as-ram-2"]))
         #expect(removals.isEmpty)
-        #expect(viewModel.completedEntries.map(\.trackID) == ["batch-year"])
+        #expect(Set(viewModel.completedEntries.map(\.trackID)) == Set(["batch-year", "ram-1", "ram-2"]))
         #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 0)
         #expect(await run.timestampUpdates.count() == 1)
     }
@@ -259,7 +356,7 @@ struct PendingWorkflowTests {
         let writes = await fixture.scriptClient.updatedProperties()
 
         #expect(preparedTrackIDBatches.count == 2)
-        #expect(preparedTrackIDBatches.first == ["batch-year"])
+        #expect(Set(preparedTrackIDBatches.first ?? []) == Set(["batch-year", "ram-1", "ram-2"]))
         if preparedTrackIDBatches.count > 1 {
             #expect(Set(preparedTrackIDBatches[1]) == Set(["ram-1", "ram-2"]))
         }
@@ -610,6 +707,51 @@ struct PendingWorkflowTests {
         }
 
         #expect(Bool(false), "pending verification summary did not refresh before timeout")
+    }
+
+    private func pendingCleaningTracks(
+        trackStatus: String? = nil,
+        albumArtist: String? = nil
+    ) -> [Track] {
+        [
+            Track(
+                id: "ram-1",
+                name: "Get Lucky (Remastered 2013)",
+                artist: "Pharrell Williams",
+                album: "Random Access Memories",
+                trackStatus: trackStatus,
+                albumArtist: albumArtist
+            ),
+            Track(
+                id: "ram-2",
+                name: "Instant Crush",
+                artist: "Julian Casablancas",
+                album: "Random Access Memories",
+                trackStatus: trackStatus,
+                albumArtist: albumArtist
+            ),
+        ]
+    }
+}
+
+private actor YearLookupProbe {
+    private var invalidations = 0
+    private var lookupStates = [Int]()
+
+    func recordInvalidation() {
+        invalidations += 1
+    }
+
+    func recordLookup() {
+        lookupStates.append(invalidations)
+    }
+
+    func invalidationCount() -> Int {
+        invalidations
+    }
+
+    func statesAtLookup() -> [Int] {
+        lookupStates
     }
 }
 

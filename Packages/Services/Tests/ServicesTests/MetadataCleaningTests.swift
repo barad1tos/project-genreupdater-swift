@@ -94,6 +94,114 @@ struct MetadataCleaningTests {
         #expect(queriedAlbums.allSatisfy { $0 == "Album" })
     }
 
+    @Test("year-only pass proposes the local album year without other metadata changes")
+    func yearOnlyPassProposesOnlyYear() async throws {
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            artistRenameMappings: ["Clutch feat. Guest": "Clutch"]
+        )
+        let coordinator = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
+        let target = makeTrack(
+            id: "blast-target",
+            name: "Profits of Doom (Remastered 2020)",
+            artist: "Clutch feat. Guest",
+            album: "Blast Tyrant Remastered",
+            genre: nil,
+            year: nil
+        )
+        let albumTracks = [
+            target,
+            makeTrack(
+                id: "blast-1",
+                name: "Mercury",
+                artist: target.artist,
+                album: target.album,
+                genre: "Stoner Rock",
+                year: 2004
+            ),
+            makeTrack(
+                id: "blast-2",
+                name: "The Mob Goes Wild",
+                artist: target.artist,
+                album: target.album,
+                genre: "Stoner Rock",
+                year: 2004
+            ),
+            makeTrack(
+                id: "blast-3",
+                name: "Cypress Grove",
+                artist: target.artist,
+                album: target.album,
+                genre: "Stoner Rock",
+                year: 2004
+            ),
+        ]
+
+        let changes = try await coordinator.updateTrack(
+            target,
+            albumTracks: albumTracks,
+            artistTracks: albumTracks,
+            options: UpdateOptions(
+                updateGenre: true,
+                updateYear: true,
+                cleanTrackNames: true,
+                cleanAlbumNames: true,
+                minConfidence: 60
+            ),
+            pass: .yearOnly,
+            dryRun: true
+        )
+
+        #expect(changes.map(\.changeType) == [.yearUpdate])
+        #expect(changes.first?.newValue == "2004")
+        #expect(changes.first?.source == "Dominant")
+    }
+
+    @Test("Year-only API decisions preserve the raw album identity")
+    func yearOnlyUsesRawAlbum() async throws {
+        let lookupRecorder = AlbumYearLookupRecorder()
+        let apiService = RecordingAlbumYearAPIService(
+            lookupRecorder: lookupRecorder,
+            yearResult: YearResult(
+                year: 2004,
+                isDefinitive: true,
+                confidence: 100,
+                yearScores: [2004: 100]
+            )
+        )
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: UpdateRuntimeConfiguration.Policies(isYearLookupEnabled: true)
+        )
+        let coordinator = await makeCoordinator(
+            runtimeConfiguration: runtimeConfiguration,
+            apiService: apiService
+        )
+        let track = makeTrack(
+            name: "Song (Remastered 2020)",
+            artist: "Clutch",
+            album: "Album Remastered",
+            year: nil
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(
+                updateGenre: true,
+                updateYear: true,
+                cleanTrackNames: true,
+                cleanAlbumNames: true,
+                minConfidence: 60
+            ),
+            pass: .yearOnly,
+            dryRun: true
+        )
+
+        #expect(changes.map(\.changeType) == [.yearUpdate])
+        #expect(changes.first?.newValue == "2004")
+        let queriedAlbums = await lookupRecorder.queriedAlbums()
+        #expect(!queriedAlbums.isEmpty)
+        #expect(queriedAlbums.allSatisfy { $0 == "Album Remastered" })
+    }
+
     @Test("Album type detection reads the raw title before cleaning")
     func albumTypeDetectionReadsRawTitleBeforeCleaning() async throws {
         let lookupRecorder = AlbumYearLookupRecorder()
@@ -393,6 +501,7 @@ struct MetadataCleaningTests {
         artist: String = "Beatles",
         album: String,
         genre: String? = "Rock",
+        year: Int? = 1969,
         dateAdded: Date? = nil
     ) -> Track {
         Track(
@@ -401,7 +510,7 @@ struct MetadataCleaningTests {
             artist: artist,
             album: album,
             genre: genre,
-            year: 1969,
+            year: year,
             dateAdded: dateAdded,
             trackStatus: nil
         )

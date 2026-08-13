@@ -154,6 +154,7 @@ public actor UpdateCoordinator {
         albumTracks: [Track] = [],
         artistTracks: [Track] = [],
         options: UpdateOptions,
+        pass: UpdatePass = .standard,
         dryRun: Bool = false
     ) async throws -> [ProposedChange] {
         guard runtimeConfiguration.allowsTrack(track) else {
@@ -198,7 +199,8 @@ public actor UpdateCoordinator {
             for: inputTrack,
             albumTracks: inputAlbumTracks,
             artistTracks: inputArtistTracks,
-            options: options
+            options: options,
+            pass: pass
         )
         let proposedChanges = ChangePreviewPipeline().filter(
             changes: candidateChanges,
@@ -221,44 +223,46 @@ public actor UpdateCoordinator {
         for track: Track,
         albumTracks: [Track],
         artistTracks: [Track],
-        options: UpdateOptions
+        options: UpdateOptions,
+        pass: UpdatePass
     ) async throws -> [ProposedChange] {
         var proposedChanges: [ProposedChange] = []
-
-        let artistRenameChange = Self.determineArtistRenameChange(
-            track: track,
-            mappings: runtimeConfiguration.artistRenameMappings
-        )
+        let artistRenameChange = pass.includesStandardMetadata
+            ? Self.determineArtistRenameChange(
+                track: track,
+                mappings: runtimeConfiguration.artistRenameMappings
+            )
+            : nil
         let policyTrack = artistRenameChange?.track ?? track
         let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(policyTrack.album)
-        let cleaningOutcome = Self.cleaningOutcome(
-            policyTrack: policyTrack,
-            proposalTrack: track,
-            options: options,
-            cleaning: runtimeConfiguration.cleaning
-        )
-
+        let cleaningOutcome = pass.includesStandardMetadata
+            ? Self.cleaningOutcome(
+                policyTrack: policyTrack,
+                proposalTrack: track,
+                options: options,
+                cleaning: runtimeConfiguration.cleaning
+            )
+            : (track: policyTrack, changes: [])
         if let change = artistRenameChange {
             proposedChanges.append(change)
         }
         proposedChanges.append(contentsOf: cleaningOutcome.changes)
-
         let decisionTrack = cleaningOutcome.track
-        let proposalTrack = policyTrack
         let genreContextTracks = Self.genreContextTracks(
             track: decisionTrack,
             artistTracks: artistTracks,
             albumTracks: albumTracks
         )
-        if let change = determineGenreChange(
-            track: decisionTrack,
-            artistTracks: genreContextTracks,
-            options: options
-        ) {
-            proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
+        if pass.includesStandardMetadata,
+           let change = determineGenreChange(
+               track: decisionTrack,
+               artistTracks: genreContextTracks,
+               options: options
+           ) {
+            proposedChanges.append(Self.change(change, usingTrack: policyTrack))
         }
-
-        if options.updateYear,
+        if pass.includesYear,
+           options.updateYear,
            runtimeConfiguration.isYearLookupEnabled,
            let change = try await determineYearChange(
                track: decisionTrack,
@@ -272,7 +276,7 @@ public actor UpdateCoordinator {
                    variousArtistsNames: runtimeConfiguration.albumTypeDetection.variousArtistsNames
                ).strategy == .soundtrack ? policyTrack.album : decisionTrack.album
            ) {
-            proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
+            proposedChanges.append(Self.change(change, usingTrack: policyTrack))
         }
 
         return proposedChanges
@@ -489,6 +493,7 @@ public actor UpdateCoordinator {
     public func updateTracks(
         _ tracks: [Track],
         options: UpdateOptions,
+        pass: UpdatePass = .standard,
         albumTracksProvider: (@Sendable (Track) -> [Track])? = nil,
         artistTracksProvider: (@Sendable (Track) -> [Track])? = nil,
         progressHandler: @Sendable (ProgressUpdate) -> Void
@@ -509,8 +514,7 @@ public actor UpdateCoordinator {
         for (index, track) in tracks.enumerated() {
             do {
                 let trackOutcome = try await applyGeneratedAcceptedChanges(
-                    for: track,
-                    options: options,
+                    for: GeneratedUpdateRequest(track: track, options: options, pass: pass),
                     trackProviders: trackProviders,
                     failedTrackIDs: &failedTrackIDs,
                     errorDescriptions: &errorDescriptions

@@ -147,8 +147,8 @@ struct WorkflowRunTrackerTests {
         #expect(await cacheInvalidations.count() == 0)
     }
 
-    @Test("full-library write processes only resolved incremental candidates")
-    func fullLibraryWriteProcessesOnlyResolvedIncrementalCandidates() async throws {
+    @Test("full-library year stage includes tracks outside incremental candidates")
+    func yearStageIncludesAllTracks() async throws {
         let oldTrack = Track(id: "old-track", name: "Old", artist: "Clutch", album: "Old Album", year: 1999)
         let newTrack = Track(id: "new-track", name: "New", artist: "Clutch", album: "New Album", year: 1999)
         let fixture = makeWorkflowFixture(
@@ -168,8 +168,9 @@ struct WorkflowRunTrackerTests {
         try await waitForWorkflowToLeaveScanning(viewModel)
         let writes = await fixture.scriptClient.updatedProperties()
 
-        #expect(writes.map(\.trackID) == [newTrack.id])
-        #expect(viewModel.scopeTrackCount == 1)
+        #expect(Set(writes.map(\.trackID)) == Set([oldTrack.id, newTrack.id]))
+        #expect(writes.allSatisfy { $0.property == "year" && $0.value == "2001" })
+        #expect(viewModel.scopeTrackCount == 2)
     }
 
     @Test("incremental full-library scope keeps full artist context for decisions")

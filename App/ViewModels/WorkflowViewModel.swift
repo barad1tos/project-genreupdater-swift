@@ -279,7 +279,8 @@ final class WorkflowViewModel {
 
     // MARK: - Dry Run (Smart Filter mode)
 
-    private func startDryRun(tracks: [Track], contextTracks: [Track]? = nil) {
+    private func startDryRun(scope: UpdateTrackScope, contextTracks: [Track]? = nil) {
+        let tracks = scope.tracks
         phase = .scanning
         processedCount = 0
         trackStatuses = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, TrackProcessingStatus.queued) })
@@ -315,7 +316,8 @@ final class WorkflowViewModel {
                             for: track,
                             albumTracksByTrackID: albumTracksByTrackID,
                             artistGroups: artistGroups,
-                            options: options
+                            options: options,
+                            pass: scope.pass(for: track)
                         )
                         allChanges.append(contentsOf: changes)
                         trackStatuses[track.id] = .done
@@ -365,13 +367,15 @@ final class WorkflowViewModel {
         for track: Track,
         albumTracksByTrackID: [String: [Track]],
         artistGroups: [String: [Track]],
-        options: UpdateOptions
+        options: UpdateOptions,
+        pass: UpdatePass
     ) async throws -> [ProposedChange] {
         try await updateCoordinator.updateTrack(
             track,
             albumTracks: albumTracksByTrackID[track.id] ?? [],
             artistTracks: artistGroups[Self.artistKey(for: track)] ?? [],
             options: options,
+            pass: pass,
             dryRun: true
         )
     }
@@ -484,7 +488,8 @@ final class WorkflowViewModel {
         )
 
         processingTask = Task { [runMaintenancePreflight] in
-            let processingTracks = await tracksForProcessing(tracks)
+            let processingScope = await scopeForProcessing(tracks)
+            let processingTracks = processingScope.tracks
             guard !stopProcessingIfCancelled() else { return }
 
             totalCount = processingTracks.count
@@ -515,21 +520,26 @@ final class WorkflowViewModel {
                 pendingVerificationOutcome = PendingEntryOutcome()
             }
 
+            let remainingScope = processingScope.afterYearWrites(
+                trackIDs: Set(pendingVerificationOutcome.successfulTrackIDs),
+                preserveYearPass: forceYearLookup
+            )
             guard !shouldStopAfterPendingPreflight(
                 pendingVerificationOutcome,
-                processingTracks: processingTracks
+                processingTracks: remainingScope.tracks
             ) else {
                 return
             }
 
             if shouldRunBatch {
                 startBatchProcessing(
-                    tracks: processingTracks,
+                    tracks: remainingScope.tracks,
                     contextTracks: tracks,
-                    preflightOutcome: pendingVerificationOutcome
+                    preflightOutcome: pendingVerificationOutcome,
+                    trackPasses: remainingScope.trackPasses
                 )
             } else {
-                startDryRun(tracks: processingTracks, contextTracks: tracks)
+                startDryRun(scope: processingScope, contextTracks: tracks)
             }
         }
     }
@@ -616,14 +626,21 @@ final class WorkflowViewModel {
         return false
     }
 
-    private func tracksForProcessing(_ tracks: [Track]) async -> [Track] {
-        guard mode == .fullLibrary else { return tracks }
-        if updateYear, forceYearLookup {
-            return tracks
+    private func scopeForProcessing(_ tracks: [Track]) async -> UpdateTrackScope {
+        guard mode == .fullLibrary else {
+            return UpdateTrackScope(tracks: tracks, trackPasses: [:])
         }
-        return await resolveIncrementalTracks(
+        if updateYear, forceYearLookup {
+            return UpdateTrackScope(tracks: tracks, trackPasses: [:])
+        }
+        let primaryTracks = await resolveIncrementalTracks(
             tracks,
             IncrementalTrackScopeOptions(updateGenre: updateGenre)
+        )
+        return UpdateTrackScopeResolver.stageScope(
+            libraryTracks: tracks,
+            primaryTracks: primaryTracks,
+            includesYearSweep: updateYear
         )
     }
 
