@@ -16,20 +16,22 @@ extension UpdateCoordinator {
 
     static func validateMutationEligibility(
         for track: Track,
-        requiresKnownStatus: Bool
+        requiresKnownStatus: Bool,
+        errorTrackID: String? = nil
     ) throws {
+        let reportedTrackID = errorTrackID ?? track.id
         if requiresKnownStatus, track.kind == nil {
             throw UpdateCoordinatorError.trackNotProcessable(
-                trackID: track.id,
+                trackID: reportedTrackID,
                 status: mutationStatusDescription(track.trackStatus)
             )
         }
         guard track.canEdit else {
-            throw UpdateCoordinatorError.trackNotEditable(trackID: track.id)
+            throw UpdateCoordinatorError.trackNotEditable(trackID: reportedTrackID)
         }
         guard isTrackAvailableForProcessing(track) else {
             throw UpdateCoordinatorError.trackNotProcessable(
-                trackID: track.id,
+                trackID: reportedTrackID,
                 status: mutationStatusDescription(track.trackStatus)
             )
         }

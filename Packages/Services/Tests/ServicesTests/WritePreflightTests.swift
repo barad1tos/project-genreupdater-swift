@@ -260,7 +260,7 @@ struct WritePreflightTests {
                 Issue.record("Expected trackNotProcessable, got \(error)")
                 return
             }
-            #expect(trackID == "AS1")
+            #expect(trackID == "MK1")
             #expect(status == (trackStatus ?? "unknown"))
         }
 
