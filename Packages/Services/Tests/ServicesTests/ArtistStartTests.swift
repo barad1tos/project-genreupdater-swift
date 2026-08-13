@@ -165,6 +165,47 @@ struct ArtistStartTests {
         #expect(secondAttemptCount == 1)
     }
 
+    @Test("Library fallback without API evidence is not marked as matching")
+    func ignoresSyntheticLibraryFallback() async throws {
+        let musicBrainz = MockAPIService(
+            artistActivityPeriod: (start: 2000, end: nil)
+        )
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: musicBrainz,
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService()
+        )
+        let pendingStore = try PendingVerificationStore(
+            modelContainer: ModelContainerFactory.createInMemory(),
+            legacyStorageURL: nil
+        )
+        try await pendingStore.initialize()
+        let coordinator = makeCoordinator(
+            apiOrchestrator: orchestrator,
+            pendingVerificationService: pendingStore
+        )
+        let track = Track(
+            id: "T1",
+            name: "Early Track",
+            artist: "Test Artist",
+            album: "Early Album",
+            year: 1990
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+        let pendingEntry = await pendingStore.getEntry(
+            artist: "Test Artist",
+            album: "Early Album"
+        )
+
+        #expect(changes.allSatisfy { $0.changeType != .yearUpdate })
+        #expect(pendingEntry == nil)
+    }
+
     private func makeCoordinator(
         apiOrchestrator: APIOrchestrator,
         pendingVerificationService: (any PendingVerificationService)? = nil

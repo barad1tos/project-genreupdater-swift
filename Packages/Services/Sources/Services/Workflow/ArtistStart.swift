@@ -8,7 +8,8 @@ extension UpdateCoordinator {
         yearResult: YearResult
     ) async {
         guard yearDeterminator.fallback.config.enabled,
-              !yearResult.isDefinitive
+              !yearResult.isDefinitive,
+              yearResult.yearScores[year] != nil
         else {
             return
         }
