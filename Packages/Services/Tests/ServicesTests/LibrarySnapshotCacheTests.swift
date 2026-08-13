@@ -206,6 +206,11 @@ struct LibrarySnapshotCacheTests {
     func refreshStoresOnlySnapshotState() async throws {
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()
+        await cache.set(
+            key: "library-snapshot:cache/library_snapshot.json:delta",
+            value: "legacy delta",
+            ttl: 3600
+        )
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let service = CachedLibrarySnapshotService(
             cache: cache,
@@ -235,6 +240,11 @@ struct LibrarySnapshotCacheTests {
     func clearRemovesSnapshotState() async throws {
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()
+        await cache.set(
+            key: "library-snapshot:cache/library_snapshot.json:delta",
+            value: "legacy delta",
+            ttl: 3600
+        )
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let service = CachedLibrarySnapshotService(
             cache: cache,
@@ -254,8 +264,10 @@ struct LibrarySnapshotCacheTests {
 
         let loaded = try await service.loadSnapshot()
         let metadata = await service.getSnapshotMetadata()
+        let statistics = await cache.getCacheStatistics()
         #expect(loaded == nil)
         #expect(metadata == nil)
+        #expect(statistics.genericCacheCount == 0)
         #expect(await !service.isSnapshotValid())
     }
 }

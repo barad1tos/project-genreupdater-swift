@@ -36,11 +36,13 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
     public func clearSnapshot() async {
         await cache.invalidate(key: snapshotKey)
         await cache.invalidate(key: metadataKey)
+        await cache.invalidate(key: legacyDeltaKey)
     }
 
     @discardableResult
     public func saveSnapshot(_ tracks: [Track]) async throws -> String {
         let hash = try Self.snapshotHash(for: tracks)
+        await cache.invalidate(key: legacyDeltaKey)
         guard isEnabled else { return hash }
 
         let previousMetadata = await getSnapshotMetadata()
@@ -99,6 +101,10 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
 
     private var metadataKey: String {
         "\(namespace):metadata"
+    }
+
+    private var legacyDeltaKey: String {
+        "\(namespace):delta"
     }
 
     private var snapshotTTL: TimeInterval {
