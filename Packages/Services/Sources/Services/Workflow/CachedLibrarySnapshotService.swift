@@ -35,7 +35,6 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
 
     public func clearSnapshot() async {
         await cache.invalidate(key: snapshotKey)
-        await cache.invalidate(key: metadataKey)
         await cache.invalidate(key: legacyDeltaKey)
     }
 

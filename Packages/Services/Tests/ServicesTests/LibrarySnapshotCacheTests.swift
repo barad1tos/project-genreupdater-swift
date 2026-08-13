@@ -268,8 +268,8 @@ struct LibrarySnapshotCacheTests {
         #expect(statistics.genericCacheCount == 2)
     }
 
-    @Test("Clear snapshot removes tracks and metadata")
-    func clearRemovesSnapshotState() async throws {
+    @Test("Clearing a snapshot preserves the force scan schedule")
+    func clearPreservesForceScanDate() async throws {
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()
         await cache.set(
@@ -278,6 +278,7 @@ struct LibrarySnapshotCacheTests {
             ttl: 3600
         )
         let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let forceScanDate = now.addingTimeInterval(-3 * 86400)
         let service = CachedLibrarySnapshotService(
             cache: cache,
             configuration: LibrarySnapshotConfig(),
@@ -286,20 +287,26 @@ struct LibrarySnapshotCacheTests {
         let firstSnapshot = [
             Track(id: "A", name: "Old", artist: "Artist", album: "Album"),
         ]
-        let secondSnapshot = [
+        let replacementSnapshot = [
             Track(id: "A", name: "New", artist: "Artist", album: "Album"),
         ]
 
         _ = try await service.saveSnapshot(firstSnapshot)
-        _ = try await service.saveSnapshot(secondSnapshot)
+        var metadata = try #require(await service.getSnapshotMetadata())
+        metadata.lastForceScanDate = forceScanDate
+        try await service.updateSnapshotMetadata(metadata)
+
         await service.clearSnapshot()
 
-        let loaded = try await service.loadSnapshot()
-        let metadata = await service.getSnapshotMetadata()
         let statistics = await cache.getCacheStatistics()
-        #expect(loaded == nil)
-        #expect(metadata == nil)
-        #expect(statistics.genericCacheCount == 0)
+        #expect(try await service.loadSnapshot() == nil)
+        #expect(await service.getSnapshotMetadata()?.lastForceScanDate == forceScanDate)
         #expect(await !service.isSnapshotValid())
+        #expect(statistics.genericCacheCount == 1)
+
+        _ = try await service.saveSnapshot(replacementSnapshot)
+
+        #expect(try await service.loadSnapshot() == replacementSnapshot)
+        #expect(await service.getSnapshotMetadata()?.lastForceScanDate == forceScanDate)
     }
 }
