@@ -222,39 +222,6 @@ struct LibraryCacheMetadataTests {
     }
 }
 
-// MARK: - LibraryDeltaCache Tests
-
-@Suite("LibraryDeltaCache — init and set operations")
-struct LibraryDeltaCacheTests {
-    @Test("Init preserves all fields")
-    func initPreservesFields() {
-        let delta = LibraryDeltaCache(
-            addedIDs: ["a", "b"],
-            removedIDs: ["c"],
-            modifiedIDs: ["d", "e", "f"],
-            timestamp: Date(timeIntervalSince1970: 1_000_000)
-        )
-        #expect(delta.addedIDs.count == 2)
-        #expect(delta.removedIDs.count == 1)
-        #expect(delta.modifiedIDs.count == 3)
-    }
-
-    @Test("Codable round-trip preserves set contents")
-    func codableRoundTrip() throws {
-        let original = LibraryDeltaCache(
-            addedIDs: ["new1", "new2"],
-            removedIDs: ["old1"],
-            modifiedIDs: [],
-            timestamp: Date(timeIntervalSince1970: 1_000_000)
-        )
-        let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(LibraryDeltaCache.self, from: data)
-        #expect(decoded.addedIDs == original.addedIDs)
-        #expect(decoded.removedIDs == original.removedIDs)
-        #expect(decoded.modifiedIDs == original.modifiedIDs)
-    }
-}
-
 // MARK: - PendingAlbumEntry Tests
 
 @Suite("PendingAlbumEntry — init, defaults, and Identifiable")

@@ -1,4 +1,4 @@
-// CachedLibrarySnapshotService.swift -- GRDB-backed library snapshot and delta cache.
+// CachedLibrarySnapshotService.swift -- GRDB-backed library snapshot cache.
 
 import Core
 import CryptoKit
@@ -13,10 +13,6 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
 
     public var isEnabled: Bool {
         configuration.enabled
-    }
-
-    public var isDeltaEnabled: Bool {
-        configuration.enabled && configuration.deltaEnabled
     }
 
     public init(
@@ -40,7 +36,6 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
     public func clearSnapshot() async {
         await cache.invalidate(key: snapshotKey)
         await cache.invalidate(key: metadataKey)
-        await cache.invalidate(key: deltaKey)
     }
 
     @discardableResult
@@ -48,7 +43,6 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
         let hash = try Self.snapshotHash(for: tracks)
         guard isEnabled else { return hash }
 
-        let previousSnapshot = await cachedSnapshot()
         let previousMetadata = await getSnapshotMetadata()
         let now = currentDate()
         let libraryModificationDate = libraryModificationDateProvider?() ?? now
@@ -61,14 +55,6 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
             libraryModificationDate: libraryModificationDate,
             lastForceScanDate: previousMetadata?.lastForceScanDate
         ))
-
-        if isDeltaEnabled, let previousSnapshot {
-            await cache.set(
-                key: deltaKey,
-                value: Self.delta(from: previousSnapshot, to: tracks, timestamp: now),
-                ttl: ttl
-            )
-        }
 
         return hash
     }
@@ -103,16 +89,6 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
         await cache.set(key: metadataKey, value: metadata, ttl: snapshotTTL)
     }
 
-    public func loadDelta() async -> LibraryDeltaCache? {
-        guard isDeltaEnabled else { return nil }
-        return await cache.get(key: deltaKey)
-    }
-
-    public func saveDelta(_ delta: LibraryDeltaCache) async throws {
-        guard isDeltaEnabled else { return }
-        await cache.set(key: deltaKey, value: delta, ttl: snapshotTTL)
-    }
-
     public func getLibraryModificationDate() async throws -> Date {
         await getSnapshotMetadata()?.libraryModificationDate ?? .distantPast
     }
@@ -123,10 +99,6 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
 
     private var metadataKey: String {
         "\(namespace):metadata"
-    }
-
-    private var deltaKey: String {
-        "\(namespace):delta"
     }
 
     private var snapshotTTL: TimeInterval {
@@ -145,28 +117,5 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
         return SHA256.hash(data: data)
             .map { String(format: "%02x", $0) }
             .joined()
-    }
-
-    private static func delta(
-        from oldTracks: [Track],
-        to newTracks: [Track],
-        timestamp: Date
-    ) -> LibraryDeltaCache {
-        let oldByID = Dictionary(uniqueKeysWithValues: oldTracks.map { ($0.id, $0) })
-        let newByID = Dictionary(uniqueKeysWithValues: newTracks.map { ($0.id, $0) })
-        let oldIDs = Set(oldByID.keys)
-        let newIDs = Set(newByID.keys)
-        let commonIDs = oldIDs.intersection(newIDs)
-        let modifiedIDs = commonIDs.filter { id in
-            guard let oldTrack = oldByID[id], let newTrack = newByID[id] else { return false }
-            return TrackFingerprint.hasProcessingMetadataChanged(current: newTrack, stored: oldTrack)
-        }
-
-        return LibraryDeltaCache(
-            addedIDs: newIDs.subtracting(oldIDs),
-            removedIDs: oldIDs.subtracting(newIDs),
-            modifiedIDs: Set(modifiedIDs),
-            timestamp: timestamp
-        )
     }
 }

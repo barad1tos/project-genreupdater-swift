@@ -188,19 +188,17 @@ public struct CachingConfig: Sendable, Codable {
 
 public struct LibrarySnapshotConfig: Sendable, Codable {
     public var enabled: Bool = true
-    public var deltaEnabled: Bool = true
     public var cacheFile: String = "cache/library_snapshot.json"
     public var maxAgeHours: Int = 24
     public var compress: Bool = true
     public var compressLevel: Int = 6
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, deltaEnabled, cacheFile, maxAgeHours, compress, compressLevel
+        case enabled, cacheFile, maxAgeHours, compress, compressLevel
     }
 
     private enum DecodingKeys: String, CodingKey {
-        case enabled, deltaEnabled, cacheFile, maxAgeHours, compress, compressLevel
-        case legacyDeltaEnabled = "delta_enabled"
+        case enabled, cacheFile, maxAgeHours, compress, compressLevel
         case legacyCacheFile = "cache_file"
         case legacyMaxAgeHours = "max_age_hours"
         case legacyCompressLevel = "compress_level"
@@ -213,8 +211,6 @@ public struct LibrarySnapshotConfig: Sendable, Codable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: DecodingKeys.self)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
-        deltaEnabled = try container.decodeIfPresent(Bool.self, forKey: .deltaEnabled)
-            ?? container.decodeIfPresent(Bool.self, forKey: .legacyDeltaEnabled) ?? true
         cacheFile = try container.decodeIfPresent(String.self, forKey: .cacheFile)
             ?? container.decodeIfPresent(String.self, forKey: .legacyCacheFile) ?? "cache/library_snapshot.json"
         maxAgeHours = try container.decodeIfPresent(Int.self, forKey: .maxAgeHours)

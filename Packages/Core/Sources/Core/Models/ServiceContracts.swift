@@ -177,7 +177,7 @@ public struct RateLimiterStats: Sendable {
     }
 }
 
-/// Protocol for library snapshot persistence and delta tracking.
+/// Protocol for library snapshot persistence.
 public protocol LibrarySnapshotService: Actor {
     func loadSnapshot() async throws -> [Track]?
     func saveSnapshot(_ tracks: [Track]) async throws -> String
@@ -185,11 +185,8 @@ public protocol LibrarySnapshotService: Actor {
     func isSnapshotValid() async -> Bool
     func getSnapshotMetadata() async -> LibraryCacheMetadata?
     func updateSnapshotMetadata(_ metadata: LibraryCacheMetadata) async throws
-    func loadDelta() async -> LibraryDeltaCache?
-    func saveDelta(_ delta: LibraryDeltaCache) async throws
     func getLibraryModificationDate() async throws -> Date
     var isEnabled: Bool { get }
-    var isDeltaEnabled: Bool { get }
 }
 
 /// Protocol for track processing operations.
