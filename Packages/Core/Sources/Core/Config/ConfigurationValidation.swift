@@ -288,7 +288,6 @@ extension AppConfiguration {
         validateYearRateLimits(using: &validation)
         validateYearLogic(using: &validation)
         validateYearFallback(using: &validation)
-        validateYearScoring(using: &validation)
     }
 
     private func validateYearRateLimits(using validation: inout NumericValidation) {
@@ -377,99 +376,6 @@ extension AppConfiguration {
             path: "yearRetrieval.itunesSearch.limit"
         )
     }
-
-    private func validateYearScoring(using validation: inout NumericValidation) {
-        validateArtistAlbumPenalties(using: &validation)
-        validateReleasePenalties(using: &validation)
-        validateYearPenalties(using: &validation)
-    }
-
-    private func validateArtistAlbumPenalties(using validation: inout NumericValidation) {
-        let scoring = yearRetrieval.scoring
-        validation.requireAtMost(
-            scoring.artistSubstringPenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.artistSubstringPenalty"
-        )
-        validation.requireAtMost(
-            scoring.artistCrossScriptPenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.artistCrossScriptPenalty"
-        )
-        validation.requireAtMost(
-            scoring.artistMismatchPenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.artistMismatchPenalty"
-        )
-        validation.requireAtMost(
-            scoring.albumSubstringPenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.albumSubstringPenalty"
-        )
-        validation.requireAtMost(
-            scoring.albumUnrelatedPenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.albumUnrelatedPenalty"
-        )
-    }
-
-    private func validateReleasePenalties(using validation: inout NumericValidation) {
-        let scoring = yearRetrieval.scoring
-        validation.requireAtMost(
-            scoring.typeEPSinglePenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.typeEPSinglePenalty"
-        )
-        validation.requireAtMost(
-            scoring.typeCompilationLivePenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.typeCompilationLivePenalty"
-        )
-        validation.requireAtMost(
-            scoring.statusBootlegPenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.statusBootlegPenalty"
-        )
-        validation.requireAtMost(
-            scoring.statusPromoPenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.statusPromoPenalty"
-        )
-        validation.requireAtMost(
-            scoring.reissuePenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.reissuePenalty"
-        )
-    }
-
-    private func validateYearPenalties(using validation: inout NumericValidation) {
-        let scoring = yearRetrieval.scoring
-        validation.requireAtMost(
-            scoring.yearDiffPenaltyScale,
-            maximum: 0,
-            path: "yearRetrieval.scoring.yearDiffPenaltyScale"
-        )
-        validation.requireAtMost(
-            scoring.yearDiffMaxPenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.yearDiffMaxPenalty"
-        )
-        validation.requireAtMost(
-            scoring.yearBeforeStartPenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.yearBeforeStartPenalty"
-        )
-        validation.requireAtMost(
-            scoring.yearAfterEndPenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.yearAfterEndPenalty"
-        )
-        validation.requireAtMost(
-            scoring.futureYearPenalty,
-            maximum: 0,
-            path: "yearRetrieval.scoring.futureYearPenalty"
-        )
-    }
 }
 
 private struct NumericValidation {
@@ -496,11 +402,6 @@ private struct NumericValidation {
         }
         guard value <= minimum else { return }
         append(path: path, value: String(value), requirement: "must be greater than \(bound(minimum))")
-    }
-
-    mutating func requireAtMost(_ value: Int, maximum: Int, path: String) {
-        guard value > maximum else { return }
-        append(path: path, value: String(value), requirement: "must be at most \(maximum)")
     }
 
     mutating func requireTokenCapacity(_ value: Int, path: String) {

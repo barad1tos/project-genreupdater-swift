@@ -24,7 +24,7 @@ struct ConfigurationValidationTests {
         applyRuntimeBoundaries(to: &configuration)
         applyWorkflowBoundaries(to: &configuration)
         applyYearBoundaries(to: &configuration)
-        setPenaltiesToZero(&configuration)
+        setPenalties(&configuration, to: 0)
 
         let decoded = try decode(configuration)
 
@@ -36,6 +36,19 @@ struct ConfigurationValidationTests {
         #expect(decoded.yearRetrieval.logic.minValidYear == 3000)
         #expect(decoded.yearRetrieval.logic.absurdYearThreshold == 1000)
         #expect(decoded.yearRetrieval.scoring.artistExactMatchBonus == -1000)
+    }
+
+    @Test("Positive scoring weights remain valid for shipped settings")
+    func acceptsPositiveScoringWeights() throws {
+        var configuration = AppConfiguration()
+        setPenalties(&configuration, to: 1)
+
+        let decoded = try decode(configuration)
+
+        #expect(decoded.yearRetrieval.scoring.artistSubstringPenalty == 1)
+        #expect(decoded.yearRetrieval.scoring.typeEPSinglePenalty == 1)
+        #expect(decoded.yearRetrieval.scoring.yearDiffPenaltyScale == 1)
+        #expect(decoded.yearRetrieval.scoring.futureYearPenalty == 1)
     }
 
     private func applyRuntimeBoundaries(to configuration: inout AppConfiguration) {
@@ -288,22 +301,22 @@ struct ConfigurationValidationTests {
         }
     }
 
-    private func setPenaltiesToZero(_ configuration: inout AppConfiguration) {
-        configuration.yearRetrieval.scoring.artistSubstringPenalty = 0
-        configuration.yearRetrieval.scoring.artistCrossScriptPenalty = 0
-        configuration.yearRetrieval.scoring.artistMismatchPenalty = 0
-        configuration.yearRetrieval.scoring.albumSubstringPenalty = 0
-        configuration.yearRetrieval.scoring.albumUnrelatedPenalty = 0
-        configuration.yearRetrieval.scoring.typeEPSinglePenalty = 0
-        configuration.yearRetrieval.scoring.typeCompilationLivePenalty = 0
-        configuration.yearRetrieval.scoring.statusBootlegPenalty = 0
-        configuration.yearRetrieval.scoring.statusPromoPenalty = 0
-        configuration.yearRetrieval.scoring.reissuePenalty = 0
-        configuration.yearRetrieval.scoring.yearDiffPenaltyScale = 0
-        configuration.yearRetrieval.scoring.yearDiffMaxPenalty = 0
-        configuration.yearRetrieval.scoring.yearBeforeStartPenalty = 0
-        configuration.yearRetrieval.scoring.yearAfterEndPenalty = 0
-        configuration.yearRetrieval.scoring.futureYearPenalty = 0
+    private func setPenalties(_ configuration: inout AppConfiguration, to value: Int) {
+        configuration.yearRetrieval.scoring.artistSubstringPenalty = value
+        configuration.yearRetrieval.scoring.artistCrossScriptPenalty = value
+        configuration.yearRetrieval.scoring.artistMismatchPenalty = value
+        configuration.yearRetrieval.scoring.albumSubstringPenalty = value
+        configuration.yearRetrieval.scoring.albumUnrelatedPenalty = value
+        configuration.yearRetrieval.scoring.typeEPSinglePenalty = value
+        configuration.yearRetrieval.scoring.typeCompilationLivePenalty = value
+        configuration.yearRetrieval.scoring.statusBootlegPenalty = value
+        configuration.yearRetrieval.scoring.statusPromoPenalty = value
+        configuration.yearRetrieval.scoring.reissuePenalty = value
+        configuration.yearRetrieval.scoring.yearDiffPenaltyScale = value
+        configuration.yearRetrieval.scoring.yearDiffMaxPenalty = value
+        configuration.yearRetrieval.scoring.yearBeforeStartPenalty = value
+        configuration.yearRetrieval.scoring.yearAfterEndPenalty = value
+        configuration.yearRetrieval.scoring.futureYearPenalty = value
     }
 
     private var invalidNumericProbes: [InvalidNumericProbe] {
@@ -446,49 +459,6 @@ struct ConfigurationValidationTests {
             zeroToHundred("yearRetrieval.fallback.trustAPIScoreThreshold", "101.0") {
                 $0.yearRetrieval.fallback.trustAPIScoreThreshold = 101
             },
-            maximumZero("yearRetrieval.scoring.artistSubstringPenalty") {
-                $0.yearRetrieval.scoring.artistSubstringPenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.artistCrossScriptPenalty") {
-                $0.yearRetrieval.scoring.artistCrossScriptPenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.artistMismatchPenalty") {
-                $0.yearRetrieval.scoring.artistMismatchPenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.albumSubstringPenalty") {
-                $0.yearRetrieval.scoring.albumSubstringPenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.albumUnrelatedPenalty") {
-                $0.yearRetrieval.scoring.albumUnrelatedPenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.typeEPSinglePenalty") {
-                $0.yearRetrieval.scoring.typeEPSinglePenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.typeCompilationLivePenalty") {
-                $0.yearRetrieval.scoring.typeCompilationLivePenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.statusBootlegPenalty") {
-                $0.yearRetrieval.scoring.statusBootlegPenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.statusPromoPenalty") {
-                $0.yearRetrieval.scoring.statusPromoPenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.reissuePenalty") { $0.yearRetrieval.scoring.reissuePenalty = 1 },
-            maximumZero("yearRetrieval.scoring.yearDiffPenaltyScale") {
-                $0.yearRetrieval.scoring.yearDiffPenaltyScale = 1
-            },
-            maximumZero("yearRetrieval.scoring.yearDiffMaxPenalty") {
-                $0.yearRetrieval.scoring.yearDiffMaxPenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.yearBeforeStartPenalty") {
-                $0.yearRetrieval.scoring.yearBeforeStartPenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.yearAfterEndPenalty") {
-                $0.yearRetrieval.scoring.yearAfterEndPenalty = 1
-            },
-            maximumZero("yearRetrieval.scoring.futureYearPenalty") {
-                $0.yearRetrieval.scoring.futureYearPenalty = 1
-            },
             zeroToHundred("processing.releaseYearRestoreThreshold", "101") {
                 $0.processing.releaseYearRestoreThreshold = 101
             },
@@ -592,13 +562,6 @@ struct ConfigurationValidationTests {
         mutate: @escaping @Sendable (inout AppConfiguration) -> Void
     ) -> InvalidNumericProbe {
         probe(path, receivedValue, "must be between 1 and 200", mutate: mutate)
-    }
-
-    private func maximumZero(
-        _ path: String,
-        mutate: @escaping @Sendable (inout AppConfiguration) -> Void
-    ) -> InvalidNumericProbe {
-        probe(path, "1", "must be at most 0", mutate: mutate)
     }
 
     private func tokenCapacity(
