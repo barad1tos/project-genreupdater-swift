@@ -102,6 +102,18 @@ struct MetadataUtilsTests {
         #expect(stripAlbumSuffixes("Sleep", suffixes: ["EP"]) == "Sleep")
     }
 
+    @Test("Suffix cleanup preserves leading punctuation")
+    func preservesLeadingPunctuation() {
+        let cleaned = cleanNames(
+            artist: "Artist",
+            trackName: "Song",
+            albumName: " - Album Remaster",
+            config: CleaningConfig()
+        )
+
+        #expect(cleaned.cleanedAlbum == "- Album")
+    }
+
     // MARK: - cleanNames
 
     @Test("Cleans track and album names")

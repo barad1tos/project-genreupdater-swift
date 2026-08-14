@@ -227,27 +227,28 @@ public actor UpdateCoordinator {
         pass: UpdatePass
     ) async throws -> [ProposedChange] {
         var proposedChanges: [ProposedChange] = []
+        let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(track.album)
+        let cleaningOutcome = pass.includesStandardMetadata
+            ? Self.cleaningOutcome(
+                policyTrack: track,
+                proposalTrack: track,
+                options: options,
+                cleaning: runtimeConfiguration.cleaning
+            )
+            : (track: track, changes: [])
+        proposedChanges.append(contentsOf: cleaningOutcome.changes)
         let artistRenameChange = pass.includesStandardMetadata
             ? Self.determineArtistRenameChange(
                 track: track,
                 mappings: runtimeConfiguration.artistRenameMappings
             )
             : nil
-        let policyTrack = artistRenameChange?.track ?? track
-        let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(policyTrack.album)
-        let cleaningOutcome = pass.includesStandardMetadata
-            ? Self.cleaningOutcome(
-                policyTrack: policyTrack,
-                proposalTrack: track,
-                options: options,
-                cleaning: runtimeConfiguration.cleaning
-            )
-            : (track: policyTrack, changes: [])
         if let change = artistRenameChange {
             proposedChanges.append(change)
         }
-        proposedChanges.append(contentsOf: cleaningOutcome.changes)
-        let decisionTrack = cleaningOutcome.track
+        let proposalTrack = artistRenameChange?.track ?? track
+        var decisionTrack = cleaningOutcome.track
+        (decisionTrack.artist, decisionTrack.originalArtist) = (proposalTrack.artist, proposalTrack.originalArtist)
         let genreContextTracks = Self.genreContextTracks(
             track: decisionTrack,
             artistTracks: artistTracks,
@@ -259,7 +260,7 @@ public actor UpdateCoordinator {
                artistTracks: genreContextTracks,
                options: options
            ) {
-            proposedChanges.append(Self.change(change, usingTrack: policyTrack))
+            proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
         }
         if pass.includesYear,
            options.updateYear,
@@ -270,15 +271,14 @@ public actor UpdateCoordinator {
                forceYearLookup: options.forceYearLookup,
                albumTypeInfo: albumTypeInfo,
                queryAlbum: detectSearchStrategy(
-                   artist: AlbumIdentity.groupingArtist(for: policyTrack),
-                   album: policyTrack.album,
+                   artist: AlbumIdentity.groupingArtist(for: proposalTrack),
+                   album: proposalTrack.album,
                    soundtrackPatterns: runtimeConfiguration.albumTypeDetection.soundtrackPatterns,
                    variousArtistsNames: runtimeConfiguration.albumTypeDetection.variousArtistsNames
-               ).strategy == .soundtrack ? policyTrack.album : decisionTrack.album
+               ).strategy == .soundtrack ? proposalTrack.album : decisionTrack.album
            ) {
-            proposedChanges.append(Self.change(change, usingTrack: policyTrack))
+            proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
         }
-
         return proposedChanges
     }
 
