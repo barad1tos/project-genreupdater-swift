@@ -49,6 +49,7 @@ extension AppDependencies {
         let testArtists: [String]
         let analytics: AnalyticsConfig
         let cleaning: CleaningConfig
+        let cacheConfiguration: AppConfiguration
     }
 
     func applyRuntimeConfigurationTail(_ handoff: RuntimeApplyHandoff) async {
@@ -57,6 +58,7 @@ extension AppDependencies {
         } catch {
             log.error("Pending-verification initialization failed: \(error.localizedDescription, privacy: .public)")
         }
+        await cacheService?.updatePolicy(configuration: handoff.cacheConfiguration)
         await applescriptBridge?.updateConfiguration(handoff.appleScriptConfiguration)
         await applescriptBridge?.updateLibraryPath(handoff.libraryPath)
         await musicReader?.updateTestArtists(handoff.testArtists)
@@ -77,6 +79,19 @@ extension AppDependencies {
             librarySnapshotService: handoff.snapshotService,
             cleaning: handoff.cleaning
         )
+    }
+
+    /// Reapplies tier-dependent runtime consumers after a subscription change.
+    @discardableResult
+    func handleSubscriptionTierChange() -> Bool {
+        guard let featureGate else { return false }
+        let tier = featureGate.currentTier
+        guard tier != appliedTier else { return false }
+
+        appliedTier = tier
+        appliedCacheAccess = featureGate.canAccess(.advancedCache)
+        enqueueRuntimeApplyAndPublish()
+        return true
     }
 
     private func updateUndoRuntimeDependencies(

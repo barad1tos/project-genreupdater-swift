@@ -12,6 +12,20 @@ struct PublicAPITests {
         let root = RootView(data: data, reportNotice: nil) {
             EmptyView()
         }
+        let availableReportsRoot = RootView(
+            data: data,
+            reportAnalyticsAccess: .available,
+            reportNotice: nil
+        ) {
+            EmptyView()
+        }
+        let lockedReportsRoot = RootView(
+            data: data,
+            reportAnalyticsAccess: .locked(message: "Week Pass or Pro required"),
+            reportNotice: nil
+        ) {
+            EmptyView()
+        }
         let actionRoot = RootView(
             data: data,
             pipelinePrimaryAction: {
@@ -36,6 +50,8 @@ struct PublicAPITests {
         #expect(model.snapshot.totalTracks == 10)
         #expect(model.pipelineActivity.deltaCount == 2)
         _ = root
+        _ = availableReportsRoot
+        _ = lockedReportsRoot
         _ = actionRoot
     }
 

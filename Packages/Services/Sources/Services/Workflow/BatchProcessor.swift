@@ -201,6 +201,8 @@ public actor BatchProcessor {
     ///   - trackCount: Distinct tracks this write may touch. Required rather
     ///     than defaulted so the compiler names every write path when the gate
     ///     moves; a default would let a caller opt out in silence.
+    ///   - requiredFeature: Additional paid feature required by the accepted
+    ///     write set, or `nil` when ordinary free-track admission is sufficient.
     ///   - appliedTrackIDs: Projects the distinct tracks actually changed by a
     ///     successful operation. Failed and no-op writes must not be returned.
     ///   - partialTrackIDs: Projects known successful changes carried by a
@@ -208,15 +210,20 @@ public actor BatchProcessor {
     ///   - operation: Performs the admitted write and returns its result.
     public func performRecoverableWrite<Value: Sendable>(
         trackCount: Int,
+        requiredFeature: AppFeature?,
         appliedTrackIDs: @Sendable (Value) -> Set<String>,
         partialTrackIDs: @Sendable (any Error) -> Set<String>,
         operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
-        try await reserveWrite(requiresBatchFeature: false, trackCount: trackCount)
+        let admission = try await reserveWrite(
+            requiresBatchFeature: false,
+            requiredFeature: requiredFeature,
+            trackCount: trackCount
+        )
         defer { isWriteReserved = false }
         do {
             let result = try await operation()
-            await featureGate.recordTrackUsage(for: appliedTrackIDs(result))
+            await featureGate.recordTrackUsage(for: appliedTrackIDs(result), admission: admission)
             return result
         } catch {
             let writeError: any Error
@@ -229,7 +236,7 @@ public actor BatchProcessor {
                 recordedTrackIDs = partialTrackIDs(error)
             }
 
-            await featureGate.recordTrackUsage(for: recordedTrackIDs)
+            await featureGate.recordTrackUsage(for: recordedTrackIDs, admission: admission)
             await preserveRecovery(for: writeError)
             throw writeError
         }
@@ -259,9 +266,8 @@ public actor BatchProcessor {
         operation: @Sendable (Track) async throws -> [ChangeLogEntry],
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> [ChangeLogEntry] {
-        try await reserveWrite(
-            requiresBatchFeature: true,
-            trackCount: Set(tracks.map(\.id)).count
+        _ = try await reserveWrite(
+            requiresBatchFeature: true, requiredFeature: nil, trackCount: Set(tracks.map(\.id)).count
         )
         defer { isWriteReserved = false }
         var resume = try await loadResumeState(
@@ -420,22 +426,30 @@ public actor BatchProcessor {
 
     // MARK: Internal Steps
 
-    private func reserveWrite(requiresBatchFeature: Bool, trackCount: Int) async throws {
+    private func reserveWrite(
+        requiresBatchFeature: Bool,
+        requiredFeature: AppFeature?,
+        trackCount: Int
+    ) async throws -> WriteAdmission {
         guard !isWriteReserved else {
             throw BatchProcessorError.alreadyRunning
         }
         isWriteReserved = true
         do {
+            let admission = await featureGate.writeAdmission()
             // Every write path funnels through this reservation, which is why
             // the paid gate lives here. It used to be asked only by
             // WorkflowFilters, so the reviewed-apply, restore, pending-
             // verification, and fix-plan paths all wrote past the free limit.
-            try await featureGate.requireTrackCapacity(count: trackCount)
+            if let requiredFeature {
+                try admission.require(requiredFeature)
+            }
+            try admission.requireTrackCapacity(count: trackCount)
             if requiresBatchFeature {
-                guard await featureGate.canAccess(.batchProcessing) else {
-                    throw await BatchProcessorError.featureNotAvailable(
+                guard admission.canAccess(.batchProcessing) else {
+                    throw BatchProcessorError.featureNotAvailable(
                         feature: .batchProcessing,
-                        currentTier: featureGate.currentTier
+                        currentTier: admission.tier
                     )
                 }
             }
@@ -450,6 +464,7 @@ public actor BatchProcessor {
                     throw BatchProcessorError.alreadyRunning
                 }
             }
+            return admission
         } catch {
             isWriteReserved = false
             throw error

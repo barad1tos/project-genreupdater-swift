@@ -1,5 +1,16 @@
 import SwiftUI
 
+/// Availability of gated content or an action.
+public enum ContentAccess: Equatable, Sendable {
+    case available
+    case locked(message: String)
+
+    /// Whether the gated content or action is currently available.
+    public var isAvailable: Bool {
+        self == .available
+    }
+}
+
 public enum FixPlanStatus: String, Equatable, Sendable {
     case empty
     case ready
@@ -66,6 +77,7 @@ public struct FixPlanSnapshot: Equatable, Sendable {
         yearCount: 0,
         averageConfidence: nil,
         canApply: false,
+        writeAccess: .available,
         issues: [],
         items: []
     )
@@ -82,6 +94,7 @@ public struct FixPlanSnapshot: Equatable, Sendable {
     public let yearCount: Int
     public let averageConfidence: Int?
     public let canApply: Bool
+    public let writeAccess: ContentAccess
     public let issues: [String]
     public let items: [FixPlanItem]
 
@@ -98,6 +111,7 @@ public struct FixPlanSnapshot: Equatable, Sendable {
         yearCount: Int,
         averageConfidence: Int?,
         canApply: Bool,
+        writeAccess: ContentAccess = .available,
         issues: [String],
         items: [FixPlanItem]
     ) {
@@ -113,12 +127,15 @@ public struct FixPlanSnapshot: Equatable, Sendable {
         self.yearCount = yearCount
         self.averageConfidence = averageConfidence
         self.canApply = canApply
+        self.writeAccess = writeAccess
         self.issues = issues
         self.items = items
     }
 }
 
 public struct FixPlanView: View {
+    @Environment(\.openSettings) private var openSettings
+
     public let snapshot: FixPlanSnapshot
     public let noticeMessage: String?
     public let noticeTone: Tone
@@ -152,6 +169,7 @@ public struct FixPlanView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 header
+                writeAccessNotice
                 notice
                 stats
                 issues
@@ -163,6 +181,27 @@ public struct FixPlanView: View {
         }
         .background(Ayu.window)
         .navigationTitle("Update")
+    }
+
+    @ViewBuilder
+    private var writeAccessNotice: some View {
+        if case let .locked(message) = snapshot.writeAccess {
+            SectionCard(
+                symbol: "lock.fill",
+                tone: .warning,
+                title: "Week Pass or Pro required"
+            ) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(message)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Ayu.fg2)
+                    Spacer(minLength: 12)
+                    Button("Open Settings") {
+                        openSettings()
+                    }
+                }
+            }
+        }
     }
 
     private var header: some View {
@@ -473,7 +512,7 @@ public struct FixPlanView: View {
     }
 
     private var canApplyChanges: Bool {
-        canReview && onApply != nil && snapshot.canApply
+        canReview && onApply != nil && snapshot.canApply && snapshot.writeAccess.isAvailable
     }
 
     private var canToggle: Bool {

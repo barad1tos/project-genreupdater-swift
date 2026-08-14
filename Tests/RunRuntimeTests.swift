@@ -7,6 +7,41 @@ import Testing
 @Suite("Run write runtime")
 @MainActor
 struct RunRuntimeTests {
+    @Test("Live Free access overrides captured paid cache settings")
+    func freeAccessOverridesCapturedCache() async throws {
+        let track = Track(id: "cache-track", name: "Track", artist: "Artist", album: "Album")
+        let script = RuntimeScriptSpy(track: track)
+        let services = RunServiceFactory(
+            makeScripts: { _ in script },
+            makePendingVerification: { _ in nil }
+        )
+        let runtime = try await makeRuntime(
+            services: services,
+            script: script,
+            track: track,
+            gate: FeatureGate(fixedTier: .free)
+        )
+        var captured = AppConfiguration()
+        captured.runtime.cacheTTLSeconds = 7200
+        captured.runtime.maxGenericEntries = 20000
+        captured.caching.defaultTTLSeconds = 3600
+        captured.caching.negativeResultTTL = 7200
+        captured.caching.librarySnapshot.enabled = false
+        captured.caching.librarySnapshot.maxAgeHours = 72
+        captured.processing.cacheTTLDays = 30
+
+        let effective = runtime.cacheConfiguration(for: captured)
+        let defaults = AppConfiguration()
+
+        #expect(effective.runtime.cacheTTLSeconds == defaults.runtime.cacheTTLSeconds)
+        #expect(effective.runtime.maxGenericEntries == defaults.runtime.maxGenericEntries)
+        #expect(effective.caching.defaultTTLSeconds == defaults.caching.defaultTTLSeconds)
+        #expect(effective.caching.negativeResultTTL == defaults.caching.negativeResultTTL)
+        #expect(effective.caching.librarySnapshot.enabled == defaults.caching.librarySnapshot.enabled)
+        #expect(effective.caching.librarySnapshot.maxAgeHours == defaults.caching.librarySnapshot.maxAgeHours)
+        #expect(effective.processing.cacheTTLDays == defaults.processing.cacheTTLDays)
+    }
+
     @Test("write runtime uses captured batch settings")
     func usesCapturedSettings() async throws {
         let track = Track(
@@ -60,7 +95,8 @@ struct RunRuntimeTests {
     private func makeRuntime(
         services: RunServiceFactory,
         script: RuntimeScriptSpy,
-        track: Track
+        track: Track,
+        gate: FeatureGate = FeatureGate(fixedTier: .pro)
     ) async throws -> RunRuntimeFactory {
         let container = try ModelContainerFactory.createInMemory()
         let store = TrackDataStore(modelContainer: container)
@@ -73,7 +109,7 @@ struct RunRuntimeTests {
         return RunRuntimeFactory(
             services: services,
             store: store,
-            gate: FeatureGate(fixedTier: .pro),
+            gate: gate,
             cache: cache,
             undo: UndoCoordinator(scriptBridge: script),
             mapper: mapper,

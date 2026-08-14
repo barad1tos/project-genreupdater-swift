@@ -104,6 +104,27 @@ struct FixPlanWriteTests {
 
         expectInvalidDecision(plan: plan, decision: decision)
     }
+
+    @Test("accepted cleaning makes the reviewed write paid")
+    func derivesPaidFeatureFromAcceptedWork() {
+        let workItems = [
+            RunWorkItem(item: fixPlanItem(id: UUID(), index: 1)),
+            RunWorkItem(item: fixPlanItem(id: UUID(), index: 2, changeType: .trackCleaning)),
+        ]
+
+        #expect(FixPlanWrite.requiredFeature(for: workItems) == .artistAlbumCleaning)
+    }
+
+    @Test("genre and year work keep the reviewed write on free admission")
+    func keepsMetadataWriteFree() {
+        let workItems = [
+            RunWorkItem(item: fixPlanItem(id: UUID(), index: 1, changeType: .genreUpdate)),
+            RunWorkItem(item: fixPlanItem(id: UUID(), index: 2, changeType: .yearUpdate)),
+            RunWorkItem(item: fixPlanItem(id: UUID(), index: 3, changeType: .yearRevert)),
+        ]
+
+        #expect(FixPlanWrite.requiredFeature(for: workItems) == nil)
+    }
 }
 
 private actor WriteIDScriptSpy: AppleScriptClient {
@@ -228,7 +249,11 @@ private func expectInvalidDecision(
     }
 }
 
-private func fixPlanItem(id: UUID, index: Int) -> FixPlanItem {
+private func fixPlanItem(
+    id: UUID,
+    index: Int,
+    changeType: ChangeType = .genreUpdate
+) -> FixPlanItem {
     FixPlanItem(
         id: id,
         identity: FixPlanItemIdentity(
@@ -238,7 +263,7 @@ private func fixPlanItem(id: UUID, index: Int) -> FixPlanItem {
             album: "Album",
             trackName: "Track \(index)"
         ),
-        changeType: .genreUpdate,
+        changeType: changeType,
         oldValue: "Rock",
         newValue: "Metal",
         confidence: 90,

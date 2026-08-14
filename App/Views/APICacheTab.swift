@@ -27,7 +27,9 @@ struct APICacheTab: View {
             discogsSection
             cacheStatisticsSection
             librarySyncSection
-            cacheBehaviorSection
+            FeatureGatedView(feature: .advancedCache) {
+                cacheBehaviorSection
+            }
         }
         .formStyle(.grouped)
         .padding()

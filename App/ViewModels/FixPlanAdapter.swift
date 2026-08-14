@@ -3,8 +3,18 @@ import DesignUI
 import Foundation
 import Services
 
+enum UpgradeCopy {
+    static let cleaningWrite = """
+    Applying accepted track cleaning, album cleaning, or artist renames requires Week Pass or Pro. \
+    Preview and review remain available.
+    """
+}
+
 enum FixPlanAdapter {
-    static func makeSnapshot(from projection: FixPlanProjection) -> DesignUI.FixPlanSnapshot {
+    static func makeSnapshot(
+        from projection: FixPlanProjection,
+        hasCleaningAccess: Bool
+    ) -> DesignUI.FixPlanSnapshot {
         DesignUI.FixPlanSnapshot(
             status: makeStatus(projection.status),
             planID: projection.planID?.description,
@@ -18,9 +28,24 @@ enum FixPlanAdapter {
             yearCount: projection.yearCount,
             averageConfidence: projection.averageConfidence,
             canApply: projection.canApply,
+            writeAccess: writeAccess(
+                for: projection,
+                hasCleaningAccess: hasCleaningAccess
+            ),
             issues: projection.operationalIssues.map(issueText),
             items: projection.items.map(makeItem)
         )
+    }
+
+    private static func writeAccess(
+        for projection: FixPlanProjection,
+        hasCleaningAccess: Bool
+    ) -> DesignUI.ContentAccess {
+        let requiresCleaningAccess = projection.items.contains { item in
+            item.verdict == .accepted && item.changeType.requiredWriteFeature == .artistAlbumCleaning
+        }
+        guard requiresCleaningAccess, !hasCleaningAccess else { return .available }
+        return .locked(message: UpgradeCopy.cleaningWrite)
     }
 
     private static func makeStatus(_ status: FixPlanProjectionStatus) -> DesignUI.FixPlanStatus {

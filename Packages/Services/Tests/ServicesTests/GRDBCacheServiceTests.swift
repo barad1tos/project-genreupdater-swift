@@ -13,6 +13,19 @@ struct GRDBCacheServiceTests {
         return service
     }
 
+    private func makePolicyService() async throws -> (database: DatabaseQueue, cache: GRDBCacheService) {
+        let database = try DatabaseQueue()
+        let cache = GRDBCacheService(
+            dbWriter: database,
+            defaultGenericTTL: 3600,
+            apiResultTTL: 3600,
+            maxGenericEntries: 10020,
+            cleanupInterval: 3600
+        )
+        try await cache.initialize()
+        return (database, cache)
+    }
+
     // MARK: - Migrations
 
     @Test("Migrations run without error on empty database")
@@ -124,6 +137,113 @@ struct GRDBCacheServiceTests {
 
         let stats = await service.getCacheStatistics()
         #expect(stats.genericCacheCount == 2)
+    }
+
+    @Test("Live policy update preserves existing cache rows")
+    func policyPreservesRows() async throws {
+        let fixture = try await makePolicyService()
+        await fixture.cache.set(key: "preserved", value: "generic", ttl: 3600)
+        await fixture.cache.setCachedAPIResult(CachedAPIResult(
+            artist: "Policy Artist",
+            album: "Policy Album",
+            year: 2004,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: 3600
+        ))
+
+        await fixture.cache.updatePolicy(configuration: AppConfiguration())
+
+        let preservedGeneric: String? = await fixture.cache.get(key: "preserved")
+        let preservedAPI = await fixture.cache.getCachedAPIResult(
+            artist: "Policy Artist",
+            album: "Policy Album",
+            source: "musicbrainz"
+        )
+        #expect(preservedGeneric == "generic")
+        #expect(preservedAPI?.year == 2004)
+    }
+
+    @Test("Live policy update applies new default TTLs to future rows")
+    func policyChangesTTLs() async throws {
+        let fixture = try await makePolicyService()
+        await fixture.cache.updatePolicy(configuration: AppConfiguration())
+
+        await fixture.cache.set(key: "new-default-ttl", value: "expires", ttl: nil)
+        try await fixture.database.write { database in
+            try database.execute(
+                sql: "UPDATE generic_cache SET timestamp = ? WHERE key = ?",
+                arguments: [Date.now.addingTimeInterval(-1000), "new-default-ttl"]
+            )
+        }
+        let expiredValue: String? = await fixture.cache.get(key: "new-default-ttl")
+        #expect(expiredValue == nil)
+
+        await fixture.cache.setCachedAPIResult(CachedAPIResult(
+            artist: "New Policy Artist",
+            album: "New Policy Album",
+            year: 2005,
+            source: "musicbrainz",
+            timestamp: Date.now.addingTimeInterval(-7200),
+            ttl: nil
+        ))
+        let updatedAPIResult = await fixture.cache.getCachedAPIResult(
+            artist: "New Policy Artist",
+            album: "New Policy Album",
+            source: "musicbrainz"
+        )
+        #expect(updatedAPIResult?.year == 2005)
+    }
+
+    @Test("Live policy uses the runtime TTL when the primary default is disabled")
+    func runtimeFallbackExpires() async throws {
+        let fixture = try await makePolicyService()
+        var configuration = AppConfiguration()
+        configuration.caching.defaultTTLSeconds = 0
+        configuration.runtime.cacheTTLSeconds = 1
+        await fixture.cache.updatePolicy(configuration: configuration)
+
+        await fixture.cache.set(key: "runtime-fallback", value: "expires", ttl: nil)
+        try await fixture.database.write { database in
+            try database.execute(
+                sql: "UPDATE generic_cache SET timestamp = ? WHERE key = ?",
+                arguments: [Date.now.addingTimeInterval(-2), "runtime-fallback"]
+            )
+        }
+
+        let expiredValue: String? = await fixture.cache.get(key: "runtime-fallback")
+        #expect(expiredValue == nil)
+    }
+
+    @Test("Live policy update applies new capacity to future writes")
+    func policyChangesCapacity() async throws {
+        let fixture = try await makePolicyService()
+        let freeConfiguration = AppConfiguration()
+        await fixture.cache.updatePolicy(configuration: freeConfiguration)
+
+        try await fixture.database.write { database in
+            let encodedValue = try JSONEncoder().encode("capacity")
+            for index in 0 ... 10000 {
+                try GenericCacheRow(
+                    key: "capacity-\(index)",
+                    value: encodedValue,
+                    ttl: 3600,
+                    timestamp: .now,
+                    accessOrder: Int64(index + 100)
+                ).save(database)
+            }
+        }
+        let countBeforeWrite = try await fixture.database.read { database in
+            try GenericCacheRow.fetchCount(database)
+        }
+        #expect(countBeforeWrite > freeConfiguration.runtime.maxGenericEntries)
+
+        await fixture.cache.set(key: "capacity-trigger", value: "newest", ttl: 3600)
+
+        let countAfterWrite = try await fixture.database.read { database in
+            try GenericCacheRow.fetchCount(database)
+        }
+        #expect(countAfterWrite == freeConfiguration.runtime.maxGenericEntries)
     }
 
     @Test("Updating a generic cache entry makes it most recently used")

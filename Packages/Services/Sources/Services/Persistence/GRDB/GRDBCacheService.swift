@@ -21,10 +21,10 @@ public actor GRDBCacheService: PersistentCacheService {
     private let dbWriter: any DatabaseWriter
     private let log = AppLogger.cache
     private let albumYearTTL: TimeInterval
-    private let apiResultTTL: TimeInterval
-    private let defaultGenericTTL: TimeInterval?
-    private let maxGenericEntries: Int
-    private let cleanupInterval: TimeInterval
+    private var apiResultTTL: TimeInterval
+    private var defaultGenericTTL: TimeInterval?
+    private var maxGenericEntries: Int
+    private var cleanupInterval: TimeInterval
     private var lastGenericCleanupAt = Date.now
 
     /// Default TTL for album year cache entries (30 days).
@@ -40,6 +40,17 @@ public actor GRDBCacheService: PersistentCacheService {
             return defaultAPIResultTTL
         }
         return TimeInterval(configuration.processing.cacheTTLDays) * 24 * 60 * 60
+    }
+
+    /// Resolves the generic-cache TTL from its primary setting, runtime fallback, or five-minute default.
+    public static func resolvedGenericTTL(configuration: AppConfiguration) -> TimeInterval {
+        for seconds in [
+            configuration.caching.defaultTTLSeconds,
+            configuration.runtime.cacheTTLSeconds,
+        ] where seconds > 0 {
+            return TimeInterval(seconds)
+        }
+        return 5 * 60
     }
 
     /// Default maximum generic cache entries.
@@ -96,6 +107,15 @@ public actor GRDBCacheService: PersistentCacheService {
         log.info("GRDB cache initialized")
     }
 
+    /// Applies cache lifetimes and capacity to future operations without removing existing entries.
+    public func updatePolicy(configuration: AppConfiguration) {
+        defaultGenericTTL = Self.resolvedGenericTTL(configuration: configuration)
+        apiResultTTL = Self.normalizedTTL(Self.resolvedAPIResultTTL(configuration: configuration))
+            ?? Self.defaultAPIResultTTL
+        maxGenericEntries = max(1, configuration.runtime.maxGenericEntries)
+        cleanupInterval = max(0, TimeInterval(configuration.caching.cleanupIntervalSeconds))
+    }
+
     // MARK: - Generic Key-Value Cache
 
     public func get<T: Codable & Sendable>(key: String) async -> T? {
@@ -141,6 +161,7 @@ public actor GRDBCacheService: PersistentCacheService {
             let data = try JSONEncoder().encode(value)
             let now = Date.now
             let shouldCleanup = shouldRunGenericCleanup(at: now)
+            let entryLimit = maxGenericEntries
             try await dbWriter.write { database in
                 let row = try GenericCacheRow(
                     key: key,
@@ -153,7 +174,7 @@ public actor GRDBCacheService: PersistentCacheService {
                 if shouldCleanup {
                     try Self.deleteExpiredGenericRows(in: database)
                 }
-                try Self.enforceGenericCacheLimit(in: database, maxGenericEntries: maxGenericEntries)
+                try Self.enforceGenericCacheLimit(in: database, maxGenericEntries: entryLimit)
             }
             if shouldCleanup {
                 lastGenericCleanupAt = now

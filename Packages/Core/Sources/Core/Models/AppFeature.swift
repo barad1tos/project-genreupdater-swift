@@ -28,3 +28,15 @@ public enum AppFeature: String, CaseIterable, Sendable {
         }
     }
 }
+
+extension ChangeType {
+    /// Paid feature required before this change can be written, if any.
+    public var requiredWriteFeature: AppFeature? {
+        switch self {
+        case .trackCleaning, .albumCleaning, .artistRename:
+            .artistAlbumCleaning
+        case .genreUpdate, .yearUpdate, .yearRevert:
+            nil
+        }
+    }
+}

@@ -403,10 +403,14 @@ func computeDelayedPendingScopePreview(
     }
 }
 
-func makeProposedChange(id: String, isAccepted: Bool) -> ProposedChange {
+func makeProposedChange(
+    id: String,
+    isAccepted: Bool,
+    changeType: ChangeType = .genreUpdate
+) -> ProposedChange {
     ProposedChange(
         track: Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album"),
-        changeType: .genreUpdate,
+        changeType: changeType,
         oldValue: nil,
         newValue: "Rock",
         confidence: 90,

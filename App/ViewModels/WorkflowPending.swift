@@ -153,6 +153,7 @@ extension WorkflowViewModel {
             }
             let runOutcome = try await batchProcessor.performRecoverableWrite(
                 trackCount: Set(admissionTracks.map(\.id)).count,
+                requiredFeature: nil,
                 appliedTrackIDs: { Set($0.completed.map(\.trackID)) },
                 partialTrackIDs: Self.partialTrackIDs,
                 operation: { @MainActor [self] in
@@ -217,6 +218,7 @@ extension WorkflowViewModel {
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
             let outcome = try await batchProcessor.performRecoverableWrite(
                 trackCount: Set(trackContext.tracks.map(\.id)).count,
+                requiredFeature: nil,
                 appliedTrackIDs: { Set($0.completed.map(\.trackID)) },
                 partialTrackIDs: Self.partialTrackIDs,
                 operation: { @MainActor [self] in

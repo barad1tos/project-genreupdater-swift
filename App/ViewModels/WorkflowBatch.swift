@@ -35,6 +35,10 @@ struct AcceptedChangesBatch {
     let accepted: [ProposedChange]
     let trackCount: Int
     let options: UpdateOptions
+
+    var requiredFeature: AppFeature? {
+        accepted.lazy.compactMap(\.changeType.requiredWriteFeature).first
+    }
 }
 
 enum WorkflowBatchError: LocalizedError {
@@ -227,6 +231,7 @@ extension WorkflowViewModel {
         do {
             let batchResult = try await batchProcessor.performRecoverableWrite(
                 trackCount: Set(apply.accepted.map(\.track.id)).count,
+                requiredFeature: apply.requiredFeature,
                 appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
                 partialTrackIDs: { _ in [] },
                 operation: {

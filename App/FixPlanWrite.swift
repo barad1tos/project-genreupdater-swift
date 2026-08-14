@@ -76,6 +76,10 @@ enum FixPlanWrite {
             .map(RunWorkItem.init(item:))
     }
 
+    static func requiredFeature(for workItems: [RunWorkItem]) -> AppFeature? {
+        workItems.lazy.compactMap(\.change.changeType.requiredWriteFeature).first
+    }
+
     private static func itemVerdicts(
         from decision: FixPlanReviewDecision,
         matching plan: FixPlan
@@ -162,6 +166,7 @@ enum FixPlanWrite {
             }).count
             return try await dependencies.batchProcessor.performRecoverableWrite(
                 trackCount: trackCount,
+                requiredFeature: requiredFeature(for: input.workItems),
                 appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
                 partialTrackIDs: { _ in [] },
                 operation: {

@@ -26,6 +26,32 @@ struct FixPlanFactoryTests {
         #expect(usage.count == 1)
     }
 
+    @Test("reviewed cleaning rechecks a live tier before runtime creation")
+    @MainActor
+    func cleaningRechecksLiveTier() async throws {
+        let tier = MutableTier(.weekPass)
+        let gate = FeatureGate(
+            tierProvider: { tier.value },
+            freeTracksUsedProvider: { 0 },
+            usageRecorder: { _ in
+                // A rejected write must not reach usage metering.
+            }
+        )
+        let fixture = await makeWriteFixture(
+            hasInitialRecovery: false,
+            featureGate: gate,
+            changeType: .trackCleaning
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        tier.value = .free
+
+        await #expect(throws: FeatureGateError.self) {
+            _ = try await fixture.run(fixture.input)
+        }
+        #expect(await fixture.runtime.callCount == 0)
+        #expect(await fixture.script.fetchCalls.isEmpty)
+    }
+
     @Test("Fix plan writer enforces recovery admission")
     @MainActor
     func enforcesRecovery() async throws {
@@ -221,9 +247,10 @@ private struct WriteFixture {
 @MainActor
 private func makeWriteFixture(
     hasInitialRecovery: Bool,
-    featureGate: FeatureGate? = nil
+    featureGate: FeatureGate? = nil,
+    changeType: ChangeType = .genreUpdate
 ) async -> WriteFixture {
-    let item = makeItem()
+    let item = makeItem(changeType: changeType)
     let plan = makePlan(item)
     let decision = FixPlanReviewDecision(
         planID: plan.id,
@@ -327,7 +354,7 @@ private func writeTrack() -> Track {
     )
 }
 
-private func makeItem() -> FixPlanItem {
+private func makeItem(changeType: ChangeType = .genreUpdate) -> FixPlanItem {
     FixPlanItem(
         id: UUID(),
         identity: FixPlanItemIdentity(
@@ -337,12 +364,21 @@ private func makeItem() -> FixPlanItem {
             album: "Album",
             trackName: "Track 1"
         ),
-        changeType: .genreUpdate,
+        changeType: changeType,
         oldValue: "Rock",
         newValue: "Metal",
         confidence: 90,
         source: "review-test"
     )
+}
+
+@MainActor
+private final class MutableTier {
+    var value: Tier
+
+    init(_ value: Tier) {
+        self.value = value
+    }
 }
 
 private func makePlan(_ item: FixPlanItem) -> FixPlan {

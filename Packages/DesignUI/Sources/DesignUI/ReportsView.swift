@@ -18,10 +18,27 @@ public struct RecoveryDetailActions {
     }
 }
 
+struct ReportSectionAccess {
+    let analyticsAccess: ContentAccess
+
+    init(_ analyticsAccess: ContentAccess) {
+        self.analyticsAccess = analyticsAccess
+    }
+
+    var showsAnalytics: Bool {
+        analyticsAccess.isAvailable
+    }
+
+    let showsAudit = true
+    let showsRecovery = true
+}
+
 struct ReportsView: View {
+    @Environment(\.openSettings) private var openSettings
     @Bindable var model: AppModel
     var runSelectionAction: ((String?) -> Void)?
     var recoveryActions: RecoveryDetailActions?
+    let analyticsAccess: ContentAccess
     /// Required (no default): RootView once dropped this argument and the
     /// notice chain died silently at the render boundary — a `let`
     /// without a default makes that omission a compile error.
@@ -30,101 +47,41 @@ struct ReportsView: View {
     private let cols = [GridItem(.adaptive(minimum: 260), spacing: 14)]
 
     var body: some View {
+        let sectionAccess = ReportSectionAccess(analyticsAccess)
         let st = model.data.reportStats
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .lastTextBaseline) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Reports").font(.system(size: 24, weight: .heavy))
-                        HStack(spacing: 26) {
-                            stat("\(st.processed)", "Changes", .neutral)
-                            stat("\(st.genres)", "Genres updated", .purple)
-                            stat("\(st.years)", "Years updated", .info)
+                        if sectionAccess.showsAnalytics {
+                            HStack(spacing: 26) {
+                                stat("\(st.processed)", "Changes", .neutral)
+                                stat("\(st.genres)", "Genres updated", .purple)
+                                stat("\(st.years)", "Years updated", .info)
+                            }
                         }
                     }
                     Spacer()
                     TagPill(text: "Read-only", tone: .neutral)
                 }
 
-                runHistorySection
+                if sectionAccess.showsAudit {
+                    runHistorySection
+                }
 
-                if let selectedRunReport = model.data.selectedRunReport {
+                if sectionAccess.showsRecovery, let selectedRunReport = model.data.selectedRunReport {
                     runDetailCard(selectedRunReport)
                 }
 
-                GlassCard(padding: 0) {
-                    VStack(spacing: 0) {
-                        HStack(spacing: 9) {
-                            Image(systemName: "clock.arrow.circlepath").foregroundStyle(Ayu.purple)
-                            Text("Change log").font(.system(size: 14.5, weight: .bold))
-                            Spacer()
-                        }
-                        .padding(.horizontal, 18).padding(.vertical, 13)
-                        Divider().overlay(Ayu.glassBorder)
-
-                        if model.data.changeLog.isEmpty {
-                            Text("No persisted audit entries yet")
-                                .font(.system(size: 13))
-                                .foregroundStyle(Ayu.fg2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 18)
-                                .padding(.vertical, 14)
-                        } else {
-                            ForEach(model.data.changeLog) { change in
-                                HStack(spacing: 13) {
-                                    Text(change.time)
-                                        .font(.system(size: 11).monospacedDigit())
-                                        .foregroundStyle(Ayu.fgMuted)
-                                        .frame(width: 58, alignment: .leading)
-                                    Image(systemName: change.type.symbol)
-                                        .foregroundStyle(change.type.tone.color)
-                                        .frame(width: 18)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(change.track)
-                                            .font(.system(size: 13))
-                                            .foregroundStyle(Ayu.fg)
-                                            .lineLimit(1)
-                                        Text(change.artist)
-                                            .font(.system(size: 11.5))
-                                            .foregroundStyle(Ayu.fg2)
-                                    }
-                                    Spacer()
-                                    DiffRow(old: change.old, new: change.new)
-                                    if let confidence = change.conf {
-                                        ConfidenceBadge(conf: confidence)
-                                    }
-                                }
-                                .padding(.horizontal, 18).padding(.vertical, 11)
-                                Divider().overlay(Ayu.glassBorder)
-                            }
-                        }
-                    }
+                if sectionAccess.showsAudit {
+                    changeLogCard
                 }
 
-                LazyVGrid(columns: cols, spacing: 14) {
-                    chartCard("Genre distribution", "chart.bar", .purple) {
-                        Chart(model.data.genreDistribution) { datum in
-                            BarMark(x: .value("Count", datum.count), y: .value("Genre", datum.label))
-                                .foregroundStyle(Ayu.purple)
-                        }
-                        .frame(height: 160)
-                    }
-                    chartCard("Changes over time", "chart.line.uptrend.xyaxis", .accent) {
-                        Chart(model.data.updatesOverTime) { datum in
-                            AreaMark(x: .value("Week", datum.label), y: .value("Count", datum.count))
-                                .foregroundStyle(Ayu.accent.opacity(0.25))
-                            LineMark(x: .value("Week", datum.label), y: .value("Count", datum.count))
-                                .foregroundStyle(Ayu.accent)
-                        }
-                        .frame(height: 160)
-                    }
-                    chartCard("Year distribution", "calendar", .info) {
-                        Chart(model.data.yearDistribution) { datum in
-                            BarMark(x: .value("Decade", datum.label), y: .value("Count", datum.count))
-                                .foregroundStyle(Ayu.info)
-                        }
-                        .frame(height: 160)
-                    }
+                if sectionAccess.showsAnalytics {
+                    analyticsCharts
+                } else if case let .locked(message) = sectionAccess.analyticsAccess {
+                    lockedAnalyticsCard(message: message)
                 }
             }
             .padding(24)
@@ -133,6 +90,103 @@ struct ReportsView: View {
         }
         .background(Ayu.window)
         .navigationTitle("Reports")
+    }
+
+    private var changeLogCard: some View {
+        GlassCard(padding: 0) {
+            VStack(spacing: 0) {
+                HStack(spacing: 9) {
+                    Image(systemName: "clock.arrow.circlepath").foregroundStyle(Ayu.purple)
+                    Text("Change log").font(.system(size: 14.5, weight: .bold))
+                    Spacer()
+                }
+                .padding(.horizontal, 18).padding(.vertical, 13)
+                Divider().overlay(Ayu.glassBorder)
+
+                if model.data.changeLog.isEmpty {
+                    Text("No persisted audit entries yet")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Ayu.fg2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 14)
+                } else {
+                    ForEach(model.data.changeLog) { change in
+                        HStack(spacing: 13) {
+                            Text(change.time)
+                                .font(.system(size: 11).monospacedDigit())
+                                .foregroundStyle(Ayu.fgMuted)
+                                .frame(width: 58, alignment: .leading)
+                            Image(systemName: change.type.symbol)
+                                .foregroundStyle(change.type.tone.color)
+                                .frame(width: 18)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(change.track)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Ayu.fg)
+                                    .lineLimit(1)
+                                Text(change.artist)
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(Ayu.fg2)
+                            }
+                            Spacer()
+                            DiffRow(old: change.old, new: change.new)
+                            if let confidence = change.conf {
+                                ConfidenceBadge(conf: confidence)
+                            }
+                        }
+                        .padding(.horizontal, 18).padding(.vertical, 11)
+                        Divider().overlay(Ayu.glassBorder)
+                    }
+                }
+            }
+        }
+    }
+
+    private var analyticsCharts: some View {
+        LazyVGrid(columns: cols, spacing: 14) {
+            chartCard("Genre distribution", "chart.bar", .purple) {
+                Chart(model.data.genreDistribution) { datum in
+                    BarMark(x: .value("Count", datum.count), y: .value("Genre", datum.label))
+                        .foregroundStyle(Ayu.purple)
+                }
+                .frame(height: 160)
+            }
+            chartCard("Changes over time", "chart.line.uptrend.xyaxis", .accent) {
+                Chart(model.data.updatesOverTime) { datum in
+                    AreaMark(x: .value("Week", datum.label), y: .value("Count", datum.count))
+                        .foregroundStyle(Ayu.accent.opacity(0.25))
+                    LineMark(x: .value("Week", datum.label), y: .value("Count", datum.count))
+                        .foregroundStyle(Ayu.accent)
+                }
+                .frame(height: 160)
+            }
+            chartCard("Year distribution", "calendar", .info) {
+                Chart(model.data.yearDistribution) { datum in
+                    BarMark(x: .value("Decade", datum.label), y: .value("Count", datum.count))
+                        .foregroundStyle(Ayu.info)
+                }
+                .frame(height: 160)
+            }
+        }
+    }
+
+    private func lockedAnalyticsCard(message: String) -> some View {
+        SectionCard(
+            symbol: "lock.fill",
+            tone: .warning,
+            title: "Week Pass or Pro required"
+        ) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(message)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Ayu.fg2)
+                Spacer(minLength: 12)
+                Button("Open Settings") {
+                    openSettings()
+                }
+            }
+        }
     }
 
     private var runHistorySection: some View {

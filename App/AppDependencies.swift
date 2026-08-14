@@ -26,6 +26,8 @@ final class AppDependencies {
     private(set) var appState: AppState = .loading
     /// Serialized runtime-apply chain; see `enqueueRuntimeApplyAndPublish`.
     var runtimeApplyQueue: Task<Void, Never>?
+    @ObservationIgnored var appliedTier: Tier?
+    @ObservationIgnored var appliedCacheAccess: Bool?
     /// Chrome mirror for Commands/MenuBarExtra; `refreshChromeProjection()`
     /// is the SOLE publisher (pinned by `oneChromeTruthAcrossSurfaces`).
     var chrome: ChromeProjection = .empty()
@@ -268,7 +270,7 @@ final class AppDependencies {
             libraryReadProvider = MusicKitReadProvider(reader: reader)
 
             // Step 4: Start subscription service + feature gate
-            let subscription = SubscriptionService()
+            let subscription = makeSubscriptionService()
             await subscription.start()
             subscriptionService = subscription
 
@@ -279,10 +281,14 @@ final class AppDependencies {
             let gate = Self.makeFeatureGate(for: subscription)
             #endif
             featureGate = gate
+            appliedTier = gate.currentTier
+            let canUseAdvancedCache = gate.canAccess(.advancedCache)
+            appliedCacheAccess = canUseAdvancedCache
+            let cacheConfiguration = Self.effectiveCacheConfiguration(config, canUseAdvancedCache: canUseAdvancedCache)
 
             // Steps 5-8: Persistence, algorithms, API, and workflow services
-            try await initializePersistence()
-            try await initializeAlgorithmsAndAPI()
+            try await initializePersistence(cacheConfiguration: cacheConfiguration)
+            try await initializeAlgorithmsAndAPI(cacheConfiguration: cacheConfiguration)
             try await initializeWorkflowServices(bridge: bridge, gate: gate)
 
             log.info("All services initialized successfully")
@@ -381,7 +387,7 @@ final class AppDependencies {
     // MARK: - Initialization Helpers
 
     /// Step 5: Set up SwiftData and GRDB persistence layers.
-    private func initializePersistence() async throws {
+    private func initializePersistence(cacheConfiguration: AppConfiguration) async throws {
         let container: ModelContainer
         if let existing = modelContainer {
             container = existing
@@ -402,22 +408,22 @@ final class AppDependencies {
         fixPlanStore = FixPlanDataStore(modelContainer: container)
 
         let cache = try GRDBCacheService.createDefault(
-            defaultGenericTTL: Self.defaultGenericCacheTTL(configuration: config),
-            apiResultTTL: Self.apiResultCacheTTL(configuration: config),
-            maxGenericEntries: config.runtime.maxGenericEntries,
-            cleanupInterval: TimeInterval(config.caching.cleanupIntervalSeconds)
+            defaultGenericTTL: GRDBCacheService.resolvedGenericTTL(configuration: cacheConfiguration),
+            apiResultTTL: Self.apiResultCacheTTL(configuration: cacheConfiguration),
+            maxGenericEntries: cacheConfiguration.runtime.maxGenericEntries,
+            cleanupInterval: TimeInterval(cacheConfiguration.caching.cleanupIntervalSeconds)
         )
         try await cache.initialize()
         cacheService = cache
-        librarySnapshotService = Self.makeSnapshotService(cache: cache, configuration: config)
+        librarySnapshotService = Self.makeSnapshotService(cache: cache, configuration: cacheConfiguration)
         analyticsService = CachedAnalyticsService(
             cache: cache,
-            configuration: config.analytics
+            configuration: cacheConfiguration.analytics
         )
     }
 
     /// Steps 6-7: Create core algorithm instances and API orchestrator.
-    private func initializeAlgorithmsAndAPI() async throws {
+    private func initializeAlgorithmsAndAPI(cacheConfiguration: AppConfiguration) async throws {
         let genreDeterm = GenreDeterminator()
         genreDeterminator = genreDeterm
 
@@ -437,7 +443,7 @@ final class AppDependencies {
         networkReachabilityMonitor = reachability
 
         apiOrchestrator = Self.makeAPIOrchestrator(
-            configuration: config,
+            configuration: cacheConfiguration,
             cache: cacheService,
             pendingVerificationService: pendingVerification,
             reachability: reachability,
@@ -635,13 +641,15 @@ final class AppDependencies {
 
 extension AppDependencies {
     func applyRuntimeConfigurationHead() -> RuntimeApplyHandoff {
+        let canUseAdvancedCache = featureGate?.canAccess(.advancedCache) == true
+        let cacheConfiguration = Self.effectiveCacheConfiguration(config, canUseAdvancedCache: canUseAdvancedCache)
         let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
         incrementalRunTracker = Self.makeIncrementalRunTracker(configuration: config)
         let pendingVerificationStore = modelContainer.map {
             PendingVerificationStore(modelContainer: $0, configuration: config)
         }
         let configuredAPIOrchestrator = Self.makeAPIOrchestrator(
-            configuration: config,
+            configuration: cacheConfiguration,
             cache: cacheService,
             pendingVerificationService: pendingVerificationStore,
             reachability: networkReachabilityMonitor,
@@ -660,13 +668,10 @@ extension AppDependencies {
         }
         let snapshotService: (any LibrarySnapshotService)?
         if let cacheService {
-            let newSnapshotService = Self.makeSnapshotService(cache: cacheService, configuration: config)
+            let newSnapshotService = Self.makeSnapshotService(cache: cacheService, configuration: cacheConfiguration)
             librarySnapshotService = newSnapshotService
             snapshotService = newSnapshotService
-            analyticsService = CachedAnalyticsService(
-                cache: cacheService,
-                configuration: config.analytics
-            )
+            analyticsService = CachedAnalyticsService(cache: cacheService, configuration: cacheConfiguration.analytics)
         } else {
             snapshotService = nil
         }
@@ -682,21 +687,9 @@ extension AppDependencies {
             batchProcessingConfiguration: BatchProcessingConfiguration(configuration: config),
             libraryPath: config.paths.musicLibraryPath,
             testArtists: config.development.testArtists,
-            analytics: config.analytics,
-            cleaning: config.cleaning
-        )
-    }
-
-    static func makeSnapshotService(
-        cache: any PersistentCacheService,
-        configuration: AppConfiguration
-    ) -> CachedLibrarySnapshotService {
-        CachedLibrarySnapshotService(
-            cache: cache,
-            configuration: configuration.caching.librarySnapshot,
-            libraryModificationDateProvider: makeLibraryDateProvider(
-                path: configuration.paths.musicLibraryPath
-            )
+            analytics: cacheConfiguration.analytics,
+            cleaning: config.cleaning,
+            cacheConfiguration: cacheConfiguration
         )
     }
 
@@ -705,34 +698,6 @@ extension AppDependencies {
             logsBaseDirectory: configuration.paths.effectiveLogsBaseDirectory,
             lastIncrementalRunFile: configuration.logging.lastIncrementalRunFile
         )
-    }
-
-    private static func makeLibraryDateProvider(path: String) -> @Sendable () -> Date? {
-        let resolvedPath = resolveConfigurationPath(path)
-        return {
-            guard !resolvedPath.isEmpty else { return nil }
-            let attributes = try? FileManager.default.attributesOfItem(atPath: resolvedPath)
-            return attributes?[.modificationDate] as? Date
-        }
-    }
-
-    private static func resolveConfigurationPath(_ path: String) -> String {
-        var resolvedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !resolvedPath.isEmpty else { return "" }
-
-        resolvedPath = resolvedPath.replacingOccurrences(of: "${HOME}", with: NSHomeDirectory())
-        let appSupportDirectory = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
-        if resolvedPath.contains("${APP_SUPPORT}"), let appSupportDirectory {
-            resolvedPath = resolvedPath.replacingOccurrences(
-                of: "${APP_SUPPORT}",
-                with: appSupportDirectory.appendingPathComponent("GenreUpdater", isDirectory: true).path
-            )
-        }
-
-        return (resolvedPath as NSString).expandingTildeInPath
     }
 }
 
@@ -751,12 +716,14 @@ extension AppDependencies {
         trackStore: (any TrackStateStore)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runRecordStore: (any RunRecordStore)? = nil,
-        fixPlanStore: (any FixPlanStore)? = nil
+        fixPlanStore: (any FixPlanStore)? = nil,
+        cache: GRDBCacheService? = nil
     ) {
         self.trackStore = trackStore
         self.librarySnapshotService = librarySnapshotService
         self.runRecordStore = runRecordStore
         self.fixPlanStore = fixPlanStore
+        cacheService = cache
     }
 
     func installTestLibraryReadProvider(_ provider: any LibraryReadProvider) {
@@ -778,6 +745,8 @@ extension AppDependencies {
 
     func installTestFeatureGate(_ gate: FeatureGate) {
         featureGate = gate
+        appliedTier = gate.currentTier
+        appliedCacheAccess = gate.canAccess(.advancedCache)
     }
 
     func installTestIncrementalRunTracker(_ tracker: IncrementalRunTracker) {

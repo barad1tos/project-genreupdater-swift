@@ -9,6 +9,41 @@ import OSLog
 
 private let log = Logger(subsystem: "com.genreupdater", category: "FeatureGate")
 
+struct WriteAdmission: Sendable {
+    let tier: Tier
+    let freeTracksUsed: Int
+
+    func canAccess(_ feature: AppFeature) -> Bool {
+        tier >= feature.minimumTier
+    }
+
+    func require(_ feature: AppFeature) throws {
+        guard canAccess(feature) else {
+            log.warning(
+                "Access denied: \(feature.rawValue, privacy: .public) requires \(String(describing: feature.minimumTier), privacy: .public)"
+            )
+            throw FeatureGateError.featureRequiresTier(
+                feature: feature,
+                required: feature.minimumTier,
+                current: tier
+            )
+        }
+    }
+
+    func canProcessTracks(count: Int) -> Bool {
+        tier != .free || freeTracksUsed + count <= FeatureGate.freeTrackLimit
+    }
+
+    func requireTrackCapacity(count: Int) throws {
+        guard canProcessTracks(count: count) else {
+            throw FeatureGateError.freeTrackLimitReached(
+                limit: FeatureGate.freeTrackLimit,
+                used: freeTracksUsed
+            )
+        }
+    }
+}
+
 // MARK: - FeatureGateError
 
 public enum FeatureGateError: Error, Sendable {
@@ -33,7 +68,7 @@ extension FeatureGateError: LocalizedError {
 
 @MainActor
 public final class FeatureGate {
-    public static let freeTrackLimit = 500
+    nonisolated public static let freeTrackLimit = 500
 
     private let tierProvider: () -> Tier
     private let freeTracksUsedProvider: () -> Int
@@ -83,36 +118,12 @@ public final class FeatureGate {
 
     /// Require access to a feature; throws if the tier is insufficient.
     public func require(_ feature: AppFeature) throws {
-        let tier = currentTier
-        guard tier >= feature.minimumTier else {
-            log.warning(
-                "Access denied: \(feature.rawValue, privacy: .public) requires \(String(describing: feature.minimumTier), privacy: .public)"
-            )
-            throw FeatureGateError.featureRequiresTier(
-                feature: feature,
-                required: feature.minimumTier,
-                current: tier
-            )
-        }
-    }
-
-    /// Check whether additional tracks can be processed on the free tier.
-    ///
-    /// Paid tiers always return true. Free tier checks against the 500-track lifetime limit.
-    public func canProcessTracks(count: Int) -> Bool {
-        guard currentTier == .free else { return true }
-        return freeTracksUsedProvider() + count <= Self.freeTrackLimit
+        try writeAdmission().require(feature)
     }
 
     /// Require capacity for processing tracks; throws if free limit would be exceeded.
     public func requireTrackCapacity(count: Int) throws {
-        let used = freeTracksUsedProvider()
-        guard canProcessTracks(count: count) else {
-            throw FeatureGateError.freeTrackLimitReached(
-                limit: Self.freeTrackLimit,
-                used: used
-            )
-        }
+        try writeAdmission().requireTrackCapacity(count: count)
     }
 
     /// Require capacity for a track collection, counting duplicate IDs once.
@@ -123,9 +134,12 @@ public final class FeatureGate {
         return uniqueTrackCount
     }
 
-    /// Record successful writes against the free-tier lifetime allowance.
-    public func recordTrackUsage(for trackIDs: Set<String>) {
-        guard currentTier == .free, !trackIDs.isEmpty else { return }
+    func writeAdmission() -> WriteAdmission {
+        WriteAdmission(tier: currentTier, freeTracksUsed: freeTracksUsedProvider())
+    }
+
+    func recordTrackUsage(for trackIDs: Set<String>, admission: WriteAdmission) {
+        guard admission.tier == .free, !trackIDs.isEmpty else { return }
         usageRecorder(trackIDs.count)
     }
 
