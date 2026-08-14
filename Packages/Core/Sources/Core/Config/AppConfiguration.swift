@@ -345,9 +345,9 @@ public struct AppConfiguration: Sendable, Codable {
 
     /// Returns a decoder for the live `config.json` contract.
     ///
-    /// Missing or null values use configuration defaults. Malformed explicit values fail decoding, while semantic
-    /// numeric violations throw `ConfigurationValidationError`. Historical run and fix-plan snapshots must use an
-    /// ordinary `JSONDecoder` so captured numeric values remain decodable for runtime boundary validation.
+    /// Values decoded with `decodeIfPresent` use their defaults when missing or null. Malformed explicit values fail
+    /// decoding, while semantic numeric violations throw `ConfigurationValidationError`. Historical run and fix-plan
+    /// snapshots must use an ordinary `JSONDecoder` so captured numeric values remain decodable for runtime validation.
     public static func configurationDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
