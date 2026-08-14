@@ -77,7 +77,9 @@ struct DependencyConfigTests {
         let loader = RetryConfigurationLoader()
         let dependencies = AppDependencies(
             configurationLoader: { try loader.load() },
-            configurationSaver: { _ in }
+            configurationSaver: { _ in
+                Issue.record("A failed retry must not persist configuration")
+            }
         )
 
         await dependencies.retryInitialization()
