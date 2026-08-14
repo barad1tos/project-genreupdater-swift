@@ -179,7 +179,7 @@ struct RunRuntimeFactory {
     ) throws -> AppConfiguration {
         var scoped = configuration
         scoped.development.testArtists = syncArtistScope(scope: scope, albumTarget: albumTarget)
-        try scoped.validateNumericValues()
+        try scoped.validate()
         return scoped
     }
 

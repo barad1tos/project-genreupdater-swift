@@ -70,7 +70,7 @@ struct SettingsCommandsTests {
     func rejectsInvalidSettings() async {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { try $0.validateNumericValues() }
+            configurationSaver: { try $0.validate() }
         )
         var edited = dependencies.config
         edited.genreUpdate.batchSize = 0
@@ -89,7 +89,7 @@ struct SettingsCommandsTests {
     func rejectsNonFiniteSettings() async {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { try $0.validateNumericValues() }
+            configurationSaver: { try $0.validate() }
         )
         var edited = dependencies.config
         edited.analytics.durationThresholds.shortMax = .nan
@@ -100,6 +100,28 @@ struct SettingsCommandsTests {
         #expect(result.status == .rejectedInvalid)
         #expect(result.message.contains("analytics.durationThresholds.shortMax"))
         #expect(result.message.contains("must be finite"))
+    }
+
+    @Test("conflicting artist mappings roll back with actionable source keys")
+    func rejectsArtistConflicts() async {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { try $0.validate() }
+        )
+        var edited = dependencies.config
+        edited.artistRenamer.mappings = [
+            " oldartist  ": "Second",
+            "OldArtist": "First",
+        ]
+        let target = SettingsCommandTarget(expectedSettingsRevision: 0)
+
+        let result = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
+
+        #expect(result.status == .rejectedInvalid)
+        #expect(result.message.contains(#"" oldartist  ""#))
+        #expect(result.message.contains(#""OldArtist""#))
+        #expect(dependencies.config.artistRenamer.mappings.isEmpty)
+        #expect(result.refreshedSettings.saveErrorMessage?.contains("artistRenamer.mappings") == true)
     }
 
     @Test("after a rolled-back failure the original revision still accepts")

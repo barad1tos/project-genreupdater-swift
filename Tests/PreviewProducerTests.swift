@@ -36,6 +36,18 @@ struct PreviewProducerTests {
         }
     }
 
+    @Test("Conflicting artist mappings block every runtime entry point")
+    func rejectsArtistConflicts() async throws {
+        for entryPoint in RuntimeEntryPoint.allCases {
+            try await expectRuntimeRejection(at: entryPoint) {
+                $0.artistRenamer.mappings = [
+                    " oldartist  ": "Second",
+                    "OldArtist": "First",
+                ]
+            }
+        }
+    }
+
     private func expectRuntimeRejection(
         at entryPoint: RuntimeEntryPoint,
         mutate: (inout AppConfiguration) -> Void = { $0.genreUpdate.batchSize = 0 }
@@ -292,7 +304,7 @@ struct PreviewProducerTests {
     }
 }
 
-private enum RuntimeEntryPoint {
+private enum RuntimeEntryPoint: CaseIterable {
     case sync
     case preview
     case write

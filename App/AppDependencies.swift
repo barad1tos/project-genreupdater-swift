@@ -179,7 +179,7 @@ final class AppDependencies {
             config = AppConfiguration()
             configurationLoadIssue = message
             appState = .error(message)
-            log.error("\(message, privacy: .public)")
+            log.error("Configuration load failed: \(message, privacy: .private)")
         }
 
         // Create ModelContainer eagerly so SwiftUI can attach .modelContainer() immediately.
@@ -309,7 +309,7 @@ final class AppDependencies {
                 let message = Self.loadFailureMessage(for: error)
                 configurationLoadIssue = message
                 appState = .error(message)
-                log.error("\(message, privacy: .public)")
+                log.error("Configuration reload failed: \(message, privacy: .private)")
                 return
             }
         }
@@ -347,7 +347,10 @@ final class AppDependencies {
             return .saved
         } catch {
             let message = "\(configurationSaveErrorPrefix) \(error.localizedDescription)"
-            log.error("\(message, privacy: .public)")
+            log
+                .error(
+                    "\(configurationSaveErrorPrefix, privacy: .public) \(error.localizedDescription, privacy: .private)"
+                )
             rememberConfigurationSaveRecoveryState()
             appState = .error(message)
             if let validationError = error as? ConfigurationValidationError {

@@ -1,16 +1,16 @@
 import Foundation
 
-/// One numeric configuration value rejected by boundary validation.
+/// One configuration value rejected by boundary validation.
 public struct ConfigurationValidationIssue: Sendable, Equatable {
     /// Canonical Swift configuration path.
     public let fieldPath: String
     /// Stable textual representation of the rejected value.
     public let receivedValue: String
-    /// Numeric requirement the value violates.
+    /// Requirement the value violates.
     public let requirement: String
 }
 
-/// Complete deterministic set of numeric configuration violations.
+/// Complete deterministic set of configuration violations.
 public struct ConfigurationValidationError: Error, LocalizedError, Sendable, Equatable {
     /// Violations sorted by canonical field path.
     public let issues: [ConfigurationValidationIssue]
@@ -29,19 +29,54 @@ public struct ConfigurationValidationError: Error, LocalizedError, Sendable, Equ
 }
 
 extension AppConfiguration {
-    /// Validates numeric domain bounds, finiteness, and runtime conversion capacity.
+    /// Validates every semantic invariant required by live configuration and runtime construction.
     ///
-    /// - Throws: `ConfigurationValidationError` containing one issue per invalid field, sorted by canonical path.
-    public func validateNumericValues() throws {
-        var validation = NumericValidation()
+    /// - Throws: `ConfigurationValidationError` containing all violations, sorted by canonical path.
+    public func validate() throws {
+        var validation = ValidationCollector()
+        validateNumericValues(using: &validation)
+        validateArtistMappings(using: &validation)
+        try validation.finish()
+    }
+
+    private func validateNumericValues(using validation: inout ValidationCollector) {
         validateRuntime(using: &validation)
         validateAppleScript(using: &validation)
         validateWorkflow(using: &validation)
         validateYearRetrieval(using: &validation)
-        try validation.finish()
     }
 
-    private func validateRuntime(using validation: inout NumericValidation) {
+    private func validateArtistMappings(using validation: inout ValidationCollector) {
+        let entries = artistRenamer.mappings.compactMap { source, target -> ArtistMappingEntry? in
+            let normalizedSource = normalizeForMatching(source)
+            let trimmedTarget = target.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedSource.isEmpty, !trimmedTarget.isEmpty else { return nil }
+            return ArtistMappingEntry(
+                source: source,
+                target: trimmedTarget,
+                normalizedSource: normalizedSource
+            )
+        }
+        let conflicts = Dictionary(grouping: entries, by: \.normalizedSource)
+            .filter { Set($0.value.map(\.target)).count > 1 }
+            .sorted { $0.key < $1.key }
+        guard !conflicts.isEmpty else { return }
+
+        let receivedValue = conflicts.map { normalizedSource, entries in
+            let mappings = entries
+                .sorted { ($0.source, $0.target) < ($1.source, $1.target) }
+                .map { "\(String(reflecting: $0.source)) -> \(String(reflecting: $0.target))" }
+                .joined(separator: ", ")
+            return "\(String(reflecting: normalizedSource)): [\(mappings)]"
+        }.joined(separator: "; ")
+        validation.record(
+            path: "artistRenamer.mappings",
+            value: receivedValue,
+            requirement: "must map one normalized source to one target"
+        )
+    }
+
+    private func validateRuntime(using validation: inout ValidationCollector) {
         validation.requireAtLeast(runtime.cacheTTLSeconds, minimum: 0, path: "runtime.cacheTTLSeconds")
         validation.requireAtLeast(
             runtime.incrementalIntervalMinutes,
@@ -73,7 +108,7 @@ extension AppConfiguration {
         )
     }
 
-    private func validateAppleScript(using validation: inout NumericValidation) {
+    private func validateAppleScript(using validation: inout ValidationCollector) {
         validation.requireAtLeast(applescript.concurrency, minimum: 1, path: "applescript.concurrency")
         validation.requireAtLeastSecond(
             applescript.timeouts.defaultTimeout,
@@ -122,7 +157,7 @@ extension AppConfiguration {
         )
     }
 
-    private func validateAppleScriptRetry(using validation: inout NumericValidation) {
+    private func validateAppleScriptRetry(using validation: inout ValidationCollector) {
         validation.requireAtLeast(
             applescript.retry.maxRetries,
             minimum: 0,
@@ -162,13 +197,13 @@ extension AppConfiguration {
         )
     }
 
-    private func validateWorkflow(using validation: inout NumericValidation) {
+    private func validateWorkflow(using validation: inout ValidationCollector) {
         validateProcessing(using: &validation)
         validateCaching(using: &validation)
         validateAnalyticsAndReporting(using: &validation)
     }
 
-    private func validateProcessing(using validation: inout NumericValidation) {
+    private func validateProcessing(using validation: inout ValidationCollector) {
         validation.requireAtLeast(genreUpdate.batchSize, minimum: 1, path: "genreUpdate.batchSize")
         validation.requireAtLeast(genreUpdate.concurrentLimit, minimum: 1, path: "genreUpdate.concurrentLimit")
         validation.requireAtLeast(processing.batchSize, minimum: 1, path: "processing.batchSize")
@@ -219,7 +254,7 @@ extension AppConfiguration {
         )
     }
 
-    private func validateCaching(using validation: inout NumericValidation) {
+    private func validateCaching(using validation: inout ValidationCollector) {
         validation.requireAtLeast(caching.defaultTTLSeconds, minimum: 0, path: "caching.defaultTTLSeconds")
         validation.requireAtLeast(
             caching.albumCacheSyncInterval,
@@ -254,7 +289,7 @@ extension AppConfiguration {
         )
     }
 
-    private func validateAnalyticsAndReporting(using validation: inout NumericValidation) {
+    private func validateAnalyticsAndReporting(using validation: inout ValidationCollector) {
         validation.requireAtLeast(
             analytics.durationThresholds.shortMax,
             minimum: 0,
@@ -284,13 +319,13 @@ extension AppConfiguration {
         validation.requireAtLeast(logging.maxRuns, minimum: 0, path: "logging.maxRuns")
     }
 
-    private func validateYearRetrieval(using validation: inout NumericValidation) {
+    private func validateYearRetrieval(using validation: inout ValidationCollector) {
         validateYearRateLimits(using: &validation)
         validateYearLogic(using: &validation)
         validateYearFallback(using: &validation)
     }
 
-    private func validateYearRateLimits(using validation: inout NumericValidation) {
+    private func validateYearRateLimits(using validation: inout ValidationCollector) {
         validation.requireAtLeast(
             yearRetrieval.rateLimits.discogsRequestsPerMinute,
             minimum: 1,
@@ -316,7 +351,7 @@ extension AppConfiguration {
         )
     }
 
-    private func validateYearLogic(using validation: inout NumericValidation) {
+    private func validateYearLogic(using validation: inout ValidationCollector) {
         validation.requireAtLeast(
             yearRetrieval.logic.minValidYear,
             minimum: 1000,
@@ -354,7 +389,7 @@ extension AppConfiguration {
         )
     }
 
-    private func validateYearFallback(using validation: inout NumericValidation) {
+    private func validateYearFallback(using validation: inout ValidationCollector) {
         validation.requireAtLeast(
             yearRetrieval.fallback.yearDifferenceThreshold,
             minimum: 0,
@@ -378,7 +413,13 @@ extension AppConfiguration {
     }
 }
 
-private struct NumericValidation {
+private struct ArtistMappingEntry {
+    let source: String
+    let target: String
+    let normalizedSource: String
+}
+
+private struct ValidationCollector {
     private var issues: [ConfigurationValidationIssue] = []
 
     mutating func requireAtLeast(_ value: Int, minimum: Int, path: String) {
@@ -478,6 +519,10 @@ private struct NumericValidation {
     func finish() throws {
         guard !issues.isEmpty else { return }
         throw ConfigurationValidationError(issues: issues)
+    }
+
+    mutating func record(path: String, value: String, requirement: String) {
+        append(path: path, value: value, requirement: requirement)
     }
 
     private mutating func append(path: String, value: String, requirement: String) {

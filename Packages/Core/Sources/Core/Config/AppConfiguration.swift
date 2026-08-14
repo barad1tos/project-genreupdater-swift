@@ -12,8 +12,8 @@
 import Foundation
 
 extension CodingUserInfoKey {
-    fileprivate static var numericValidation: Self {
-        guard let key = Self(rawValue: "GenreUpdater.numericValidation") else {
+    fileprivate static var configurationValidation: Self {
+        guard let key = Self(rawValue: "GenreUpdater.configurationValidation") else {
             preconditionFailure("Static configuration validation key is invalid")
         }
         return key
@@ -141,8 +141,8 @@ public struct AppConfiguration: Sendable, Codable {
         development = try container.decodeIfPresent(DevelopmentConfig.self, forKey: .development) ?? DevelopmentConfig()
 
         try applyLegacyRootConfiguration(from: container)
-        if decoder.userInfo[.numericValidation] as? Bool == true {
-            try validateNumericValues()
+        if decoder.userInfo[.configurationValidation] as? Bool == true {
+            try validate()
         }
     }
 
@@ -323,7 +323,7 @@ public struct AppConfiguration: Sendable, Codable {
     }
 
     func save(to url: URL) throws {
-        try validateNumericValues()
+        try validate()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(self)
@@ -346,12 +346,12 @@ public struct AppConfiguration: Sendable, Codable {
     /// Returns a decoder for the live `config.json` contract.
     ///
     /// Values decoded with `decodeIfPresent` use their defaults when missing or null. Malformed explicit values fail
-    /// decoding, while semantic numeric violations throw `ConfigurationValidationError`. Historical run and fix-plan
-    /// snapshots must use an ordinary `JSONDecoder` so captured numeric values remain decodable for runtime validation.
+    /// decoding, while semantic violations throw `ConfigurationValidationError`. Historical run and fix-plan snapshots
+    /// must use an ordinary `JSONDecoder` so captured values remain decodable for runtime validation.
     public static func configurationDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        decoder.userInfo[.numericValidation] = true
+        decoder.userInfo[.configurationValidation] = true
         return decoder
     }
 }
