@@ -269,9 +269,7 @@ final class AppDependencies {
             libraryReadProvider = MusicKitReadProvider(reader: reader)
 
             // Step 4: Start subscription service + feature gate
-            let subscription = SubscriptionService(tierChangeHandler: { [weak self] in
-                self?.handleSubscriptionTierChange()
-            })
+            let subscription = makeSubscriptionService()
             await subscription.start()
             subscriptionService = subscription
 

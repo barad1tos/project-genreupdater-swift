@@ -60,14 +60,7 @@ struct DependencyConfigTests {
                 Issue.record("Tier transitions must not persist or rewrite configuration")
             }
         )
-        let defaultsSuite = "DependencyConfigTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
-        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
-        let subscription = SubscriptionService(
-            counterStore: DependencyCounterStore(),
-            userDefaults: defaults,
-            tierChangeHandler: { dependencies.handleSubscriptionTierChange() }
-        )
+        let subscription = dependencies.makeSubscriptionService()
         let gate = AppDependencies.makeFeatureGate(for: subscription)
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()
@@ -482,17 +475,6 @@ private enum StubConfigurationError: LocalizedError {
         case .saveFailed:
             "test configuration save failed"
         }
-    }
-}
-
-@MainActor
-private final class DependencyCounterStore: SubscriptionCounterStore {
-    nonisolated func counter(forKey _: String) -> Int64 {
-        0
-    }
-
-    nonisolated func setCounter(_: Int64, forKey _: String) {
-        // This journey changes entitlement tier without consuming free allowance.
     }
 }
 

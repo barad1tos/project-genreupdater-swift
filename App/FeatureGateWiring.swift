@@ -2,6 +2,12 @@ import Core
 import Services
 
 extension AppDependencies {
+    func makeSubscriptionService() -> SubscriptionService {
+        SubscriptionService(tierChangeHandler: { [weak self] in
+            self?.handleSubscriptionTierChange()
+        })
+    }
+
     static func makeFeatureGate(
         for subscription: SubscriptionService,
         fixedTier: Tier? = nil
