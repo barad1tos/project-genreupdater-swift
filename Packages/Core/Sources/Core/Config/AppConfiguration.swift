@@ -343,7 +343,11 @@ public struct AppConfiguration: Sendable, Codable {
         return appDir.appendingPathComponent("config.json")
     }
 
-    /// Decoder for live persisted configuration, including Python-era keys and numeric validation.
+    /// Returns a decoder for the live `config.json` contract.
+    ///
+    /// Missing or null values use configuration defaults. Malformed explicit values fail decoding, while semantic
+    /// numeric violations throw `ConfigurationValidationError`. Historical run and fix-plan snapshots must use an
+    /// ordinary `JSONDecoder` so captured numeric values remain decodable for runtime boundary validation.
     public static func configurationDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase

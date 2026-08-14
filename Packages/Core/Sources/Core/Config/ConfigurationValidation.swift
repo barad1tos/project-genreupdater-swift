@@ -1,6 +1,6 @@
 import Foundation
 
-/// One semantically invalid persisted configuration value.
+/// One numeric configuration value rejected by boundary validation.
 public struct ConfigurationValidationIssue: Sendable, Equatable {
     /// Canonical Swift configuration path.
     public let fieldPath: String
@@ -29,7 +29,9 @@ public struct ConfigurationValidationError: Error, LocalizedError, Sendable, Equ
 }
 
 extension AppConfiguration {
-    /// Rejects numeric settings that cannot safely construct runtime services.
+    /// Validates numeric domain bounds, finiteness, and runtime conversion capacity.
+    ///
+    /// - Throws: `ConfigurationValidationError` containing one issue per invalid field, sorted by canonical path.
     public func validateNumericValues() throws {
         var validation = NumericValidation()
         validateRuntime(using: &validation)
