@@ -38,7 +38,7 @@ struct UpdatePreviewSection: View {
                     .foregroundStyle(Ayu.fgSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: Spacing.md)
-                Button("Open Subscription Settings") {
+                Button("Open Settings") {
                     openSettings()
                 }
             }

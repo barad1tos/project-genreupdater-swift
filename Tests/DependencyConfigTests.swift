@@ -65,7 +65,7 @@ struct DependencyConfigTests {
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()
         dependencies.installTestFeatureGate(gate)
-        dependencies.installTestCacheService(cache)
+        dependencies.configureLibraryPersistenceForTesting(cache: cache)
 
         subscription.applyEntitlementState(tier: .weekPass, weekPassExpiry: nil, proExpiry: nil)
         await dependencies.runtimeApplyQueue?.value

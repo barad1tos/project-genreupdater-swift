@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Availability of a user action whose content remains visible.
+/// Availability of gated content or an action.
 public enum ContentAccess: Equatable, Sendable {
     case available
     case locked(message: String)
 
-    /// Whether the gated action can currently run.
+    /// Whether the gated content or action is currently available.
     public var isAvailable: Bool {
         self == .available
     }
@@ -196,7 +196,7 @@ public struct FixPlanView: View {
                         .font(.system(size: 12.5))
                         .foregroundStyle(Ayu.fg2)
                     Spacer(minLength: 12)
-                    Button("Open Subscription Settings") {
+                    Button("Open Settings") {
                         openSettings()
                     }
                 }

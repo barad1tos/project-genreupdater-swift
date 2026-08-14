@@ -48,7 +48,7 @@ struct FixPlanAdapterTests {
         #expect(snapshot.canApply)
     }
 
-    @Test("rejected cleaning does not lock accepted metadata writes")
+    @Test("rejected cleaning does not require paid access")
     func ignoresRejectedCleaning() throws {
         let projection = try makeCleaningProjection(verdict: .rejected)
 

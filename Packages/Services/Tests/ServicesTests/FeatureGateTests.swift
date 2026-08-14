@@ -108,28 +108,30 @@ struct FeatureGateTrackLimitTests {
     func paidUnlimited() {
         let weekGate = FeatureGate(fixedTier: .weekPass)
         let proGate = FeatureGate(fixedTier: .pro)
-        #expect(weekGate.canProcessTracks(count: 10000))
-        #expect(proGate.canProcessTracks(count: 10000))
+        #expect(weekGate.writeAdmission().canProcessTracks(count: 10000))
+        #expect(proGate.writeAdmission().canProcessTracks(count: 10000))
     }
 
     @Test("Free tier allows tracks within limit")
     func freeWithinLimit() {
         let gate = FeatureGate(fixedTier: .free, freeTracksUsed: 400)
-        #expect(gate.canProcessTracks(count: 100))
-        #expect(gate.canProcessTracks(count: 1))
+        let admission = gate.writeAdmission()
+        #expect(admission.canProcessTracks(count: 100))
+        #expect(admission.canProcessTracks(count: 1))
     }
 
     @Test("Free tier blocks tracks exceeding limit")
     func freeExceedsLimit() {
         let gate = FeatureGate(fixedTier: .free, freeTracksUsed: 400)
-        #expect(!gate.canProcessTracks(count: 101))
+        #expect(!gate.writeAdmission().canProcessTracks(count: 101))
     }
 
     @Test("Free tier at exactly 500 allows 0 more")
     func freeAtLimit() {
         let gate = FeatureGate(fixedTier: .free, freeTracksUsed: 500)
-        #expect(gate.canProcessTracks(count: 0))
-        #expect(!gate.canProcessTracks(count: 1))
+        let admission = gate.writeAdmission()
+        #expect(admission.canProcessTracks(count: 0))
+        #expect(!admission.canProcessTracks(count: 1))
     }
 
     @Test("requireTrackCapacity throws when exceeded")
@@ -175,8 +177,9 @@ struct FeatureGateTrackLimitTests {
             usageRecorder: { recordedCounts.append($0) }
         )
 
-        gate.recordTrackUsage(for: Set(["T1", "T2"]))
-        gate.recordTrackUsage(for: [])
+        let admission = gate.writeAdmission()
+        gate.recordTrackUsage(for: Set(["T1", "T2"]), admission: admission)
+        gate.recordTrackUsage(for: [], admission: admission)
 
         #expect(recordedCounts == [2])
     }
@@ -189,7 +192,7 @@ struct FeatureGateTrackLimitTests {
                 fixedTier: tier,
                 usageRecorder: { recordedCounts.append($0) }
             )
-            gate.recordTrackUsage(for: Set(["T1", "T2"]))
+            gate.recordTrackUsage(for: Set(["T1", "T2"]), admission: gate.writeAdmission())
         }
 
         #expect(recordedCounts.isEmpty)

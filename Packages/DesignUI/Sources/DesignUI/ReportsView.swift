@@ -182,7 +182,7 @@ struct ReportsView: View {
                     .font(.system(size: 12.5))
                     .foregroundStyle(Ayu.fg2)
                 Spacer(minLength: 12)
-                Button("Open Subscription Settings") {
+                Button("Open Settings") {
                     openSettings()
                 }
             }

@@ -716,12 +716,14 @@ extension AppDependencies {
         trackStore: (any TrackStateStore)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runRecordStore: (any RunRecordStore)? = nil,
-        fixPlanStore: (any FixPlanStore)? = nil
+        fixPlanStore: (any FixPlanStore)? = nil,
+        cache: GRDBCacheService? = nil
     ) {
         self.trackStore = trackStore
         self.librarySnapshotService = librarySnapshotService
         self.runRecordStore = runRecordStore
         self.fixPlanStore = fixPlanStore
+        cacheService = cache
     }
 
     func installTestLibraryReadProvider(_ provider: any LibraryReadProvider) {
@@ -745,10 +747,6 @@ extension AppDependencies {
         featureGate = gate
         appliedTier = gate.currentTier
         appliedCacheAccess = gate.canAccess(.advancedCache)
-    }
-
-    func installTestCacheService(_ cache: GRDBCacheService) {
-        cacheService = cache
     }
 
     func installTestIncrementalRunTracker(_ tracker: IncrementalRunTracker) {

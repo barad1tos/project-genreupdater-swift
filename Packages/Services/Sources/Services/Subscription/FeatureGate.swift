@@ -121,13 +121,6 @@ public final class FeatureGate {
         try writeAdmission().require(feature)
     }
 
-    /// Check whether additional tracks can be processed on the free tier.
-    ///
-    /// Paid tiers always return true. Free tier checks against the 500-track lifetime limit.
-    public func canProcessTracks(count: Int) -> Bool {
-        writeAdmission().canProcessTracks(count: count)
-    }
-
     /// Require capacity for processing tracks; throws if free limit would be exceeded.
     public func requireTrackCapacity(count: Int) throws {
         try writeAdmission().requireTrackCapacity(count: count)
@@ -139,11 +132,6 @@ public final class FeatureGate {
         let uniqueTrackCount = Set(tracks.map(\.id)).count
         try requireTrackCapacity(count: uniqueTrackCount)
         return uniqueTrackCount
-    }
-
-    /// Record successful writes against the free-tier lifetime allowance.
-    public func recordTrackUsage(for trackIDs: Set<String>) {
-        recordTrackUsage(for: trackIDs, admission: writeAdmission())
     }
 
     func writeAdmission() -> WriteAdmission {
