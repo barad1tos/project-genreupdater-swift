@@ -400,6 +400,42 @@ struct MetadataCleaningTests {
         #expect(changes.first { $0.changeType == .albumCleaning }?.track.album == "Album Remastered")
     }
 
+    @Test("Write mode cleans track and album before artist rename")
+    func cleansBeforeRename() async throws {
+        let scriptBridge = MockAppleScriptClient()
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            artistRenameMappings: ["The Beatles": "Beatles"]
+        )
+        let coordinator = await makeCoordinator(
+            runtimeConfiguration: runtimeConfiguration,
+            scriptBridge: scriptBridge
+        )
+        let track = makeTrack(
+            name: "Song (Remastered 2020)",
+            artist: "The Beatles",
+            album: "Album Remastered"
+        )
+
+        _ = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(
+                updateGenre: false,
+                updateYear: false,
+                cleanTrackNames: true,
+                cleanAlbumNames: true,
+                minConfidence: 0
+            ),
+            dryRun: false
+        )
+
+        let writes = await scriptBridge.writtenProperties
+        #expect(writes.map { "\($0.property)=\($0.value)" } == [
+            "name=Song",
+            "album=Album",
+            "artist=Beatles",
+        ])
+    }
+
     @Test("Cleaned and renamed values feed downstream year decisions")
     func combinedMetadataFeedsYear() async throws {
         let lookupRecorder = AlbumYearLookupRecorder()
@@ -554,10 +590,10 @@ struct MetadataCleaningTests {
 
     private func makeCoordinator(
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
-        apiService: any ExternalAPIService = MockAPIService()
+        apiService: any ExternalAPIService = MockAPIService(),
+        scriptBridge: MockAppleScriptClient = MockAppleScriptClient()
     ) async -> UpdateCoordinator {
-        let scriptBridge = MockAppleScriptClient()
-        return UpdateCoordinator(
+        UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: makeAPIOrchestrator(
                     musicBrainz: apiService,
