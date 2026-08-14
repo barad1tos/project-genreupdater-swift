@@ -26,6 +26,29 @@ struct DependencyConfigTests {
         #expect(dependencies.apiOrchestrator == nil)
     }
 
+    @Test("Invalid numeric configuration blocks service initialization with the field error")
+    func invalidNumericConfigurationBlocksInitialization() async throws {
+        var invalidConfiguration = AppConfiguration()
+        invalidConfiguration.genreUpdate.batchSize = 0
+        let invalidData = try JSONEncoder().encode(invalidConfiguration)
+        let dependencies = AppDependencies(
+            configurationLoader: {
+                try AppConfiguration.configurationDecoder().decode(AppConfiguration.self, from: invalidData)
+            },
+            configurationSaver: { _ in
+                Issue.record("A failed configuration load must not save fallback defaults")
+            }
+        )
+
+        #expect(dependencies.configurationLoadIssue?.contains("genreUpdate.batchSize") == true)
+        #expect(isAppError(dependencies.appState, containing: "must be at least 1"))
+
+        await dependencies.initialize()
+
+        #expect(dependencies.apiOrchestrator == nil)
+        #expect(dependencies.trackStore == nil)
+    }
+
     @Test("Workflow prerequisite failure names the missing services")
     func workflowPrerequisiteFailureNamesTheMissingServices() {
         let error = AppInitializationError.missingWorkflowPrerequisites(["apiOrchestrator", "trackStore"])
@@ -83,6 +106,42 @@ struct DependencyConfigTests {
         #expect(status == .temporaryUnavailable)
         #expect(dependencies.config.yearRetrieval.scoring.baseScore == originalBaseScore)
         #expect(isAppError(dependencies.appState, containing: "test configuration save failed"))
+    }
+
+    @Test("Invalid numeric settings roll back live and persisted configuration")
+    func invalidNumericSettingsRollBackConfiguration() throws {
+        let directory = temporaryConfigurationTestDirectory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let configurationURL = directory.appendingPathComponent("config.json")
+        let initialConfiguration = AppConfiguration()
+        let initialData = try JSONEncoder().encode(initialConfiguration)
+        try initialData.write(to: configurationURL, options: .atomic)
+
+        let dependencies = AppDependencies(
+            configurationLoader: { initialConfiguration },
+            configurationSaver: { configuration in
+                let data = try JSONEncoder().encode(configuration)
+                _ = try AppConfiguration.configurationDecoder().decode(AppConfiguration.self, from: data)
+                try data.write(to: configurationURL, options: .atomic)
+            }
+        )
+
+        let status = mutateConfiguration(dependencies) { configuration in
+            configuration.runtime.maxGenericEntries = 0
+        }
+
+        #expect(status == .temporaryUnavailable)
+        #expect(dependencies.config.runtime.maxGenericEntries == 10000)
+        #expect(dependencies.config.revision == 0)
+        #expect(isAppError(dependencies.appState, containing: "runtime.maxGenericEntries"))
+
+        let persistedData = try Data(contentsOf: configurationURL)
+        let persisted = try AppConfiguration.configurationDecoder().decode(
+            AppConfiguration.self,
+            from: persistedData
+        )
+        #expect(persisted.runtime.maxGenericEntries == 10000)
+        #expect(persisted.revision == 0)
     }
 
     @Test("Script API priority save failure rolls back in-memory config")

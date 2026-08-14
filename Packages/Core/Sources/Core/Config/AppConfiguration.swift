@@ -132,6 +132,7 @@ public struct AppConfiguration: Sendable, Codable {
         development = try container.decodeIfPresent(DevelopmentConfig.self, forKey: .development) ?? DevelopmentConfig()
 
         try applyLegacyRootConfiguration(from: container)
+        try validateNumericValues()
     }
 
     private mutating func applyLegacyRootConfiguration(
@@ -311,6 +312,7 @@ public struct AppConfiguration: Sendable, Codable {
     }
 
     func save(to url: URL) throws {
+        try validateNumericValues()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(self)
