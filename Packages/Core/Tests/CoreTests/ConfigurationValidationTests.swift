@@ -2,8 +2,56 @@ import Foundation
 import Testing
 @testable import Core
 
-@Suite("AppConfiguration numeric validation")
+@Suite("AppConfiguration validation")
 struct ConfigurationValidationTests {
+    @Test("Conflicting normalized artist mappings are rejected with both source keys")
+    func rejectsArtistConflicts() throws {
+        var configuration = AppConfiguration()
+        configuration.artistRenamer.mappings = [
+            " oldartist  ": "Second",
+            "OldArtist": "First",
+        ]
+
+        do {
+            _ = try decode(configuration)
+            Issue.record("Expected conflicting artist mappings to be rejected")
+        } catch let error as ConfigurationValidationError {
+            #expect(error.issues.map(\.fieldPath) == ["artistRenamer.mappings"])
+            #expect(
+                error.issues.first?.receivedValue ==
+                    #""oldartist": [" oldartist  " -> "Second", "OldArtist" -> "First"]"#
+            )
+            #expect(error.localizedDescription.contains("must map one normalized source to one target"))
+        }
+    }
+
+    @Test("Equivalent normalized artist mappings remain valid")
+    func acceptsEquivalentArtistMappings() throws {
+        var configuration = AppConfiguration()
+        configuration.artistRenamer.mappings = [
+            " oldartist  ": " New Artist ",
+            "OldArtist": "New Artist",
+        ]
+
+        let decoded = try decode(configuration)
+
+        #expect(decoded.artistRenamer.mappings.count == 2)
+    }
+
+    @Test("Blank artist mappings retain Python skip semantics")
+    func acceptsBlankArtistMappings() throws {
+        var configuration = AppConfiguration()
+        configuration.artistRenamer.mappings = [
+            " ": "Ignored",
+            "OldArtist": " ",
+            " oldartist ": "New Artist",
+        ]
+
+        let decoded = try decode(configuration)
+
+        #expect(decoded.artistRenamer.mappings.count == 3)
+    }
+
     @Test("Every invalid numeric field reports its canonical path and rule")
     func rejectsInvalidValues() {
         for probe in invalidNumericProbes {
@@ -190,6 +238,55 @@ struct ConfigurationValidationTests {
             try invalidConfiguration.save(to: configurationURL)
         }
         #expect(try Data(contentsOf: configurationURL) == validData)
+    }
+
+    @Test("Conflicting artist mappings do not replace an existing file")
+    func conflictsPreserveFile() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenreUpdaterArtistMappingValidation", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let configurationURL = directory.appendingPathComponent("config.json")
+        try AppConfiguration().save(to: configurationURL)
+        let validData = try Data(contentsOf: configurationURL)
+        var conflicting = AppConfiguration()
+        conflicting.artistRenamer.mappings = [
+            " oldartist  ": "Second",
+            "OldArtist": "First",
+        ]
+
+        #expect(throws: ConfigurationValidationError.self) {
+            try conflicting.save(to: configurationURL)
+        }
+        #expect(try Data(contentsOf: configurationURL) == validData)
+    }
+
+    @Test("Persisted artist conflict blocks relaunch until the file is repaired")
+    func relaunchRequiresRepair() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenreUpdaterArtistMappingRelaunch", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let configurationURL = directory.appendingPathComponent("config.json")
+        var conflicting = AppConfiguration()
+        conflicting.artistRenamer.mappings = [
+            " oldartist  ": "Second",
+            "OldArtist": "First",
+        ]
+        try JSONEncoder().encode(conflicting).write(to: configurationURL, options: .atomic)
+
+        #expect(throws: ConfigurationValidationError.self) {
+            _ = try AppConfiguration.load(from: configurationURL)
+        }
+
+        var repaired = AppConfiguration()
+        repaired.artistRenamer.mappings = ["OldArtist": "First"]
+        try JSONEncoder().encode(repaired).write(to: configurationURL, options: .atomic)
+
+        let reloaded = try AppConfiguration.load(from: configurationURL)
+        #expect(reloaded.artistRenamer.mappings == ["OldArtist": "First"])
     }
 
     @Test("Non-finite configuration fails before persistence encoding")
