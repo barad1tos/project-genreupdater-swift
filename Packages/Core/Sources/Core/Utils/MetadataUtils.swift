@@ -54,9 +54,7 @@ public func stripAlbumSuffixes(_ album: String, suffixes: [String]) -> String {
             else { continue }
 
             cleaned = String(cleaned[cleaned.startIndex ..< matchRange.lowerBound])
-            cleaned = cleaned.trimmingCharacters(
-                in: CharacterSet(charactersIn: " \t-\u{2013}\u{2014}")
-            )
+            cleaned = trimTrailingSeparators(cleaned)
             matched = true
             break
         }
@@ -222,6 +220,15 @@ private func compileSuffixPatterns(_ rawSuffixes: [String]) -> [(String, NSRegul
     }
 
     return result
+}
+
+private func trimTrailingSeparators(_ text: String) -> String {
+    var trimmed = text
+    while let last = trimmed.last,
+          last == " " || last == "\t" || last == "-" || last == "\u{2013}" || last == "\u{2014}" {
+        trimmed.removeLast()
+    }
+    return trimmed
 }
 
 /// Check if artist/album pair is in the cleaning exceptions list.

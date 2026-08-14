@@ -305,8 +305,8 @@ struct MetadataCleaningTests {
         #expect(await lookupRecorder.queriedArtists().contains("Journey"))
     }
 
-    @Test("Cleaning exceptions use artist rename mappings")
-    func cleaningExceptionsUseArtistRenameMappings() async throws {
+    @Test("Rename-target exceptions do not suppress pre-rename cleaning")
+    func targetExceptionKeepsCleaning() async throws {
         var cleaning = CleaningConfig()
         cleaning.trackCleaningExceptions = [
             TrackCleaningException(artist: "Beatles", album: "Album Remastered"),
@@ -334,13 +334,43 @@ struct MetadataCleaningTests {
             dryRun: true
         )
 
-        #expect(!changes.contains { $0.changeType == .trackCleaning })
-        #expect(!changes.contains { $0.changeType == .albumCleaning })
-        #expect(changes.contains { $0.changeType == .artistRename })
+        #expect(changes.map(\.changeType) == [.trackCleaning, .albumCleaning, .artistRename])
     }
 
-    @Test("Artist rename is proposed before cleaning while cleaning keeps original proposal identity")
-    func artistRenameIsProposedBeforeCleaningWhileCleaningKeepsOriginalProposalIdentity() async throws {
+    @Test("Raw-artist exceptions suppress cleaning before rename")
+    func rawExceptionSkipsCleaning() async throws {
+        var cleaning = CleaningConfig()
+        cleaning.trackCleaningExceptions = [
+            TrackCleaningException(artist: "The Beatles", album: "Album Remastered"),
+        ]
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            artistRenameMappings: ["The Beatles": "Beatles"],
+            policies: UpdateRuntimeConfiguration.Policies(cleaning: cleaning)
+        )
+        let coordinator = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
+        let track = makeTrack(
+            name: "Song (Remastered 2020)",
+            artist: "The Beatles",
+            album: "Album Remastered"
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(
+                updateGenre: false,
+                updateYear: false,
+                cleanTrackNames: true,
+                cleanAlbumNames: true,
+                minConfidence: 0
+            ),
+            dryRun: true
+        )
+
+        #expect(changes.map(\.changeType) == [.artistRename])
+    }
+
+    @Test("Cleaning precedes rename while proposals keep raw display identity")
+    func cleaningKeepsRawIdentity() async throws {
         let runtimeConfiguration = UpdateRuntimeConfiguration(
             artistRenameMappings: ["The Beatles": "Beatles"]
         )
@@ -363,9 +393,62 @@ struct MetadataCleaningTests {
             dryRun: true
         )
 
-        #expect(changes.map(\.changeType) == [.artistRename, .trackCleaning, .albumCleaning])
+        #expect(changes.map(\.changeType) == [.trackCleaning, .albumCleaning, .artistRename])
         #expect(changes.first { $0.changeType == .trackCleaning }?.track.artist == "The Beatles")
+        #expect(changes.first { $0.changeType == .trackCleaning }?.track.name == "Song (Remastered 2020)")
         #expect(changes.first { $0.changeType == .albumCleaning }?.track.artist == "The Beatles")
+        #expect(changes.first { $0.changeType == .albumCleaning }?.track.album == "Album Remastered")
+    }
+
+    @Test("Cleaned and renamed values feed downstream year decisions")
+    func combinedMetadataFeedsYear() async throws {
+        let lookupRecorder = AlbumYearLookupRecorder()
+        let apiService = RecordingAlbumYearAPIService(
+            lookupRecorder: lookupRecorder,
+            yearResult: YearResult(
+                year: 1968,
+                isDefinitive: true,
+                confidence: 100,
+                yearScores: [1968: 100]
+            )
+        )
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            artistRenameMappings: ["The Beatles": "Beatles"],
+            policies: UpdateRuntimeConfiguration.Policies(isYearLookupEnabled: true)
+        )
+        let coordinator = await makeCoordinator(
+            runtimeConfiguration: runtimeConfiguration,
+            apiService: apiService
+        )
+        let track = makeTrack(
+            name: "Song (Remastered 2020)",
+            artist: "The Beatles",
+            album: "Album Remastered",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 2000)
+        )
+
+        let changes = try await coordinator.updateTrack(
+            track,
+            options: UpdateOptions(
+                updateGenre: false,
+                updateYear: true,
+                forceYearLookup: true,
+                cleanTrackNames: true,
+                cleanAlbumNames: true,
+                minConfidence: 0
+            ),
+            dryRun: true
+        )
+
+        #expect(changes.map(\.changeType) == [
+            .trackCleaning,
+            .albumCleaning,
+            .artistRename,
+            .yearUpdate,
+        ])
+        #expect(await lookupRecorder.queriedArtists().allSatisfy { $0 == "Beatles" })
+        #expect(await lookupRecorder.queriedAlbums().allSatisfy { $0 == "Album" })
     }
 
     @Test("Empty cleaned album names do not feed year lookup")
