@@ -26,6 +26,7 @@ final class AppDependencies {
     private(set) var appState: AppState = .loading
     /// Serialized runtime-apply chain; see `enqueueRuntimeApplyAndPublish`.
     var runtimeApplyQueue: Task<Void, Never>?
+    @ObservationIgnored var appliedTier: Tier?
     @ObservationIgnored var appliedCacheAccess: Bool?
     /// Chrome mirror for Commands/MenuBarExtra; `refreshChromeProjection()`
     /// is the SOLE publisher (pinned by `oneChromeTruthAcrossSurfaces`).
@@ -280,6 +281,7 @@ final class AppDependencies {
             let gate = Self.makeFeatureGate(for: subscription)
             #endif
             featureGate = gate
+            appliedTier = gate.currentTier
             let canUseAdvancedCache = gate.canAccess(.advancedCache)
             appliedCacheAccess = canUseAdvancedCache
             let cacheConfiguration = Self.effectiveCacheConfiguration(config, canUseAdvancedCache: canUseAdvancedCache)
@@ -741,6 +743,7 @@ extension AppDependencies {
 
     func installTestFeatureGate(_ gate: FeatureGate) {
         featureGate = gate
+        appliedTier = gate.currentTier
         appliedCacheAccess = gate.canAccess(.advancedCache)
     }
 

@@ -81,14 +81,15 @@ extension AppDependencies {
         )
     }
 
-    /// Reapplies cache consumers only when paid advanced-cache access changed.
+    /// Reapplies tier-dependent runtime consumers after a subscription change.
     @discardableResult
     func handleSubscriptionTierChange() -> Bool {
         guard let featureGate else { return false }
-        let canUseAdvancedCache = featureGate.canAccess(.advancedCache)
-        guard canUseAdvancedCache != appliedCacheAccess else { return false }
+        let tier = featureGate.currentTier
+        guard tier != appliedTier else { return false }
 
-        appliedCacheAccess = canUseAdvancedCache
+        appliedTier = tier
+        appliedCacheAccess = featureGate.canAccess(.advancedCache)
         enqueueRuntimeApplyAndPublish()
         return true
     }
