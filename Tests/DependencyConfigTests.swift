@@ -8,6 +8,94 @@ import Testing
 @Suite("AppDependencies configuration persistence")
 @MainActor
 struct DependencyConfigTests {
+    @Test("Free cache access uses defaults without changing saved settings")
+    func freeCacheDefaults() {
+        let defaults = AppConfiguration()
+        var saved = defaults
+        saved.runtime.cacheTTLSeconds = 7
+        saved.runtime.maxGenericEntries = 17
+        saved.caching.defaultTTLSeconds = 11
+        saved.caching.cleanupIntervalSeconds = 13
+        saved.caching.negativeResultTTL = 19
+        saved.caching.librarySnapshot.enabled = false
+        saved.caching.librarySnapshot.maxAgeHours = 23
+        saved.processing.cacheTTLDays = 29
+        saved.development.testArtists = ["Cache Policy Probe"]
+
+        let free = AppDependencies.effectiveCacheConfiguration(saved, canUseAdvancedCache: false)
+        let paid = AppDependencies.effectiveCacheConfiguration(saved, canUseAdvancedCache: true)
+
+        #expect(free.caching.defaultTTLSeconds == defaults.caching.defaultTTLSeconds)
+        #expect(free.runtime.cacheTTLSeconds == defaults.runtime.cacheTTLSeconds)
+        #expect(free.runtime.maxGenericEntries == defaults.runtime.maxGenericEntries)
+        #expect(free.caching.cleanupIntervalSeconds == defaults.caching.cleanupIntervalSeconds)
+        #expect(free.processing.cacheTTLDays == defaults.processing.cacheTTLDays)
+        #expect(free.caching.negativeResultTTL == defaults.caching.negativeResultTTL)
+        #expect(free.caching.librarySnapshot.enabled == defaults.caching.librarySnapshot.enabled)
+        #expect(free.caching.librarySnapshot.maxAgeHours == defaults.caching.librarySnapshot.maxAgeHours)
+        #expect(free.development.testArtists == saved.development.testArtists)
+
+        #expect(paid.runtime.cacheTTLSeconds == saved.runtime.cacheTTLSeconds)
+        #expect(paid.runtime.maxGenericEntries == saved.runtime.maxGenericEntries)
+        #expect(paid.caching.defaultTTLSeconds == saved.caching.defaultTTLSeconds)
+        #expect(paid.caching.cleanupIntervalSeconds == saved.caching.cleanupIntervalSeconds)
+        #expect(paid.processing.cacheTTLDays == saved.processing.cacheTTLDays)
+        #expect(paid.caching.negativeResultTTL == saved.caching.negativeResultTTL)
+        #expect(paid.caching.librarySnapshot.enabled == saved.caching.librarySnapshot.enabled)
+        #expect(paid.caching.librarySnapshot.maxAgeHours == saved.caching.librarySnapshot.maxAgeHours)
+
+        #expect(saved.runtime.cacheTTLSeconds == 7)
+        #expect(saved.caching.negativeResultTTL == 19)
+    }
+
+    @Test("Subscription transitions apply cache access once without rewriting settings")
+    func cacheAccessTransitions() async throws {
+        var saved = AppConfiguration()
+        saved.runtime.maxGenericEntries = 1
+        saved.caching.librarySnapshot.enabled = false
+        saved.caching.negativeResultTTL = 7200
+        let dependencies = AppDependencies(
+            configurationLoader: { saved },
+            configurationSaver: { _ in
+                Issue.record("Tier transitions must not persist or rewrite configuration")
+            }
+        )
+        let tier = MutableTier(.free)
+        let gate = FeatureGate(
+            tierProvider: { tier.value },
+            freeTracksUsedProvider: { 0 },
+            usageRecorder: { _ in }
+        )
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        dependencies.installTestFeatureGate(gate)
+        dependencies.installTestCacheService(cache)
+
+        tier.value = .weekPass
+        #expect(dependencies.handleSubscriptionTierChange())
+        #expect(!dependencies.handleSubscriptionTierChange())
+        await dependencies.runtimeApplyQueue?.value
+
+        await cache.set(key: "paid-a", value: 1, ttl: 3600)
+        await cache.set(key: "paid-b", value: 2, ttl: 3600)
+        let paidStatistics = await cache.getCacheStatistics()
+        #expect(paidStatistics.genericCacheCount == 1)
+        #expect(await dependencies.librarySnapshotService?.isEnabled == false)
+
+        tier.value = .free
+        #expect(dependencies.handleSubscriptionTierChange())
+        #expect(!dependencies.handleSubscriptionTierChange())
+        await dependencies.runtimeApplyQueue?.value
+
+        await cache.set(key: "free-c", value: 3, ttl: 3600)
+        let freeStatistics = await cache.getCacheStatistics()
+        #expect(freeStatistics.genericCacheCount == 2)
+        #expect(await dependencies.librarySnapshotService?.isEnabled == true)
+        #expect(dependencies.config.runtime.maxGenericEntries == 1)
+        #expect(dependencies.config.caching.librarySnapshot.enabled == false)
+        #expect(dependencies.config.caching.negativeResultTTL == 7200)
+    }
+
     @Test("Configuration load failure surfaces app error instead of silently using defaults")
     func configurationLoadFailureSurfacesAppError() async {
         let dependencies = AppDependencies(
@@ -395,6 +483,15 @@ private enum StubConfigurationError: LocalizedError {
         case .saveFailed:
             "test configuration save failed"
         }
+    }
+}
+
+@MainActor
+private final class MutableTier {
+    var value: Tier
+
+    init(_ value: Tier) {
+        self.value = value
     }
 }
 

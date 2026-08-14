@@ -27,6 +27,9 @@ struct SettingsView: View {
         }
         .frame(width: SettingsLayout.windowWidth, height: SettingsLayout.windowHeight)
         .scenePadding()
+        .onChange(of: dependencies.subscriptionService?.currentTier) {
+            dependencies.handleSubscriptionTierChange()
+        }
     }
 }
 

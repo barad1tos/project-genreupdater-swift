@@ -25,6 +25,7 @@ struct RunRuntimeFactory {
             scope: scope,
             albumTarget: configuration.albumTarget
         )
+        let cacheConfiguration = cacheConfiguration(for: appConfiguration)
         let runServices = try await services.prepare(id: configuration.id, configuration: appConfiguration)
         return LibrarySyncService(
             scriptBridge: runServices.scripts,
@@ -33,7 +34,7 @@ struct RunRuntimeFactory {
             pendingVerificationService: runServices.pendingVerification,
             librarySnapshotService: AppDependencies.makeSnapshotService(
                 cache: cache,
-                configuration: appConfiguration
+                configuration: cacheConfiguration
             ),
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 configuration: appConfiguration,
@@ -55,21 +56,19 @@ struct RunRuntimeFactory {
             scope: scope,
             albumTarget: configuration.albumTarget
         )
+        let cacheConfiguration = cacheConfiguration(for: appConfiguration)
         let runServices = try await services.consume(id: configuration.id, configuration: appConfiguration)
         let snapshotService = AppDependencies.makeSnapshotService(
             cache: cache,
-            configuration: appConfiguration
+            configuration: cacheConfiguration
         )
-        let capturedAccess = await discogsAccessStore.consume(configurationID: configuration.id)
-        guard !configuration.hasDiscogsAccess || capturedAccess != nil else {
-            throw RunRuntimeError.missingDiscogsAccess
-        }
+        let capturedAccess = try await discogsAccess(for: configuration)
         let apiOrchestrator = AppDependencies.makeCapturedAPI(
-            configuration: appConfiguration,
+            configuration: cacheConfiguration,
             cache: cache,
             pendingVerificationService: runServices.pendingVerification,
             reachability: reachability,
-            discogsAccess: capturedAccess ?? .disabled
+            discogsAccess: capturedAccess
         )
         let coordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
@@ -123,15 +122,16 @@ struct RunRuntimeFactory {
             scope: scope,
             albumTarget: configuration.albumTarget
         )
+        let cacheConfiguration = cacheConfiguration(for: appConfiguration)
         let runServices = try await services.consume(id: configuration.id, configuration: appConfiguration)
         let snapshotService = AppDependencies.makeSnapshotService(
             cache: cache,
-            configuration: appConfiguration
+            configuration: cacheConfiguration
         )
         let coordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: AppDependencies.makeCapturedAPI(
-                    configuration: appConfiguration,
+                    configuration: cacheConfiguration,
                     cache: cache,
                     pendingVerificationService: runServices.pendingVerification,
                     reachability: reachability,
@@ -154,6 +154,22 @@ struct RunRuntimeFactory {
     func discard(_ configuration: FixPlanConfig) async {
         await services.discard(id: configuration.id)
         await discogsAccessStore.discard(configurationID: configuration.id)
+    }
+
+    @MainActor
+    func cacheConfiguration(for configuration: AppConfiguration) -> AppConfiguration {
+        AppDependencies.effectiveCacheConfiguration(
+            configuration,
+            canUseAdvancedCache: gate.canAccess(.advancedCache)
+        )
+    }
+
+    private func discogsAccess(for configuration: FixPlanConfig) async throws -> DiscogsAccess {
+        let access = await discogsAccessStore.consume(configurationID: configuration.id)
+        guard !configuration.hasDiscogsAccess || access != nil else {
+            throw RunRuntimeError.missingDiscogsAccess
+        }
+        return access ?? .disabled
     }
 
     private func scopedConfiguration(
@@ -275,6 +291,36 @@ private enum RunRuntimeError: LocalizedError {
 }
 
 extension AppDependencies {
+    static func makeSnapshotService(
+        cache: any PersistentCacheService,
+        configuration: AppConfiguration
+    ) -> CachedLibrarySnapshotService {
+        CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: configuration.caching.librarySnapshot,
+            libraryModificationDateProvider: makeLibraryDateProvider(
+                path: configuration.paths.musicLibraryPath
+            )
+        )
+    }
+
+    static func effectiveCacheConfiguration(
+        _ configuration: AppConfiguration,
+        canUseAdvancedCache: Bool
+    ) -> AppConfiguration {
+        guard !canUseAdvancedCache else {
+            return configuration
+        }
+
+        let defaults = AppConfiguration()
+        var effective = configuration
+        effective.caching = defaults.caching
+        effective.runtime.cacheTTLSeconds = defaults.runtime.cacheTTLSeconds
+        effective.runtime.maxGenericEntries = defaults.runtime.maxGenericEntries
+        effective.processing.cacheTTLDays = defaults.processing.cacheTTLDays
+        return effective
+    }
+
     static func defaultGenericCacheTTL(configuration: AppConfiguration) -> TimeInterval {
         let candidates = [
             configuration.caching.defaultTTLSeconds,
@@ -290,5 +336,33 @@ extension AppDependencies {
 
     static func apiResultCacheTTL(configuration: AppConfiguration) -> TimeInterval {
         GRDBCacheService.resolvedAPIResultTTL(configuration: configuration)
+    }
+
+    private static func makeLibraryDateProvider(path: String) -> @Sendable () -> Date? {
+        let resolvedPath = resolveConfigurationPath(path)
+        return {
+            guard !resolvedPath.isEmpty else { return nil }
+            let attributes = try? FileManager.default.attributesOfItem(atPath: resolvedPath)
+            return attributes?[.modificationDate] as? Date
+        }
+    }
+
+    private static func resolveConfigurationPath(_ path: String) -> String {
+        var resolvedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedPath.isEmpty else { return "" }
+
+        resolvedPath = resolvedPath.replacingOccurrences(of: "${HOME}", with: NSHomeDirectory())
+        let appSupportDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
+        if resolvedPath.contains("${APP_SUPPORT}"), let appSupportDirectory {
+            resolvedPath = resolvedPath.replacingOccurrences(
+                of: "${APP_SUPPORT}",
+                with: appSupportDirectory.appendingPathComponent("GenreUpdater", isDirectory: true).path
+            )
+        }
+
+        return (resolvedPath as NSString).expandingTildeInPath
     }
 }
