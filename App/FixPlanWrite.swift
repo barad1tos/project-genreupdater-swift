@@ -162,6 +162,7 @@ enum FixPlanWrite {
             }).count
             return try await dependencies.batchProcessor.performRecoverableWrite(
                 trackCount: trackCount,
+                requiredFeature: nil,
                 appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
                 partialTrackIDs: { _ in [] },
                 operation: {

@@ -201,6 +201,8 @@ public actor BatchProcessor {
     ///   - trackCount: Distinct tracks this write may touch. Required rather
     ///     than defaulted so the compiler names every write path when the gate
     ///     moves; a default would let a caller opt out in silence.
+    ///   - requiredFeature: Additional paid feature required by the accepted
+    ///     write set, or `nil` when ordinary free-track admission is sufficient.
     ///   - appliedTrackIDs: Projects the distinct tracks actually changed by a
     ///     successful operation. Failed and no-op writes must not be returned.
     ///   - partialTrackIDs: Projects known successful changes carried by a
@@ -208,11 +210,16 @@ public actor BatchProcessor {
     ///   - operation: Performs the admitted write and returns its result.
     public func performRecoverableWrite<Value: Sendable>(
         trackCount: Int,
+        requiredFeature: AppFeature?,
         appliedTrackIDs: @Sendable (Value) -> Set<String>,
         partialTrackIDs: @Sendable (any Error) -> Set<String>,
         operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
-        try await reserveWrite(requiresBatchFeature: false, trackCount: trackCount)
+        try await reserveWrite(
+            requiresBatchFeature: false,
+            requiredFeature: requiredFeature,
+            trackCount: trackCount
+        )
         defer { isWriteReserved = false }
         do {
             let result = try await operation()
@@ -260,8 +267,7 @@ public actor BatchProcessor {
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> [ChangeLogEntry] {
         try await reserveWrite(
-            requiresBatchFeature: true,
-            trackCount: Set(tracks.map(\.id)).count
+            requiresBatchFeature: true, requiredFeature: nil, trackCount: Set(tracks.map(\.id)).count
         )
         defer { isWriteReserved = false }
         var resume = try await loadResumeState(
@@ -420,7 +426,11 @@ public actor BatchProcessor {
 
     // MARK: Internal Steps
 
-    private func reserveWrite(requiresBatchFeature: Bool, trackCount: Int) async throws {
+    private func reserveWrite(
+        requiresBatchFeature: Bool,
+        requiredFeature: AppFeature?,
+        trackCount: Int
+    ) async throws {
         guard !isWriteReserved else {
             throw BatchProcessorError.alreadyRunning
         }
@@ -430,6 +440,9 @@ public actor BatchProcessor {
             // the paid gate lives here. It used to be asked only by
             // WorkflowFilters, so the reviewed-apply, restore, pending-
             // verification, and fix-plan paths all wrote past the free limit.
+            if let requiredFeature {
+                try await featureGate.require(requiredFeature)
+            }
             try await featureGate.requireTrackCapacity(count: trackCount)
             if requiresBatchFeature {
                 guard await featureGate.canAccess(.batchProcessing) else {

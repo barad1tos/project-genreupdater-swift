@@ -42,4 +42,14 @@ struct AppFeatureTests {
         #expect(grouped[.weekPass]?.count == 4)
         #expect(grouped[.pro]?.count == 1)
     }
+
+    @Test("Cleaning and rename changes require the paid cleaning feature")
+    func requiredWriteFeature() {
+        #expect(ChangeType.trackCleaning.requiredWriteFeature == .artistAlbumCleaning)
+        #expect(ChangeType.albumCleaning.requiredWriteFeature == .artistAlbumCleaning)
+        #expect(ChangeType.artistRename.requiredWriteFeature == .artistAlbumCleaning)
+        #expect(ChangeType.genreUpdate.requiredWriteFeature == nil)
+        #expect(ChangeType.yearUpdate.requiredWriteFeature == nil)
+        #expect(ChangeType.yearRevert.requiredWriteFeature == nil)
+    }
 }

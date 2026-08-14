@@ -24,6 +24,7 @@ extension WorkflowViewModel {
                 let coordinator = updateCoordinator
                 restoreResult = try await batchProcessor.performRecoverableWrite(
                     trackCount: Set(scopedTracks.map(\.id)).count,
+                    requiredFeature: nil,
                     appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
                     partialTrackIDs: { _ in [] },
                     operation: {
