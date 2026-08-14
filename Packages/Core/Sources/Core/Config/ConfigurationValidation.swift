@@ -39,15 +39,6 @@ extension AppConfiguration {
         try validation.finish()
     }
 
-    /// Validates numeric domain bounds, finiteness, and runtime conversion capacity.
-    ///
-    /// - Throws: `ConfigurationValidationError` containing one issue per invalid field, sorted by canonical path.
-    public func validateNumericValues() throws {
-        var validation = ValidationCollector()
-        validateNumericValues(using: &validation)
-        try validation.finish()
-    }
-
     private func validateNumericValues(using validation: inout ValidationCollector) {
         validateRuntime(using: &validation)
         validateAppleScript(using: &validation)

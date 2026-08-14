@@ -70,7 +70,7 @@ struct SettingsCommandsTests {
     func rejectsInvalidSettings() async {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { try $0.validateNumericValues() }
+            configurationSaver: { try $0.validate() }
         )
         var edited = dependencies.config
         edited.genreUpdate.batchSize = 0
@@ -89,7 +89,7 @@ struct SettingsCommandsTests {
     func rejectsNonFiniteSettings() async {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { try $0.validateNumericValues() }
+            configurationSaver: { try $0.validate() }
         )
         var edited = dependencies.config
         edited.analytics.durationThresholds.shortMax = .nan
