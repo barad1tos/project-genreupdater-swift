@@ -9,7 +9,20 @@ public struct GenreUpdateConfig: Sendable, Codable {
     public var concurrentLimit: Int = 5
     public var overrideExisting: Bool = false
 
+    private enum CodingKeys: String, CodingKey {
+        case batchSize, concurrentLimit, overrideExisting
+    }
+
     public init() { /* memberwise defaults are the whole initial state */ }
+
+    public init(from decoder: any Decoder) throws {
+        let defaults = Self()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        batchSize = try container.decodeIfPresent(Int.self, forKey: .batchSize) ?? defaults.batchSize
+        concurrentLimit = try container.decodeIfPresent(Int.self, forKey: .concurrentLimit) ?? defaults.concurrentLimit
+        overrideExisting = try container.decodeIfPresent(Bool.self, forKey: .overrideExisting)
+            ?? defaults.overrideExisting
+    }
 }
 
 // MARK: - Update Behavior
