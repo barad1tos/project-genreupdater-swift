@@ -18,6 +18,8 @@ struct DependencyConfigTests {
         )
 
         #expect(dependencies.configurationLoadIssue?.contains("test configuration load failed") == true)
+        #expect(dependencies.configurationLoadIssue?.contains(AppConfiguration.configFileURL.path) == true)
+        #expect(dependencies.configurationLoadIssue?.contains("Try Again") == true)
         #expect(isAppError(dependencies.appState, containing: "test configuration load failed"))
 
         await dependencies.initialize()
@@ -70,6 +72,21 @@ struct DependencyConfigTests {
         #expect(dependencies.config.development.testArtists == ["Retry Probe"])
     }
 
+    @Test("Failed retry keeps configuration recovery instructions")
+    func keepsRetryGuidance() async {
+        let loader = RetryConfigurationLoader()
+        let dependencies = AppDependencies(
+            configurationLoader: { try loader.load() },
+            configurationSaver: { _ in }
+        )
+
+        await dependencies.retryInitialization()
+
+        #expect(loader.callCount == 2)
+        #expect(dependencies.configurationLoadIssue?.contains(AppConfiguration.configFileURL.path) == true)
+        #expect(dependencies.configurationLoadIssue?.contains("Try Again") == true)
+    }
+
     @Test("Workflow prerequisite failure names the missing services")
     func workflowPrerequisiteFailureNamesTheMissingServices() {
         let error = AppInitializationError.missingWorkflowPrerequisites(["apiOrchestrator", "trackStore"])
@@ -86,7 +103,7 @@ struct DependencyConfigTests {
 
         let didSave = dependencies.persistConfiguration()
 
-        #expect(didSave == false)
+        #expect(didSave == .unavailable)
         #expect(isAppError(dependencies.appState, containing: "test configuration save failed"))
         #expect(dependencies.apiOrchestrator == nil)
     }
@@ -103,12 +120,12 @@ struct DependencyConfigTests {
             }
         )
 
-        #expect(dependencies.persistConfiguration() == false)
+        #expect(dependencies.persistConfiguration() == .unavailable)
         #expect(isAppError(dependencies.appState, containing: "test configuration save failed"))
 
         shouldFailSave = false
 
-        #expect(dependencies.persistConfiguration())
+        #expect(dependencies.persistConfiguration() == .saved)
         #expect(isAppLoading(dependencies.appState))
     }
 
@@ -151,7 +168,7 @@ struct DependencyConfigTests {
             configuration.runtime.maxGenericEntries = 0
         }
 
-        #expect(status == .temporaryUnavailable)
+        #expect(status == .rejectedInvalid)
         #expect(dependencies.config.runtime.maxGenericEntries == 10000)
         #expect(dependencies.config.revision == 0)
         #expect(isAppError(dependencies.appState, containing: "runtime.maxGenericEntries"))
@@ -202,7 +219,7 @@ struct DependencyConfigTests {
         dependencies.config.paths.logsBaseDirectory = logsDirectory.path
         dependencies.config.logging.lastIncrementalRunFile = "state/last_incremental_run.log"
 
-        #expect(dependencies.persistConfiguration())
+        #expect(dependencies.persistConfiguration() == .saved)
         await dependencies.applyRuntimeConfigurationAndWait()
         #expect(didSaveConfiguration)
 
@@ -234,7 +251,7 @@ struct DependencyConfigTests {
         dependencies.config.albumTypeDetection.soundtrackPatterns = ["Game Score"]
         dependencies.config.yearRetrieval.logic.definitiveScoreDiff = 15
 
-        #expect(dependencies.persistConfiguration())
+        #expect(dependencies.persistConfiguration() == .saved)
         await dependencies.applyRuntimeConfigurationAndWait()
         #expect(didSaveConfiguration)
         #expect(dependencies.yearDeterminator?.scorer.editionKeywords == ["Anniversary", "Deluxe"])

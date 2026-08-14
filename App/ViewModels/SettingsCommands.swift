@@ -35,6 +35,14 @@ enum SettingsCommands {
         case .requiresAttention:
             Task { await dependencies.publishSettingsProjection() }
             return .requiresAttention
+        case .rejectedInvalid:
+            Task {
+                await dependencies.publishSettingsProjection(
+                    saveErrorMessage: dependencies.configurationSaveErrorMessage
+                )
+                await dependencies.refreshChromeProjection()
+            }
+            return .rejectedInvalid
         case .temporaryUnavailable:
             Task {
                 // Re-probe at execution: a retry may have repaired the
@@ -67,6 +75,13 @@ enum SettingsCommands {
             let refreshed = await dependencies.publishSettingsProjection()
             return .requiresAttention(message: message, refreshedSettings: refreshed)
 
+        case let .rejectedInvalid(message):
+            let refreshed = await dependencies.publishSettingsProjection(
+                saveErrorMessage: dependencies.configurationSaveErrorMessage
+            )
+            await dependencies.refreshChromeProjection()
+            return .rejectedInvalid(message: message, refreshedSettings: refreshed)
+
         case .temporaryUnavailable:
             let saveError = dependencies.configurationSaveErrorMessage ?? "Could not save the configuration."
             let refreshed = await dependencies.publishSettingsProjection(saveErrorMessage: saveError)
@@ -92,6 +107,7 @@ enum SettingsCommands {
         case accepted
         case rejectedStale(message: String)
         case requiresAttention(message: String)
+        case rejectedInvalid(message: String)
         case temporaryUnavailable(message: String)
     }
 
@@ -125,11 +141,16 @@ enum SettingsCommands {
         accepted.revision = bumpedRevision
         dependencies.config = accepted
 
-        guard dependencies.persistConfiguration() else {
+        switch dependencies.persistConfiguration() {
+        case .saved:
+            return .accepted
+        case let .invalid(error):
+            dependencies.config = previousConfiguration
+            return .rejectedInvalid(message: error.localizedDescription)
+        case .unavailable:
             dependencies.config = previousConfiguration
             return .temporaryUnavailable(message: "Could not save the configuration. Nothing was changed.")
         }
-        return .accepted
     }
 }
 

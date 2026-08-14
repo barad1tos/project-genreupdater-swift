@@ -262,9 +262,17 @@ extension AppConfiguration {
             minimum: 1,
             path: "yearRetrieval.rateLimits.discogsRequestsPerMinute"
         )
+        validation.requireTokenCapacity(
+            yearRetrieval.rateLimits.discogsRequestsPerMinute,
+            path: "yearRetrieval.rateLimits.discogsRequestsPerMinute"
+        )
         validation.requireAtLeast(
             yearRetrieval.rateLimits.musicbrainzRequestsPerSecond,
             minimum: 0,
+            path: "yearRetrieval.rateLimits.musicbrainzRequestsPerSecond"
+        )
+        validation.requireTokenCapacity(
+            yearRetrieval.rateLimits.musicbrainzRequestsPerSecond,
             path: "yearRetrieval.rateLimits.musicbrainzRequestsPerSecond"
         )
         validation.requireAtLeast(
@@ -450,6 +458,16 @@ private struct NumericValidation {
     mutating func requireAtMost(_ value: Int, maximum: Int, path: String) {
         guard value > maximum else { return }
         append(path: path, value: String(value), requirement: "must be at most \(maximum)")
+    }
+
+    mutating func requireTokenCapacity(_ value: Int, path: String) {
+        guard Int(exactly: Double(value).rounded(.up)) == nil else { return }
+        append(path: path, value: String(value), requirement: "must fit the rate limiter token capacity")
+    }
+
+    mutating func requireTokenCapacity(_ value: Double, path: String) {
+        guard !value.isFinite || Int(exactly: value.rounded(.up)) == nil else { return }
+        append(path: path, value: String(value), requirement: "must fit the rate limiter token capacity")
     }
 
     mutating func requireInRange(_ value: Int, range: ClosedRange<Int>, path: String) {

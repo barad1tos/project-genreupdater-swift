@@ -311,8 +311,14 @@ struct ConfigurationValidationTests {
             minimumOne("yearRetrieval.rateLimits.discogsRequestsPerMinute", "0") {
                 $0.yearRetrieval.rateLimits.discogsRequestsPerMinute = 0
             },
+            tokenCapacity("yearRetrieval.rateLimits.discogsRequestsPerMinute", String(Int.max)) {
+                $0.yearRetrieval.rateLimits.discogsRequestsPerMinute = .max
+            },
             minimumZero("yearRetrieval.rateLimits.musicbrainzRequestsPerSecond", "-1.0") {
                 $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = -1
+            },
+            tokenCapacity("yearRetrieval.rateLimits.musicbrainzRequestsPerSecond", "1e+308") {
+                $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 1e308
             },
             minimumOne("yearRetrieval.rateLimits.concurrentAPICalls", "0") {
                 $0.yearRetrieval.rateLimits.concurrentAPICalls = 0
@@ -494,6 +500,14 @@ struct ConfigurationValidationTests {
         mutate: @escaping @Sendable (inout AppConfiguration) -> Void
     ) -> InvalidNumericProbe {
         probe(path, "1", "must be at most 0", mutate: mutate)
+    }
+
+    private func tokenCapacity(
+        _ path: String,
+        _ receivedValue: String,
+        mutate: @escaping @Sendable (inout AppConfiguration) -> Void
+    ) -> InvalidNumericProbe {
+        probe(path, receivedValue, "must fit the rate limiter token capacity", mutate: mutate)
     }
 
     private func minimumThousand(

@@ -8,6 +8,12 @@ import SwiftUI
 private let log = AppLogger.make(category: "dependencies")
 private let configurationSaveErrorPrefix = "Failed to save configuration:"
 
+enum ConfigurationSaveResult: Equatable {
+    case saved
+    case invalid(ConfigurationValidationError)
+    case unavailable
+}
+
 // MARK: - App Dependencies
 
 /// Central dependency container and app state manager; injected via
@@ -167,7 +173,7 @@ final class AppDependencies {
         do {
             config = try configurationLoader()
         } catch {
-            let message = "Failed to load configuration: \(error.localizedDescription)"
+            let message = Self.loadFailureMessage(for: error)
             config = AppConfiguration()
             configurationLoadIssue = message
             appState = .error(message)
@@ -294,7 +300,7 @@ final class AppDependencies {
                 config = try configurationLoader()
                 configurationLoadIssue = nil
             } catch {
-                let message = "Failed to load configuration: \(error.localizedDescription)"
+                let message = Self.loadFailureMessage(for: error)
                 configurationLoadIssue = message
                 appState = .error(message)
                 log.error("\(message, privacy: .public)")
@@ -323,7 +329,7 @@ final class AppDependencies {
     /// Persists WITHOUT runtime effects (the settings command path owns
     /// the apply); a successful save also repairs a failed initial load.
     @discardableResult
-    func persistConfiguration() -> Bool {
+    func persistConfiguration() -> ConfigurationSaveResult {
         do {
             try configurationSaver(config)
             configurationLoadIssue = nil
@@ -332,14 +338,22 @@ final class AppDependencies {
             // so any pending legacy-key migration is superseded: a stale key
             // must not overwrite a newer explicit choice on the next launch.
             UserDefaults.standard.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
-            return true
+            return .saved
         } catch {
             let message = "\(configurationSaveErrorPrefix) \(error.localizedDescription)"
             log.error("\(message, privacy: .public)")
             rememberConfigurationSaveRecoveryState()
             appState = .error(message)
-            return false
+            if let validationError = error as? ConfigurationValidationError {
+                return .invalid(validationError)
+            }
+            return .unavailable
         }
+    }
+
+    private static func loadFailureMessage(for error: any Error) -> String {
+        "Failed to load configuration at \(AppConfiguration.configFileURL.path): \(error.localizedDescription) " +
+            "Review or repair that file, save it, then choose Try Again."
     }
 
     private func rememberConfigurationSaveRecoveryState() {
@@ -399,24 +413,6 @@ final class AppDependencies {
         analyticsService = CachedAnalyticsService(
             cache: cache,
             configuration: config.analytics
-        )
-    }
-
-    static func makeYearDeterminator(configuration: AppConfiguration) -> YearDeterminator {
-        let yearRetrieval = configuration.yearRetrieval
-        return YearDeterminator(
-            scorer: YearScorer(
-                config: yearRetrieval.scoring,
-                yearLogic: yearRetrieval.logic,
-                editionKeywords: configuration.cleaning.editionMarkers,
-                soundtrackPatterns: configuration.albumTypeDetection.soundtrackPatterns
-            ),
-            validator: YearValidator(config: yearRetrieval.logic),
-            fallback: YearFallbackStrategy(
-                config: yearRetrieval.fallback,
-                yearLogic: yearRetrieval.logic
-            ),
-            processingConfig: configuration.processing
         )
     }
 

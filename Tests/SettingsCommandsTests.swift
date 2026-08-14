@@ -66,6 +66,25 @@ struct SettingsCommandsTests {
         #expect(result.refreshedSettings.saveErrorMessage != nil)
     }
 
+    @Test("invalid settings are rejected with actionable field details")
+    func rejectsInvalidSettings() async {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { try $0.validateNumericValues() }
+        )
+        var edited = dependencies.config
+        edited.genreUpdate.batchSize = 0
+        let target = SettingsCommandTarget(expectedSettingsRevision: 0)
+
+        let result = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
+
+        #expect(result.status == .rejectedInvalid)
+        #expect(result.message.contains("genreUpdate.batchSize"))
+        #expect(result.message.contains("must be at least 1"))
+        #expect(dependencies.config.genreUpdate.batchSize > 0)
+        #expect(result.refreshedSettings.saveErrorMessage?.contains("genreUpdate.batchSize") == true)
+    }
+
     @Test("after a rolled-back failure the original revision still accepts")
     func rolledBackFailureKeepsRevisionUsable() async {
         let saved = SavedConfigurations()

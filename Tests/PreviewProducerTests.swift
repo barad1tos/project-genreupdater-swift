@@ -22,7 +22,17 @@ struct PreviewProducerTests {
         try await expectRuntimeRejection(at: .write)
     }
 
-    private func expectRuntimeRejection(at entryPoint: RuntimeEntryPoint) async throws {
+    @Test("Recovered rate-limit overflow fails before runtime services")
+    func rejectsRateOverflow() async throws {
+        try await expectRuntimeRejection(at: .preview) {
+            $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 1e308
+        }
+    }
+
+    private func expectRuntimeRejection(
+        at entryPoint: RuntimeEntryPoint,
+        mutate: (inout AppConfiguration) -> Void = { $0.genreUpdate.batchSize = 0 }
+    ) async throws {
         let services = RunServiceFactory(
             makeScripts: { _ in
                 Issue.record("Invalid historical configuration must fail before script creation")
@@ -35,7 +45,7 @@ struct PreviewProducerTests {
         )
         let runtime = try await makeRuntime(services: services)
         var invalid = AppConfiguration()
-        invalid.genreUpdate.batchSize = 0
+        mutate(&invalid)
         let configuration = FixPlanConfig.capture(
             configuration: invalid,
             options: UpdateOptions(),
