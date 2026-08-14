@@ -131,6 +131,50 @@ struct DependencyConfigTests {
         #expect(dependencies.trackStore == nil)
     }
 
+    @Test("Artist conflict UI refreshes after a failed retry")
+    func retryRefreshesConflict() async throws {
+        var initialConflict = AppConfiguration()
+        initialConflict.artistRenamer.mappings = [
+            " oldartist  ": "Second",
+            "OldArtist": "First",
+        ]
+        let initialData = try JSONEncoder().encode(initialConflict)
+        var retryConflict = AppConfiguration()
+        retryConflict.artistRenamer.mappings = [
+            "newartist": "Fourth",
+            "NewArtist": "Third",
+        ]
+        let retryData = try JSONEncoder().encode(retryConflict)
+        let loader = RetryConfigurationLoader()
+        loader.result = Result {
+            try AppConfiguration.configurationDecoder().decode(AppConfiguration.self, from: initialData)
+        }
+        let dependencies = AppDependencies(
+            configurationLoader: { try loader.load() },
+            configurationSaver: { _ in
+                Issue.record("A failed configuration retry must not save fallback defaults")
+            }
+        )
+
+        #expect(dependencies.configurationLoadIssue?.contains(#"" oldartist  ""#) == true)
+        #expect(isAppError(dependencies.appState, containing: #"" oldartist  ""#))
+        #expect(isAppError(dependencies.appState, containing: #""OldArtist""#))
+        #expect(isAppError(dependencies.appState, containing: "Try Again"))
+
+        loader.result = Result {
+            try AppConfiguration.configurationDecoder().decode(AppConfiguration.self, from: retryData)
+        }
+
+        await dependencies.retryInitialization()
+
+        #expect(loader.callCount == 2)
+        #expect(isAppError(dependencies.appState, containing: #""newartist""#))
+        #expect(isAppError(dependencies.appState, containing: #""NewArtist""#))
+        #expect(isAppError(dependencies.appState, containing: "Try Again"))
+        #expect(!isAppError(dependencies.appState, containing: #""OldArtist""#))
+        #expect(dependencies.apiOrchestrator == nil)
+    }
+
     @Test("Retry reloads a corrected numeric configuration")
     func retryReloadsCorrectedConfiguration() async {
         let loader = RetryConfigurationLoader()
