@@ -29,7 +29,8 @@ public struct ConfigurationValidationError: Error, LocalizedError, Sendable, Equ
 }
 
 extension AppConfiguration {
-    func validateNumericValues() throws {
+    /// Rejects numeric settings that cannot safely construct runtime services.
+    public func validateNumericValues() throws {
         var validation = NumericValidation()
         validateRuntime(using: &validation)
         validateAppleScript(using: &validation)

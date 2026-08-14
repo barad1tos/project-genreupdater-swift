@@ -125,7 +125,7 @@ struct ContentView: View {
 
             case let .error(message):
                 ErrorView(message: message) {
-                    Task { await dependencies.initialize() }
+                    Task { await dependencies.retryInitialization() }
                 }
             }
         }

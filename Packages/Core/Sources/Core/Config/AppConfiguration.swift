@@ -11,6 +11,15 @@
 
 import Foundation
 
+extension CodingUserInfoKey {
+    fileprivate static var numericValidation: Self {
+        guard let key = Self(rawValue: "GenreUpdater.numericValidation") else {
+            preconditionFailure("Static configuration validation key is invalid")
+        }
+        return key
+    }
+}
+
 // MARK: - Main Configuration
 
 /// Root configuration for Genre Updater.
@@ -132,7 +141,9 @@ public struct AppConfiguration: Sendable, Codable {
         development = try container.decodeIfPresent(DevelopmentConfig.self, forKey: .development) ?? DevelopmentConfig()
 
         try applyLegacyRootConfiguration(from: container)
-        try validateNumericValues()
+        if decoder.userInfo[.numericValidation] as? Bool == true {
+            try validateNumericValues()
+        }
     }
 
     private mutating func applyLegacyRootConfiguration(
@@ -332,10 +343,11 @@ public struct AppConfiguration: Sendable, Codable {
         return appDir.appendingPathComponent("config.json")
     }
 
-    /// Decoder for persisted and Python-era configuration keys.
+    /// Decoder for live persisted configuration, including Python-era keys and numeric validation.
     public static func configurationDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.userInfo[.numericValidation] = true
         return decoder
     }
 }

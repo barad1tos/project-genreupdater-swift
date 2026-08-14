@@ -5,6 +5,30 @@ import Testing
 
 @Suite("Run configuration persistence")
 struct RunConfigStoreTests {
+    @Test("Historical run snapshots preserve formerly tolerated numeric values")
+    func historicalNumericSnapshotRemainsDecodable() throws {
+        var configuration = AppConfiguration()
+        configuration.genreUpdate.batchSize = 0
+        let capturedAt = Date(timeIntervalSince1970: 100)
+        let snapshot = RunConfig(
+            capturedAt: capturedAt,
+            writeAuthority: .readOnly,
+            automation: .manualOnly,
+            scopeID: UUID(),
+            settings: FixPlanConfig.capture(
+                configuration: configuration,
+                options: UpdateOptions(),
+                capturedAt: capturedAt
+            ),
+            hadRecoveryHold: false
+        )
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(RunConfig.self, from: encoded)
+
+        #expect(decoded.settings.appConfiguration.genreUpdate.batchSize == 0)
+    }
+
     @Test("upsert round-trips preview intent and planning transition")
     func roundTripsPreview() async throws {
         let store = try makeRunStore()

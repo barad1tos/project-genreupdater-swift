@@ -98,6 +98,7 @@ final class AppDependencies {
     @ObservationIgnored var applyBrowseTruthForLoad: (@MainActor ([Track], BrowseReadSource, UInt64) async -> Void)?
     @ObservationIgnored let projectionStore = ProjectionStore()
     private(set) var configurationLoadIssue: String?
+    @ObservationIgnored private let configurationLoader: () throws -> AppConfiguration
     @ObservationIgnored private let configurationSaver: (AppConfiguration) throws -> Void
     @ObservationIgnored private var configurationSaveRecoveryState: AppState?
 
@@ -157,9 +158,10 @@ final class AppDependencies {
     // MARK: - Init
 
     init(
-        configurationLoader: () throws -> AppConfiguration = AppConfiguration.load,
+        configurationLoader: @escaping () throws -> AppConfiguration = AppConfiguration.load,
         configurationSaver: @escaping (AppConfiguration) throws -> Void = { try $0.save() }
     ) {
+        self.configurationLoader = configurationLoader
         self.configurationSaver = configurationSaver
 
         do {
@@ -286,17 +288,20 @@ final class AppDependencies {
         }
     }
 
-    static func makeFeatureGate(
-        for subscription: SubscriptionService,
-        fixedTier: Tier? = nil
-    ) -> FeatureGate {
-        FeatureGate(
-            tierProvider: { fixedTier ?? subscription.currentTier },
-            freeTracksUsedProvider: { subscription.freeTracksUsed },
-            usageRecorder: { count in
-                subscription.incrementFreeTracksUsed(by: count)
+    func retryInitialization() async {
+        if configurationLoadIssue != nil {
+            do {
+                config = try configurationLoader()
+                configurationLoadIssue = nil
+            } catch {
+                let message = "Failed to load configuration: \(error.localizedDescription)"
+                configurationLoadIssue = message
+                appState = .error(message)
+                log.error("\(message, privacy: .public)")
+                return
             }
-        )
+        }
+        await initialize()
     }
 
     /// Called when onboarding completes script installation.

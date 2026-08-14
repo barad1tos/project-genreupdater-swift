@@ -49,6 +49,27 @@ struct DependencyConfigTests {
         #expect(dependencies.trackStore == nil)
     }
 
+    @Test("Retry reloads a corrected numeric configuration")
+    func retryReloadsCorrectedConfiguration() async {
+        let loader = RetryConfigurationLoader()
+        let dependencies = AppDependencies(
+            configurationLoader: { try loader.load() },
+            configurationSaver: { _ in
+                // Retry exercises only the persisted load boundary.
+            }
+        )
+        #expect(dependencies.configurationLoadIssue != nil)
+        var corrected = AppConfiguration()
+        corrected.development.testArtists = ["Retry Probe"]
+        loader.result = .success(corrected)
+
+        await dependencies.retryInitialization()
+
+        #expect(loader.callCount == 2)
+        #expect(dependencies.configurationLoadIssue == nil)
+        #expect(dependencies.config.development.testArtists == ["Retry Probe"])
+    }
+
     @Test("Workflow prerequisite failure names the missing services")
     func workflowPrerequisiteFailureNamesTheMissingServices() {
         let error = AppInitializationError.missingWorkflowPrerequisites(["apiOrchestrator", "trackStore"])
@@ -355,6 +376,17 @@ private enum StubConfigurationError: LocalizedError {
         case .saveFailed:
             "test configuration save failed"
         }
+    }
+}
+
+@MainActor
+private final class RetryConfigurationLoader {
+    var result: Result<AppConfiguration, any Error> = .failure(StubConfigurationError.loadFailed)
+    private(set) var callCount = 0
+
+    func load() throws -> AppConfiguration {
+        callCount += 1
+        return try result.get()
     }
 }
 

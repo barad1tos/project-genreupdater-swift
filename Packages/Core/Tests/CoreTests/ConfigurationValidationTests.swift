@@ -182,6 +182,17 @@ struct ConfigurationValidationTests {
         #expect(try Data(contentsOf: configurationURL) == validData)
     }
 
+    @Test("Generic Codable snapshots remain tolerant of historical numeric values")
+    func genericSnapshotDecodeRemainsTolerant() throws {
+        var configuration = AppConfiguration()
+        configuration.genreUpdate.batchSize = 0
+        let data = try JSONEncoder().encode(configuration)
+
+        let decoded = try JSONDecoder().decode(AppConfiguration.self, from: data)
+
+        #expect(decoded.genreUpdate.batchSize == 0)
+    }
+
     private func decode(_ configuration: AppConfiguration) throws -> AppConfiguration {
         let data = try JSONEncoder().encode(configuration)
         return try AppConfiguration.configurationDecoder().decode(AppConfiguration.self, from: data)

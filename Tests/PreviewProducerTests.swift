@@ -7,6 +7,32 @@ import Testing
 @Suite("Preview producer runtime")
 @MainActor
 struct PreviewProducerTests {
+    @Test("Invalid historical configuration fails before runtime services are created")
+    func invalidHistoricalConfigurationFailsBeforeRuntime() async throws {
+        let services = RunServiceFactory(
+            makeScripts: { _ in
+                Issue.record("Invalid historical configuration must fail before script creation")
+                return PreviewScriptClient(tracks: [])
+            },
+            makePendingVerification: { _ in
+                Issue.record("Invalid historical configuration must fail before store creation")
+                return nil
+            }
+        )
+        let runtime = try await makeRuntime(services: services)
+        var invalid = AppConfiguration()
+        invalid.genreUpdate.batchSize = 0
+        let configuration = FixPlanConfig.capture(
+            configuration: invalid,
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        await #expect(throws: ConfigurationValidationError.self) {
+            _ = try await runtime.makeSync(configuration: configuration, scope: scope(artist: "Probe Artist"))
+        }
+    }
+
     @Test("run services use each submitted configuration")
     func usesSubmittedConfiguration() async throws {
         let probe = RunConfigProbe()
