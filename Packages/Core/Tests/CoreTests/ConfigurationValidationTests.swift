@@ -231,6 +231,33 @@ struct ConfigurationValidationTests {
         }
     }
 
+    @Test("Fractional AppleScript timeouts preserve truncating persistence semantics")
+    func acceptsFractionalTimeouts() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenreUpdaterFractionalTimeouts", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let configurationURL = directory.appendingPathComponent("config.json")
+        let timeoutPaths: [WritableKeyPath<AppleScriptTimeouts, Duration>] = [
+            \.defaultTimeout,
+            \.fullLibraryFetch,
+            \.singleArtistFetch,
+            \.batchUpdate,
+            \.idsBatchFetch,
+        ]
+
+        for timeoutPath in timeoutPaths {
+            var configuration = AppConfiguration()
+            configuration.applescript.timeouts[keyPath: timeoutPath] = .milliseconds(1500)
+
+            try configuration.save(to: configurationURL)
+            let reloaded = try AppConfiguration.load(from: configurationURL)
+
+            #expect(reloaded.applescript.timeouts[keyPath: timeoutPath] == .seconds(1))
+        }
+    }
+
     @Test("Generic Codable snapshots remain tolerant of historical numeric values")
     func genericSnapshotDecodeRemainsTolerant() throws {
         var configuration = AppConfiguration()

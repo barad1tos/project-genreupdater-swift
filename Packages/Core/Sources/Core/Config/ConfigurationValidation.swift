@@ -564,7 +564,7 @@ private struct NumericValidation {
 
     mutating func requireAtLeastSecond(_ value: Duration, path: String) {
         let seconds = value.timeInterval
-        guard seconds.isFinite, Int(exactly: seconds) != nil else {
+        guard seconds.isFinite, Int(exactly: seconds.rounded(.towardZero)) != nil else {
             append(path: path, value: String(seconds), requirement: "must fit integer seconds")
             return
         }
