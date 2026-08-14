@@ -195,6 +195,26 @@ struct GRDBCacheServiceTests {
         #expect(updatedAPIResult?.year == 2005)
     }
 
+    @Test("Live policy uses the runtime TTL when the primary default is disabled")
+    func runtimeFallbackExpires() async throws {
+        let fixture = try await makePolicyService()
+        var configuration = AppConfiguration()
+        configuration.caching.defaultTTLSeconds = 0
+        configuration.runtime.cacheTTLSeconds = 1
+        await fixture.cache.updatePolicy(configuration: configuration)
+
+        await fixture.cache.set(key: "runtime-fallback", value: "expires", ttl: nil)
+        try await fixture.database.write { database in
+            try database.execute(
+                sql: "UPDATE generic_cache SET timestamp = ? WHERE key = ?",
+                arguments: [Date.now.addingTimeInterval(-2), "runtime-fallback"]
+            )
+        }
+
+        let expiredValue: String? = await fixture.cache.get(key: "runtime-fallback")
+        #expect(expiredValue == nil)
+    }
+
     @Test("Live policy update applies new capacity to future writes")
     func policyChangesCapacity() async throws {
         let fixture = try await makePolicyService()

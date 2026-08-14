@@ -88,31 +88,43 @@ public final class SubscriptionService {
     private let counterStore: any SubscriptionCounterStore
     private let userDefaults: UserDefaults
     private let dateProvider: @Sendable () -> Date
+    @ObservationIgnored private let tierChangeHandler: @MainActor () -> Void
 
     private static let localCounterKey = "freeTracksUsed_local"
 
     // MARK: - Init
 
+    /// Creates the StoreKit-backed subscription service.
+    ///
+    /// - Parameters:
+    ///   - iCloudStore: Persistent source for subscription usage counters.
+    ///   - userDefaults: Local fallback for the free-track counter.
+    ///   - dateProvider: Current-time source used for entitlement expiry decisions.
+    ///   - tierChangeHandler: Called when a refreshed entitlement changes the active tier.
     public convenience init(
         iCloudStore: NSUbiquitousKeyValueStore = .default,
         userDefaults: UserDefaults = .standard,
-        dateProvider: @escaping @Sendable () -> Date = { Date() }
+        dateProvider: @escaping @Sendable () -> Date = { Date() },
+        tierChangeHandler: @escaping @MainActor () -> Void = {}
     ) {
         self.init(
             counterStore: iCloudStore,
             userDefaults: userDefaults,
-            dateProvider: dateProvider
+            dateProvider: dateProvider,
+            tierChangeHandler: tierChangeHandler
         )
     }
 
     init(
         counterStore: any SubscriptionCounterStore,
         userDefaults: UserDefaults,
-        dateProvider: @escaping @Sendable () -> Date = { Date() }
+        dateProvider: @escaping @Sendable () -> Date = { Date() },
+        tierChangeHandler: @escaping @MainActor () -> Void = {}
     ) {
         self.counterStore = counterStore
         self.userDefaults = userDefaults
         self.dateProvider = dateProvider
+        self.tierChangeHandler = tierChangeHandler
     }
 
     deinit {
@@ -238,9 +250,21 @@ public final class SubscriptionService {
             }
         }
 
-        currentTier = detectedTier
-        weekPassExpiry = detectedWeekPassExpiry
-        proExpiry = detectedProExpiry
+        applyEntitlementState(
+            tier: detectedTier,
+            weekPassExpiry: detectedWeekPassExpiry,
+            proExpiry: detectedProExpiry
+        )
+    }
+
+    func applyEntitlementState(tier: Tier, weekPassExpiry: Date?, proExpiry: Date?) {
+        let previousTier = currentTier
+        currentTier = tier
+        self.weekPassExpiry = weekPassExpiry
+        self.proExpiry = proExpiry
+        if tier != previousTier {
+            tierChangeHandler()
+        }
     }
 
     // MARK: - Internal: Transaction Listener

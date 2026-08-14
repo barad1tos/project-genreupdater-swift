@@ -269,7 +269,9 @@ final class AppDependencies {
             libraryReadProvider = MusicKitReadProvider(reader: reader)
 
             // Step 4: Start subscription service + feature gate
-            let subscription = SubscriptionService()
+            let subscription = SubscriptionService(tierChangeHandler: { [weak self] in
+                self?.handleSubscriptionTierChange()
+            })
             await subscription.start()
             subscriptionService = subscription
 
@@ -406,7 +408,7 @@ final class AppDependencies {
         fixPlanStore = FixPlanDataStore(modelContainer: container)
 
         let cache = try GRDBCacheService.createDefault(
-            defaultGenericTTL: Self.defaultGenericCacheTTL(configuration: cacheConfiguration),
+            defaultGenericTTL: GRDBCacheService.resolvedGenericTTL(configuration: cacheConfiguration),
             apiResultTTL: Self.apiResultCacheTTL(configuration: cacheConfiguration),
             maxGenericEntries: cacheConfiguration.runtime.maxGenericEntries,
             cleanupInterval: TimeInterval(cacheConfiguration.caching.cleanupIntervalSeconds)

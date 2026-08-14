@@ -1,9 +1,9 @@
 import Core
 import DesignUI
 import Foundation
-import Services
 import Testing
 @testable import Genre_Updater
+@testable import Services
 
 @Suite("AppDependencies configuration persistence")
 @MainActor
@@ -60,20 +60,21 @@ struct DependencyConfigTests {
                 Issue.record("Tier transitions must not persist or rewrite configuration")
             }
         )
-        let tier = MutableTier(.free)
-        let gate = FeatureGate(
-            tierProvider: { tier.value },
-            freeTracksUsedProvider: { 0 },
-            usageRecorder: { _ in }
+        let defaultsSuite = "DependencyConfigTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let subscription = SubscriptionService(
+            counterStore: DependencyCounterStore(),
+            userDefaults: defaults,
+            tierChangeHandler: { dependencies.handleSubscriptionTierChange() }
         )
+        let gate = AppDependencies.makeFeatureGate(for: subscription)
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()
         dependencies.installTestFeatureGate(gate)
         dependencies.installTestCacheService(cache)
 
-        tier.value = .weekPass
-        #expect(dependencies.handleSubscriptionTierChange())
-        #expect(!dependencies.handleSubscriptionTierChange())
+        subscription.applyEntitlementState(tier: .weekPass, weekPassExpiry: nil, proExpiry: nil)
         await dependencies.runtimeApplyQueue?.value
 
         await cache.set(key: "paid-a", value: 1, ttl: 3600)
@@ -82,9 +83,7 @@ struct DependencyConfigTests {
         #expect(paidStatistics.genericCacheCount == 1)
         #expect(await dependencies.librarySnapshotService?.isEnabled == false)
 
-        tier.value = .free
-        #expect(dependencies.handleSubscriptionTierChange())
-        #expect(!dependencies.handleSubscriptionTierChange())
+        subscription.applyEntitlementState(tier: .free, weekPassExpiry: nil, proExpiry: nil)
         await dependencies.runtimeApplyQueue?.value
 
         await cache.set(key: "free-c", value: 3, ttl: 3600)
@@ -487,11 +486,13 @@ private enum StubConfigurationError: LocalizedError {
 }
 
 @MainActor
-private final class MutableTier {
-    var value: Tier
+private final class DependencyCounterStore: SubscriptionCounterStore {
+    nonisolated func counter(forKey _: String) -> Int64 {
+        0
+    }
 
-    init(_ value: Tier) {
-        self.value = value
+    nonisolated func setCounter(_: Int64, forKey _: String) {
+        // This journey changes entitlement tier without consuming free allowance.
     }
 }
 

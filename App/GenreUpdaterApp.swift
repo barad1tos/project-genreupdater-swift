@@ -35,9 +35,6 @@ struct GenreUpdaterApp: App {
                     await dependencies.initialize()
                     applyAppKitAppearance(appearanceMode)
                 }
-                .onChange(of: dependencies.subscriptionService?.currentTier) {
-                    dependencies.handleSubscriptionTierChange()
-                }
                 .onOpenURL { url in
                     Task { await dependencies.handleAutomationWake(url: url) }
                 }

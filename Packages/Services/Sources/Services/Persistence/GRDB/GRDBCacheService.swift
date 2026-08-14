@@ -42,6 +42,17 @@ public actor GRDBCacheService: PersistentCacheService {
         return TimeInterval(configuration.processing.cacheTTLDays) * 24 * 60 * 60
     }
 
+    /// Resolves the generic-cache TTL from its primary setting, runtime fallback, or five-minute default.
+    public static func resolvedGenericTTL(configuration: AppConfiguration) -> TimeInterval {
+        for seconds in [
+            configuration.caching.defaultTTLSeconds,
+            configuration.runtime.cacheTTLSeconds,
+        ] where seconds > 0 {
+            return TimeInterval(seconds)
+        }
+        return 5 * 60
+    }
+
     /// Default maximum generic cache entries.
     public static let defaultMaxGenericEntries = 10000
 
@@ -98,7 +109,7 @@ public actor GRDBCacheService: PersistentCacheService {
 
     /// Applies cache lifetimes and capacity to future operations without removing existing entries.
     public func updatePolicy(configuration: AppConfiguration) {
-        defaultGenericTTL = Self.normalizedTTL(TimeInterval(configuration.caching.defaultTTLSeconds))
+        defaultGenericTTL = Self.resolvedGenericTTL(configuration: configuration)
         apiResultTTL = Self.normalizedTTL(Self.resolvedAPIResultTTL(configuration: configuration))
             ?? Self.defaultAPIResultTTL
         maxGenericEntries = max(1, configuration.runtime.maxGenericEntries)

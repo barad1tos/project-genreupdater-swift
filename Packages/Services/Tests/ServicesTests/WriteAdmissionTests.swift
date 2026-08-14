@@ -26,6 +26,36 @@ private actor WriteHold {
     }
 }
 
+@MainActor
+private final class TierState {
+    var value: Tier
+
+    init(_ value: Tier) {
+        self.value = value
+    }
+
+    func set(_ value: Tier) {
+        self.value = value
+    }
+}
+
+@MainActor
+private final class TierSequence {
+    private var values: [Tier]
+
+    init(_ values: [Tier]) {
+        self.values = values
+    }
+
+    func next() -> Tier {
+        let value = values.first ?? .free
+        if values.count > 1 {
+            values.removeFirst()
+        }
+        return value
+    }
+}
+
 // Safety: the lock guards the callback installed by the dispatched test script.
 private final class CallbackHold: @unchecked Sendable {
     typealias Callback = @Sendable (Result<String, any Error>) -> Void
@@ -76,6 +106,104 @@ private final class ClearanceProbe: @unchecked Sendable {
 
 @Suite("Write admission")
 struct WriteAdmissionTests {
+    @MainActor
+    @Test("Batch admission uses one tier snapshot across all checks")
+    func batchKeepsAdmissionTier() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let tiers = TierSequence([.weekPass, .free])
+        let processor = BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(
+                tierProvider: { tiers.next() },
+                freeTracksUsedProvider: { 0 },
+                usageRecorder: { _ in }
+            )
+        )
+        let track = Track(id: "T1", name: "The Mob Goes Wild", artist: "Clutch", album: "Blast Tyrant")
+
+        let entries = try await processor.process(
+            tracks: [track],
+            operation: { _ in [] },
+            progressHandler: { _ in }
+        )
+
+        #expect(entries.isEmpty)
+    }
+
+    @MainActor
+    @Test("A free write remains metered after the user upgrades before completion")
+    func freeWriteKeepsMetering() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let tier = TierState(.free)
+        var recordedCounts: [Int] = []
+        let processor = BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(
+                tierProvider: { tier.value },
+                freeTracksUsedProvider: { 0 },
+                usageRecorder: { recordedCounts.append($0) }
+            )
+        )
+        let result = BatchUpdateResult(
+            entries: [admissionEntry(trackID: "T1")],
+            failedTrackIDs: [],
+            errorDescriptions: []
+        )
+
+        _ = try await processor.performRecoverableWrite(
+            trackCount: 1,
+            requiredFeature: nil,
+            appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+            partialTrackIDs: { _ in [] },
+            operation: {
+                await tier.set(.pro)
+                return result
+            }
+        )
+
+        #expect(recordedCounts == [1])
+    }
+
+    @MainActor
+    @Test("A paid write does not consume free allowance after a downgrade before completion")
+    func paidWriteStaysUnmetered() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let tier = TierState(.pro)
+        var recordedCounts: [Int] = []
+        let processor = BatchProcessor(
+            checkpointManager: CheckpointManager(directory: dir),
+            featureGate: FeatureGate(
+                tierProvider: { tier.value },
+                freeTracksUsedProvider: { 0 },
+                usageRecorder: { recordedCounts.append($0) }
+            )
+        )
+        let result = BatchUpdateResult(
+            entries: [admissionEntry(trackID: "T1")],
+            failedTrackIDs: [],
+            errorDescriptions: []
+        )
+
+        _ = try await processor.performRecoverableWrite(
+            trackCount: 1,
+            requiredFeature: nil,
+            appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+            partialTrackIDs: { _ in [] },
+            operation: {
+                await tier.set(.free)
+                return result
+            }
+        )
+
+        #expect(recordedCounts.isEmpty)
+    }
+
     @MainActor
     @Test("Recoverable writes record only returned applied track IDs")
     func recoverableWriteRecordsAppliedTracks() async throws {

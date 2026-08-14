@@ -153,7 +153,7 @@ extension AppDependencies {
             RawAPIRequestCache(
                 cache: $0,
                 ttl: min(
-                    defaultGenericCacheTTL(configuration: configuration),
+                    GRDBCacheService.resolvedGenericTTL(configuration: configuration),
                     max(0, configuration.caching.negativeResultTTL)
                 )
             )
