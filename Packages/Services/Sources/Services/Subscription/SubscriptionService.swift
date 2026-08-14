@@ -105,7 +105,9 @@ public final class SubscriptionService {
         iCloudStore: NSUbiquitousKeyValueStore = .default,
         userDefaults: UserDefaults = .standard,
         dateProvider: @escaping @Sendable () -> Date = { Date() },
-        tierChangeHandler: @escaping @MainActor () -> Void = {}
+        tierChangeHandler: @escaping @MainActor () -> Void = {
+            // Standalone consumers have no app runtime to reconfigure.
+        }
     ) {
         self.init(
             counterStore: iCloudStore,
@@ -119,7 +121,9 @@ public final class SubscriptionService {
         counterStore: any SubscriptionCounterStore,
         userDefaults: UserDefaults,
         dateProvider: @escaping @Sendable () -> Date = { Date() },
-        tierChangeHandler: @escaping @MainActor () -> Void = {}
+        tierChangeHandler: @escaping @MainActor () -> Void = {
+            // Custom counter-store consumers opt in to tier-change effects.
+        }
     ) {
         self.counterStore = counterStore
         self.userDefaults = userDefaults

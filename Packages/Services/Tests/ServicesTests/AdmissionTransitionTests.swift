@@ -16,7 +16,9 @@ struct AdmissionTransitionTests {
             featureGate: FeatureGate(
                 tierProvider: { tiers.next() },
                 freeTracksUsedProvider: { 0 },
-                usageRecorder: { _ in }
+                usageRecorder: { _ in
+                    // This test exercises admission, not usage metering.
+                }
             )
         )
         let track = Track(id: "T1", name: "The Mob Goes Wild", artist: "Clutch", album: "Blast Tyrant")
@@ -24,7 +26,9 @@ struct AdmissionTransitionTests {
         let entries = try await processor.process(
             tracks: [track],
             operation: { _ in [] },
-            progressHandler: { _ in }
+            progressHandler: { _ in
+                // Progress is irrelevant to the admission assertion.
+            }
         )
 
         #expect(entries.isEmpty)

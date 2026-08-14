@@ -33,7 +33,9 @@ struct FixPlanFactoryTests {
         let gate = FeatureGate(
             tierProvider: { tier.value },
             freeTracksUsedProvider: { 0 },
-            usageRecorder: { _ in }
+            usageRecorder: { _ in
+                // A rejected write must not reach usage metering.
+            }
         )
         let fixture = await makeWriteFixture(
             hasInitialRecovery: false,
