@@ -29,6 +29,13 @@ struct PreviewProducerTests {
         }
     }
 
+    @Test("Recovered batch-delay overflow fails before runtime services")
+    func rejectsDelayOverflow() async throws {
+        try await expectRuntimeRejection(at: .preview) {
+            $0.processing.delayBetweenBatches = 1e308
+        }
+    }
+
     private func expectRuntimeRejection(
         at entryPoint: RuntimeEntryPoint,
         mutate: (inout AppConfiguration) -> Void = { $0.genreUpdate.batchSize = 0 }

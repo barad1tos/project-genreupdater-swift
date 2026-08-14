@@ -48,6 +48,10 @@ extension AppConfiguration {
         )
         validation.requireAtLeast(runtime.maxRetries, minimum: 0, path: "runtime.maxRetries")
         validation.requireAtLeast(runtime.retryDelaySeconds, minimum: 0, path: "runtime.retryDelaySeconds")
+        validation.requireMillisecondCapacity(
+            runtime.retryDelaySeconds,
+            path: "runtime.retryDelaySeconds"
+        )
         validation.requireAtLeast(runtime.maxGenericEntries, minimum: 1, path: "runtime.maxGenericEntries")
         validation.requireAtLeast(experimental.maxBatchSize, minimum: 1, path: "experimental.maxBatchSize")
         validation.requireAtLeast(
@@ -99,6 +103,10 @@ extension AppConfiguration {
             minimum: 0,
             path: "applescript.rateLimit.windowSizeSeconds"
         )
+        validation.requireMillisecondCapacity(
+            applescript.rateLimit.windowSizeSeconds,
+            path: "applescript.rateLimit.windowSizeSeconds"
+        )
         validateAppleScriptRetry(using: &validation)
         validation.requireAtLeast(
             applescript.batchProcessing.idsBatchSize,
@@ -123,9 +131,17 @@ extension AppConfiguration {
             minimum: 0,
             path: "applescript.retry.baseDelaySeconds"
         )
+        validation.requireMillisecondCapacity(
+            applescript.retry.baseDelaySeconds,
+            path: "applescript.retry.baseDelaySeconds"
+        )
         validation.requireAtLeast(
             applescript.retry.maxDelaySeconds,
             minimum: 0,
+            path: "applescript.retry.maxDelaySeconds"
+        )
+        validation.requireMillisecondCapacity(
+            applescript.retry.maxDelaySeconds,
             path: "applescript.retry.maxDelaySeconds"
         )
         validation.requireInRange(
@@ -136,6 +152,10 @@ extension AppConfiguration {
         validation.requireAtLeast(
             applescript.retry.operationTimeoutSeconds,
             minimum: 0,
+            path: "applescript.retry.operationTimeoutSeconds"
+        )
+        validation.requireMillisecondCapacity(
+            applescript.retry.operationTimeoutSeconds,
             path: "applescript.retry.operationTimeoutSeconds"
         )
     }
@@ -153,6 +173,10 @@ extension AppConfiguration {
         validation.requireAtLeast(
             processing.delayBetweenBatches,
             minimum: 0,
+            path: "processing.delayBetweenBatches"
+        )
+        validation.requireMillisecondCapacity(
+            processing.delayBetweenBatches,
             path: "processing.delayBetweenBatches"
         )
         validation.requireAtLeast(processing.cacheTTLDays, minimum: 0, path: "processing.cacheTTLDays")
@@ -211,6 +235,11 @@ extension AppConfiguration {
             path: "caching.cleanupIntervalSeconds"
         )
         validation.requireAtLeast(caching.negativeResultTTL, minimum: 0, path: "caching.negativeResultTTL")
+        validation.requireIntegerCapacity(
+            caching.negativeResultTTL,
+            divisor: 86400,
+            path: "caching.negativeResultTTL"
+        )
         validation.requireAtLeast(
             caching.librarySnapshot.maxAgeHours,
             minimum: 1,
@@ -243,6 +272,10 @@ extension AppConfiguration {
         validation.requireAtLeast(
             reporting.minAttemptsForReport,
             minimum: 1,
+            path: "reporting.minAttemptsForReport"
+        )
+        validation.requireIntegerCapacity(
+            reporting.minAttemptsForReport,
             path: "reporting.minAttemptsForReport"
         )
         validation.requireAtLeast(reporting.runHistoryLimit, minimum: 1, path: "reporting.runHistoryLimit")
@@ -446,11 +479,19 @@ private struct NumericValidation {
     }
 
     mutating func requireAtLeast(_ value: Double, minimum: Double, path: String) {
+        guard value.isFinite else {
+            append(path: path, value: String(value), requirement: "must be finite")
+            return
+        }
         guard value < minimum else { return }
         append(path: path, value: String(value), requirement: "must be at least \(bound(minimum))")
     }
 
     mutating func requireGreaterThan(_ value: Double, minimum: Double, path: String) {
+        guard value.isFinite else {
+            append(path: path, value: String(value), requirement: "must be finite")
+            return
+        }
         guard value <= minimum else { return }
         append(path: path, value: String(value), requirement: "must be greater than \(bound(minimum))")
     }
@@ -466,8 +507,37 @@ private struct NumericValidation {
     }
 
     mutating func requireTokenCapacity(_ value: Double, path: String) {
-        guard !value.isFinite || Int(exactly: value.rounded(.up)) == nil else { return }
+        guard value.isFinite else {
+            append(path: path, value: String(value), requirement: "must be finite")
+            return
+        }
+        guard Int(exactly: value.rounded(.up)) == nil else { return }
         append(path: path, value: String(value), requirement: "must fit the rate limiter token capacity")
+    }
+
+    mutating func requireMillisecondCapacity(_ value: Double, path: String) {
+        guard value.isFinite else {
+            append(path: path, value: String(value), requirement: "must be finite")
+            return
+        }
+
+        let milliseconds = (value * 1000).rounded()
+        guard milliseconds.isFinite,
+              Int(exactly: milliseconds) != nil,
+              Int64(exactly: milliseconds) != nil
+        else {
+            append(path: path, value: String(value), requirement: "must fit the millisecond duration capacity")
+            return
+        }
+    }
+
+    mutating func requireIntegerCapacity(_ value: Double, divisor: Double = 1, path: String) {
+        guard value.isFinite else {
+            append(path: path, value: String(value), requirement: "must be finite")
+            return
+        }
+        guard Int(exactly: (value / divisor).rounded()) == nil else { return }
+        append(path: path, value: String(value), requirement: "must fit integer conversion capacity")
     }
 
     mutating func requireInRange(_ value: Int, range: ClosedRange<Int>, path: String) {
@@ -480,6 +550,10 @@ private struct NumericValidation {
     }
 
     mutating func requireInRange(_ value: Double, range: ClosedRange<Double>, path: String) {
+        guard value.isFinite else {
+            append(path: path, value: String(value), requirement: "must be finite")
+            return
+        }
         guard !range.contains(value) else { return }
         append(
             path: path,
@@ -489,8 +563,13 @@ private struct NumericValidation {
     }
 
     mutating func requireAtLeastSecond(_ value: Duration, path: String) {
+        let seconds = value.timeInterval
+        guard seconds.isFinite, Int(exactly: seconds) != nil else {
+            append(path: path, value: String(seconds), requirement: "must fit integer seconds")
+            return
+        }
         guard value < .seconds(1) else { return }
-        append(path: path, value: String(Int(value.timeInterval)), requirement: "must be at least 1")
+        append(path: path, value: String(Int(seconds)), requirement: "must be at least 1")
     }
 
     func finish() throws {
@@ -499,6 +578,7 @@ private struct NumericValidation {
     }
 
     private mutating func append(path: String, value: String, requirement: String) {
+        guard !issues.contains(where: { $0.fieldPath == path }) else { return }
         issues.append(ConfigurationValidationIssue(
             fieldPath: path,
             receivedValue: value,

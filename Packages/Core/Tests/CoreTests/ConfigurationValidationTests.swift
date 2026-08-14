@@ -179,6 +179,58 @@ struct ConfigurationValidationTests {
         #expect(try Data(contentsOf: configurationURL) == validData)
     }
 
+    @Test("Non-finite configuration fails before persistence encoding")
+    func rejectsNonFiniteSaves() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenreUpdaterFiniteValidation", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let configurationURL = directory.appendingPathComponent("config.json")
+        try AppConfiguration().save(to: configurationURL)
+        let validData = try Data(contentsOf: configurationURL)
+        var nanConfiguration = AppConfiguration()
+        nanConfiguration.analytics.durationThresholds.shortMax = .nan
+        var infiniteConfiguration = AppConfiguration()
+        infiniteConfiguration.applescript.retry.jitterRange = .infinity
+
+        for configuration in [nanConfiguration, infiniteConfiguration] {
+            do {
+                try configuration.save(to: configurationURL)
+                Issue.record("Expected non-finite configuration to be rejected")
+            } catch let error as ConfigurationValidationError {
+                #expect(error.issues.first?.requirement == "must be finite")
+            } catch {
+                Issue.record("Expected validation error before encoding: \(error)")
+            }
+            #expect(try Data(contentsOf: configurationURL) == validData)
+        }
+    }
+
+    @Test("Every AppleScript timeout fits integer seconds")
+    func rejectsTimeoutOverflow() throws {
+        let fields = [
+            ("defaultTimeoutSeconds", "applescript.timeouts.defaultTimeout"),
+            ("fullLibraryFetchSeconds", "applescript.timeouts.fullLibraryFetch"),
+            ("singleArtistFetchSeconds", "applescript.timeouts.singleArtistFetch"),
+            ("batchUpdateSeconds", "applescript.timeouts.batchUpdate"),
+            ("idsBatchFetchSeconds", "applescript.timeouts.idsBatchFetch"),
+        ]
+
+        for (key, path) in fields {
+            let data = Data(#"{"applescript":{"timeouts":{"\#(key)":\#(Int.max)}}}"#.utf8)
+            do {
+                _ = try AppConfiguration.configurationDecoder().decode(AppConfiguration.self, from: data)
+                Issue.record("Expected timeout overflow to be rejected for \(path)")
+            } catch let error as ConfigurationValidationError {
+                #expect(error.issues.map(\.fieldPath) == [path])
+                #expect(error.issues.first?.requirement == "must fit integer seconds")
+            } catch {
+                Issue.record("Unexpected timeout overflow error for \(path): \(error)")
+            }
+        }
+    }
+
     @Test("Generic Codable snapshots remain tolerant of historical numeric values")
     func genericSnapshotDecodeRemainsTolerant() throws {
         var configuration = AppConfiguration()
@@ -233,6 +285,7 @@ struct ConfigurationValidationTests {
             minimumOne("runtime.incrementalIntervalMinutes", "0") { $0.runtime.incrementalIntervalMinutes = 0 },
             minimumZero("runtime.maxRetries", "-1") { $0.runtime.maxRetries = -1 },
             minimumZero("runtime.retryDelaySeconds", "-1.0") { $0.runtime.retryDelaySeconds = -1 },
+            millisecondCapacity("runtime.retryDelaySeconds", "1e+308") { $0.runtime.retryDelaySeconds = 1e308 },
             minimumOne("runtime.maxGenericEntries", "0") { $0.runtime.maxGenericEntries = 0 },
             minimumOne("applescript.concurrency", "0") { $0.applescript.concurrency = 0 },
             minimumOne("applescript.timeouts.defaultTimeout", "0") { $0.applescript.timeouts.defaultTimeout = .zero },
@@ -252,16 +305,28 @@ struct ConfigurationValidationTests {
             greaterThanZero("applescript.rateLimit.windowSizeSeconds", "0.0") {
                 $0.applescript.rateLimit.windowSizeSeconds = 0
             },
+            millisecondCapacity("applescript.rateLimit.windowSizeSeconds", "1e+308") {
+                $0.applescript.rateLimit.windowSizeSeconds = 1e308
+            },
             minimumZero("applescript.retry.maxRetries", "-1") { $0.applescript.retry.maxRetries = -1 },
             minimumZero("applescript.retry.baseDelaySeconds", "-1.0") {
                 $0.applescript.retry.baseDelaySeconds = -1
             },
+            millisecondCapacity("applescript.retry.baseDelaySeconds", "1e+308") {
+                $0.applescript.retry.baseDelaySeconds = 1e308
+            },
             minimumZero("applescript.retry.maxDelaySeconds", "-1.0") {
                 $0.applescript.retry.maxDelaySeconds = -1
+            },
+            millisecondCapacity("applescript.retry.maxDelaySeconds", "1e+308") {
+                $0.applescript.retry.maxDelaySeconds = 1e308
             },
             zeroToOne("applescript.retry.jitterRange", "1.01") { $0.applescript.retry.jitterRange = 1.01 },
             minimumZero("applescript.retry.operationTimeoutSeconds", "-1.0") {
                 $0.applescript.retry.operationTimeoutSeconds = -1
+            },
+            millisecondCapacity("applescript.retry.operationTimeoutSeconds", "1e+308") {
+                $0.applescript.retry.operationTimeoutSeconds = 1e308
             },
             minimumOne("applescript.batchProcessing.idsBatchSize", "0") {
                 $0.applescript.batchProcessing.idsBatchSize = 0
@@ -281,6 +346,9 @@ struct ConfigurationValidationTests {
             minimumOne("genreUpdate.concurrentLimit", "0") { $0.genreUpdate.concurrentLimit = 0 },
             minimumOne("processing.batchSize", "0") { $0.processing.batchSize = 0 },
             minimumZero("processing.delayBetweenBatches", "-1.0") { $0.processing.delayBetweenBatches = -1 },
+            millisecondCapacity("processing.delayBetweenBatches", "1e+308") {
+                $0.processing.delayBetweenBatches = 1e308
+            },
             minimumZero("processing.cacheTTLDays", "-1") { $0.processing.cacheTTLDays = -1 },
             minimumZero("processing.pendingVerificationIntervalDays", "-1") {
                 $0.processing.pendingVerificationIntervalDays = -1
@@ -292,6 +360,7 @@ struct ConfigurationValidationTests {
             minimumZero("caching.cleanupErrorRetryDelay", "-1") { $0.caching.cleanupErrorRetryDelay = -1 },
             minimumZero("caching.cleanupIntervalSeconds", "-1") { $0.caching.cleanupIntervalSeconds = -1 },
             minimumZero("caching.negativeResultTTL", "-1.0") { $0.caching.negativeResultTTL = -1 },
+            integerCapacity("caching.negativeResultTTL", "1e+308") { $0.caching.negativeResultTTL = 1e308 },
             minimumOne("caching.librarySnapshot.maxAgeHours", "0") { $0.caching.librarySnapshot.maxAgeHours = 0 },
             oneToNine("caching.librarySnapshot.compressLevel", "10") {
                 $0.caching.librarySnapshot.compressLevel = 10
@@ -307,6 +376,9 @@ struct ConfigurationValidationTests {
             },
             minimumZero("analytics.maxEvents", "-1") { $0.analytics.maxEvents = -1 },
             minimumOne("reporting.minAttemptsForReport", "0.0") { $0.reporting.minAttemptsForReport = 0 },
+            integerCapacity("reporting.minAttemptsForReport", "1e+308") {
+                $0.reporting.minAttemptsForReport = 1e308
+            },
             minimumZero("logging.maxRuns", "-1") { $0.logging.maxRuns = -1 },
             minimumOne("yearRetrieval.rateLimits.discogsRequestsPerMinute", "0") {
                 $0.yearRetrieval.rateLimits.discogsRequestsPerMinute = 0
@@ -508,6 +580,22 @@ struct ConfigurationValidationTests {
         mutate: @escaping @Sendable (inout AppConfiguration) -> Void
     ) -> InvalidNumericProbe {
         probe(path, receivedValue, "must fit the rate limiter token capacity", mutate: mutate)
+    }
+
+    private func millisecondCapacity(
+        _ path: String,
+        _ receivedValue: String,
+        mutate: @escaping @Sendable (inout AppConfiguration) -> Void
+    ) -> InvalidNumericProbe {
+        probe(path, receivedValue, "must fit the millisecond duration capacity", mutate: mutate)
+    }
+
+    private func integerCapacity(
+        _ path: String,
+        _ receivedValue: String,
+        mutate: @escaping @Sendable (inout AppConfiguration) -> Void
+    ) -> InvalidNumericProbe {
+        probe(path, receivedValue, "must fit integer conversion capacity", mutate: mutate)
     }
 
     private func minimumThousand(

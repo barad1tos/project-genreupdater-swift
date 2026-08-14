@@ -85,6 +85,23 @@ struct SettingsCommandsTests {
         #expect(result.refreshedSettings.saveErrorMessage?.contains("genreUpdate.batchSize") == true)
     }
 
+    @Test("non-finite settings are invalid rather than unavailable")
+    func rejectsNonFiniteSettings() async {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { try $0.validateNumericValues() }
+        )
+        var edited = dependencies.config
+        edited.analytics.durationThresholds.shortMax = .nan
+        let target = SettingsCommandTarget(expectedSettingsRevision: 0)
+
+        let result = await SettingsCommands.apply(edited, target: target, dependencies: dependencies)
+
+        #expect(result.status == .rejectedInvalid)
+        #expect(result.message.contains("analytics.durationThresholds.shortMax"))
+        #expect(result.message.contains("must be finite"))
+    }
+
     @Test("after a rolled-back failure the original revision still accepts")
     func rolledBackFailureKeepsRevisionUsable() async {
         let saved = SavedConfigurations()
