@@ -219,6 +219,32 @@ struct BatchRunAppTests {
         #expect(subscription.freeTracksUsed == 1)
     }
 
+    @Test("a free user cannot apply accepted cleaning")
+    func freeUserCannotApplyCleaning() async {
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.tier = .free
+        })
+        let viewModel = fixture.viewModel
+        viewModel.phase = .review
+        viewModel.previewOnly = false
+        viewModel.proposedChanges = [
+            makeProposedChange(
+                id: "paid-cleaning",
+                isAccepted: true,
+                changeType: .trackCleaning
+            ),
+        ]
+
+        viewModel.applyAccepted()
+        await viewModel.processingTask?.value
+
+        guard case .error = viewModel.phase else {
+            Issue.record("Expected paid cleaning admission error, got \(viewModel.phase)")
+            return
+        }
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+    }
+
     @Test("a pro user keeps the free allowance after a successful batch")
     func proBatchKeepsAllowance() async throws {
         let defaultsSuite = "BatchRunAppTests-\(UUID().uuidString)"

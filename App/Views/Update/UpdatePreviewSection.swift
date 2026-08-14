@@ -8,6 +8,8 @@ import SwiftUI
 // MARK: - Update Preview Section
 
 struct UpdatePreviewSection: View {
+    @Environment(AppDependencies.self) private var dependencies
+    @Environment(\.openSettings) private var openSettings
     @Bindable var viewModel: WorkflowViewModel
 
     private var groupedChanges: [ChangePreviewGroup] {
@@ -20,7 +22,29 @@ struct UpdatePreviewSection: View {
             Divider()
             changeList
             Divider()
+            writeAccessNotice
             actionBar
+        }
+    }
+
+    @ViewBuilder
+    private var writeAccessNotice: some View {
+        if isPaidWriteLocked {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                Image(systemName: "lock.fill")
+                    .foregroundStyle(Ayu.warning)
+                Text(UpgradeCopy.cleaningWrite)
+                    .font(AppFont.caption)
+                    .foregroundStyle(Ayu.fgSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: Spacing.md)
+                Button("Open Subscription Settings") {
+                    openSettings()
+                }
+            }
+            .padding(Spacing.md)
+            .background(Ayu.warning.opacity(0.12))
+            Divider()
         }
     }
 
@@ -187,10 +211,18 @@ struct UpdatePreviewSection: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Ayu.accent)
-                .disabled(viewModel.acceptedCount == 0)
+                .disabled(viewModel.acceptedCount == 0 || isPaidWriteLocked)
             }
         }
         .padding(Spacing.md)
+    }
+
+    private var isPaidWriteLocked: Bool {
+        guard viewModel.proposedChanges.contains(where: {
+            $0.isAccepted && $0.changeType.requiredWriteFeature == .artistAlbumCleaning
+        }) else { return false }
+        _ = dependencies.subscriptionService?.currentTier
+        return dependencies.featureGate?.canAccess(.artistAlbumCleaning) != true
     }
 
     // MARK: - Group Actions

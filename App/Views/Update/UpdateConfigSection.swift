@@ -8,6 +8,7 @@ import SwiftUI
 // MARK: - Update Config Section
 
 struct UpdateConfigSection: View {
+    @Environment(AppDependencies.self) private var dependencies
     @Bindable var viewModel: WorkflowViewModel
     let tracks: [Track]
     let testArtists: [String]
@@ -331,6 +332,13 @@ extension UpdateConfigSection {
                 Toggle("Clean Track Names", isOn: $viewModel.cleanTrackNames)
                 Toggle("Clean Album Names", isOn: $viewModel.cleanAlbumNames)
 
+                if showsCleaningAccessWarning {
+                    Label(UpgradeCopy.cleaningWrite, systemImage: "lock.fill")
+                        .font(AppFont.caption)
+                        .foregroundStyle(Ayu.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 Divider()
 
                 dryRunToggle
@@ -351,6 +359,15 @@ extension UpdateConfigSection {
             }
         }
         .tint(viewModel.previewOnly ? Ayu.accent : Ayu.warning)
+    }
+
+    private var showsCleaningAccessWarning: Bool {
+        let canProposePaidChange = viewModel.cleanTrackNames ||
+            viewModel.cleanAlbumNames ||
+            !dependencies.config.artistRenamer.mappings.isEmpty
+        guard canProposePaidChange else { return false }
+        _ = dependencies.subscriptionService?.currentTier
+        return dependencies.featureGate?.canAccess(.artistAlbumCleaning) != true
     }
 
     // MARK: - Confidence Slider

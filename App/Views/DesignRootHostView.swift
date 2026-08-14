@@ -238,7 +238,10 @@ struct DesignRootHostView: View {
     private var updateContent: some View {
         if fixPlanProjection.status != .empty {
             FixPlanView(
-                snapshot: FixPlanAdapter.makeSnapshot(from: fixPlanProjection),
+                snapshot: FixPlanAdapter.makeSnapshot(
+                    from: fixPlanProjection,
+                    hasCleaningAccess: hasCleaningAccess
+                ),
                 noticeMessage: fixPlanNoticeMessage,
                 noticeTone: fixPlanNoticeTone,
                 isReviewBusy: isReviewBusy,
@@ -268,6 +271,11 @@ struct DesignRootHostView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private var hasCleaningAccess: Bool {
+        _ = dependencies.subscriptionService?.currentTier
+        return dependencies.featureGate?.canAccess(.artistAlbumCleaning) == true
     }
 
     private var workflowDashboardState: WorkflowDashboardState {
