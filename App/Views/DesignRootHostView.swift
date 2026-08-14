@@ -63,6 +63,7 @@ struct DesignRootHostView: View {
                 dismissItem: dismissRecoveryItem,
                 dismissPreparedItems: dismissRecoveryItems
             ),
+            reportAnalyticsAccess: reportAnalyticsAccess,
             reportNotice: reportNotice
         ) {
             updateContent
@@ -276,6 +277,17 @@ struct DesignRootHostView: View {
     private var hasCleaningAccess: Bool {
         _ = dependencies.subscriptionService?.currentTier
         return dependencies.featureGate?.canAccess(.artistAlbumCleaning) == true
+    }
+
+    private var reportAnalyticsAccess: ContentAccess {
+        _ = dependencies.subscriptionService?.currentTier
+        guard dependencies.featureGate?.canAccess(.reportsCharts) == true else {
+            return .locked(
+                message: "Aggregate report statistics and charts require Week Pass or Pro. "
+                    + "Change log, run history, details, and recovery remain available."
+            )
+        }
+        return .available
     }
 
     private var workflowDashboardState: WorkflowDashboardState {

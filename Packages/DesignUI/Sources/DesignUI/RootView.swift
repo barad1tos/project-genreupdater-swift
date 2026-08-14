@@ -20,6 +20,7 @@ public struct RootView<UpdateContent: View>: View {
     private let browseNotice: String?
     private let reportRunSelectionAction: ((String?) -> Void)?
     private let recoveryDetailActions: RecoveryDetailActions?
+    private let reportAnalyticsAccess: ContentAccess
     private let reportNotice: ReportNotice?
     private let updateContent: () -> UpdateContent
     @State private var model: AppModel
@@ -41,6 +42,7 @@ public struct RootView<UpdateContent: View>: View {
         browseNotice: String? = nil,
         reportRunSelectionAction: ((String?) -> Void)? = nil,
         recoveryDetailActions: RecoveryDetailActions? = nil,
+        reportAnalyticsAccess: ContentAccess = .available,
         // No default: the host must pass its notice state explicitly —
         // a defaulted nil once let the whole chain die silently.
         reportNotice: ReportNotice?,
@@ -62,6 +64,7 @@ public struct RootView<UpdateContent: View>: View {
         self.browseNotice = browseNotice
         self.reportRunSelectionAction = reportRunSelectionAction
         self.recoveryDetailActions = recoveryDetailActions
+        self.reportAnalyticsAccess = reportAnalyticsAccess
         self.reportNotice = reportNotice
         self.updateContent = updateContent
         _model = State(initialValue: AppModel(data: data))
@@ -126,6 +129,7 @@ public struct RootView<UpdateContent: View>: View {
                 model: model,
                 runSelectionAction: reportRunSelectionAction,
                 recoveryActions: recoveryDetailActions,
+                analyticsAccess: reportAnalyticsAccess,
                 reportNotice: reportNotice
             )
         case .update: updateContent()
