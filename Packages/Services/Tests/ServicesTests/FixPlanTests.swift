@@ -210,6 +210,22 @@ struct FixPlanTests {
         #expect(decoded == snapshot)
     }
 
+    @Test("Historical fix plan snapshots preserve formerly tolerated numeric values")
+    func historicalNumericSnapshotRemainsDecodable() throws {
+        var configuration = AppConfiguration()
+        configuration.genreUpdate.batchSize = 0
+        let snapshot = FixPlanConfig.capture(
+            configuration: configuration,
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSinceReferenceDate: 773_996_400)
+        )
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(FixPlanConfig.self, from: encoded)
+
+        #expect(decoded.appConfiguration.genreUpdate.batchSize == 0)
+    }
+
     @Test("A legacy delta setting does not stale a persisted fix plan")
     func legacyDeltaKeepsPlanFresh() throws {
         let current = FixPlanConfig.capture(

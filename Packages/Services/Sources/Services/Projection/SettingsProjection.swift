@@ -95,6 +95,10 @@ public struct SettingsCommandResult: Sendable {
         Self(status: .rejectedStale, message: message, refreshedSettings: refreshedSettings)
     }
 
+    public static func rejectedInvalid(message: String, refreshedSettings: SettingsProjection) -> Self {
+        Self(status: .rejectedInvalid, message: message, refreshedSettings: refreshedSettings)
+    }
+
     public static func temporaryUnavailable(message: String, refreshedSettings: SettingsProjection) -> Self {
         Self(status: .temporaryUnavailable, message: message, refreshedSettings: refreshedSettings)
     }

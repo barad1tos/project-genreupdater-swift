@@ -20,7 +20,7 @@ struct RunRuntimeFactory {
         configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot
     ) async throws -> LibrarySyncService {
-        let appConfiguration = scopedConfiguration(
+        let appConfiguration = try scopedConfiguration(
             configuration.appConfiguration,
             scope: scope,
             albumTarget: configuration.albumTarget
@@ -50,7 +50,7 @@ struct RunRuntimeFactory {
         configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot
     ) async throws -> FixPlanProducer.Runtime {
-        let appConfiguration = scopedConfiguration(
+        let appConfiguration = try scopedConfiguration(
             configuration.appConfiguration,
             scope: scope,
             albumTarget: configuration.albumTarget
@@ -118,7 +118,7 @@ struct RunRuntimeFactory {
         configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot
     ) async throws -> FixPlanWrite.Runtime {
-        let appConfiguration = scopedConfiguration(
+        let appConfiguration = try scopedConfiguration(
             configuration.appConfiguration,
             scope: scope,
             albumTarget: configuration.albumTarget
@@ -160,9 +160,10 @@ struct RunRuntimeFactory {
         _ configuration: AppConfiguration,
         scope: ProcessingScopeSnapshot,
         albumTarget: FixPlanAlbumTarget? = nil
-    ) -> AppConfiguration {
+    ) throws -> AppConfiguration {
         var scoped = configuration
         scoped.development.testArtists = syncArtistScope(scope: scope, albumTarget: albumTarget)
+        try scoped.validateNumericValues()
         return scoped
     }
 

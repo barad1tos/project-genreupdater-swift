@@ -7,6 +7,74 @@ import Testing
 @Suite("Preview producer runtime")
 @MainActor
 struct PreviewProducerTests {
+    @Test("Invalid historical configuration blocks sync before runtime services")
+    func rejectsInvalidSync() async throws {
+        try await expectRuntimeRejection(at: .sync)
+    }
+
+    @Test("Invalid historical configuration blocks preview before runtime services")
+    func rejectsInvalidPreview() async throws {
+        try await expectRuntimeRejection(at: .preview)
+    }
+
+    @Test("Invalid historical configuration blocks write before runtime services")
+    func rejectsInvalidWrite() async throws {
+        try await expectRuntimeRejection(at: .write)
+    }
+
+    @Test("Recovered rate-limit overflow fails before runtime services")
+    func rejectsRateOverflow() async throws {
+        try await expectRuntimeRejection(at: .preview) {
+            $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 1e308
+        }
+    }
+
+    @Test("Recovered batch-delay overflow fails before runtime services")
+    func rejectsDelayOverflow() async throws {
+        try await expectRuntimeRejection(at: .preview) {
+            $0.processing.delayBetweenBatches = 1e308
+        }
+    }
+
+    private func expectRuntimeRejection(
+        at entryPoint: RuntimeEntryPoint,
+        mutate: (inout AppConfiguration) -> Void = { $0.genreUpdate.batchSize = 0 }
+    ) async throws {
+        let services = RunServiceFactory(
+            makeScripts: { _ in
+                Issue.record("Invalid historical configuration must fail before script creation")
+                return PreviewScriptClient(tracks: [])
+            },
+            makePendingVerification: { _ in
+                Issue.record("Invalid historical configuration must fail before store creation")
+                return nil
+            }
+        )
+        let runtime = try await makeRuntime(services: services)
+        var invalid = AppConfiguration()
+        mutate(&invalid)
+        let configuration = FixPlanConfig.capture(
+            configuration: invalid,
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        switch entryPoint {
+        case .sync:
+            await #expect(throws: ConfigurationValidationError.self) {
+                _ = try await runtime.makeSync(configuration: configuration, scope: scope(artist: "Probe Artist"))
+            }
+        case .preview:
+            await #expect(throws: ConfigurationValidationError.self) {
+                _ = try await runtime.makePreview(configuration: configuration, scope: scope(artist: "Probe Artist"))
+            }
+        case .write:
+            await #expect(throws: ConfigurationValidationError.self) {
+                _ = try await runtime.makeWrite(configuration: configuration, scope: scope(artist: "Probe Artist"))
+            }
+        }
+    }
+
     @Test("run services use each submitted configuration")
     func usesSubmittedConfiguration() async throws {
         let probe = RunConfigProbe()
@@ -222,4 +290,10 @@ struct PreviewProducerTests {
             reason: "test"
         )
     }
+}
+
+private enum RuntimeEntryPoint {
+    case sync
+    case preview
+    case write
 }
