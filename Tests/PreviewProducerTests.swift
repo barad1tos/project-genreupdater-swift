@@ -7,8 +7,22 @@ import Testing
 @Suite("Preview producer runtime")
 @MainActor
 struct PreviewProducerTests {
-    @Test("Invalid historical configuration fails before runtime services are created")
-    func invalidHistoricalConfigurationFailsBeforeRuntime() async throws {
+    @Test("Invalid historical configuration blocks sync before runtime services")
+    func rejectsInvalidSync() async throws {
+        try await expectRuntimeRejection(at: .sync)
+    }
+
+    @Test("Invalid historical configuration blocks preview before runtime services")
+    func rejectsInvalidPreview() async throws {
+        try await expectRuntimeRejection(at: .preview)
+    }
+
+    @Test("Invalid historical configuration blocks write before runtime services")
+    func rejectsInvalidWrite() async throws {
+        try await expectRuntimeRejection(at: .write)
+    }
+
+    private func expectRuntimeRejection(at entryPoint: RuntimeEntryPoint) async throws {
         let services = RunServiceFactory(
             makeScripts: { _ in
                 Issue.record("Invalid historical configuration must fail before script creation")
@@ -28,8 +42,19 @@ struct PreviewProducerTests {
             capturedAt: Date(timeIntervalSince1970: 100)
         )
 
-        await #expect(throws: ConfigurationValidationError.self) {
-            _ = try await runtime.makeSync(configuration: configuration, scope: scope(artist: "Probe Artist"))
+        switch entryPoint {
+        case .sync:
+            await #expect(throws: ConfigurationValidationError.self) {
+                _ = try await runtime.makeSync(configuration: configuration, scope: scope(artist: "Probe Artist"))
+            }
+        case .preview:
+            await #expect(throws: ConfigurationValidationError.self) {
+                _ = try await runtime.makePreview(configuration: configuration, scope: scope(artist: "Probe Artist"))
+            }
+        case .write:
+            await #expect(throws: ConfigurationValidationError.self) {
+                _ = try await runtime.makeWrite(configuration: configuration, scope: scope(artist: "Probe Artist"))
+            }
         }
     }
 
@@ -248,4 +273,10 @@ struct PreviewProducerTests {
             reason: "test"
         )
     }
+}
+
+private enum RuntimeEntryPoint {
+    case sync
+    case preview
+    case write
 }

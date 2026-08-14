@@ -5,19 +5,16 @@ import Testing
 @Suite("AppConfiguration numeric validation")
 struct ConfigurationValidationTests {
     @Test("Every invalid numeric field reports its canonical path and rule")
-    func rejectsInvalidNumericValues() throws {
+    func rejectsInvalidValues() {
         for probe in invalidNumericProbes {
-            var configuration = AppConfiguration()
-            probe.mutate(&configuration)
+            expectRejection(probe)
+        }
+    }
 
-            do {
-                _ = try decode(configuration)
-                Issue.record("Expected validation to reject \(probe.issue.fieldPath)")
-            } catch let error as ConfigurationValidationError {
-                #expect(error.issues == [probe.issue])
-            } catch {
-                Issue.record("Unexpected error for \(probe.issue.fieldPath): \(error)")
-            }
+    @Test("Closed ranges reject values below their lower bounds")
+    func rejectsRangeUnderflow() {
+        for probe in lowerRangeProbes {
+            expectRejection(probe)
         }
     }
 
@@ -196,6 +193,20 @@ struct ConfigurationValidationTests {
     private func decode(_ configuration: AppConfiguration) throws -> AppConfiguration {
         let data = try JSONEncoder().encode(configuration)
         return try AppConfiguration.configurationDecoder().decode(AppConfiguration.self, from: data)
+    }
+
+    private func expectRejection(_ probe: InvalidNumericProbe) {
+        var configuration = AppConfiguration()
+        probe.mutate(&configuration)
+
+        do {
+            _ = try decode(configuration)
+            Issue.record("Expected validation to reject \(probe.issue.fieldPath)")
+        } catch let error as ConfigurationValidationError {
+            #expect(error.issues == [probe.issue])
+        } catch {
+            Issue.record("Unexpected error for \(probe.issue.fieldPath): \(error)")
+        }
     }
 
     private func setPenaltiesToZero(_ configuration: inout AppConfiguration) {
@@ -389,6 +400,36 @@ struct ConfigurationValidationTests {
                 $0.yearRetrieval.itunesSearch.limit = 201
             },
             minimumOne("reporting.runHistoryLimit", "0") { $0.reporting.runHistoryLimit = 0 },
+        ]
+    }
+
+    private var lowerRangeProbes: [InvalidNumericProbe] {
+        [
+            zeroToOne("applescript.retry.jitterRange", "-0.01") { $0.applescript.retry.jitterRange = -0.01 },
+            zeroToHundred("processing.releaseYearRestoreThreshold", "-1") {
+                $0.processing.releaseYearRestoreThreshold = -1
+            },
+            zeroToHundred("processing.minConfidenceToCache", "-1") {
+                $0.processing.minConfidenceToCache = -1
+            },
+            oneToNine("caching.librarySnapshot.compressLevel", "0") {
+                $0.caching.librarySnapshot.compressLevel = 0
+            },
+            zeroToHundred("yearRetrieval.logic.definitiveScoreThreshold", "-1") {
+                $0.yearRetrieval.logic.definitiveScoreThreshold = -1
+            },
+            zeroToHundred("yearRetrieval.logic.minConfidenceForNewYear", "-0.01") {
+                $0.yearRetrieval.logic.minConfidenceForNewYear = -0.01
+            },
+            zeroToOne("yearRetrieval.logic.dominantYearMinConfidence", "-0.01") {
+                $0.yearRetrieval.logic.dominantYearMinConfidence = -0.01
+            },
+            zeroToHundred("yearRetrieval.fallback.trustAPIScoreThreshold", "-0.01") {
+                $0.yearRetrieval.fallback.trustAPIScoreThreshold = -0.01
+            },
+            oneToTwoHundred("yearRetrieval.itunesSearch.limit", "0") {
+                $0.yearRetrieval.itunesSearch.limit = 0
+            },
         ]
     }
 
