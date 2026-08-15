@@ -3,7 +3,7 @@
 //
 // Algorithm: find the earliest track (by dateAdded) per album,
 // then find the absolute earliest across albums — return its genre.
-// No API calls, no mapping, no weighted voting.
+// No API calls or weighted voting; an optional user mapping may transform the result.
 
 import Foundation
 import OSLog
@@ -111,7 +111,7 @@ public struct GenreDeterminator: Sendable {
     /// - Parameters:
     ///   - genre: The determined genre to look up.
     ///   - mappings: Source-to-target genre dictionary.
-    /// - Returns: The mapped genre if a match is found, otherwise the original genre.
+    /// - Returns: The unique nonblank mapped genre, or the original genre when no safe mapping exists.
     static func applyGenreMapping(
         _ genre: String,
         mappings: [String: String]
