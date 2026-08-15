@@ -50,8 +50,7 @@ struct RunEvidenceStoreTests {
         )
         var workItems = try #require(payload["workItems"] as? [[String: Any]])
         workItems[0].removeValue(forKey: "writeChange")
-        workItems[0].removeValue(forKey: "writeEvidenceVersion")
-        workItems[0].removeValue(forKey: "hasWriteEvidence")
+        workItems[0]["hasWriteEvidence"] = false
         payload["workItems"] = workItems
         row.transitionsData = try JSONSerialization.data(withJSONObject: payload)
         try context.save()
