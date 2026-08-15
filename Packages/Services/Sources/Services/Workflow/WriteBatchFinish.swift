@@ -194,10 +194,13 @@ extension UpdateCoordinator {
         guard batch.appliedIndexes.contains(index) else {
             return .failed
         }
-        let priorValue = batch.currentTracksByID[write.trackID].flatMap { track in
-            value(forAppleScriptProperty: write.property, in: track)
+        guard let priorTrack = batch.currentTracksByID[write.trackID] else {
+            return .written
         }
-        return priorValue == write.value ? .noFixNeeded : .written
+        let wasAlreadyApplied = write.updates.allSatisfy { update in
+            value(forAppleScriptProperty: update.property, in: priorTrack) == update.value
+        }
+        return wasAlreadyApplied ? .noFixNeeded : .written
     }
 
     private func recordUnverifiedBatchWrite(

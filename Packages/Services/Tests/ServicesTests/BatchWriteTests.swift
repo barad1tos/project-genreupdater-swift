@@ -58,6 +58,16 @@ struct BatchWriteTests {
         }
 
         #expect(await fixture.undo.getHistory().isEmpty)
+
+        await fixture.bridge.setBatchMutationLimit(nil)
+        let retry = try await fixture.coordinator.applyAcceptedChanges(
+            input.proposals,
+            progressHandler: ignoreProgress
+        )
+        let rename = try #require(retry.entries.first { $0.changeType == .artistRename })
+
+        #expect(rename.albumArtistChange?.newValue == "Massive Attack")
+        #expect(await fixture.undo.getHistory().contains { $0.id == rename.id })
     }
 
     @Test("Unavailable batch verification reports an unknown outcome")
