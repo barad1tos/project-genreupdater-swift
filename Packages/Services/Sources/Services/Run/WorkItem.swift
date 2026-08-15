@@ -81,7 +81,7 @@ public struct WorkCheckpoint: Equatable, Sendable {
         self.writeChanges = writeChanges
     }
 
-    public static func beforeAttempt(_ itemIDs: [UUID]) -> Self {
+    static func beforeAttempt(_ itemIDs: [UUID]) -> Self {
         Self(
             boundary: .beforeAttempt,
             states: Dictionary(uniqueKeysWithValues: Set(itemIDs).map { ($0, .attempting) })
@@ -169,17 +169,30 @@ public struct WorkChange: Codable, Equatable, Sendable {
         self.albumArtistChange = albumArtistChange
     }
 
-    func matchesPrimaryEffect(of planned: Self) -> Bool {
-        changeType == planned.changeType
+    func isValidReconciliation(of planned: Self) -> Bool {
+        let hasMatchingPrimaryEffect = changeType == planned.changeType
             && oldValue == planned.oldValue
             && newValue == planned.newValue
             && confidence == planned.confidence
             && source == planned.source
+        let hasValidAlbumArtistTarget = albumArtistChange?.newValue == nil
+            || albumArtistChange?.newValue == newValue
+        return hasMatchingPrimaryEffect && hasValidAlbumArtistTarget
     }
 }
 
 /// One immutable unit of run planning and processing.
 public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case target
+        case change
+        case writeChange
+        case state
+        case detail
+        case dismissedAt
+    }
+
     public let id: UUID
     public let target: WorkTarget
     public let change: WorkChange
@@ -198,9 +211,29 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         change: WorkChange,
         state: WorkState = .prepared,
         detail: String? = nil,
-        dismissedAt: Date? = nil,
-        writeChange: WorkChange? = nil
+        dismissedAt: Date? = nil
     ) {
+        self.init(
+            id: id,
+            target: target,
+            change: change,
+            state: state,
+            detail: detail,
+            dismissedAt: dismissedAt,
+            writeChange: nil
+        )
+    }
+
+    init(
+        id: UUID,
+        target: WorkTarget,
+        change: WorkChange,
+        state: WorkState,
+        detail: String? = nil,
+        dismissedAt: Date? = nil,
+        writeChange: WorkChange?
+    ) {
+        precondition(Self.hasValidWriteChange(writeChange, planned: change, state: state))
         self.id = id
         self.target = target
         self.change = change
@@ -208,6 +241,29 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         self.state = state
         self.detail = detail
         self.dismissedAt = dismissedAt
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try values.decode(UUID.self, forKey: .id)
+        let target = try values.decode(WorkTarget.self, forKey: .target)
+        let change = try values.decode(WorkChange.self, forKey: .change)
+        let writeChange = try values.decodeIfPresent(WorkChange.self, forKey: .writeChange)
+        let state = try values.decode(WorkState.self, forKey: .state)
+        guard Self.hasValidWriteChange(writeChange, planned: change, state: state) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .writeChange,
+                in: values,
+                debugDescription: "Write effect contradicts the planned change or work state"
+            )
+        }
+        self.id = id
+        self.target = target
+        self.change = change
+        self.writeChange = writeChange
+        self.state = state
+        detail = try values.decodeIfPresent(String.self, forKey: .detail)
+        dismissedAt = try values.decodeIfPresent(Date.self, forKey: .dismissedAt)
     }
 
     public init(item: FixPlanItem) {
@@ -266,7 +322,7 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             throw WorkStateError.invalid(current: state, next: nextState)
         }
         if let suppliedWriteChange {
-            guard suppliedWriteChange.matchesPrimaryEffect(of: change),
+            guard suppliedWriteChange.isValidReconciliation(of: change),
                   writeChange != nil || nextState == .attempting
             else {
                 throw WorkStateError.invalid(current: state, next: nextState)
@@ -288,6 +344,28 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
 
     var effectiveChange: WorkChange {
         writeChange ?? change
+    }
+
+    func canReconcileWriteChange(from previous: Self) -> Bool {
+        switch (previous.writeChange, writeChange) {
+        case (nil, nil):
+            true
+        case let (previous?, current?):
+            previous == current
+        case (nil, _?):
+            previous.state == .prepared && state != .prepared
+        case (_?, nil):
+            false
+        }
+    }
+
+    private static func hasValidWriteChange(
+        _ writeChange: WorkChange?,
+        planned: WorkChange,
+        state: WorkState
+    ) -> Bool {
+        guard let writeChange else { return true }
+        return state != .prepared && writeChange.isValidReconciliation(of: planned)
     }
 
     private static func canTransition(from state: WorkState, to nextState: WorkState) -> Bool {

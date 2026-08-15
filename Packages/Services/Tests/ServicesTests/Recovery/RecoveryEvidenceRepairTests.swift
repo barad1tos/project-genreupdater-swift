@@ -65,13 +65,13 @@ struct RecoveryEvidenceRepairTests {
     }
 
     @Test("repair uses the reconciled write effect instead of stale plan evidence")
-    func rebuildsReconciledArtistEntry() throws {
+    func usesReconciledArtist() throws {
         let plannedEffect = AlbumArtistChange(oldValue: "Massive", newValue: "Massive Attack")
         let writeChange = WorkChange(
             changeType: .artistRename,
             oldValue: "Massive",
             newValue: "Massive Attack",
-            confidence: 100,
+            confidence: 92,
             source: "Artist Renamer"
         )
         let item = makeWorkItem(
@@ -79,6 +79,7 @@ struct RecoveryEvidenceRepairTests {
             changeType: .artistRename,
             oldValue: "Massive",
             newValue: "Massive Attack",
+            source: "Artist Renamer",
             albumArtistChange: plannedEffect,
             writeChange: writeChange
         )

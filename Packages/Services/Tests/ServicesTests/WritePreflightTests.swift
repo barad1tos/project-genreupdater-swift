@@ -162,7 +162,15 @@ struct WritePreflightTests {
         ])
         let prepared = await checkpoints.values.first
         #expect(prepared?.boundary == .beforeAttempt)
-        #expect(prepared?.writeChanges[change.id]?.albumArtistChange == nil)
+        #expect(prepared?.writeChanges == [
+            change.id: WorkChange(
+                changeType: .artistRename,
+                oldValue: "Massive",
+                newValue: "Massive Attack",
+                confidence: 100,
+                source: "Artist Renamer"
+            ),
+        ])
     }
 
     @Test("Reviewed coupled artist rename skips when both fields already match")

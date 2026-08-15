@@ -166,6 +166,7 @@ extension RunRecordDataStore {
                       item.target == expected.target,
                       item.change == expected.change,
                       item.detail == expected.detail,
+                      item.canReconcileWriteChange(from: expected),
                       item.state.canFollow(expected.state)
                 else {
                     throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: runID)

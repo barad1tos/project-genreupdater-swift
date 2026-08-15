@@ -43,7 +43,53 @@ struct BatchWriteTests {
             TrackPropertyUpdate(trackID: "T1", property: "genre", value: "Trip-Hop"),
         ]])
         #expect(result.entries.first?.albumArtistChange == nil)
-        #expect(await checkpoints.values.first?.writeChanges[input.proposals[0].id]?.albumArtistChange == nil)
+        let prepared = await checkpoints.values.first
+        #expect(prepared?.writeChanges == [
+            input.proposals[0].id: WorkChange(
+                changeType: .artistRename,
+                oldValue: "Massive",
+                newValue: "Massive Attack",
+                confidence: 100,
+                source: "Artist mappings"
+            ),
+            input.proposals[1].id: WorkChange(
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Trip-Hop",
+                confidence: 90,
+                source: "Library"
+            ),
+        ])
+    }
+
+    @Test("A duplicate accepted change ID fails before dispatch")
+    func rejectsDuplicateID() async throws {
+        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
+        let input = coupledBatchInput(currentAlbumArtist: "Massive")
+        let genre = input.proposals[1]
+        let duplicate = ProposedChange(
+            id: input.proposals[0].id,
+            track: genre.track,
+            changeType: genre.changeType,
+            oldValue: genre.oldValue,
+            newValue: genre.newValue,
+            confidence: genre.confidence,
+            source: genre.source,
+            isAccepted: true
+        )
+
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                [input.proposals[0], duplicate],
+                progressHandler: ignoreProgress
+            )
+            Issue.record("Expected duplicate change IDs to be rejected")
+        } catch let UpdateCoordinatorError.duplicateChangeID(changeID) {
+            #expect(changeID == input.proposals[0].id)
+        }
+
+        #expect(await fixture.bridge.batchUpdates.isEmpty)
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
     }
 
     @Test("A partial coupled batch is not recorded as a verified rename")

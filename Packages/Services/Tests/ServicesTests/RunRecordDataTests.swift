@@ -68,6 +68,46 @@ struct RunRecordDataTests {
         #expect(try runPayload(runID: record.runID, in: container) == originalPayload)
     }
 
+    @Test("relaunch rejects a child row with contradictory write evidence")
+    func rejectsTamperedEvidence() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let item = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [item],
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+        try await store.checkpoint(.beforeAttempt([item.id: item.change]), runID: record.runID)
+        try await store.checkpoint(.afterAttempt([item.id]), runID: record.runID)
+
+        let context = ModelContext(container)
+        let row = try #require(context.fetch(FetchDescriptor<PersistedRunWorkItem>()).first)
+        var payload = try #require(
+            try JSONSerialization.jsonObject(with: row.itemData) as? [String: Any]
+        )
+        var writeChange = try #require(payload["writeChange"] as? [String: Any])
+        writeChange["newValue"] = "Jazz"
+        payload["writeChange"] = writeChange
+        row.itemData = try JSONSerialization.data(withJSONObject: payload)
+        try context.save()
+
+        do {
+            _ = try await RunRecordDataStore(modelContainer: container).record(for: record.runID)
+            Issue.record("Expected contradictory write evidence to be rejected")
+        } catch let RunRecordPersistenceError.corruptedField(name, runID) {
+            #expect(name == "workItems")
+            #expect(runID == record.runID.rawValue)
+        }
+    }
+
     @Test("Work checkpoints decode only addressed items")
     func checkpointsAddressedItems() async throws {
         let container = try ModelContainerFactory.createInMemory()

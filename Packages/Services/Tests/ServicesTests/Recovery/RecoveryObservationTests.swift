@@ -115,6 +115,7 @@ struct RecoveryObservationServiceTests {
             changeType: .artistRename,
             oldValue: "Massive",
             newValue: "Massive Attack",
+            source: "Artist mappings",
             albumArtistChange: albumArtistChange,
             writeChange: WorkChange(
                 changeType: .artistRename,
@@ -148,6 +149,7 @@ struct RecoveryObservationServiceTests {
             changeType: .artistRename,
             oldValue: "Massive",
             newValue: "Massive Attack",
+            source: "Artist mappings",
             albumArtistChange: albumArtistChange,
             writeChange: WorkChange(
                 changeType: .artistRename,
