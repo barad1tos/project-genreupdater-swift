@@ -54,7 +54,7 @@ public struct GenreDeterminator: Sendable {
     public func determineDominantGenre(
         artistTracks: [Track]
     ) -> GenreResult {
-        determineDominantGenre(artistTracks: artistTracks, genreMappings: [:])
+        resolveDominantGenre(artistTracks: artistTracks, genreMappings: [:])
     }
 
     /// Determine dominant genre for an artist, applying user-defined genre mappings.
@@ -69,6 +69,19 @@ public struct GenreDeterminator: Sendable {
     ///   - genreMappings: User-defined source-to-target genre replacements.
     /// - Returns: Genre result with the (possibly remapped) dominant genre.
     public func determineDominantGenre(
+        artistTracks: [Track],
+        genreMappings: [String: String]
+    ) -> GenreResult {
+        guard !genreMappings.isEmpty else {
+            return determineDominantGenre(artistTracks: artistTracks)
+        }
+        return resolveDominantGenre(
+            artistTracks: artistTracks,
+            genreMappings: genreMappings
+        )
+    }
+
+    private func resolveDominantGenre(
         artistTracks: [Track],
         genreMappings: [String: String]
     ) -> GenreResult {

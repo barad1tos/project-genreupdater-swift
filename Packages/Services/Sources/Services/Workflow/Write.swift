@@ -148,7 +148,7 @@ extension UpdateCoordinator {
         let albumTracksWithMutationMetadata = await availableTracksWithMutationMetadata(
             trackProviders.album(request.track)
         )
-        let artistTracks = trackProviders.artist(request.track).filter(Self.isTrackAvailableForProcessing)
+        let artistTracks = trackProviders.artist(request.track)
         let changes = try await updateTrack(
             request.track,
             albumTracks: albumTracksWithMutationMetadata,

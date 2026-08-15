@@ -304,7 +304,7 @@ final class WorkflowViewModel {
                 let contextTracks = contextTracks ?? tracks
 
                 let albumTracksByTrackID = await dryRunAlbumTracksByTrackID(for: contextTracks)
-                let artistGroups = Self.groupTracksByArtist(contextTracks)
+                let artistTracksByTrackID = await updateCoordinator.artistContextTracksByTrackID(for: contextTracks)
 
                 for (index, track) in tracks.enumerated() {
                     try Task.checkCancellation()
@@ -315,7 +315,7 @@ final class WorkflowViewModel {
                         let changes = try await previewChanges(
                             for: track,
                             albumTracksByTrackID: albumTracksByTrackID,
-                            artistGroups: artistGroups,
+                            artistTracksByTrackID: artistTracksByTrackID,
                             options: options,
                             pass: scope.pass(for: track)
                         )
@@ -366,14 +366,14 @@ final class WorkflowViewModel {
     private func previewChanges(
         for track: Track,
         albumTracksByTrackID: [String: [Track]],
-        artistGroups: [String: [Track]],
+        artistTracksByTrackID: [String: [Track]],
         options: UpdateOptions,
         pass: UpdatePass
     ) async throws -> [ProposedChange] {
         try await updateCoordinator.updateTrack(
             track,
             albumTracks: albumTracksByTrackID[track.id] ?? [],
-            artistTracks: artistGroups[Self.artistKey(for: track)] ?? [],
+            artistTracks: artistTracksByTrackID[track.id] ?? [],
             options: options,
             pass: pass,
             dryRun: true

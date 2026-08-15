@@ -134,9 +134,9 @@ public actor UpdateCoordinator {
             albumTracks,
             requiresMutationMetadata: !dryRun
         )
-        let inputArtistTracks = await availableTracksWithMutationMetadata(
+        let inputArtistTracks = await enrichTracks(
             artistTracks,
-            requiresMutationMetadata: !dryRun
+            requiresMutationMetadata: false
         )
 
         guard inputTrack.canEdit else {
@@ -360,14 +360,27 @@ public actor UpdateCoordinator {
         return Self.albumTracksByTrackID(for: contextTracks)
     }
 
+    /// Returns artist-level genre evidence after restoring AppleScript-only metadata.
+    ///
+    /// Grouping happens after enrichment so an authoritative `albumArtist` can
+    /// prevent a feature-credit track from borrowing evidence from another artist.
+    /// Unmapped tracks remain unchanged, and unavailable tracks remain in the
+    /// context, because they are read-only genre evidence rather than write targets.
+    public func artistContextTracksByTrackID(for tracks: [Track]) async -> [String: [Track]] {
+        let contextTracks = await enrichTracks(
+            tracks,
+            requiresMutationMetadata: false
+        )
+        return Self.artistTracksByTrackID(for: contextTracks)
+    }
+
     private static func genreContextTracks(
         track: Track,
         artistTracks: [Track],
         albumTracks: [Track]
     ) -> [Track] {
-        let availableArtistTracks = artistTracks.filter(isTrackAvailableForProcessing)
-        if !availableArtistTracks.isEmpty {
-            return tracks(availableArtistTracks, containing: track)
+        if !artistTracks.isEmpty {
+            return tracks(artistTracks, containing: track)
         }
 
         if !albumTracks.isEmpty {
@@ -417,18 +430,26 @@ public actor UpdateCoordinator {
         _ tracks: [Track],
         requiresMutationMetadata: Bool = true
     ) async -> [Track] {
+        await enrichTracks(
+            tracks,
+            requiresMutationMetadata: requiresMutationMetadata
+        ).filter(Self.isTrackAvailableForProcessing)
+    }
+
+    private func enrichTracks(
+        _ tracks: [Track],
+        requiresMutationMetadata: Bool
+    ) async -> [Track] {
         guard let idMapper else {
-            return tracks.filter(Self.isTrackAvailableForProcessing)
+            return tracks
         }
 
         var enrichedTracks: [Track] = []
         enrichedTracks.reserveCapacity(tracks.count)
         for track in tracks {
-            if let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track),
-               Self.isTrackAvailableForProcessing(enrichedTrack) {
+            if let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track) {
                 enrichedTracks.append(enrichedTrack)
-            } else if !requiresMutationMetadata,
-                      Self.isTrackAvailableForProcessing(track) {
+            } else if !requiresMutationMetadata {
                 enrichedTracks.append(track)
             }
         }
@@ -509,7 +530,7 @@ public actor UpdateCoordinator {
         artistTracksProvider: (@Sendable (Track) -> [Track])?
     ) async -> UpdateTrackProviders {
         let contextTracks = if albumTracksProvider == nil || artistTracksProvider == nil {
-            await availableTracksWithMutationMetadata(tracks)
+            await enrichTracks(tracks, requiresMutationMetadata: false)
         } else {
             tracks
         }
@@ -563,11 +584,12 @@ public actor UpdateCoordinator {
     }
 
     private static func artistTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
-        let tracksByArtist = Dictionary(grouping: tracks.filter(isTrackAvailableForProcessing)) {
-            normalizeForMatching($0.effectiveArtist)
+        let tracksByArtist = Dictionary(grouping: tracks) {
+            normalizeForMatching(AlbumIdentity.groupingArtist(for: $0))
         }
         return Dictionary(uniqueKeysWithValues: tracks.map { track in
-            (track.id, tracksByArtist[normalizeForMatching(track.effectiveArtist)] ?? [])
+            let artistKey = normalizeForMatching(AlbumIdentity.groupingArtist(for: track))
+            return (track.id, tracksByArtist[artistKey] ?? [])
         })
     }
 

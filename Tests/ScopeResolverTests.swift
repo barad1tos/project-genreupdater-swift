@@ -73,6 +73,142 @@ struct ScopeResolverTests {
         #expect(resolved.isEmpty)
     }
 
+    @Test("incremental scope applies genre mappings when detecting mismatches")
+    func mappingMismatch() {
+        let track = Track(
+            id: "mapped",
+            name: "Mapped Genre",
+            artist: "Artist",
+            album: "Album",
+            genre: "Electronic",
+            dateAdded: Date(timeIntervalSince1970: 500)
+        )
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(
+            [track],
+            lastRunTime: Date(timeIntervalSince1970: 1000),
+            options: IncrementalTrackScopeOptions(
+                updateGenre: true,
+                genreMappings: ["Electronic": "Electronica"]
+            )
+        )
+
+        #expect(resolved.map(\.id) == ["mapped"])
+    }
+
+    @Test("incremental scope groups explicit feature credits")
+    func featureCreditMismatch() {
+        let source = Track(
+            id: "source",
+            name: "Source",
+            artist: "Artist",
+            album: "Earlier",
+            genre: "Rock",
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let target = Track(
+            id: "target",
+            name: "Target",
+            artist: "Artist feat. Guest",
+            album: "Later",
+            genre: "Jazz",
+            dateAdded: Date(timeIntervalSince1970: 500)
+        )
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(
+            [source, target],
+            lastRunTime: Date(timeIntervalSince1970: 1000)
+        )
+
+        #expect(resolved.map(\.id) == ["target"])
+    }
+
+    @Test("incremental scope keeps unavailable tracks as evidence only")
+    func readOnlyIsNotTarget() {
+        let editableEvidence = Track(
+            id: "editable-evidence",
+            name: "Editable Evidence",
+            artist: "Artist",
+            album: "Earlier",
+            genre: "Rock",
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let unavailableMismatch = Track(
+            id: "unavailable-mismatch",
+            name: "Unavailable Mismatch",
+            artist: "Artist",
+            album: "Later",
+            genre: "Jazz",
+            dateAdded: Date(timeIntervalSince1970: 500),
+            trackStatus: TrackKind.noLongerAvailable.rawValue
+        )
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(
+            [editableEvidence, unavailableMismatch],
+            lastRunTime: Date(timeIntervalSince1970: 1000)
+        )
+
+        #expect(resolved.isEmpty)
+    }
+
+    @Test(
+        "incremental scope uses unavailable tracks as mismatch evidence",
+        arguments: [TrackKind.prerelease, TrackKind.noLongerAvailable]
+    )
+    func unavailableEvidence(kind: TrackKind) {
+        let readOnlyEvidence = Track(
+            id: "read-only-evidence",
+            name: "Read-only Evidence",
+            artist: "Artist",
+            album: "Earlier",
+            genre: "Rock",
+            dateAdded: Date(timeIntervalSince1970: 100),
+            trackStatus: kind.rawValue
+        )
+        let editableMismatch = Track(
+            id: "editable-mismatch",
+            name: "Editable Mismatch",
+            artist: "Artist",
+            album: "Later",
+            genre: "Jazz",
+            dateAdded: Date(timeIntervalSince1970: 500)
+        )
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(
+            [readOnlyEvidence, editableMismatch],
+            lastRunTime: Date(timeIntervalSince1970: 1000)
+        )
+
+        #expect(resolved.map(\.id) == ["editable-mismatch"])
+    }
+
+    @Test("incremental scope does not split artist names containing and")
+    func preservesAndInArtist() {
+        let bandTrack = Track(
+            id: "band",
+            name: "Band Track",
+            artist: "Florence and the Machine",
+            album: "Album",
+            genre: "Rock",
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let soloTrack = Track(
+            id: "solo",
+            name: "Solo Track",
+            artist: "Florence",
+            album: "Album",
+            genre: "Jazz",
+            dateAdded: Date(timeIntervalSince1970: 500)
+        )
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(
+            [bandTrack, soloTrack],
+            lastRunTime: Date(timeIntervalSince1970: 1000)
+        )
+
+        #expect(resolved.isEmpty)
+    }
+
     @Test("incremental scope deduplicates new tracks that also have missing genres")
     func incrementalScopeDeduplicatesNewTracksWithMissingGenres() {
         let lastRunTime = Date(timeIntervalSince1970: 1000)
