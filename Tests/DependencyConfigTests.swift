@@ -373,7 +373,9 @@ struct DependencyConfigTests {
                 configuration.cleaning.genreMappings = ["Electronic": "Electronica"]
                 return configuration
             },
-            configurationSaver: { _ in }
+            configurationSaver: { configuration in
+                _ = configuration
+            }
         )
         let tracker = IncrementalRunTracker(
             logsBaseDirectory: logsDirectory.path,

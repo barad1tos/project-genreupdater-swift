@@ -74,7 +74,7 @@ struct GenreRepairTests {
         let result = try await fixture.coordinator.updateTracks(
             [evidenceTrack, targetTrack],
             options: UpdateOptions(updateGenre: true, updateYear: false),
-            progressHandler: { _ in }
+            progressHandler: ignoreProgress
         )
 
         #expect(result.entries.map(\.trackID) == ["target"])
@@ -108,7 +108,7 @@ struct GenreRepairTests {
         let result = try await fixture.coordinator.updateTracks(
             [sourceTrack, targetTrack],
             options: UpdateOptions(updateGenre: true, updateYear: false),
-            progressHandler: { _ in }
+            progressHandler: ignoreProgress
         )
 
         #expect(result.entries.map(\.trackID) == ["target"])
@@ -145,7 +145,7 @@ struct GenreRepairTests {
             _ = try await fixture.coordinator.updateTracks(
                 [sourceTrack, targetTrack],
                 options: UpdateOptions(updateGenre: true, updateYear: false),
-                progressHandler: { _ in }
+                progressHandler: ignoreProgress
             )
             Issue.record("Expected the missing target identity to block the write")
         } catch let error as UpdateCoordinatorError {
@@ -287,9 +287,16 @@ private actor GenreIdentityMapper: TrackIDMapping {
         return enrichedTrack
     }
 
-    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {}
+    func refreshMapping(musicKitTracks: [Track], appleScriptTracks: [Track]) async {
+        _ = musicKitTracks
+        _ = appleScriptTracks
+    }
 
     func hasMappingFor(musicKitID: String) async -> Bool {
         musicKitID == mappedTrack.id
     }
+}
+
+private func ignoreProgress(_ update: ProgressUpdate) {
+    _ = update
 }
