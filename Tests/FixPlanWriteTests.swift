@@ -58,6 +58,40 @@ struct FixPlanWriteTests {
         #expect(changes.map(\.isAccepted) == [true, false])
     }
 
+    @Test("Reviewed write restores coupled album artist evidence from the plan")
+    func restoresAlbumArtistEvidence() throws {
+        let item = FixPlanItem(
+            id: UUID(),
+            identity: FixPlanItemIdentity(
+                readID: "MK-1",
+                appleScriptID: "AS-1",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                trackName: "Teardrop",
+                albumArtist: "Massive Attack"
+            ),
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            confidence: 100,
+            source: "Artist Renamer",
+            albumArtistChange: AlbumArtistChange(
+                oldValue: "Massive",
+                newValue: "Massive Attack"
+            )
+        )
+        let plan = fixPlan(items: [item])
+        let decision = reviewDecision(
+            for: plan,
+            items: [FixPlanItemDecision(itemID: item.id, verdict: .accepted)]
+        )
+
+        let change = try #require(FixPlanWrite.proposedChanges(from: plan, decision: decision).first)
+
+        #expect(change.track.albumArtist == "Massive Attack")
+        #expect(change.albumArtistChange == item.albumArtistChange)
+    }
+
     @Test("reviewed write rejects duplicate decision items")
     func rejectsDuplicateItems() {
         let firstItem = fixPlanItem(id: UUID(), index: 1)

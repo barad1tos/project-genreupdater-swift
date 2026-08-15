@@ -7,6 +7,45 @@ struct PreparedWrite {
     let trackID: String
     let property: String
     let value: String
+
+    var writeChange: WorkChange {
+        WorkChange(
+            changeType: change.changeType,
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            confidence: change.confidence,
+            source: change.source,
+            albumArtistChange: change.albumArtistChange
+        )
+    }
+
+    var updates: [TrackPropertyUpdate] {
+        var updates = [TrackPropertyUpdate(trackID: trackID, property: property, value: value)]
+        if let albumArtistChange = change.albumArtistChange {
+            updates.append(TrackPropertyUpdate(
+                trackID: trackID,
+                property: AppleScriptTrackProperty.albumArtist.rawValue,
+                value: albumArtistChange.newValue
+            ))
+        }
+        return updates
+    }
+
+    func dispatch(
+        using scriptBridge: any AppleScriptClient,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> AppleScriptWriteResult {
+        guard updates.count > 1 else {
+            return try await scriptBridge.updateTrackProperty(
+                trackID: trackID,
+                property: property,
+                value: value,
+                onAttempt: onAttempt
+            )
+        }
+        try await scriptBridge.batchUpdateTracks(updates, onAttempt: onAttempt)
+        return .changed
+    }
 }
 
 final class WriteAttemptState: @unchecked Sendable {
@@ -102,7 +141,7 @@ extension UpdateCoordinator {
         _ write: PreparedWrite,
         checkpoint: WorkCheckpointSink?
     ) async throws -> AppliedChangeOutcome {
-        try await checkpoint?(.beforeAttempt([write.change.id]))
+        try await checkpoint?(.beforeAttempt([write.change.id: write.writeChange]))
         let result = try await dispatchWrite(write, checkpoint: checkpoint)
         guard result == .changed else {
             await invalidateCaches(for: write.change)
@@ -130,10 +169,8 @@ extension UpdateCoordinator {
     ) async throws -> AppleScriptWriteResult {
         let attemptState = WriteAttemptState()
         do {
-            return try await scriptBridge.updateTrackProperty(
-                trackID: write.trackID,
-                property: write.property,
-                value: write.value,
+            return try await write.dispatch(
+                using: scriptBridge,
                 onAttempt: {
                     attemptState.markAttempted()
                     try await checkpoint?(.afterAttempt([write.change.id]))
@@ -191,29 +228,67 @@ extension UpdateCoordinator {
 
         guard let newValue = change.newValue else { return .skipped }
         let mutationTrack = try await trackWithMutationMetadata(change.track)
+        let preparedChange = Self.reconciledArtistRename(change, with: mutationTrack)
         try Self.validateMutationEligibility(
             for: mutationTrack,
             requiresKnownStatus: idMapper != nil
         )
-        let property = Self.appleScriptProperty(for: change.changeType)
+        let property = Self.appleScriptProperty(for: preparedChange.changeType)
         if isReviewedChange,
-           try !shouldWrite(change, to: mutationTrack, property: property) {
+           idMapper != nil,
+           let albumArtistChange = preparedChange.albumArtistChange,
+           Self.valueMatches(preparedChange.newValue, in: mutationTrack, property: property),
+           Self.valueMatches(
+               albumArtistChange.newValue,
+               in: mutationTrack,
+               property: AppleScriptTrackProperty.albumArtist.rawValue
+           ) {
+            return .noOp(Self.noOpLogEntry(preparedChange))
+        }
+        if isReviewedChange,
+           try !shouldWrite(preparedChange, to: mutationTrack, property: property) {
             log.info(
                 """
-                Skipped reviewed \(change.changeType.rawValue, privacy: .public) for track \
-                \(change.track.id, privacy: .private) after write preflight
+                Skipped reviewed \(preparedChange.changeType.rawValue, privacy: .public) for track \
+                \(preparedChange.track.id, privacy: .private) after write preflight
                 """
             )
-            return .noOp(Self.noOpLogEntry(change))
+            return .noOp(Self.noOpLogEntry(preparedChange))
         }
 
         let writeID = try await writeID(for: mutationTrack)
         return .write(PreparedWrite(
-            change: change,
+            change: preparedChange,
             trackID: writeID,
             property: property,
             value: newValue
         ))
+    }
+
+    static func reconciledArtistRename(
+        _ change: ProposedChange,
+        with mutationTrack: Track
+    ) -> ProposedChange {
+        guard change.changeType == .artistRename,
+              let plannedAlbumEffect = change.albumArtistChange,
+              let oldArtist = change.oldValue,
+              let newArtist = change.newValue,
+              let currentAlbumArtist = mutationTrack.albumArtist
+        else {
+            return change.changeType == .artistRename
+                ? change.copy(albumArtistChange: nil)
+                : change
+        }
+
+        let normalizedAlbumArtist = normalizeForMatching(currentAlbumArtist)
+        let albumArtistChange: AlbumArtistChange? = if normalizedAlbumArtist == normalizeForMatching(oldArtist) {
+            AlbumArtistChange(oldValue: currentAlbumArtist, newValue: newArtist)
+        } else if normalizedAlbumArtist == normalizeForMatching(newArtist) {
+            plannedAlbumEffect
+        } else {
+            nil
+        }
+        return change.copy(albumArtistChange: albumArtistChange)
     }
 
     func shouldWrite(
@@ -296,6 +371,22 @@ extension UpdateCoordinator {
             Skipped applied-change record for no-op \(change.changeType.rawValue, privacy: .public) on track \
             \(change.track.id, privacy: .private)
             """
+        )
+    }
+}
+
+extension ProposedChange {
+    func copy(track: Track? = nil, albumArtistChange: AlbumArtistChange?) -> Self {
+        ProposedChange(
+            id: id,
+            track: track ?? self.track,
+            changeType: changeType,
+            oldValue: oldValue,
+            newValue: newValue,
+            confidence: confidence,
+            source: source,
+            isAccepted: isAccepted,
+            albumArtistChange: albumArtistChange
         )
     }
 }

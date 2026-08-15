@@ -22,13 +22,15 @@ public enum FixPlanCapture {
                     appleScriptID: proposal.track.appleScriptID,
                     artist: proposal.track.artist,
                     album: proposal.track.album,
-                    trackName: proposal.track.name
+                    trackName: proposal.track.name,
+                    albumArtist: proposal.track.albumArtist
                 ),
                 changeType: proposal.changeType,
                 oldValue: proposal.oldValue,
                 newValue: proposal.newValue,
                 confidence: proposal.confidence,
-                source: proposal.source
+                source: proposal.source,
+                albumArtistChange: proposal.albumArtistChange
             )
         }
 

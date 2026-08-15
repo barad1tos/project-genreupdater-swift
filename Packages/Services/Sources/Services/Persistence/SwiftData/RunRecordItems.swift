@@ -1,7 +1,12 @@
 import Foundation
 import SwiftData
 
-private typealias CheckpointItem = (row: PersistedRunWorkItem, item: RunWorkItem, state: WorkState)
+private struct CheckpointItem {
+    let row: PersistedRunWorkItem
+    let item: RunWorkItem
+    let state: WorkState
+    let writeChange: WorkChange?
+}
 
 extension RunRecordDataStore {
     public func checkpoint(_ checkpoint: WorkCheckpoint, runID: RunID) async throws {
@@ -53,11 +58,21 @@ extension RunRecordDataStore {
 
     private func loadCheckpointItems(_ checkpoint: WorkCheckpoint, runID: RunID) throws -> [CheckpointItem] {
         try checkpoint.states.map { itemID, state in
-            try loadCheckpointItem(itemID, state: state, runID: runID)
+            try loadCheckpointItem(
+                itemID,
+                state: state,
+                writeChange: checkpoint.writeChanges[itemID],
+                runID: runID
+            )
         }
     }
 
-    private func loadCheckpointItem(_ itemID: UUID, state: WorkState, runID: RunID) throws -> CheckpointItem {
+    private func loadCheckpointItem(
+        _ itemID: UUID,
+        state: WorkState,
+        writeChange: WorkChange?,
+        runID: RunID
+    ) throws -> CheckpointItem {
         let key = PersistedRunWorkItem.key(runID: runID.rawValue, itemID: itemID)
         var descriptor = FetchDescriptor<PersistedRunWorkItem>(
             predicate: #Predicate { $0.key == key }
@@ -72,7 +87,7 @@ extension RunRecordDataStore {
         guard let item = try? JSONDecoder().decode(RunWorkItem.self, from: row.itemData), item.id == itemID else {
             throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: runID.rawValue)
         }
-        return (row, item, state)
+        return CheckpointItem(row: row, item: item, state: state, writeChange: writeChange)
     }
 
     private func updateCheckpointItems(
@@ -82,7 +97,11 @@ extension RunRecordDataStore {
     ) throws {
         do {
             for item in items {
-                item.row.itemData = try JSONEncoder().encode(item.item.transition(to: item.state))
+                item.row.itemData = try JSONEncoder().encode(item.item.transition(
+                    to: item.state,
+                    detail: item.item.detail,
+                    writeChange: item.writeChange
+                ))
             }
         } catch {
             throw WorkCheckpointError.invalid(
@@ -123,13 +142,22 @@ extension RunRecordDataStore {
         rows.values.forEach(modelContext.delete)
     }
 
-    func loadWorkItems(for runID: UUID, fallback: [RunWorkItem]) throws -> [RunWorkItem] {
+    func loadWorkItems(
+        for runID: UUID,
+        fallback: [RunWorkItem],
+        requiresRows: Bool
+    ) throws -> [RunWorkItem] {
         let descriptor = FetchDescriptor<PersistedRunWorkItem>(
             predicate: #Predicate { $0.runID == runID },
             sortBy: [SortDescriptor(\.position)]
         )
         let rows = try modelContext.fetch(descriptor)
-        guard !rows.isEmpty else { return fallback }
+        guard !rows.isEmpty else {
+            guard !requiresRows else {
+                throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: runID)
+            }
+            return fallback
+        }
         guard rows.count == fallback.count else {
             throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: runID)
         }
@@ -138,7 +166,14 @@ extension RunRecordDataStore {
         do {
             for (position, row) in rows.enumerated() {
                 let expected = fallback[position]
-                let item = try JSONDecoder().decode(RunWorkItem.self, from: row.itemData)
+                let item: RunWorkItem = if requiresRows {
+                    try JSONDecoder().decode(
+                        CurrentWorkItemPayload.self,
+                        from: row.itemData
+                    ).item
+                } else {
+                    try JSONDecoder().decode(RunWorkItem.self, from: row.itemData)
+                }
                 guard row.runID == runID,
                       row.position == position,
                       row.itemID == expected.id,
@@ -147,6 +182,7 @@ extension RunRecordDataStore {
                       item.target == expected.target,
                       item.change == expected.change,
                       item.detail == expected.detail,
+                      item.canReconcileWriteChange(from: expected),
                       item.state.canFollow(expected.state)
                 else {
                     throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: runID)

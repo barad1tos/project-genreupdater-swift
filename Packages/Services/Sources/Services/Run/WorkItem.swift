@@ -69,16 +69,24 @@ public enum CheckpointBoundary: Equatable, Sendable {
 public struct WorkCheckpoint: Equatable, Sendable {
     public let boundary: CheckpointBoundary
     let states: [UUID: WorkState]
+    let writeChanges: [UUID: WorkChange]
 
-    private init(boundary: CheckpointBoundary, states: [UUID: WorkState]) {
+    init(
+        boundary: CheckpointBoundary,
+        states: [UUID: WorkState],
+        writeChanges: [UUID: WorkChange] = [:]
+    ) {
         self.boundary = boundary
         self.states = states
+        self.writeChanges = writeChanges
     }
 
-    public static func beforeAttempt(_ itemIDs: [UUID]) -> Self {
+    /// Carries the authoritative metadata effect into the durable pre-dispatch checkpoint.
+    public static func beforeAttempt(_ writeChanges: [UUID: WorkChange]) -> Self {
         Self(
             boundary: .beforeAttempt,
-            states: Dictionary(uniqueKeysWithValues: Set(itemIDs).map { ($0, .attempting) })
+            states: writeChanges.mapValues { _ in .attempting },
+            writeChanges: writeChanges
         )
     }
 
@@ -131,32 +139,108 @@ extension WorkCheckpointError: LocalizedError {
 
 /// Metadata change proposed for one work target.
 public struct WorkChange: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case changeType
+        case oldValue
+        case newValue
+        case confidence
+        case source
+        case albumArtistChange
+    }
+
     public let changeType: ChangeType
     public let oldValue: String?
     public let newValue: String?
     public let confidence: Int
     public let source: String
+    public let albumArtistChange: AlbumArtistChange?
 
     public init(
         changeType: ChangeType,
         oldValue: String?,
         newValue: String?,
         confidence: Int,
-        source: String
+        source: String,
+        albumArtistChange: AlbumArtistChange? = nil
     ) {
         self.changeType = changeType
         self.oldValue = oldValue
         self.newValue = newValue
         self.confidence = confidence
         self.source = source
+        self.albumArtistChange = albumArtistChange
+    }
+
+    func isValidReconciliation(of planned: Self) -> Bool {
+        guard isSemanticallyValid,
+              planned.isSemanticallyValid,
+              changeType == planned.changeType,
+              oldValue == planned.oldValue,
+              newValue == planned.newValue,
+              confidence == planned.confidence,
+              source == planned.source
+        else {
+            return false
+        }
+        guard let albumArtistChange else { return true }
+        guard let plannedAlbumEffect = planned.albumArtistChange else { return false }
+        return normalizeForMatching(albumArtistChange.oldValue)
+            == normalizeForMatching(plannedAlbumEffect.oldValue)
+            && albumArtistChange.newValue == plannedAlbumEffect.newValue
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        changeType = try values.decode(ChangeType.self, forKey: .changeType)
+        oldValue = try values.decodeIfPresent(String.self, forKey: .oldValue)
+        newValue = try values.decodeIfPresent(String.self, forKey: .newValue)
+        confidence = try values.decode(Int.self, forKey: .confidence)
+        source = try values.decode(String.self, forKey: .source)
+        albumArtistChange = try values.decodeIfPresent(AlbumArtistChange.self, forKey: .albumArtistChange)
+        guard isSemanticallyValid else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .albumArtistChange,
+                in: values,
+                debugDescription: "Album-artist evidence contradicts the primary change"
+            )
+        }
+    }
+
+    fileprivate var isSemanticallyValid: Bool {
+        guard let albumArtistChange else { return true }
+        guard changeType == .artistRename,
+              let oldValue,
+              let newValue
+        else {
+            return false
+        }
+        return normalizeForMatching(albumArtistChange.oldValue) == normalizeForMatching(oldValue)
+            && albumArtistChange.newValue == newValue
     }
 }
 
 /// One immutable unit of run planning and processing.
 public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
+    static let evidenceVersion = 1
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case target
+        case change
+        case writeChange
+        case writeEvidenceVersion
+        case hasWriteEvidence
+        case state
+        case detail
+        case dismissedAt
+    }
+
     public let id: UUID
     public let target: WorkTarget
     public let change: WorkChange
+    /// Authoritative metadata effect persisted immediately before dispatch.
+    /// Nil means the item has not crossed that boundary, or predates this evidence.
+    public let writeChange: WorkChange?
     public let state: WorkState
     public let detail: String?
     /// When the user explicitly dismissed this item (ADR 0006); nil for
@@ -171,12 +255,89 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         detail: String? = nil,
         dismissedAt: Date? = nil
     ) {
+        let writeChange: WorkChange? = switch state {
+        case .attempting, .attempted, .outcome(.written):
+            change
+        case .prepared, .outcome:
+            nil
+        }
+        self.init(
+            id: id,
+            target: target,
+            change: change,
+            state: state,
+            detail: detail,
+            dismissedAt: dismissedAt,
+            writeChange: writeChange
+        )
+    }
+
+    init(
+        id: UUID,
+        target: WorkTarget,
+        change: WorkChange,
+        state: WorkState,
+        detail: String? = nil,
+        dismissedAt: Date? = nil,
+        writeChange: WorkChange?
+    ) {
+        precondition(Self.hasValidWriteChange(writeChange, planned: change, state: state))
         self.id = id
         self.target = target
         self.change = change
+        self.writeChange = writeChange
         self.state = state
         self.detail = detail
         self.dismissedAt = dismissedAt
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try values.decode(UUID.self, forKey: .id)
+        let target = try values.decode(WorkTarget.self, forKey: .target)
+        let change = try values.decode(WorkChange.self, forKey: .change)
+        let writeChange = try values.decodeIfPresent(WorkChange.self, forKey: .writeChange)
+        let evidenceVersion = try values.decodeIfPresent(Int.self, forKey: .writeEvidenceVersion)
+        let hasWriteEvidence = try values.decodeIfPresent(Bool.self, forKey: .hasWriteEvidence)
+        let state = try values.decode(WorkState.self, forKey: .state)
+        guard Self.hasValidEvidenceMarker(
+            version: evidenceVersion,
+            hasWriteEvidence: hasWriteEvidence,
+            writeChange: writeChange
+        ) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .writeEvidenceVersion,
+                in: values,
+                debugDescription: "Write evidence marker is incomplete, unsupported, or contradicts the encoded effect"
+            )
+        }
+        guard Self.hasValidWriteChange(writeChange, planned: change, state: state) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .writeChange,
+                in: values,
+                debugDescription: "Write effect contradicts the planned change or work state"
+            )
+        }
+        self.id = id
+        self.target = target
+        self.change = change
+        self.writeChange = writeChange
+        self.state = state
+        detail = try values.decodeIfPresent(String.self, forKey: .detail)
+        dismissedAt = try values.decodeIfPresent(Date.self, forKey: .dismissedAt)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(target, forKey: .target)
+        try values.encode(change, forKey: .change)
+        try values.encodeIfPresent(writeChange, forKey: .writeChange)
+        try values.encode(Self.evidenceVersion, forKey: .writeEvidenceVersion)
+        try values.encode(writeChange != nil, forKey: .hasWriteEvidence)
+        try values.encode(state, forKey: .state)
+        try values.encodeIfPresent(detail, forKey: .detail)
+        try values.encodeIfPresent(dismissedAt, forKey: .dismissedAt)
     }
 
     public init(item: FixPlanItem) {
@@ -188,13 +349,10 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
                 oldValue: item.oldValue,
                 newValue: item.newValue,
                 confidence: item.confidence,
-                source: item.source
+                source: item.source,
+                albumArtistChange: item.albumArtistChange
             )
         )
-    }
-
-    func transition(to nextState: WorkState) throws -> Self {
-        try transition(to: nextState, detail: detail)
     }
 
     /// Replaces the audit note without a state transition. Terminal outcome
@@ -206,7 +364,8 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             change: change,
             state: state,
             detail: detail,
-            dismissedAt: dismissedAt
+            dismissedAt: dismissedAt,
+            writeChange: writeChange
         )
     }
 
@@ -219,12 +378,27 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             change: change,
             state: state,
             detail: detail,
-            dismissedAt: timestamp
+            dismissedAt: timestamp,
+            writeChange: writeChange
         )
     }
 
-    func transition(to nextState: WorkState, detail: String?) throws -> Self {
+    func transition(
+        to nextState: WorkState,
+        detail: String?,
+        writeChange suppliedWriteChange: WorkChange? = nil
+    ) throws -> Self {
         guard Self.canTransition(from: state, to: nextState) else {
+            throw WorkStateError.invalid(current: state, next: nextState)
+        }
+        if let suppliedWriteChange {
+            guard suppliedWriteChange.isValidReconciliation(of: change),
+                  writeChange != nil || nextState == .attempting
+            else {
+                throw WorkStateError.invalid(current: state, next: nextState)
+            }
+        }
+        if let writeChange, let suppliedWriteChange, writeChange != suppliedWriteChange {
             throw WorkStateError.invalid(current: state, next: nextState)
         }
         return Self(
@@ -233,8 +407,60 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             change: change,
             state: nextState,
             detail: detail,
-            dismissedAt: dismissedAt
+            dismissedAt: dismissedAt,
+            writeChange: writeChange ?? suppliedWriteChange ?? (nextState == .attempting ? change : nil)
         )
+    }
+
+    var effectiveChange: WorkChange {
+        writeChange ?? change
+    }
+
+    var isWriteEvidenceComplete: Bool {
+        switch state {
+        case .attempting, .attempted, .outcome(.written):
+            writeChange != nil
+        case .prepared, .outcome:
+            true
+        }
+    }
+
+    func canReconcileWriteChange(from previous: Self) -> Bool {
+        switch (previous.writeChange, writeChange) {
+        case (nil, nil):
+            true
+        case let (previous?, current?):
+            previous == current
+        case (nil, _?):
+            previous.state == .prepared && state != .prepared
+        case (_?, nil):
+            false
+        }
+    }
+
+    private static func hasValidWriteChange(
+        _ writeChange: WorkChange?,
+        planned: WorkChange,
+        state: WorkState
+    ) -> Bool {
+        guard planned.isSemanticallyValid else { return false }
+        guard let writeChange else { return true }
+        return state != .prepared && writeChange.isValidReconciliation(of: planned)
+    }
+
+    private static func hasValidEvidenceMarker(
+        version: Int?,
+        hasWriteEvidence: Bool?,
+        writeChange: WorkChange?
+    ) -> Bool {
+        switch (version, hasWriteEvidence) {
+        case (nil, nil):
+            true
+        case (evidenceVersion, let hasWriteEvidence?):
+            hasWriteEvidence == (writeChange != nil)
+        default:
+            false
+        }
     }
 
     private static func canTransition(from state: WorkState, to nextState: WorkState) -> Bool {
@@ -263,6 +489,32 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
              (.outcome, .attempting),
              (.outcome, .attempted):
             false
+        }
+    }
+}
+
+struct CurrentWorkItemPayload: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case writeEvidenceVersion
+        case hasWriteEvidence
+    }
+
+    let item: RunWorkItem
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let evidenceVersion = try values.decode(Int.self, forKey: .writeEvidenceVersion)
+        let hasWriteEvidence = try values.decode(Bool.self, forKey: .hasWriteEvidence)
+        item = try RunWorkItem(from: decoder)
+        guard evidenceVersion == RunWorkItem.evidenceVersion,
+              hasWriteEvidence == (item.writeChange != nil),
+              item.isWriteEvidenceComplete
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .writeEvidenceVersion,
+                in: values,
+                debugDescription: "Current work item has incomplete write evidence"
+            )
         }
     }
 }

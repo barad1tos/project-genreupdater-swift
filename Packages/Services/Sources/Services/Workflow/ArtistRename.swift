@@ -18,6 +18,14 @@ extension UpdateCoordinator {
         var renamedTrack = track
         renamedTrack.originalArtist = track.originalArtist ?? currentArtist
         renamedTrack.artist = newArtist
+        let albumArtistChange: AlbumArtistChange?
+        if let albumArtist = track.albumArtist,
+           normalizeForMatching(albumArtist) == normalizedArtist {
+            renamedTrack.albumArtist = newArtist
+            albumArtistChange = AlbumArtistChange(oldValue: albumArtist, newValue: newArtist)
+        } else {
+            albumArtistChange = nil
+        }
 
         return ProposedChange(
             track: renamedTrack,
@@ -25,7 +33,8 @@ extension UpdateCoordinator {
             oldValue: currentArtist,
             newValue: newArtist,
             confidence: 100,
-            source: "Artist Renamer"
+            source: "Artist Renamer",
+            albumArtistChange: albumArtistChange
         )
     }
 }

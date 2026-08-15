@@ -26,6 +26,7 @@ extension UpdateCoordinator {
         case .artistRename:
             entry.oldArtist = change.oldValue
             entry.newArtist = change.newValue
+            entry.albumArtistChange = change.albumArtistChange
         }
 
         if let recoveryOrigin {
@@ -74,6 +75,7 @@ extension UpdateCoordinator {
             let value = change.newValue ?? change.oldValue ?? change.track.artist
             entry.oldArtist = value
             entry.newArtist = value
+            entry.albumArtistChange = change.albumArtistChange
         }
 
         return entry

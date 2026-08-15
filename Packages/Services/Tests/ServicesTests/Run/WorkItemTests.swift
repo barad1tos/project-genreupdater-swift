@@ -83,11 +83,30 @@ struct WorkItemTests {
         )
 
         let encoded = try JSONEncoder().encode(work)
+        let payload = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         let decoded = try JSONDecoder().decode(RunWorkItem.self, from: encoded)
 
+        #expect(payload["writeChange"] == nil)
         #expect(decoded == work)
+        #expect(decoded.writeChange == nil)
         #expect(decoded.state == .outcome(.failed))
         #expect(decoded.detail == "Verification failed: année 2024")
+    }
+
+    @Test("Prepared work rejects persisted write evidence")
+    func rejectsPreparedEvidence() throws {
+        let prepared = makeWorkItem(state: .prepared)
+        var preparedPayload = try #require(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(prepared)) as? [String: Any]
+        )
+        preparedPayload["writeChange"] = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(prepared.change)
+        )
+        let corrupted = try JSONSerialization.data(withJSONObject: preparedPayload)
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(RunWorkItem.self, from: corrupted)
+        }
     }
 
     @Test("Track work captures the immutable fix plan item")
@@ -135,6 +154,7 @@ struct WorkItemTests {
         #expect(written.id == work.id)
         #expect(written.target == work.target)
         #expect(written.change == work.change)
+        #expect(written.writeChange == work.change)
     }
 
     @Test("Write checkpoints reject skipped durable boundaries")

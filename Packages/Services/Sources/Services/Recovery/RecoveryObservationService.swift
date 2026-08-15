@@ -2,7 +2,7 @@ import Core
 import Foundation
 
 /// Re-reads uncertain work items from Music.app and classifies each against
-/// its planned change (ADR 0006: observed state wins).
+/// its persisted write effect (ADR 0006: observed state wins).
 ///
 /// `.prepared` items were never dispatched, so they close as `.skipped`
 /// without observation. `.attempting`/`.attempted` items are re-read by their
@@ -62,11 +62,7 @@ public struct RecoveryObservationService: Sendable {
                 outcomes[itemID] = ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
                 continue
             }
-            let property = AppleScriptTrackProperty(changeType: item.change.changeType)
-            outcomes[itemID] = RecoveryObservation.outcome(
-                for: item,
-                observedValue: property.currentValue(in: track)
-            )
+            outcomes[itemID] = RecoveryObservation.outcome(for: item, observedTrack: track)
         }
         return outcomes
     }

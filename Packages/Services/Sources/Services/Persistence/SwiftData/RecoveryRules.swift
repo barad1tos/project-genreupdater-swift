@@ -34,7 +34,15 @@ extension RunRecordDataStore {
         }
 
         do {
-            let workItems = try loadWorkItems(for: row.runID, fallback: parentItems)
+            let version = payload?.version ?? fallback?.version
+            let requiresRows = version.map { $0 >= RunRecordPayload.checkpointEvidenceVersion } == true
+                && row.finishedAt == nil
+                && !parentItems.isEmpty
+            let workItems = try loadWorkItems(
+                for: row.runID,
+                fallback: parentItems,
+                requiresRows: requiresRows
+            )
             let configuration = payload?.configuration ?? fallback?.configuration
             let intent = RunIntent(rawValue: row.intentRaw)
                 ?? (configuration?.writeAuthority == .reviewedPlan ? .writeFixes : .observeLibrary)

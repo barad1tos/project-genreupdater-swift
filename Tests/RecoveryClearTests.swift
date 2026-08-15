@@ -1,9 +1,9 @@
 import Core
 import Foundation
-import Services
 import SwiftData
 import Testing
 @testable import Genre_Updater
+@testable import Services
 
 @Suite("Recovery clear")
 @MainActor
@@ -98,6 +98,56 @@ struct RecoveryClearTests {
         // Repaired evidence must attribute to the repaired run, or the entry
         // becomes a permanent nil-runID row that run retention never prunes.
         #expect(durable.first?.runID == record.runID.rawValue)
+    }
+
+    @Test("Reopened recovery repairs only the reconciled artist effect")
+    func repairsRelaunchedArtist() async throws {
+        let recoveryID = UUID()
+        let writeChange = WorkChange(
+            changeType: .artistRename,
+            oldValue: "Artist",
+            newValue: "Renamed Artist",
+            confidence: 90,
+            source: "Library"
+        )
+        let (record, _) = uncertainRunRecord(
+            recoveryID: recoveryID,
+            oldValue: "Artist",
+            newValue: "Renamed Artist",
+            changeType: .artistRename,
+            albumArtistChange: AlbumArtistChange(
+                oldValue: "Artist",
+                newValue: "Renamed Artist"
+            ),
+            writeChange: writeChange
+        )
+        let relaunch = try await makeRelaunchedStore(seeding: record)
+        defer { try? FileManager.default.removeItem(at: relaunch.directory) }
+        let setup = try await makeArtistRecovery(store: relaunch.store, recoveryID: recoveryID)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let reopened = try #require(await relaunch.store.record(for: record.runID))
+        #expect(reopened.workItems.first?.writeChange == writeChange)
+        await setup.dependencies.runOrchestrator?.restoreRecovery(reopened)
+
+        try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+
+        let closed = try #require(await relaunch.store.record(for: record.runID))
+        #expect(closed.workItems.map(\.state) == [.outcome(.written)])
+        let durable = try await setup.changeLog.loadAll()
+        #expect(durable.count == 1)
+        #expect(durable.first?.oldArtist == "Artist")
+        #expect(durable.first?.newArtist == "Renamed Artist")
+        #expect(durable.first?.albumArtistChange == nil)
+        #expect(durable.first?.runID == record.runID.rawValue)
+        #expect(await setup.undo.getHistory() == durable)
+        let mirrored = try #require(try await setup.trackStore.getTrack(byID: "read-1"))
+        #expect(mirrored.artist == "Renamed Artist")
+        #expect(mirrored.albumArtist == "Various Artists")
+        let report = RunReportDetailBuilder.makeDetail(from: closed, now: Date())
+        #expect(report.workItems.map(\.changeLabel) == [
+            "Artist: Artist → Renamed Artist — Track",
+        ])
+        #expect(report.workItems.allSatisfy { !$0.changeLabel.localizedCaseInsensitiveContains("album artist") })
     }
 
     @Test("Clearance fails closed when the undo coordinator is missing")

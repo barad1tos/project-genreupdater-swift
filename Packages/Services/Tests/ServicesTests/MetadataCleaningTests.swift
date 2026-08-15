@@ -459,6 +459,7 @@ struct MetadataCleaningTests {
         let track = makeTrack(
             name: "Song (Remastered 2020)",
             artist: "The Beatles",
+            albumArtist: "The Beatles",
             album: "Album Remastered",
             year: nil,
             dateAdded: Date(timeIntervalSince1970: 2000)
@@ -483,6 +484,11 @@ struct MetadataCleaningTests {
             .artistRename,
             .yearUpdate,
         ])
+        let artistChange = changes.first { $0.changeType == .artistRename }
+        #expect(artistChange?.albumArtistChange == AlbumArtistChange(
+            oldValue: "The Beatles",
+            newValue: "Beatles"
+        ))
         #expect(await lookupRecorder.queriedArtists().allSatisfy { $0 == "Beatles" })
         #expect(await lookupRecorder.queriedAlbums().allSatisfy { $0 == "Album" })
     }
@@ -618,6 +624,7 @@ struct MetadataCleaningTests {
         id: String = "T1",
         name: String,
         artist: String = "Beatles",
+        albumArtist: String? = nil,
         album: String,
         genre: String? = "Rock",
         year: Int? = 1969,
@@ -631,7 +638,8 @@ struct MetadataCleaningTests {
             genre: genre,
             year: year,
             dateAdded: dateAdded,
-            trackStatus: nil
+            trackStatus: nil,
+            albumArtist: albumArtist
         )
     }
 }

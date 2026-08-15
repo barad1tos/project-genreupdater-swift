@@ -23,6 +23,47 @@ struct FixPlanDataTests {
         #expect(try await store.latestPlan() == plan)
     }
 
+    @Test("coupled artist evidence survives a file-backed store relaunch")
+    func coupledArtistEvidenceSurvivesRelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FixPlanDataTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("GenreUpdater.store")
+        let albumArtistChange = AlbumArtistChange(oldValue: "AFX", newValue: "Aphex Twin")
+        let item = FixPlanItem(
+            id: UUID(),
+            identity: FixPlanItemIdentity(
+                readID: "read-artist",
+                appleScriptID: "script-artist",
+                artist: "Aphex Twin",
+                album: "Syro",
+                trackName: "minipops 67",
+                albumArtist: "Aphex Twin"
+            ),
+            changeType: .artistRename,
+            oldValue: "AFX",
+            newValue: "Aphex Twin",
+            confidence: 100,
+            source: "Artist mappings",
+            albumArtistChange: albumArtistChange
+        )
+        let plan = makePlan(items: [item])
+
+        do {
+            let store = try FixPlanDataStore(modelContainer: makeContainer(at: storeURL))
+            try await store.savePlan(
+                plan,
+                initialDecision: FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 101))
+            )
+        }
+
+        let relaunchedStore = try FixPlanDataStore(modelContainer: makeContainer(at: storeURL))
+        let loaded = try #require(try await relaunchedStore.plan(id: plan.id, revision: plan.revision))
+        #expect(loaded.items[0].identity.albumArtist == "Aphex Twin")
+        #expect(loaded.items[0].albumArtistChange == albumArtistChange)
+    }
+
     @Test("savePlan persists the plan and its initial decision atomically")
     func savePlanPersistsPlanAndInitialDecisionAtomically() async throws {
         let store = try makeStore()
@@ -374,6 +415,17 @@ struct FixPlanDataTests {
         return try ModelContainer(for: schema, configurations: [configuration])
     }
 
+    private func makeContainer(at storeURL: URL) throws -> ModelContainer {
+        let schema = Schema([PersistedFixPlan.self, PersistedFixPlanDecision.self])
+        let configuration = ModelConfiguration(
+            "FixPlanDataTests",
+            schema: schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
     private func makeStore() throws -> FixPlanDataStore {
         try FixPlanDataStore(modelContainer: makeContainer())
     }
@@ -381,7 +433,8 @@ struct FixPlanDataTests {
     private func makePlan(
         id: FixPlanID = FixPlanID(),
         revision: FixPlanRevision = .initial,
-        createdAt: Date = Date(timeIntervalSince1970: 100)
+        createdAt: Date = Date(timeIntervalSince1970: 100),
+        items: [FixPlanItem]? = nil
     ) -> FixPlan {
         FixPlan(
             id: id,
@@ -390,7 +443,7 @@ struct FixPlanDataTests {
             createdAt: createdAt,
             configuration: makeConfiguration(),
             scope: makeScope(createdAt: createdAt),
-            items: [makeItem()]
+            items: items ?? [makeItem()]
         )
     }
 

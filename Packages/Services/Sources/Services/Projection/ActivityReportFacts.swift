@@ -88,14 +88,19 @@ public struct ActivityReportFacts: Equatable, Sendable {
     }
 
     private static func makeItem(from entry: Core.ChangeLogEntry, now: Date) -> ActivityChangeLogItem {
-        ActivityChangeLogItem(
+        let values = ChangeDisplay.values(
+            oldValue: makeOldValue(from: entry),
+            newValue: makeNewValue(from: entry),
+            albumArtistChange: entry.albumArtistChange
+        )
+        return ActivityChangeLogItem(
             id: entry.id.uuidString,
             timeLabel: ActivityBuilder.relativeElapsedLabel(since: entry.timestamp, now: now),
             changeType: entry.changeType,
             trackTitle: makeTrackTitle(from: entry),
             artist: entry.artist,
-            oldValue: makeOldValue(from: entry),
-            newValue: makeNewValue(from: entry)
+            oldValue: values.oldValue ?? "none",
+            newValue: values.newValue ?? "none"
         )
     }
 

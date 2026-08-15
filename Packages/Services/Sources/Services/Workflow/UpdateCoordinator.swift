@@ -2,54 +2,6 @@ import Core
 import Foundation
 import OSLog
 
-// MARK: - Update Error
-
-public enum UpdateCoordinatorError: Error, LocalizedError {
-    case trackNotEditable(trackID: String)
-    case trackNotProcessable(trackID: String, status: String)
-    case noChangesProduced
-    case allTracksFailed(count: Int, errorDescriptions: [String])
-    case missingAppleScriptID(trackID: String)
-    case reviewedChangeStale(trackID: String, property: String)
-    case writeFailed(trackID: String, property: String, reason: String)
-    case writeFinalizationFailed(trackID: String, effects: [String])
-
-    public var errorDescription: String? {
-        switch self {
-        case let .trackNotEditable(trackID):
-            "Track \(trackID) is not editable"
-        case let .trackNotProcessable(trackID, status):
-            "Track \(trackID) is not processable in its current status: \(status)"
-        case .noChangesProduced:
-            "No changes were produced for the given tracks"
-        case let .allTracksFailed(count, errorDescriptions):
-            Self.allTracksFailedDescription(count: count, errorDescriptions: errorDescriptions)
-        case let .missingAppleScriptID(trackID):
-            "Cannot write track \(trackID): no AppleScript ID mapping is available"
-        case let .reviewedChangeStale(trackID, property):
-            "Cannot write \(property) for track \(trackID): reviewed value no longer matches Music.app"
-        case let .writeFailed(trackID, property, reason):
-            "Failed to write \(property) for track \(trackID): \(reason)"
-        case let .writeFinalizationFailed(trackID, effects):
-            "Music.app updated track \(trackID), but GenreUpdater could not persist \(effects.joined(separator: " and "))"
-        }
-    }
-
-    private static func allTracksFailedDescription(count: Int, errorDescriptions: [String]) -> String {
-        let visibleErrors = errorDescriptions.filter { !$0.isEmpty }
-        guard !visibleErrors.isEmpty else {
-            return "All \(count) tracks failed to update"
-        }
-        if count == 1, visibleErrors.count == 1 {
-            return visibleErrors[0]
-        }
-        if count == 1 {
-            return "All \(visibleErrors.count) update operations failed for 1 track. Errors: \(visibleErrors.joined(separator: "; "))"
-        }
-        return "All \(count) tracks failed to update across \(visibleErrors.count) update operations. Errors: \(visibleErrors.joined(separator: "; "))"
-    }
-}
-
 extension AlbumTypeDetectionConfig {
     func classifyAlbum(_ albumName: String) -> AlbumTypeInfo {
         detectAlbumType(
@@ -248,7 +200,8 @@ public actor UpdateCoordinator {
         }
         let proposalTrack = artistRenameChange?.track ?? track
         var decisionTrack = cleaningOutcome.track
-        (decisionTrack.artist, decisionTrack.originalArtist) = (proposalTrack.artist, proposalTrack.originalArtist)
+        (decisionTrack.artist, decisionTrack.originalArtist, decisionTrack.albumArtist) =
+            (proposalTrack.artist, proposalTrack.originalArtist, proposalTrack.albumArtist)
         let genreContextTracks = Self.genreContextTracks(
             track: decisionTrack,
             artistTracks: artistTracks,
@@ -392,9 +345,8 @@ public actor UpdateCoordinator {
         albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
     }
 
-    /// Returns album-level context for each track after writable metadata enrichment.
-    ///
-    /// MusicKit tracks can miss AppleScript-only fields such as `albumArtist`, database IDs, and write
+    /// Returns album-level context after enriching MusicKit tracks with AppleScript-only fields such as
+    /// `albumArtist`, database IDs, and write
     /// eligibility. This helper refreshes that metadata first, filters non-processable tracks, and then groups
     /// by `AlbumIdentity` so preview and live workflow paths use the same album context.
     public func albumContextTracksByTrackID(
@@ -639,6 +591,10 @@ public actor UpdateCoordinator {
         let accepted = changes.filter(\.isAccepted)
         guard !accepted.isEmpty else {
             throw UpdateCoordinatorError.noChangesProduced
+        }
+        var acceptedIDs: Set<UUID> = []
+        if let duplicate = accepted.first(where: { !acceptedIDs.insert($0.id).inserted }) {
+            throw UpdateCoordinatorError.duplicateChangeID(duplicate.id)
         }
 
         var entries: [ChangeLogEntry] = []

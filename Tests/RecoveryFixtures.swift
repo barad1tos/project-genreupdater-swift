@@ -1,8 +1,8 @@
 import Core
 import Foundation
-import Services
 import SwiftData
 @testable import Genre_Updater
+@testable import Services
 
 struct RecoverySetup {
     let dependencies: AppDependencies
@@ -78,27 +78,38 @@ actor RecoveryChangeLogStore: ChangeLogStore {
 private func uncertainWorkItem(
     state: WorkState,
     oldValue: String?,
-    newValue: String?
+    newValue: String?,
+    changeType: ChangeType = .genreUpdate,
+    albumArtistChange: AlbumArtistChange? = nil,
+    writeChange: WorkChange? = nil
 ) -> RunWorkItem {
-    RunWorkItem(
-        id: UUID(),
-        target: .track(FixPlanItemIdentity(
-            readID: "read-1",
-            appleScriptID: "persistent-1",
-            artist: "Artist",
-            album: "Album",
-            trackName: "Track"
-        )),
-        change: WorkChange(
-            changeType: .genreUpdate,
-            oldValue: oldValue,
-            newValue: newValue,
-            confidence: 90,
-            source: "Library"
-        ),
-        state: state,
-        detail: nil
+    let id = UUID()
+    let target = WorkTarget.track(FixPlanItemIdentity(
+        readID: "read-1",
+        appleScriptID: "persistent-1",
+        artist: "Artist",
+        album: "Album",
+        trackName: "Track"
+    ))
+    let change = WorkChange(
+        changeType: changeType,
+        oldValue: oldValue,
+        newValue: newValue,
+        confidence: 90,
+        source: "Library",
+        albumArtistChange: albumArtistChange
     )
+    if let writeChange {
+        return RunWorkItem(
+            id: id,
+            target: target,
+            change: change,
+            state: state,
+            detail: nil,
+            writeChange: writeChange
+        )
+    }
+    return RunWorkItem(id: id, target: target, change: change, state: state)
 }
 
 /// One write-uncertain run record bound to a recovery hold, plus its item.
@@ -106,7 +117,10 @@ func uncertainRunRecord(
     recoveryID: UUID?,
     itemState: WorkState = .attempted,
     oldValue: String? = "Rock",
-    newValue: String? = "Stoner Rock"
+    newValue: String? = "Stoner Rock",
+    changeType: ChangeType = .genreUpdate,
+    albumArtistChange: AlbumArtistChange? = nil,
+    writeChange: WorkChange? = nil
 ) -> (record: RunRecord, item: RunWorkItem) {
     let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
     let scope = ProcessingScopeSnapshot.capture(
@@ -115,7 +129,14 @@ func uncertainRunRecord(
         createdAt: startedAt,
         reason: "recovery-test"
     )
-    let item = uncertainWorkItem(state: itemState, oldValue: oldValue, newValue: newValue)
+    let item = uncertainWorkItem(
+        state: itemState,
+        oldValue: oldValue,
+        newValue: newValue,
+        changeType: changeType,
+        albumArtistChange: albumArtistChange,
+        writeChange: writeChange
+    )
     let input = FixPlanWriteInput(
         target: FixPlanWriteTarget(
             planID: FixPlanID(),
@@ -156,6 +177,68 @@ func uncertainRunRecord(
         finishedAt: nil
     )
     return (record, item)
+}
+
+func makeRelaunchedStore(
+    seeding record: RunRecord
+) async throws -> (store: RunRecordDataStore, directory: URL) {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("RecoveryRun-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    do {
+        let storeURL = directory.appendingPathComponent("GenreUpdater.store")
+        let schema = ModelContainerFactory.makeSchema()
+        let configuration = ModelConfiguration(
+            "RecoveryClearSeed",
+            schema: schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        try await RunRecordDataStore(modelContainer: container).upsert(record)
+        let relaunchedConfiguration = ModelConfiguration(
+            "RecoveryClearRelaunch",
+            schema: schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let relaunchedContainer = try ModelContainer(
+            for: schema,
+            configurations: [relaunchedConfiguration]
+        )
+        return (RunRecordDataStore(modelContainer: relaunchedContainer), directory)
+    } catch {
+        try? FileManager.default.removeItem(at: directory)
+        throw error
+    }
+}
+
+@MainActor
+func makeArtistRecovery(store: RunRecordDataStore, recoveryID: UUID) async throws -> RecoverySetup {
+    let setup = try await makeRecoverySetup(store: store)
+    _ = await setup.processor.beginRecoveryHold(id: recoveryID)
+    try await setup.trackStore.saveTracks([Track(
+        id: "read-1",
+        name: "Track",
+        artist: "Artist",
+        album: "Album",
+        albumArtist: "Various Artists",
+        appleScriptID: "persistent-1"
+    )])
+    setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
+        isMusicAppRunning: { true },
+        areScriptsInstalled: { true }
+    )))
+    setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: [
+        Track(
+            id: "persistent-1",
+            name: "Track",
+            artist: "Renamed Artist",
+            album: "Album",
+            albumArtist: "Various Artists"
+        ),
+    ]))
+    return setup
 }
 
 /// Wraps a real store and fails the first N recovery reads, so tests can

@@ -228,6 +228,7 @@ public struct ChangeLogEntry: Sendable, Codable, Identifiable, Equatable {
     // Artist rename changes
     public var oldArtist: String?
     public var newArtist: String?
+    public var albumArtistChange: AlbumArtistChange?
 
     /// The run that produced this change; nil for entries recorded before
     /// run attribution existed, for changes made outside a run (undo
@@ -272,7 +273,8 @@ public struct ChangeLogEntry: Sendable, Codable, Identifiable, Equatable {
         oldAlbumName: String? = nil,
         newAlbumName: String? = nil,
         oldArtist: String? = nil,
-        newArtist: String? = nil
+        newArtist: String? = nil,
+        albumArtistChange: AlbumArtistChange? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -291,6 +293,7 @@ public struct ChangeLogEntry: Sendable, Codable, Identifiable, Equatable {
         self.newAlbumName = newAlbumName
         self.oldArtist = oldArtist
         self.newArtist = newArtist
+        self.albumArtistChange = albumArtistChange
     }
 }
 
@@ -349,6 +352,9 @@ extension Track {
         case .artistRename:
             updated.originalArtist = updated.originalArtist ?? change.oldArtist
             updated.artist = try change.required(change.newArtist)
+            if let albumArtistChange = change.albumArtistChange {
+                updated.albumArtist = albumArtistChange.newValue
+            }
         }
         return updated
     }

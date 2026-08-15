@@ -248,6 +248,39 @@ struct TrackDataTests {
         }
     }
 
+    @Test("Coupled artist rename updates both fields in the persisted mirror")
+    func coupledArtistRenameUpdatesPersistedMirror() async throws {
+        let store = try makeStore()
+        try await store.saveTracks([
+            Track(
+                id: "T001",
+                name: "Teardrop",
+                artist: "Massive",
+                album: "Mezzanine",
+                albumArtist: "Massive"
+            ),
+        ])
+        var change = ChangeLogEntry(
+            changeType: .artistRename,
+            trackID: "T001",
+            artist: "Massive",
+            trackName: "Teardrop",
+            albumName: "Mezzanine"
+        )
+        change.oldArtist = "Massive"
+        change.newArtist = "Massive Attack"
+        change.albumArtistChange = AlbumArtistChange(
+            oldValue: "Massive",
+            newValue: "Massive Attack"
+        )
+
+        try await store.persistAppliedChange(change)
+
+        let stored = try #require(try await store.getTrack(byID: "T001"))
+        #expect(stored.artist == "Massive Attack")
+        #expect(stored.albumArtist == "Massive Attack")
+    }
+
     @Test("Genre and year writes complete processing state")
     func completesProcessingState() async throws {
         let store = try makeStore()
