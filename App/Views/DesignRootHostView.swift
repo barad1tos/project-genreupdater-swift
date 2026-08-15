@@ -384,7 +384,7 @@ struct DesignRootHostView: View {
         else { return }
 
         workflowViewModel = WorkflowViewModel(
-            dependencies: makeWorkflowDependencies(
+            dependencies: dependencies.makeWorkflowDependencies(
                 coordinator: coordinator,
                 pipeline: pipeline,
                 processor: processor
@@ -399,64 +399,6 @@ struct DesignRootHostView: View {
         )
         registerWorkflowFactsProvider()
         registerBatchRunProvider()
-    }
-
-    private func makeWorkflowDependencies(
-        coordinator: UpdateCoordinator,
-        pipeline: ChangePreviewPipeline,
-        processor: BatchProcessor
-    ) -> WorkflowViewModel.Dependencies {
-        WorkflowViewModel.Dependencies(
-            updateCoordinator: coordinator,
-            batchProcessor: processor,
-            changePreviewPipeline: pipeline,
-            pendingVerificationService: dependencies.pendingVerificationService,
-            featureGate: dependencies.featureGate,
-            runMaintenancePreflight: {
-                await dependencies.runMaintenancePreflight()
-            },
-            ensureRecoveryHold: {
-                await dependencies.ensureRecoveryHold()
-            },
-            clearRecovery: { id in
-                try await dependencies.clearRecoveryHold(id: id)
-            },
-            prepareMutationMetadata: { mutationTracks in
-                _ = try await dependencies.refreshTrackIDMappingOrThrow(
-                    musicKitTracks: mutationTracks,
-                    scopedArtists: dependencies.config.development.testArtists,
-                    mergeExisting: true
-                )
-            },
-            resolveIncrementalTracks: { incrementalTracks, options in
-                let lastRunTime = await dependencies.incrementalRunTracker?.getLastRunTimestamp()
-                return UpdateTrackScopeResolver.incrementalTracks(
-                    incrementalTracks,
-                    lastRunTime: lastRunTime,
-                    previousTracks: dependencies.previousIncrementalScopeTracks,
-                    options: IncrementalTrackScopeOptions(
-                        updateGenre: options.updateGenre,
-                        genreMappings: dependencies.config.cleaning.genreMappings
-                    )
-                )
-            },
-            invalidateAlbumYearCache: {
-                await dependencies.cacheService?.invalidateAllAlbumYears()
-            },
-            updateIncrementalRunTimestamp: {
-                await dependencies.incrementalRunTracker?.updateLastRunTimestamp()
-                await dependencies.refreshIncrementalRunTimestamp()
-            },
-            submitBatchRun: { input in
-                try await dependencies.submitBatchRun(input: input)
-            },
-            discardQueuedBatchRuns: {
-                await dependencies.runOrchestrator?.discardPendingBatchRuns()
-            },
-            problematicAlbumReportMinAttempts: {
-                max(1, Int(dependencies.config.reporting.minAttemptsForReport.rounded()))
-            }
-        )
     }
 
     /// The orchestrator's batch runner reaches the LIVE view-model
@@ -795,6 +737,66 @@ extension DesignRootHostView {
     private func setFastAnimationsEnabled(_ isEnabled: Bool) -> Bool {
         fastAnimations = isEnabled
         return true
+    }
+}
+
+extension AppDependencies {
+    func makeWorkflowDependencies(
+        coordinator: UpdateCoordinator,
+        pipeline: ChangePreviewPipeline,
+        processor: BatchProcessor
+    ) -> WorkflowViewModel.Dependencies {
+        WorkflowViewModel.Dependencies(
+            updateCoordinator: coordinator,
+            batchProcessor: processor,
+            changePreviewPipeline: pipeline,
+            pendingVerificationService: pendingVerificationService,
+            featureGate: featureGate,
+            runMaintenancePreflight: {
+                await self.runMaintenancePreflight()
+            },
+            ensureRecoveryHold: {
+                await self.ensureRecoveryHold()
+            },
+            clearRecovery: { id in
+                try await self.clearRecoveryHold(id: id)
+            },
+            prepareMutationMetadata: { mutationTracks in
+                _ = try await self.refreshTrackIDMappingOrThrow(
+                    musicKitTracks: mutationTracks,
+                    scopedArtists: self.config.development.testArtists,
+                    mergeExisting: true
+                )
+            },
+            resolveIncrementalTracks: { incrementalTracks, options in
+                let lastRunTime = await self.incrementalRunTracker?.getLastRunTimestamp()
+                return UpdateTrackScopeResolver.incrementalTracks(
+                    incrementalTracks,
+                    lastRunTime: lastRunTime,
+                    previousTracks: self.previousIncrementalScopeTracks,
+                    options: IncrementalTrackScopeOptions(
+                        updateGenre: options.updateGenre,
+                        genreMappings: self.config.cleaning.genreMappings
+                    )
+                )
+            },
+            invalidateAlbumYearCache: {
+                await self.cacheService?.invalidateAllAlbumYears()
+            },
+            updateIncrementalRunTimestamp: {
+                await self.incrementalRunTracker?.updateLastRunTimestamp()
+                await self.refreshIncrementalRunTimestamp()
+            },
+            submitBatchRun: { input in
+                try await self.submitBatchRun(input: input)
+            },
+            discardQueuedBatchRuns: {
+                await self.runOrchestrator?.discardPendingBatchRuns()
+            },
+            problematicAlbumReportMinAttempts: {
+                max(1, Int(self.config.reporting.minAttemptsForReport.rounded()))
+            }
+        )
     }
 }
 

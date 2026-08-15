@@ -126,6 +126,7 @@ private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowF
     relay.viewModel = viewModel
     return WorkflowFixture(
         viewModel: viewModel,
+        coordinator: coordinator,
         scriptClient: scriptClient,
         batchProcessor: processor,
         runRecords: runRecords,
@@ -262,6 +263,7 @@ private func makeWorkflowAPI(
 
 struct WorkflowFixture {
     let viewModel: WorkflowViewModel
+    let coordinator: UpdateCoordinator
     let scriptClient: DashboardStateScriptClient
     let batchProcessor: BatchProcessor
     let runRecords: FixtureRunRecords

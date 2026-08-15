@@ -151,6 +151,37 @@ struct ScopeResolverTests {
         #expect(resolved.isEmpty)
     }
 
+    @Test(
+        "incremental scope uses unavailable tracks as mismatch evidence",
+        arguments: [TrackKind.prerelease, TrackKind.noLongerAvailable]
+    )
+    func unavailableEvidence(kind: TrackKind) {
+        let readOnlyEvidence = Track(
+            id: "read-only-evidence",
+            name: "Read-only Evidence",
+            artist: "Artist",
+            album: "Earlier",
+            genre: "Rock",
+            dateAdded: Date(timeIntervalSince1970: 100),
+            trackStatus: kind.rawValue
+        )
+        let editableMismatch = Track(
+            id: "editable-mismatch",
+            name: "Editable Mismatch",
+            artist: "Artist",
+            album: "Later",
+            genre: "Jazz",
+            dateAdded: Date(timeIntervalSince1970: 500)
+        )
+
+        let resolved = UpdateTrackScopeResolver.incrementalTracks(
+            [readOnlyEvidence, editableMismatch],
+            lastRunTime: Date(timeIntervalSince1970: 1000)
+        )
+
+        #expect(resolved.map(\.id) == ["editable-mismatch"])
+    }
+
     @Test("incremental scope does not split artist names containing and")
     func preservesAndInArtist() {
         let bandTrack = Track(

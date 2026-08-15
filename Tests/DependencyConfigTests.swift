@@ -364,6 +364,47 @@ struct DependencyConfigTests {
         #expect(dependencies.lastIncrementalRunTimestamp != nil)
     }
 
+    @Test("Workflow composition applies configured genre mappings to incremental scope")
+    func compositionGenreMappings() async {
+        let logsDirectory = temporaryConfigurationTestDirectory()
+        let dependencies = AppDependencies(
+            configurationLoader: {
+                var configuration = AppConfiguration()
+                configuration.cleaning.genreMappings = ["Electronic": "Electronica"]
+                return configuration
+            },
+            configurationSaver: { _ in }
+        )
+        let tracker = IncrementalRunTracker(
+            logsBaseDirectory: logsDirectory.path,
+            lastIncrementalRunFile: "last-run.txt",
+            currentDate: { Date(timeIntervalSince1970: 1000) }
+        )
+        dependencies.installTestIncrementalRunTracker(tracker)
+        await tracker.updateLastRunTimestamp()
+        let workflow = makeWorkflowFixture()
+        let workflowDependencies = dependencies.makeWorkflowDependencies(
+            coordinator: workflow.coordinator,
+            pipeline: ChangePreviewPipeline(),
+            processor: workflow.batchProcessor
+        )
+        let track = Track(
+            id: "mapped",
+            name: "Mapped Genre",
+            artist: "Artist",
+            album: "Album",
+            genre: "Electronic",
+            dateAdded: Date(timeIntervalSince1970: 500)
+        )
+
+        let resolved = await workflowDependencies.resolveIncrementalTracks(
+            [track],
+            IncrementalTrackScopeOptions(updateGenre: true)
+        )
+
+        #expect(resolved.map(\.id) == ["mapped"])
+    }
+
     @Test("Runtime apply wires cleaning edition keywords into year scoring")
     func appliesScoringKeywords() async {
         var didSaveConfiguration = false

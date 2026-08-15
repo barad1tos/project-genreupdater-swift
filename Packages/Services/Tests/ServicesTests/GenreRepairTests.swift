@@ -46,6 +46,43 @@ struct GenreRepairTests {
         #expect(genreChange.newValue == "Post-Punk")
     }
 
+    @Test(
+        "Generated writes retain unavailable genre evidence",
+        arguments: [TrackKind.prerelease, TrackKind.noLongerAvailable]
+    )
+    func evidenceWrite(kind: TrackKind) async throws {
+        let fixture = await makeCoordinator()
+        let evidenceTrack = Track(
+            id: "evidence",
+            name: "Evidence Song",
+            artist: "Artist",
+            album: "Earlier Album",
+            genre: "Post-Punk",
+            dateAdded: Date(timeIntervalSince1970: 100),
+            trackStatus: kind.rawValue
+        )
+        let targetTrack = makeEditableTrack(
+            id: "target",
+            name: "Target Song",
+            artist: "Artist",
+            album: "Later Album",
+            genre: nil,
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 200)
+        )
+
+        let result = try await fixture.coordinator.updateTracks(
+            [evidenceTrack, targetTrack],
+            options: UpdateOptions(updateGenre: true, updateYear: false),
+            progressHandler: { _ in }
+        )
+
+        #expect(result.entries.map(\.trackID) == ["target"])
+        #expect(await fixture.bridge.writtenProperties == [
+            TrackPropertyUpdate(trackID: "target", property: "genre", value: "Post-Punk"),
+        ])
+    }
+
     @Test("Feature credits share genre evidence on the generated write path")
     func featureCreditWrite() async throws {
         let fixture = await makeCoordinator()
