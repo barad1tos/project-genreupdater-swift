@@ -228,11 +228,15 @@ public struct WorkChange: Codable, Equatable, Sendable {
 
 /// One immutable unit of run planning and processing.
 public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
+    static let evidenceVersion = 1
+
     private enum CodingKeys: String, CodingKey {
         case id
         case target
         case change
         case writeChange
+        case writeEvidenceVersion
+        case hasWriteEvidence
         case state
         case detail
         case dismissedAt
@@ -300,7 +304,20 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         let target = try values.decode(WorkTarget.self, forKey: .target)
         let change = try values.decode(WorkChange.self, forKey: .change)
         let writeChange = try values.decodeIfPresent(WorkChange.self, forKey: .writeChange)
+        let evidenceVersion = try values.decodeIfPresent(Int.self, forKey: .writeEvidenceVersion)
+        let hasWriteEvidence = try values.decodeIfPresent(Bool.self, forKey: .hasWriteEvidence)
         let state = try values.decode(WorkState.self, forKey: .state)
+        guard Self.hasValidEvidenceMarker(
+            version: evidenceVersion,
+            hasWriteEvidence: hasWriteEvidence,
+            writeChange: writeChange
+        ) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .writeEvidenceVersion,
+                in: values,
+                debugDescription: "Write evidence marker is incomplete, unsupported, or contradicts the encoded effect"
+            )
+        }
         guard Self.hasValidWriteChange(writeChange, planned: change, state: state) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .writeChange,
@@ -315,6 +332,19 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         self.state = state
         detail = try values.decodeIfPresent(String.self, forKey: .detail)
         dismissedAt = try values.decodeIfPresent(Date.self, forKey: .dismissedAt)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(target, forKey: .target)
+        try values.encode(change, forKey: .change)
+        try values.encodeIfPresent(writeChange, forKey: .writeChange)
+        try values.encode(Self.evidenceVersion, forKey: .writeEvidenceVersion)
+        try values.encode(writeChange != nil, forKey: .hasWriteEvidence)
+        try values.encode(state, forKey: .state)
+        try values.encodeIfPresent(detail, forKey: .detail)
+        try values.encodeIfPresent(dismissedAt, forKey: .dismissedAt)
     }
 
     public init(item: FixPlanItem) {
@@ -389,12 +419,21 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             state: nextState,
             detail: detail,
             dismissedAt: dismissedAt,
-            writeChange: writeChange ?? suppliedWriteChange
+            writeChange: writeChange ?? suppliedWriteChange ?? (nextState == .attempting ? change : nil)
         )
     }
 
     var effectiveChange: WorkChange {
         writeChange ?? change
+    }
+
+    var isWriteEvidenceComplete: Bool {
+        switch state {
+        case .attempting, .attempted, .outcome(.written):
+            writeChange != nil
+        case .prepared, .outcome:
+            true
+        }
     }
 
     func canReconcileWriteChange(from previous: Self) -> Bool {
@@ -418,6 +457,21 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         guard planned.isSemanticallyValid else { return false }
         guard let writeChange else { return true }
         return state != .prepared && writeChange.isValidReconciliation(of: planned)
+    }
+
+    private static func hasValidEvidenceMarker(
+        version: Int?,
+        hasWriteEvidence: Bool?,
+        writeChange: WorkChange?
+    ) -> Bool {
+        switch (version, hasWriteEvidence) {
+        case (nil, nil):
+            true
+        case (evidenceVersion, let hasWriteEvidence?):
+            hasWriteEvidence == (writeChange != nil)
+        default:
+            false
+        }
     }
 
     private static func canTransition(from state: WorkState, to nextState: WorkState) -> Bool {

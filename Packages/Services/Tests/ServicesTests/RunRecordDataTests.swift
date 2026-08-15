@@ -72,7 +72,7 @@ struct RunRecordDataTests {
     func rejectsLostEvidence() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
-        let item = makeWorkItem(state: .attempted)
+        let item = makeWorkItem(state: .prepared)
         let record = makeRunRecord(
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: nil,
@@ -85,6 +85,8 @@ struct RunRecordDataTests {
             )
         )
         try await store.upsert(record)
+        try await store.checkpoint(.beforeAttempt([item.id: item.change]), runID: record.runID)
+        try await store.checkpoint(.afterAttempt([item.id]), runID: record.runID)
 
         let context = ModelContext(container)
         let row = try #require(context.fetch(FetchDescriptor<PersistedRunWorkItem>()).first)
@@ -92,12 +94,49 @@ struct RunRecordDataTests {
             try JSONSerialization.jsonObject(with: row.itemData) as? [String: Any]
         )
         payload.removeValue(forKey: "writeChange")
+        payload.removeValue(forKey: "writeEvidenceVersion")
+        payload.removeValue(forKey: "hasWriteEvidence")
         row.itemData = try JSONSerialization.data(withJSONObject: payload)
         try context.save()
 
         do {
             _ = try await RunRecordDataStore(modelContainer: container).record(for: record.runID)
             Issue.record("Expected missing child write evidence to be rejected")
+        } catch let RunRecordPersistenceError.corruptedField(name, runID) {
+            #expect(name == "workItems")
+            #expect(runID == record.runID.rawValue)
+        }
+    }
+
+    @Test("relaunch rejects a current open run that loses all child rows")
+    func rejectsLostRows() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = RunRecordDataStore(modelContainer: container)
+        let item = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [item],
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+        try await store.checkpoint(.beforeAttempt([item.id: item.change]), runID: record.runID)
+        try await store.checkpoint(.afterAttempt([item.id]), runID: record.runID)
+
+        let context = ModelContext(container)
+        for row in try context.fetch(FetchDescriptor<PersistedRunWorkItem>()) {
+            context.delete(row)
+        }
+        try context.save()
+
+        do {
+            _ = try await RunRecordDataStore(modelContainer: container).record(for: record.runID)
+            Issue.record("Expected missing current child rows to be rejected")
         } catch let RunRecordPersistenceError.corruptedField(name, runID) {
             #expect(name == "workItems")
             #expect(runID == record.runID.rawValue)

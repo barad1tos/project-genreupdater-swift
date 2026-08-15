@@ -24,7 +24,8 @@ struct RunRecordPayload: Codable {
     static let legacyVersion = 1
     static let configurationVersion = 2
     static let workItemVersion = 3
-    static let currentVersion = 3
+    static let checkpointEvidenceVersion = 4
+    static let currentVersion = checkpointEvidenceVersion
 
     // Stored in the legacy transitionsData column to avoid a SwiftData schema migration.
     // Version remains an integer across future schemas; malformed values are eligible for explicit corrupted closure.

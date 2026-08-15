@@ -154,6 +154,7 @@ struct WorkItemTests {
         #expect(written.id == work.id)
         #expect(written.target == work.target)
         #expect(written.change == work.change)
+        #expect(written.writeChange == work.change)
     }
 
     @Test("Write checkpoints reject skipped durable boundaries")

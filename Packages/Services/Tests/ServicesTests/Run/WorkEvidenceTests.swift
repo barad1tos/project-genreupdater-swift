@@ -22,6 +22,8 @@ struct WorkEvidenceTests {
             try JSONSerialization.jsonObject(with: JSONEncoder().encode(current)) as? [String: Any]
         )
         payload.removeValue(forKey: "writeChange")
+        payload.removeValue(forKey: "writeEvidenceVersion")
+        payload.removeValue(forKey: "hasWriteEvidence")
 
         let legacy = try JSONDecoder().decode(
             RunWorkItem.self,
@@ -31,6 +33,22 @@ struct WorkEvidenceTests {
         #expect(legacy.state == .attempted)
         #expect(legacy.writeChange == nil)
         #expect(legacy.effectiveChange == legacy.change)
+    }
+
+    @Test("Current evidence markers reject a removed write effect")
+    func rejectsRemovedWriteEvidence() throws {
+        let current = makeWorkItem(state: .attempted)
+        var payload = try #require(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(current)) as? [String: Any]
+        )
+        payload.removeValue(forKey: "writeChange")
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(
+                RunWorkItem.self,
+                from: JSONSerialization.data(withJSONObject: payload)
+            )
+        }
     }
 
     @Test("Persisted plans reject album artist evidence on unrelated changes")

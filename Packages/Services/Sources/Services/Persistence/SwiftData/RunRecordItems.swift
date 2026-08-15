@@ -1,6 +1,11 @@
 import Foundation
 import SwiftData
 
+private struct WorkEvidenceHeader: Decodable {
+    let writeEvidenceVersion: Int
+    let hasWriteEvidence: Bool
+}
+
 private struct CheckpointItem {
     let row: PersistedRunWorkItem
     let item: RunWorkItem
@@ -142,13 +147,22 @@ extension RunRecordDataStore {
         rows.values.forEach(modelContext.delete)
     }
 
-    func loadWorkItems(for runID: UUID, fallback: [RunWorkItem]) throws -> [RunWorkItem] {
+    func loadWorkItems(
+        for runID: UUID,
+        fallback: [RunWorkItem],
+        requiresRows: Bool
+    ) throws -> [RunWorkItem] {
         let descriptor = FetchDescriptor<PersistedRunWorkItem>(
             predicate: #Predicate { $0.runID == runID },
             sortBy: [SortDescriptor(\.position)]
         )
         let rows = try modelContext.fetch(descriptor)
-        guard !rows.isEmpty else { return fallback }
+        guard !rows.isEmpty else {
+            guard !requiresRows else {
+                throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: runID)
+            }
+            return fallback
+        }
         guard rows.count == fallback.count else {
             throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: runID)
         }
@@ -158,6 +172,14 @@ extension RunRecordDataStore {
             for (position, row) in rows.enumerated() {
                 let expected = fallback[position]
                 let item = try JSONDecoder().decode(RunWorkItem.self, from: row.itemData)
+                let hasCurrentEvidenceFormat: Bool
+                if requiresRows {
+                    let header = try JSONDecoder().decode(WorkEvidenceHeader.self, from: row.itemData)
+                    hasCurrentEvidenceFormat = header.writeEvidenceVersion == RunWorkItem.evidenceVersion
+                        && header.hasWriteEvidence == (item.writeChange != nil)
+                } else {
+                    hasCurrentEvidenceFormat = true
+                }
                 guard row.runID == runID,
                       row.position == position,
                       row.itemID == expected.id,
@@ -167,6 +189,8 @@ extension RunRecordDataStore {
                       item.change == expected.change,
                       item.detail == expected.detail,
                       item.canReconcileWriteChange(from: expected),
+                      hasCurrentEvidenceFormat,
+                      !requiresRows || item.isWriteEvidenceComplete,
                       item.state.canFollow(expected.state)
                 else {
                     throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: runID)

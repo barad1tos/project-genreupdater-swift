@@ -634,6 +634,6 @@ struct RunRecoveryTests {
 }
 
 private struct FuturePayload: Encodable {
-    let version = 4
-    let futureState = "incompatible-v4"
+    let version = RunRecordPayload.currentVersion + 1
+    let futureState = "incompatible"
 }

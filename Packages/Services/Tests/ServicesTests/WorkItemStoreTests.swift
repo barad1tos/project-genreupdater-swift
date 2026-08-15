@@ -24,7 +24,7 @@ struct WorkItemStoreTests {
         #expect(try await store.record(for: record.runID)?.workItems == workItems)
     }
 
-    @Test("Configured empty audits persist as version three")
+    @Test("Configured empty audits persist with the current schema")
     func persistsEmptyAuditSchema() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let store = RunRecordDataStore(modelContainer: container)
@@ -41,12 +41,57 @@ struct WorkItemStoreTests {
         let payload = try #require(JSONSerialization.jsonObject(
             with: row.transitionsData
         ) as? [String: Any])
-        #expect(payload["version"] as? Int == RunRecordPayload.workItemVersion)
+        #expect(payload["version"] as? Int == RunRecordPayload.currentVersion)
         #expect(payload.keys.contains("workItems"))
         #expect((payload["workItems"] as? [Any])?.isEmpty == true)
 
         let freshStore = RunRecordDataStore(modelContainer: container)
         #expect(try await freshStore.record(for: record.runID) == record)
+    }
+
+    @Test("Version-three open runs can fall back to parent work items")
+    func loadsLegacyParentItems() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: startedAt,
+            reason: "manualCheck"
+        )
+        let item = makeWorkItem(state: .prepared)
+        let configuration = makeRunConfiguration(
+            scopeID: scope.id,
+            capturedAt: startedAt,
+            writeAuthority: .reviewedPlan
+        )
+        let payload = ItemPayload(
+            version: RunRecordPayload.workItemVersion,
+            transitions: [
+                RunLifecycleTransition(state: .created, timestamp: startedAt),
+                RunLifecycleTransition(state: .writing, timestamp: startedAt),
+            ],
+            workItems: [item],
+            configuration: configuration
+        )
+        try insertRunRow(
+            runID: runID,
+            transitionsData: JSONEncoder().encode(payload),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .writing,
+                startedAt: startedAt
+            ),
+            into: container
+        )
+
+        let record = try await RunRecordDataStore(modelContainer: container).record(
+            for: RunID(rawValue: runID)
+        )
+
+        #expect(record?.workItems == [item])
     }
 
     @Test("Run record JSON preserves work-item outcomes")

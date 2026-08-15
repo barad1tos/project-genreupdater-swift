@@ -83,27 +83,33 @@ private func uncertainWorkItem(
     albumArtistChange: AlbumArtistChange? = nil,
     writeChange: WorkChange? = nil
 ) -> RunWorkItem {
-    RunWorkItem(
-        id: UUID(),
-        target: .track(FixPlanItemIdentity(
-            readID: "read-1",
-            appleScriptID: "persistent-1",
-            artist: "Artist",
-            album: "Album",
-            trackName: "Track"
-        )),
-        change: WorkChange(
-            changeType: changeType,
-            oldValue: oldValue,
-            newValue: newValue,
-            confidence: 90,
-            source: "Library",
-            albumArtistChange: albumArtistChange
-        ),
-        state: state,
-        detail: nil,
-        writeChange: writeChange
+    let id = UUID()
+    let target = WorkTarget.track(FixPlanItemIdentity(
+        readID: "read-1",
+        appleScriptID: "persistent-1",
+        artist: "Artist",
+        album: "Album",
+        trackName: "Track"
+    ))
+    let change = WorkChange(
+        changeType: changeType,
+        oldValue: oldValue,
+        newValue: newValue,
+        confidence: 90,
+        source: "Library",
+        albumArtistChange: albumArtistChange
     )
+    if let writeChange {
+        return RunWorkItem(
+            id: id,
+            target: target,
+            change: change,
+            state: state,
+            detail: nil,
+            writeChange: writeChange
+        )
+    }
+    return RunWorkItem(id: id, target: target, change: change, state: state)
 }
 
 /// One write-uncertain run record bound to a recovery hold, plus its item.

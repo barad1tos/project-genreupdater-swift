@@ -252,8 +252,15 @@ public actor RunRecordDataStore: RunRecordStore {
 
         let payload = try RunPayloadCodec.decode(from: persisted)
         try Self.validatePayload(payload, persisted: persisted, scope: scope, intent: intent)
+        let requiresRows = payload.version >= RunRecordPayload.checkpointEvidenceVersion
+            && persisted.finishedAt == nil
+            && !payload.workItems.isEmpty
         let workItems: [RunWorkItem] = if loadsStoredWorkItems {
-            try loadWorkItems(for: persisted.runID, fallback: payload.workItems)
+            try loadWorkItems(
+                for: persisted.runID,
+                fallback: payload.workItems,
+                requiresRows: requiresRows
+            )
         } else {
             payload.workItems
         }
