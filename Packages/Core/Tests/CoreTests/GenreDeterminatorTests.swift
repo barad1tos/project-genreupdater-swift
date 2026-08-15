@@ -475,6 +475,13 @@ struct GenreMappingTests {
         #expect(resultNoArg == resultEmpty)
     }
 
+    @Test("No-arg overload remains available as a unary function value")
+    func unaryResolver() {
+        let resolve: ([Track]) -> GenreResult = determinator.determineDominantGenre
+
+        #expect(resolve([]).genre == nil)
+    }
+
     // MARK: - applyGenreMapping (Static Helper)
 
     @Test("applyGenreMapping exact match returns mapped value")
