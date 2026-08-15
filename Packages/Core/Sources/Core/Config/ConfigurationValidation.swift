@@ -35,7 +35,7 @@ extension AppConfiguration {
     public func validate() throws {
         var validation = ValidationCollector()
         validateNumericValues(using: &validation)
-        validateArtistMappings(using: &validation)
+        validateMappings(using: &validation)
         try validation.finish()
     }
 
@@ -46,12 +46,29 @@ extension AppConfiguration {
         validateYearRetrieval(using: &validation)
     }
 
-    private func validateArtistMappings(using validation: inout ValidationCollector) {
-        let entries = artistRenamer.mappings.compactMap { source, target -> ArtistMappingEntry? in
+    private func validateMappings(using validation: inout ValidationCollector) {
+        validateMappingConflicts(
+            artistRenamer.mappings,
+            path: "artistRenamer.mappings",
+            using: &validation
+        )
+        validateMappingConflicts(
+            cleaning.genreMappings,
+            path: "cleaning.genreMappings",
+            using: &validation
+        )
+    }
+
+    private func validateMappingConflicts(
+        _ mappings: [String: String],
+        path: String,
+        using validation: inout ValidationCollector
+    ) {
+        let entries = mappings.compactMap { source, target -> MappingEntry? in
             let normalizedSource = normalizeForMatching(source)
             let trimmedTarget = target.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalizedSource.isEmpty, !trimmedTarget.isEmpty else { return nil }
-            return ArtistMappingEntry(
+            return MappingEntry(
                 source: source,
                 target: trimmedTarget,
                 normalizedSource: normalizedSource
@@ -70,7 +87,7 @@ extension AppConfiguration {
             return "\(String(reflecting: normalizedSource)): [\(mappings)]"
         }.joined(separator: "; ")
         validation.record(
-            path: "artistRenamer.mappings",
+            path: path,
             value: receivedValue,
             requirement: "must map one normalized source to one target"
         )
@@ -413,7 +430,7 @@ extension AppConfiguration {
     }
 }
 
-private struct ArtistMappingEntry {
+private struct MappingEntry {
     let source: String
     let target: String
     let normalizedSource: String

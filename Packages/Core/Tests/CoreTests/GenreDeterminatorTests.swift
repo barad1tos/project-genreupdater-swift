@@ -96,17 +96,17 @@ struct GenreDeterminatorTests {
         #expect(result.sourceAlbum == "Album A")
     }
 
-    @Test("Two albums same date — deterministic result")
-    func twoAlbumsSameDate() {
-        // When dates are equal, the first one encountered stays (no replacement on ==)
+    @Test("Equal-date albums keep the first library genre")
+    func equalDateAlbumsKeepFirstGenre() {
         let tracks = [
             makeTrack(id: "1", album: "Alpha", genre: "Rock", dateAdded: date(2020, 1, 1)),
             makeTrack(id: "2", album: "Beta", genre: "Jazz", dateAdded: date(2020, 1, 1)),
         ]
+
         let result = determinator.determineDominantGenre(artistTracks: tracks)
-        // Both have same date, one of them wins. genre should be non-nil.
-        #expect(result.genre != nil)
-        #expect(result.genre == "Rock" || result.genre == "Jazz")
+
+        #expect(result.genre == "Rock")
+        #expect(result.sourceAlbum == "Alpha")
     }
 
     // MARK: - Multiple Tracks Per Album — Earliest Track
@@ -426,6 +426,42 @@ struct GenreMappingTests {
             genreMappings: mappings
         )
         #expect(result.genre == nil)
+    }
+
+    @Test("Blank genre mapping target cannot clear metadata")
+    func blankGenreMappingTargetIsIgnored() {
+        let track = makeTrack(genre: "Rock", dateAdded: date(2020, 1, 1))
+
+        let result = determinator.determineDominantGenre(
+            artistTracks: [track],
+            genreMappings: ["Rock": "  \n"]
+        )
+
+        #expect(result.genre == "Rock")
+    }
+
+    @Test("Genre mapping trims a manually edited source and target")
+    func genreMappingTrimsPersistedValues() {
+        let track = makeTrack(genre: "Rock", dateAdded: date(2020, 1, 1))
+
+        let result = determinator.determineDominantGenre(
+            artistTracks: [track],
+            genreMappings: ["  rock ": " Alternative "]
+        )
+
+        #expect(result.genre == "Alternative")
+    }
+
+    @Test("Conflicting direct genre mappings leave metadata unchanged")
+    func conflictingDirectMappingsFailClosed() {
+        let track = makeTrack(genre: "Rock", dateAdded: date(2020, 1, 1))
+
+        let result = determinator.determineDominantGenre(
+            artistTracks: [track],
+            genreMappings: ["Rock": "Metal", "rock": "Pop"]
+        )
+
+        #expect(result.genre == "Rock")
     }
 
     @Test("No-arg overload behaves identically to empty mappings")

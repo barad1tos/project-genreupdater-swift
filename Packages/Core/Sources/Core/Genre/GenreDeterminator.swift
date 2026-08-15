@@ -41,7 +41,8 @@ public struct GenreResult: Sendable, Equatable {
 /// 1. Group tracks by album (skip tracks with empty album or nil dateAdded).
 /// 2. For each album, find the track with the earliest `dateAdded`.
 /// 3. Among those earliest-per-album tracks, find the absolute earliest.
-/// 4. Return that track's genre (as-is, no normalization).
+///    Equal dates preserve the first album's position in the input.
+/// 4. Return that track's genre (as-is before an optional mapping).
 /// 5. If genre is nil or empty, return nil.
 public struct GenreDeterminator: Sendable {
     public init() {}
@@ -59,8 +60,9 @@ public struct GenreDeterminator: Sendable {
     /// Determine dominant genre for an artist, applying user-defined genre mappings.
     ///
     /// After the standard earliest-album algorithm determines a genre, the result
-    /// is checked against `genreMappings`. Lookup is case-insensitive but the
-    /// mapped value preserves its original case from the dictionary.
+    /// is checked against `genreMappings`. Lookup trims sources and is case-insensitive;
+    /// a nonblank mapped value preserves its trimmed case. Conflicting targets fail closed
+    /// to the original genre when callers bypass configuration validation.
     ///
     /// - Parameters:
     ///   - artistTracks: All tracks for a single artist.
@@ -78,14 +80,14 @@ public struct GenreDeterminator: Sendable {
         defer { AppSignpost.genreDetermination.endInterval("determineDominantGenre", signpostState) }
 
         // Step 1: Find the earliest track per album
-        let albumEarliest = getEarliestTrackPerAlbum(artistTracks)
+        let albumEarliest = earliestAlbumTracks(in: artistTracks)
 
         guard !albumEarliest.isEmpty else {
             return GenreResult(genre: nil)
         }
 
         // Step 2: Find the earliest track across all albums
-        guard let earliestTrack = getEarliestTrackAcrossAlbums(albumEarliest) else {
+        guard let earliestTrack = earliestTrack(in: albumEarliest) else {
             return GenreResult(genre: nil)
         }
 
@@ -104,7 +106,7 @@ public struct GenreDeterminator: Sendable {
         )
     }
 
-    /// Look up a genre in the user-defined mappings using case-insensitive comparison.
+    /// Look up a genre in user-defined mappings after trimming and case normalization.
     ///
     /// - Parameters:
     ///   - genre: The determined genre to look up.
@@ -114,11 +116,16 @@ public struct GenreDeterminator: Sendable {
         _ genre: String,
         mappings: [String: String]
     ) -> String {
-        let lowercasedGenre = genre.lowercased()
-        for (source, target) in mappings where source.lowercased() == lowercasedGenre {
-            return target
-        }
-        return genre
+        let normalizedGenre = normalizeForMatching(genre)
+        guard !normalizedGenre.isEmpty else { return genre }
+
+        let targets = Set(mappings.compactMap { source, target -> String? in
+            guard normalizeForMatching(source) == normalizedGenre else { return nil }
+            let trimmedTarget = target.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmedTarget.isEmpty ? nil : trimmedTarget
+        })
+        guard targets.count == 1, let target = targets.first else { return genre }
+        return target
     }
 
     // MARK: - Private Helpers
@@ -127,32 +134,34 @@ public struct GenreDeterminator: Sendable {
     ///
     /// Tracks with empty album names or nil dateAdded are skipped,
     /// matching the Python behavior.
-    private func getEarliestTrackPerAlbum(_ tracks: [Track]) -> [String: Track] {
-        var albumEarliest: [String: Track] = [:]
+    private func earliestAlbumTracks(in tracks: [Track]) -> [Track] {
+        var albumIndexes: [String: Int] = [:]
+        var earliestTracks: [Track] = []
 
         for track in tracks {
             let album = track.album
             guard !album.isEmpty else { continue }
             guard let trackDate = track.dateAdded else { continue }
 
-            if let existing = albumEarliest[album],
-               let existingDate = existing.dateAdded,
+            if let albumIndex = albumIndexes[album],
+               let existingDate = earliestTracks[albumIndex].dateAdded,
                trackDate < existingDate {
-                albumEarliest[album] = track
-            } else if albumEarliest[album] == nil {
-                albumEarliest[album] = track
+                earliestTracks[albumIndex] = track
+            } else if albumIndexes[album] == nil {
+                albumIndexes[album] = earliestTracks.count
+                earliestTracks.append(track)
             }
         }
 
-        return albumEarliest
+        return earliestTracks
     }
 
     /// Find the track with the earliest dateAdded across all album representatives.
-    private func getEarliestTrackAcrossAlbums(_ albumEarliest: [String: Track]) -> Track? {
+    private func earliestTrack(in albumTracks: [Track]) -> Track? {
         var earliestTrack: Track?
         var earliestDate: Date?
 
-        for track in albumEarliest.values {
+        for track in albumTracks {
             guard let trackDate = track.dateAdded else { continue }
 
             if let currentEarliest = earliestDate {
