@@ -71,7 +71,7 @@ public struct WorkCheckpoint: Equatable, Sendable {
     let states: [UUID: WorkState]
     let writeChanges: [UUID: WorkChange]
 
-    private init(
+    init(
         boundary: CheckpointBoundary,
         states: [UUID: WorkState],
         writeChanges: [UUID: WorkChange] = [:]
@@ -79,13 +79,6 @@ public struct WorkCheckpoint: Equatable, Sendable {
         self.boundary = boundary
         self.states = states
         self.writeChanges = writeChanges
-    }
-
-    static func beforeAttempt(_ itemIDs: [UUID]) -> Self {
-        Self(
-            boundary: .beforeAttempt,
-            states: Dictionary(uniqueKeysWithValues: Set(itemIDs).map { ($0, .attempting) })
-        )
     }
 
     /// Carries the authoritative metadata effect into the durable pre-dispatch checkpoint.
@@ -360,10 +353,6 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
                 albumArtistChange: item.albumArtistChange
             )
         )
-    }
-
-    func transition(to nextState: WorkState) throws -> Self {
-        try transition(to: nextState, detail: detail, writeChange: nil)
     }
 
     /// Replaces the audit note without a state transition. Terminal outcome

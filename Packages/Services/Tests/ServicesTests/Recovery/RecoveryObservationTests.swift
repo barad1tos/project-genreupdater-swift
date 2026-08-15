@@ -9,7 +9,10 @@ struct RecoveryObservationTests {
     func classifiesWritten() {
         let item = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
 
-        let observed = RecoveryObservation.outcome(for: item, observedValue: "Stoner Rock")
+        let observed = RecoveryObservation.outcome(
+            for: item,
+            observedTrack: observedTrack(id: "persistent-1", genre: "Stoner Rock")
+        )
 
         #expect(observed.outcome == .written)
         #expect(observed.observedValue == "Stoner Rock")
@@ -19,35 +22,38 @@ struct RecoveryObservationTests {
     func classifiesFailed() {
         let item = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
 
-        #expect(RecoveryObservation.outcome(for: item, observedValue: "Rock").outcome == .failed)
+        let observed = RecoveryObservation.outcome(
+            for: item,
+            observedTrack: observedTrack(id: "persistent-1", genre: "Rock")
+        )
+
+        #expect(observed.outcome == .failed)
     }
 
     @Test("observed external value needs review and keeps the evidence")
     func classifiesExternalChange() {
         let item = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
 
-        let observed = RecoveryObservation.outcome(for: item, observedValue: "Jazz")
+        let observed = RecoveryObservation.outcome(
+            for: item,
+            observedTrack: observedTrack(id: "persistent-1", genre: "Jazz")
+        )
 
         #expect(observed.outcome == .needsReview)
         #expect(observed.observedValue == "Jazz")
         #expect(observed.detail == "Observed Music.app value: Jazz")
     }
 
-    @Test("absent track needs review with a missing-track note")
-    func classifiesAbsentTrack() {
-        let item = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
-
-        let observed = RecoveryObservation.outcome(for: item, observedValue: nil)
-
-        #expect(observed.outcome == .needsReview)
-        #expect(observed.detail == "Track not found in Music.app")
-    }
-
     @Test("empty observed value matches a nil prior value as failed")
     func treatsEmptyAsNilPrior() {
         let item = makeWorkItem(state: .attempted, oldValue: nil, newValue: "1999")
 
-        #expect(RecoveryObservation.outcome(for: item, observedValue: "").outcome == .failed)
+        let observed = RecoveryObservation.outcome(
+            for: item,
+            observedTrack: observedTrack(id: "persistent-1", genre: "")
+        )
+
+        #expect(observed.outcome == .failed)
     }
 
     @Test("every change type observes its own AppleScript property")

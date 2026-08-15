@@ -42,16 +42,12 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
 ///   intended value, or a third value is present — an external change wins
 ///   and a person decides.
 enum RecoveryObservation {
-    static func outcome(for item: RunWorkItem, observedValue: String?) -> ObservedWorkOutcome {
-        outcome(for: item.effectiveChange, observedValue: observedValue)
-    }
-
     static func outcome(for item: RunWorkItem, observedTrack: Track) -> ObservedWorkOutcome {
         let change = item.effectiveChange
         let property = AppleScriptTrackProperty(changeType: change.changeType)
         let observedValue = property.currentValue(in: observedTrack)
         guard let albumArtistChange = change.albumArtistChange else {
-            return outcome(for: change, observedValue: observedValue)
+            return classify(change, observedValue: observedValue)
         }
         let observedAlbumArtist = observedTrack.albumArtist ?? ""
         let combinedValue = "\(observedValue ?? "") (album artist: \(observedAlbumArtist))"
@@ -66,7 +62,7 @@ enum RecoveryObservation {
         return ObservedWorkOutcome(outcome: .needsReview, observedValue: combinedValue)
     }
 
-    private static func outcome(for change: WorkChange, observedValue: String?) -> ObservedWorkOutcome {
+    private static func classify(_ change: WorkChange, observedValue: String?) -> ObservedWorkOutcome {
         guard let observedValue else {
             return ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
         }

@@ -30,6 +30,22 @@ struct PreparedWrite {
         }
         return updates
     }
+
+    func dispatch(
+        using scriptBridge: any AppleScriptClient,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> AppleScriptWriteResult {
+        guard updates.count > 1 else {
+            return try await scriptBridge.updateTrackProperty(
+                trackID: trackID,
+                property: property,
+                value: value,
+                onAttempt: onAttempt
+            )
+        }
+        try await scriptBridge.batchUpdateTracks(updates, onAttempt: onAttempt)
+        return .changed
+    }
 }
 
 final class WriteAttemptState: @unchecked Sendable {
@@ -153,20 +169,8 @@ extension UpdateCoordinator {
     ) async throws -> AppleScriptWriteResult {
         let attemptState = WriteAttemptState()
         do {
-            if write.updates.count > 1 {
-                try await scriptBridge.batchUpdateTracks(
-                    write.updates,
-                    onAttempt: {
-                        attemptState.markAttempted()
-                        try await checkpoint?(.afterAttempt([write.change.id]))
-                    }
-                )
-                return .changed
-            }
-            return try await scriptBridge.updateTrackProperty(
-                trackID: write.trackID,
-                property: write.property,
-                value: write.value,
+            return try await write.dispatch(
+                using: scriptBridge,
                 onAttempt: {
                     attemptState.markAttempted()
                     try await checkpoint?(.afterAttempt([write.change.id]))
@@ -372,10 +376,10 @@ extension UpdateCoordinator {
 }
 
 extension ProposedChange {
-    fileprivate func copy(albumArtistChange: AlbumArtistChange?) -> Self {
+    func copy(track: Track? = nil, albumArtistChange: AlbumArtistChange?) -> Self {
         ProposedChange(
             id: id,
-            track: track,
+            track: track ?? self.track,
             changeType: changeType,
             oldValue: oldValue,
             newValue: newValue,

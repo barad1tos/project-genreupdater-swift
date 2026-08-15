@@ -2,6 +2,21 @@ import Core
 import Foundation
 @testable import Services
 
+extension WorkCheckpoint {
+    static func beforeAttempt(_ itemIDs: [UUID]) -> Self {
+        Self(
+            boundary: .beforeAttempt,
+            states: Dictionary(uniqueKeysWithValues: Set(itemIDs).map { ($0, .attempting) })
+        )
+    }
+}
+
+extension RunWorkItem {
+    func transition(to nextState: WorkState) throws -> Self {
+        try transition(to: nextState, detail: detail, writeChange: nil)
+    }
+}
+
 actor WriteProbe {
     private(set) var calls: [FixPlanWriteInput] = []
     private let result: BatchUpdateResult

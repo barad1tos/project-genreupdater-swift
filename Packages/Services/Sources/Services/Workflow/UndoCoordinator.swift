@@ -314,7 +314,12 @@ public actor UndoCoordinator {
         prepareMirror: ((ProposedChange, AppleScriptWriteResult) async throws -> Void)? = nil
     ) async throws -> AppleScriptWriteResult {
         let mutation = try await mutationContext(for: change.track)
-        let mutationChange = UndoWrite.reconciledChange(change, currentTrack: mutation.track)
+        let albumArtistChange: AlbumArtistChange? = change.albumArtistChange.flatMap { albumArtistChange in
+            guard let currentValue = mutation.track.albumArtist else { return nil }
+            let expectedValues = [albumArtistChange.oldValue, albumArtistChange.newValue].map(normalizeForMatching)
+            return expectedValues.contains(normalizeForMatching(currentValue)) ? albumArtistChange : nil
+        }
+        let mutationChange = change.copy(track: mutation.track, albumArtistChange: albumArtistChange)
 
         do {
             try await prepareWrite?(mutationChange)
@@ -322,15 +327,14 @@ public actor UndoCoordinator {
             let attemptState = WriteAttemptState()
             let result: AppleScriptWriteResult
             do {
-                result = try await UndoWrite.dispatch(
-                    PreparedWrite(
-                        change: mutationChange,
-                        trackID: mutation.writeID,
-                        property: property,
-                        value: value
-                    ),
-                    scriptBridge: scriptBridge,
-                    attemptState: attemptState
+                result = try await PreparedWrite(
+                    change: mutationChange,
+                    trackID: mutation.writeID,
+                    property: property,
+                    value: value
+                ).dispatch(
+                    using: scriptBridge,
+                    onAttempt: { attemptState.markAttempted() }
                 )
             } catch {
                 if !attemptState.hasAttempted {
