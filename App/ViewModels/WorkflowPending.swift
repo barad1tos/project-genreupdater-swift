@@ -848,10 +848,6 @@ extension WorkflowViewModel {
         Dictionary(grouping: tracks) { albumKey(for: $0) }
     }
 
-    static func groupTracksByArtist(_ tracks: [Track]) -> [String: [Track]] {
-        Dictionary(grouping: tracks) { artistKey(for: $0) }
-    }
-
     static func sortedForBatchProcessing(_ tracks: [Track]) -> [Track] {
         tracks.sorted { leftTrack, rightTrack in
             batchSortComponents(for: leftTrack).lexicographicallyPrecedes(
@@ -866,10 +862,6 @@ extension WorkflowViewModel {
 
     static func albumKey(artist: String, album: String) -> String {
         AlbumIdentity.key(artist: artist, album: album)
-    }
-
-    static func artistKey(for track: Track) -> String {
-        normalizeForMatching(AlbumIdentity.groupingArtist(for: track))
     }
 
     private static func batchSortComponents(for track: Track) -> [String] {

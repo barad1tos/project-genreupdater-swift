@@ -360,6 +360,20 @@ public actor UpdateCoordinator {
         return Self.albumTracksByTrackID(for: contextTracks)
     }
 
+    /// Returns artist-level genre evidence after restoring AppleScript-only metadata.
+    ///
+    /// Grouping happens after enrichment so an authoritative `albumArtist` can
+    /// prevent a feature-credit track from borrowing evidence from another artist.
+    /// Unmapped tracks remain unchanged, and unavailable tracks remain in the
+    /// context, because they are read-only genre evidence rather than write targets.
+    public func artistContextTracksByTrackID(for tracks: [Track]) async -> [String: [Track]] {
+        let contextTracks = await enrichTracks(
+            tracks,
+            requiresMutationMetadata: false
+        )
+        return Self.artistTracksByTrackID(for: contextTracks)
+    }
+
     private static func genreContextTracks(
         track: Track,
         artistTracks: [Track],

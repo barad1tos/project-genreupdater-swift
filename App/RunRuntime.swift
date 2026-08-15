@@ -97,9 +97,8 @@ struct RunRuntimeFactory {
                     config: appConfiguration.applescript
                 )
             },
-            albumContext: {
-                await coordinator.albumContextTracksByTrackID(for: $0, requiresMutationMetadata: false)
-            },
+            albumContext: { await coordinator.albumContextTracksByTrackID(for: $0, requiresMutationMetadata: false) },
+            artistContext: { await coordinator.artistContextTracksByTrackID(for: $0) },
             determineChanges: {
                 try await coordinator.updateTrack(
                     $0,

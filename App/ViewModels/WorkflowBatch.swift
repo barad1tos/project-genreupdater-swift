@@ -379,13 +379,13 @@ extension WorkflowViewModel {
         contextTracks: [Track]
     ) async -> (albums: [String: [Track]], artists: [String: [Track]]) {
         let albumTracksByTrackID = await updateCoordinator.albumContextTracksByTrackID(for: contextTracks)
-        let artistGroups = Self.groupTracksByArtist(contextTracks)
+        let artistTracksByTrackID = await updateCoordinator.artistContextTracksByTrackID(for: contextTracks)
         return (
             albums: Dictionary(uniqueKeysWithValues: tracks.map {
                 ($0.id, albumTracksByTrackID[$0.id] ?? [])
             }),
             artists: Dictionary(uniqueKeysWithValues: tracks.map {
-                ($0.id, artistGroups[Self.artistKey(for: $0)] ?? [])
+                ($0.id, artistTracksByTrackID[$0.id] ?? [])
             })
         )
     }

@@ -95,7 +95,7 @@ struct FixPlanProducerTests {
         )
 
         #expect(production.proposalCount == 1)
-        #expect(await spy.refreshInputs() == [["HIT"]])
+        #expect(await spy.refreshInputs() == [["HIT", "MISS"]])
         let calls = await spy.determinationCalls()
         #expect(calls.map(\.trackID) == ["HIT"])
         // Full-scope artist context: the artist's OTHER album still
@@ -171,7 +171,7 @@ struct FixPlanProducerTests {
         )
 
         #expect(production.proposalCount == 1)
-        #expect(await spy.refreshInputs() == [["CL"]])
+        #expect(await spy.refreshInputs() == [["VA", "CL"]])
         #expect(await spy.determinationCalls().map(\.trackID) == ["CL"])
     }
 
@@ -384,6 +384,7 @@ struct FixPlanProducerTests {
                 FixPlanProducer.Runtime(
                     refreshIdentity: { try await spy.refreshWriteIdentity(for: $0, scope: $1) },
                     albumContext: { await spy.albumContextTracksByTrackID(for: $0) },
+                    artistContext: { await spy.artistContextTracksByTrackID(for: $0) },
                     determineChanges: {
                         try await spy.determineTrackChanges(
                             track: $0,
@@ -466,6 +467,16 @@ private actor FixPlanProducerSpy {
             let contextIDs = albumContextIDs[track.id] ?? [track.id]
             let contextTracks = contextIDs.compactMap { tracksByID[$0] }
             return (track.id, contextTracks)
+        })
+    }
+
+    func artistContextTracksByTrackID(for tracks: [Track]) -> [String: [Track]] {
+        let tracksByArtist = Dictionary(grouping: tracks) {
+            normalizeForMatching(AlbumIdentity.groupingArtist(for: $0))
+        }
+        return Dictionary(uniqueKeysWithValues: tracks.map { track in
+            let key = normalizeForMatching(AlbumIdentity.groupingArtist(for: track))
+            return (track.id, tracksByArtist[key] ?? [])
         })
     }
 

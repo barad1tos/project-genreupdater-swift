@@ -76,6 +76,9 @@ struct PreviewPlanTests {
                 FixPlanProducer.Runtime(
                     refreshIdentity: { await probe.refreshWriteIdentity(for: $0, scope: $1) },
                     albumContext: { await probe.albumContextTracksByTrackID(for: $0) },
+                    artistContext: { tracks in
+                        Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, [$0]) })
+                    },
                     determineChanges: {
                         try await probe.determineTrackChanges(
                             track: $0,

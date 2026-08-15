@@ -5,12 +5,14 @@ public struct FixPlanProducer: Sendable {
     public struct Runtime: Sendable {
         public let refreshIdentity: @Sendable ([Track], ProcessingScopeSnapshot) async throws -> Void
         public let albumContext: @Sendable ([Track]) async -> [String: [Track]]
+        public let artistContext: @Sendable ([Track]) async -> [String: [Track]]
         public let determineChanges: @Sendable (Track, [Track], [Track], UpdateOptions) async throws
             -> [ProposedChange]
 
         public init(
             refreshIdentity: @escaping @Sendable ([Track], ProcessingScopeSnapshot) async throws -> Void,
             albumContext: @escaping @Sendable ([Track]) async -> [String: [Track]],
+            artistContext: @escaping @Sendable ([Track]) async -> [String: [Track]],
             determineChanges: @escaping @Sendable (
                 Track,
                 [Track],
@@ -20,6 +22,7 @@ public struct FixPlanProducer: Sendable {
         ) {
             self.refreshIdentity = refreshIdentity
             self.albumContext = albumContext
+            self.artistContext = artistContext
             self.determineChanges = determineChanges
         }
     }
@@ -60,13 +63,15 @@ public struct FixPlanProducer: Sendable {
         let targetedTracks = Self.albumTargetedTracks(scopedTracks, target: configuration.albumTarget)
         guard !targetedTracks.isEmpty else { return .empty }
         let runtime = try await dependencies.makeRuntime(configuration, scope)
-        try await runtime.refreshIdentity(targetedTracks, scope)
+        // Artist evidence spans the full scope, so its authoritative grouping
+        // metadata must be refreshed even when proposals target one album.
+        try await runtime.refreshIdentity(scopedTracks, scope)
         let albumTracksByTrackID = await runtime.albumContext(targetedTracks)
         // Artist context spans the FULL scope: dominant-genre
         // determination must see the artist's other albums, or a
         // targeted preview would propose different metadata than a
         // whole-scope one for the same track.
-        let artistGroups = Self.groupTracksByArtist(scopedTracks)
+        let artistTracksByTrackID = await runtime.artistContext(scopedTracks)
 
         var proposals: [ProposedChange] = []
         for track in targetedTracks {
@@ -75,7 +80,7 @@ public struct FixPlanProducer: Sendable {
                 let changes = try await runtime.determineChanges(
                     track,
                     albumTracksByTrackID[track.id] ?? [],
-                    artistGroups[Self.artistKey(for: track)] ?? [],
+                    artistTracksByTrackID[track.id] ?? [],
                     options
                 )
                 proposals.append(contentsOf: changes)
@@ -132,14 +137,6 @@ public struct FixPlanProducer: Sendable {
 
         let targetKey = AlbumIdentity(artist: target.artist, album: target.album).key
         return tracks.filter { AlbumIdentity(track: $0).key == targetKey }
-    }
-
-    private static func groupTracksByArtist(_ tracks: [Track]) -> [String: [Track]] {
-        Dictionary(grouping: tracks) { artistKey(for: $0) }
-    }
-
-    private static func artistKey(for track: Track) -> String {
-        normalizeForMatching(AlbumIdentity.groupingArtist(for: track))
     }
 
     private static func isWriteEligibilityError(_ error: any Error) -> Bool {

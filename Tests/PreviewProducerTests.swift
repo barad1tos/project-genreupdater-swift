@@ -234,6 +234,106 @@ struct PreviewProducerTests {
         }
     }
 
+    @Test("album-targeted preview restores full-scope artist evidence")
+    func enrichesArtistContext() async throws {
+        let rawTracks = musicKitArtistTracks()
+        let script = PreviewScriptClient(tracks: appleScriptArtistTracks())
+        let services = RunServiceFactory(
+            makeScripts: { _ in script },
+            makePendingVerification: { _ in nil }
+        )
+        let runtime = try await makeRuntime(services: services)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: rawTracks.count,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "artist-context-test"
+        )
+        let configuration = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(updateGenre: true, updateYear: false),
+            capturedAt: Date(timeIntervalSince1970: 100),
+            albumTarget: FixPlanAlbumTarget(artist: "Artist", album: "Later Album")
+        )
+        _ = try await runtime.makeSync(configuration: configuration, scope: scope)
+        let previewRuntime = try await runtime.makePreview(configuration: configuration, scope: scope)
+        let producer = FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
+            loadTracks: { rawTracks },
+            makeRuntime: { _, _ in
+                FixPlanProducer.Runtime(
+                    refreshIdentity: previewRuntime.refreshIdentity,
+                    albumContext: previewRuntime.albumContext,
+                    artistContext: previewRuntime.artistContext,
+                    determineChanges: { track, albumTracks, artistTracks, options in
+                        if track.id == "target" {
+                            #expect(artistTracks.map(\.id) == ["target"])
+                        }
+                        return try await previewRuntime.determineChanges(
+                            track,
+                            albumTracks,
+                            artistTracks,
+                            options
+                        )
+                    }
+                )
+            },
+            savePlan: { _, _ in
+                Issue.record("Distinct enriched album artists must not produce a genre plan")
+            },
+            now: { Date(timeIntervalSince1970: 200) }
+        ))
+
+        let production = try await producer.producePlan(
+            sourceRunID: RunID(),
+            scope: scope,
+            configuration: configuration
+        )
+
+        #expect(production == .empty)
+    }
+
+    private func musicKitArtistTracks() -> [Track] {
+        [
+            Track(
+                id: "source",
+                name: "Source Song",
+                artist: "Artist",
+                album: "Earlier Album",
+                genre: "Post-Punk"
+            ),
+            Track(
+                id: "target",
+                name: "Target Song",
+                artist: "Artist",
+                album: "Later Album"
+            ),
+        ]
+    }
+
+    private func appleScriptArtistTracks() -> [Track] {
+        [
+            Track(
+                id: "as-source",
+                name: "Source Song",
+                artist: "Artist",
+                album: "Earlier Album",
+                genre: "Post-Punk",
+                trackStatus: TrackKind.purchased.rawValue,
+                albumArtist: "Various Artists",
+                appleScriptID: "as-source"
+            ),
+            Track(
+                id: "as-target",
+                name: "Target Song",
+                artist: "Artist",
+                album: "Later Album",
+                trackStatus: TrackKind.purchased.rawValue,
+                albumArtist: "Artist",
+                appleScriptID: "as-target"
+            ),
+        ]
+    }
+
     @Test("discard removes submitted Discogs access")
     func discardsDiscogsAccess() async throws {
         let services = RunServiceFactory(
