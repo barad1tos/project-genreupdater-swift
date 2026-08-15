@@ -62,6 +62,58 @@ struct WorkLedgerTests {
         }
     }
 
+    @Test("before-attempt checkpoint rejects an unreviewed album artist effect")
+    func rejectsUnreviewedEffect() {
+        let item = makeWorkItem(
+            state: .prepared,
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack"
+        )
+        let widened = WorkChange(
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            confidence: item.change.confidence,
+            source: item.change.source,
+            albumArtistChange: AlbumArtistChange(
+                oldValue: "Massive",
+                newValue: "Massive Attack"
+            )
+        )
+
+        #expect(throws: WorkCheckpointError.self) {
+            try WorkLedger([item]).applying(.beforeAttempt([item.id: widened]))
+        }
+    }
+
+    @Test("before-attempt checkpoint rejects contradictory album artist evidence")
+    func rejectsContradictoryEffect() {
+        let plannedEffect = AlbumArtistChange(oldValue: "Massive", newValue: "Massive Attack")
+        let item = makeWorkItem(
+            state: .prepared,
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            albumArtistChange: plannedEffect
+        )
+        let contradictory = WorkChange(
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            confidence: item.change.confidence,
+            source: item.change.source,
+            albumArtistChange: AlbumArtistChange(
+                oldValue: "Various Artists",
+                newValue: "Massive Attack"
+            )
+        )
+
+        #expect(throws: WorkCheckpointError.self) {
+            try WorkLedger([item]).applying(.beforeAttempt([item.id: contradictory]))
+        }
+    }
+
     @Test("unknown checkpoint work rejects the entire update")
     func rejectsUnknownWork() {
         let item = makeWorkItem(state: .prepared)

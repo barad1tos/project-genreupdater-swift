@@ -275,26 +275,37 @@ func makeWorkItem(
     albumArtistChange: AlbumArtistChange? = nil,
     writeChange: WorkChange? = nil
 ) -> RunWorkItem {
-    RunWorkItem(
+    let change = WorkChange(
+        changeType: changeType,
+        oldValue: oldValue,
+        newValue: newValue,
+        confidence: 92,
+        source: source,
+        albumArtistChange: albumArtistChange
+    )
+    let target = WorkTarget.track(FixPlanItemIdentity(
+        readID: "music-kit-1",
+        appleScriptID: "persistent-1",
+        artist: "Artist",
+        album: "Album",
+        trackName: "Track"
+    ))
+    if let writeChange {
+        return RunWorkItem(
+            id: id,
+            target: target,
+            change: change,
+            state: state,
+            detail: detail,
+            writeChange: writeChange
+        )
+    }
+    return RunWorkItem(
         id: id,
-        target: .track(FixPlanItemIdentity(
-            readID: "music-kit-1",
-            appleScriptID: "persistent-1",
-            artist: "Artist",
-            album: "Album",
-            trackName: "Track"
-        )),
-        change: WorkChange(
-            changeType: changeType,
-            oldValue: oldValue,
-            newValue: newValue,
-            confidence: 92,
-            source: source,
-            albumArtistChange: albumArtistChange
-        ),
+        target: target,
+        change: change,
         state: state,
-        detail: detail,
-        writeChange: writeChange
+        detail: detail
     )
 }
 

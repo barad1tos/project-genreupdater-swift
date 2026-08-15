@@ -146,6 +146,15 @@ extension WorkCheckpointError: LocalizedError {
 
 /// Metadata change proposed for one work target.
 public struct WorkChange: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case changeType
+        case oldValue
+        case newValue
+        case confidence
+        case source
+        case albumArtistChange
+    }
+
     public let changeType: ChangeType
     public let oldValue: String?
     public let newValue: String?
@@ -170,14 +179,50 @@ public struct WorkChange: Codable, Equatable, Sendable {
     }
 
     func isValidReconciliation(of planned: Self) -> Bool {
-        let hasMatchingPrimaryEffect = changeType == planned.changeType
-            && oldValue == planned.oldValue
-            && newValue == planned.newValue
-            && confidence == planned.confidence
-            && source == planned.source
-        let hasValidAlbumArtistTarget = albumArtistChange?.newValue == nil
-            || albumArtistChange?.newValue == newValue
-        return hasMatchingPrimaryEffect && hasValidAlbumArtistTarget
+        guard isSemanticallyValid,
+              planned.isSemanticallyValid,
+              changeType == planned.changeType,
+              oldValue == planned.oldValue,
+              newValue == planned.newValue,
+              confidence == planned.confidence,
+              source == planned.source
+        else {
+            return false
+        }
+        guard let albumArtistChange else { return true }
+        guard let plannedAlbumEffect = planned.albumArtistChange else { return false }
+        return normalizeForMatching(albumArtistChange.oldValue)
+            == normalizeForMatching(plannedAlbumEffect.oldValue)
+            && albumArtistChange.newValue == plannedAlbumEffect.newValue
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        changeType = try values.decode(ChangeType.self, forKey: .changeType)
+        oldValue = try values.decodeIfPresent(String.self, forKey: .oldValue)
+        newValue = try values.decodeIfPresent(String.self, forKey: .newValue)
+        confidence = try values.decode(Int.self, forKey: .confidence)
+        source = try values.decode(String.self, forKey: .source)
+        albumArtistChange = try values.decodeIfPresent(AlbumArtistChange.self, forKey: .albumArtistChange)
+        guard isSemanticallyValid else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .albumArtistChange,
+                in: values,
+                debugDescription: "Album-artist evidence contradicts the primary change"
+            )
+        }
+    }
+
+    fileprivate var isSemanticallyValid: Bool {
+        guard let albumArtistChange else { return true }
+        guard changeType == .artistRename,
+              let oldValue,
+              let newValue
+        else {
+            return false
+        }
+        return normalizeForMatching(albumArtistChange.oldValue) == normalizeForMatching(oldValue)
+            && albumArtistChange.newValue == newValue
     }
 }
 
@@ -213,6 +258,12 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         detail: String? = nil,
         dismissedAt: Date? = nil
     ) {
+        let writeChange: WorkChange? = switch state {
+        case .attempting, .attempted, .outcome(.written):
+            change
+        case .prepared, .outcome:
+            nil
+        }
         self.init(
             id: id,
             target: target,
@@ -220,7 +271,7 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             state: state,
             detail: detail,
             dismissedAt: dismissedAt,
-            writeChange: nil
+            writeChange: writeChange
         )
     }
 
@@ -364,6 +415,7 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         planned: WorkChange,
         state: WorkState
     ) -> Bool {
+        guard planned.isSemanticallyValid else { return false }
         guard let writeChange else { return true }
         return state != .prepared && writeChange.isValidReconciliation(of: planned)
     }

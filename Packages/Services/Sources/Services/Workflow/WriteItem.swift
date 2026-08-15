@@ -266,6 +266,7 @@ extension UpdateCoordinator {
         with mutationTrack: Track
     ) -> ProposedChange {
         guard change.changeType == .artistRename,
+              let plannedAlbumEffect = change.albumArtistChange,
               let oldArtist = change.oldValue,
               let newArtist = change.newValue,
               let currentAlbumArtist = mutationTrack.albumArtist
@@ -279,7 +280,7 @@ extension UpdateCoordinator {
         let albumArtistChange: AlbumArtistChange? = if normalizedAlbumArtist == normalizeForMatching(oldArtist) {
             AlbumArtistChange(oldValue: currentAlbumArtist, newValue: newArtist)
         } else if normalizedAlbumArtist == normalizeForMatching(newArtist) {
-            change.albumArtistChange
+            plannedAlbumEffect
         } else {
             nil
         }

@@ -173,6 +173,54 @@ struct WritePreflightTests {
         ])
     }
 
+    @Test("Reviewed artist-only rename never adds an album artist write")
+    func preservesArtistOnly() async throws {
+        let proposalTrack = Track(
+            id: "MK1",
+            name: "Teardrop",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            trackStatus: nil,
+            albumArtist: "Massive",
+            appleScriptID: "AS1"
+        )
+        let currentTrack = Track(
+            id: proposalTrack.id,
+            name: proposalTrack.name,
+            artist: "Massive",
+            album: proposalTrack.album,
+            trackStatus: TrackKind.subscription.rawValue,
+            albumArtist: "Massive",
+            appleScriptID: "AS1"
+        )
+        let mapper = ProcessedIDMapper(
+            musicKitID: proposalTrack.id,
+            appleScriptID: "AS1",
+            enrichedTrack: currentTrack
+        )
+        let fixture = await makeCoordinator(idMapper: mapper)
+        let change = ProposedChange(
+            track: proposalTrack,
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            confidence: 100,
+            source: "Artist Renamer"
+        )
+        let checkpoints = PreflightCheckpointRecorder()
+
+        _ = try await fixture.coordinator.applyChangeOutcome(
+            change,
+            checkpoint: { await checkpoints.append($0) }
+        )
+
+        #expect(await fixture.bridge.batchUpdates.isEmpty)
+        #expect(await fixture.bridge.writtenProperties == [
+            TrackPropertyUpdate(trackID: "AS1", property: "artist", value: "Massive Attack"),
+        ])
+        #expect(await checkpoints.values.first?.writeChanges[change.id]?.albumArtistChange == nil)
+    }
+
     @Test("Reviewed coupled artist rename skips when both fields already match")
     func reviewedCoupledArtistRenameIsNoOp() async throws {
         let proposalTrack = Track(
