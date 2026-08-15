@@ -129,6 +129,10 @@ struct ChangeLogDataTests {
         entry.newYear = 1983
         entry.oldArtist = "Old Maiden"
         entry.newArtist = "Iron Maiden"
+        entry.albumArtistChange = AlbumArtistChange(
+            oldValue: "Old Maiden",
+            newValue: "Iron Maiden"
+        )
 
         try await store.saveEntry(entry)
         let loaded = try await store.loadAll()
@@ -145,6 +149,7 @@ struct ChangeLogDataTests {
         #expect(result.newYear == 1983)
         #expect(result.oldArtist == "Old Maiden")
         #expect(result.newArtist == "Iron Maiden")
+        #expect(result.albumArtistChange == entry.albumArtistChange)
     }
 
     @Test("Load returns entries sorted by timestamp descending")

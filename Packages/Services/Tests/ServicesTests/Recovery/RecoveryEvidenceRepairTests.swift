@@ -34,6 +34,36 @@ struct RecoveryEvidenceRepairTests {
         #expect(entry.newYear == 2001)
     }
 
+    @Test("a written artist rename rebuilds its coupled album artist evidence")
+    func rebuildsCoupledArtistEntry() throws {
+        let item = FixPlanItem(
+            id: UUID(),
+            identity: FixPlanItemIdentity(
+                readID: "music-kit-1",
+                appleScriptID: "persistent-1",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                trackName: "Teardrop",
+                albumArtist: "Massive Attack"
+            ),
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            confidence: 100,
+            source: "Artist Renamer",
+            albumArtistChange: AlbumArtistChange(
+                oldValue: "Massive",
+                newValue: "Massive Attack"
+            )
+        )
+
+        let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: RunWorkItem(item: item)))
+
+        #expect(entry.oldArtist == "Massive")
+        #expect(entry.newArtist == "Massive Attack")
+        #expect(entry.albumArtistChange == item.albumArtistChange)
+    }
+
     @Test("written items cover checkpointed terminals and observed writes")
     func collectsWrittenItems() {
         let terminal = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")

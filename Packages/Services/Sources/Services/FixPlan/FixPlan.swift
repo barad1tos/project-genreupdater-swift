@@ -12,19 +12,22 @@ public struct FixPlanItemIdentity: Codable, Equatable, Sendable {
     public let artist: String
     public let album: String
     public let trackName: String
+    public let albumArtist: String?
 
     public init(
         readID: String,
         appleScriptID: String?,
         artist: String,
         album: String,
-        trackName: String
+        trackName: String,
+        albumArtist: String? = nil
     ) {
         self.readID = readID
         self.appleScriptID = appleScriptID
         self.artist = artist
         self.album = album
         self.trackName = trackName
+        self.albumArtist = albumArtist
     }
 }
 
@@ -42,6 +45,7 @@ public struct FixPlanItem: Codable, Equatable, Sendable, Identifiable {
     public let newValue: String?
     public let confidence: Int
     public let source: String
+    public let albumArtistChange: AlbumArtistChange?
 
     public init(
         id: UUID,
@@ -50,7 +54,8 @@ public struct FixPlanItem: Codable, Equatable, Sendable, Identifiable {
         oldValue: String?,
         newValue: String?,
         confidence: Int,
-        source: String
+        source: String,
+        albumArtistChange: AlbumArtistChange? = nil
     ) {
         self.id = id
         self.identity = identity
@@ -59,6 +64,7 @@ public struct FixPlanItem: Codable, Equatable, Sendable, Identifiable {
         self.newValue = newValue
         self.confidence = confidence
         self.source = source
+        self.albumArtistChange = albumArtistChange
     }
 }
 

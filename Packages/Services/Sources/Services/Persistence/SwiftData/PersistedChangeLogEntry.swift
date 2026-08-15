@@ -39,6 +39,8 @@ public final class PersistedChangeLogEntry {
     // Artist rename changes
     public var oldArtist: String?
     public var newArtist: String?
+    public var oldAlbumArtist: String?
+    public var newAlbumArtist: String?
 
     /// Run attribution for retention; nil on legacy and out-of-run entries.
     public var runID: UUID?
@@ -63,7 +65,9 @@ public final class PersistedChangeLogEntry {
         oldAlbumName: String? = nil,
         newAlbumName: String? = nil,
         oldArtist: String? = nil,
-        newArtist: String? = nil
+        newArtist: String? = nil,
+        oldAlbumArtist: String? = nil,
+        newAlbumArtist: String? = nil
     ) {
         self.entryID = entryID
         self.timestamp = timestamp
@@ -82,6 +86,8 @@ public final class PersistedChangeLogEntry {
         self.newAlbumName = newAlbumName
         self.oldArtist = oldArtist
         self.newArtist = newArtist
+        self.oldAlbumArtist = oldAlbumArtist
+        self.newAlbumArtist = newAlbumArtist
         runID = nil
     }
 }
@@ -107,13 +113,20 @@ extension PersistedChangeLogEntry {
             oldAlbumName: entry.oldAlbumName,
             newAlbumName: entry.newAlbumName,
             oldArtist: entry.oldArtist,
-            newArtist: entry.newArtist
+            newArtist: entry.newArtist,
+            oldAlbumArtist: entry.albumArtistChange?.oldValue,
+            newAlbumArtist: entry.albumArtistChange?.newValue
         )
         runID = entry.runID
     }
 
     public func toChangeLogEntry() -> Core.ChangeLogEntry {
         let changeType = Core.ChangeType(rawValue: changeTypeRaw) ?? .genreUpdate
+        let albumArtistChange: Core.AlbumArtistChange? = if let oldAlbumArtist, let newAlbumArtist {
+            Core.AlbumArtistChange(oldValue: oldAlbumArtist, newValue: newAlbumArtist)
+        } else {
+            nil
+        }
         var entry = Core.ChangeLogEntry(
             id: entryID,
             timestamp: timestamp,
@@ -131,7 +144,8 @@ extension PersistedChangeLogEntry {
             oldAlbumName: oldAlbumName,
             newAlbumName: newAlbumName,
             oldArtist: oldArtist,
-            newArtist: newArtist
+            newArtist: newArtist,
+            albumArtistChange: albumArtistChange
         )
         entry.runID = runID
         return entry

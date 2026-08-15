@@ -25,6 +25,54 @@ struct ArtistRenameTests {
         #expect(renameChange?.source == "Artist Renamer")
     }
 
+    @Test("Artist rename preview keeps a matching album artist coupled")
+    func artistRenamePreviewKeepsMatchingAlbumArtistCoupled() async throws {
+        let fixture = await makeCoordinator(
+            mappings: ["DK Energetyk": "ДК Енергетик"]
+        )
+
+        let track = makeEditableTrack(
+            artist: "DK Energetyk",
+            albumArtist: "DK Energetyk"
+        )
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: false),
+            dryRun: true
+        )
+
+        let renameChange = changes.first { $0.changeType == .artistRename }
+        #expect(renameChange?.track.albumArtist == "ДК Енергетик")
+        #expect(renameChange?.albumArtistChange == AlbumArtistChange(
+            oldValue: "DK Energetyk",
+            newValue: "ДК Енергетик"
+        ))
+    }
+
+    @Test(
+        "Artist rename preserves absent and distinct album artists",
+        arguments: [nil, "Various Artists"] as [String?]
+    )
+    func artistRenamePreservesUncoupledAlbumArtist(albumArtist: String?) async throws {
+        let fixture = await makeCoordinator(
+            mappings: ["DK Energetyk": "ДК Енергетик"]
+        )
+        let track = makeEditableTrack(
+            artist: "DK Energetyk",
+            albumArtist: albumArtist
+        )
+
+        let changes = try await fixture.coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: false),
+            dryRun: true
+        )
+
+        let renameChange = changes.first { $0.changeType == .artistRename }
+        #expect(renameChange?.track.albumArtist == albumArtist)
+        #expect(renameChange?.albumArtistChange == nil)
+    }
+
     @Test("Artist rename skips same normalized target")
     func artistRenameSkipsSameNormalizedTarget() async throws {
         let fixture = await makeCoordinator(
@@ -57,6 +105,30 @@ struct ArtistRenameTests {
         #expect(changes.contains { $0.changeType == .artistRename })
         let written = await fixture.bridge.writtenProperties
         #expect(written.contains { $0.property == "artist" && $0.value == "NewArtist" })
+    }
+
+    @Test("Write mode updates matching artist fields as one verified operation")
+    func writeModeUpdatesMatchingArtistFieldsTogether() async throws {
+        let fixture = await makeCoordinator(
+            mappings: ["OldArtist": "NewArtist"]
+        )
+        let track = makeEditableTrack(
+            artist: "OldArtist",
+            albumArtist: "OldArtist"
+        )
+        await fixture.bridge.setFetchedTracks([track])
+
+        _ = try await fixture.coordinator.updateTrack(
+            track,
+            options: UpdateOptions(updateGenre: false, updateYear: false),
+            dryRun: false
+        )
+
+        let batches = await fixture.bridge.batchUpdates
+        #expect(batches == [[
+            TrackPropertyUpdate(trackID: "T1", property: "artist", value: "NewArtist"),
+            TrackPropertyUpdate(trackID: "T1", property: "album_artist", value: "NewArtist"),
+        ]])
     }
 
     @Test("Artist rename write invalidates old original and new cache identities")
@@ -151,7 +223,8 @@ struct ArtistRenameTests {
 
     private func makeEditableTrack(
         artist: String,
-        originalArtist: String? = nil
+        originalArtist: String? = nil,
+        albumArtist: String? = nil
     ) -> Track {
         Track(
             id: "T1",
@@ -161,7 +234,8 @@ struct ArtistRenameTests {
             genre: "Rock",
             year: 2000,
             trackStatus: nil,
-            originalArtist: originalArtist
+            originalArtist: originalArtist,
+            albumArtist: albumArtist
         )
     }
 

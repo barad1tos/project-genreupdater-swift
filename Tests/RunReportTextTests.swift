@@ -176,6 +176,10 @@ struct RunReportTextTests {
         )
         artistRenameEntry.oldArtist = "Old Name"
         artistRenameEntry.newArtist = "New Name"
+        artistRenameEntry.albumArtistChange = AlbumArtistChange(
+            oldValue: "Old Name",
+            newValue: "New Name"
+        )
 
         let report = UpdateRunReport(
             result: BatchUpdateResult(
@@ -191,6 +195,9 @@ struct RunReportTextTests {
 
         #expect(report.plainTextSummary.contains("- Archive - Noise: Track Demo (Remastered) -> Demo"))
         #expect(report.plainTextSummary.contains("- Archive - Noise EP: Album Noise EP -> Noise"))
-        #expect(report.plainTextSummary.contains("- Old Name - Alias: Artist Old Name -> New Name"))
+        #expect(report.plainTextSummary.contains(
+            "- Old Name - Alias: Artist Old Name (album artist: Old Name) -> "
+                + "New Name (album artist: New Name)"
+        ))
     }
 }

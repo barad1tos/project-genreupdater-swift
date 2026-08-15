@@ -248,7 +248,8 @@ public actor UpdateCoordinator {
         }
         let proposalTrack = artistRenameChange?.track ?? track
         var decisionTrack = cleaningOutcome.track
-        (decisionTrack.artist, decisionTrack.originalArtist) = (proposalTrack.artist, proposalTrack.originalArtist)
+        (decisionTrack.artist, decisionTrack.originalArtist, decisionTrack.albumArtist) =
+            (proposalTrack.artist, proposalTrack.originalArtist, proposalTrack.albumArtist)
         let genreContextTracks = Self.genreContextTracks(
             track: decisionTrack,
             artistTracks: artistTracks,
@@ -392,9 +393,8 @@ public actor UpdateCoordinator {
         albumTracks.contains { $0.id == track.id } ? albumTracks : albumTracks + [track]
     }
 
-    /// Returns album-level context for each track after writable metadata enrichment.
-    ///
-    /// MusicKit tracks can miss AppleScript-only fields such as `albumArtist`, database IDs, and write
+    /// Returns album-level context after enriching MusicKit tracks with AppleScript-only fields such as
+    /// `albumArtist`, database IDs, and write
     /// eligibility. This helper refreshes that metadata first, filters non-processable tracks, and then groups
     /// by `AlbumIdentity` so preview and live workflow paths use the same album context.
     public func albumContextTracksByTrackID(

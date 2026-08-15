@@ -136,19 +136,22 @@ public struct WorkChange: Codable, Equatable, Sendable {
     public let newValue: String?
     public let confidence: Int
     public let source: String
+    public let albumArtistChange: AlbumArtistChange?
 
     public init(
         changeType: ChangeType,
         oldValue: String?,
         newValue: String?,
         confidence: Int,
-        source: String
+        source: String,
+        albumArtistChange: AlbumArtistChange? = nil
     ) {
         self.changeType = changeType
         self.oldValue = oldValue
         self.newValue = newValue
         self.confidence = confidence
         self.source = source
+        self.albumArtistChange = albumArtistChange
     }
 }
 
@@ -188,7 +191,8 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
                 oldValue: item.oldValue,
                 newValue: item.newValue,
                 confidence: item.confidence,
-                source: item.source
+                source: item.source,
+                albumArtistChange: item.albumArtistChange
             )
         )
     }

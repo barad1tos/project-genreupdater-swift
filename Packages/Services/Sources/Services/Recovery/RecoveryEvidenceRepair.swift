@@ -36,6 +36,7 @@ public enum RecoveryEvidenceRepair {
         case .artistRename:
             entry.oldArtist = item.change.oldValue
             entry.newArtist = item.change.newValue
+            entry.albumArtistChange = item.change.albumArtistChange
         }
         return entry
     }
@@ -91,6 +92,7 @@ public enum RecoveryEvidenceRepair {
             && recorded.newTrackName == candidate.newTrackName
             && recorded.newAlbumName == candidate.newAlbumName
             && recorded.newArtist == candidate.newArtist
+            && recorded.albumArtistChange == candidate.albumArtistChange
     }
 
     private static func canonicalEntry(
@@ -114,7 +116,8 @@ public enum RecoveryEvidenceRepair {
             oldAlbumName: candidate.oldAlbumName,
             newAlbumName: candidate.newAlbumName,
             oldArtist: candidate.oldArtist,
-            newArtist: candidate.newArtist
+            newArtist: candidate.newArtist,
+            albumArtistChange: candidate.albumArtistChange
         )
         canonical.runID = legacy.runID
         return canonical

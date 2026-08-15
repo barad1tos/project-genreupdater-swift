@@ -59,7 +59,8 @@ enum FixPlanWrite {
                 newValue: item.newValue,
                 confidence: item.confidence,
                 source: item.source,
-                isAccepted: verdicts[item.id] == .accepted
+                isAccepted: verdicts[item.id] == .accepted,
+                albumArtistChange: item.albumArtistChange
             )
         }
     }
@@ -241,6 +242,7 @@ enum FixPlanWrite {
             album: item.identity.album,
             genre: item.changeType == .genreUpdate ? item.oldValue : nil,
             year: item.changeType == .yearUpdate ? year(from: item.oldValue) : nil,
+            albumArtist: item.identity.albumArtist,
             appleScriptID: item.identity.appleScriptID
         )
     }

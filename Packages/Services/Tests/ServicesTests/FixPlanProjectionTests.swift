@@ -194,6 +194,30 @@ struct FixPlanProjectionTests {
         #expect(projection.operationalIssues.first?.technicalDetail == "Accepted items without AppleScript ID: 1")
         #expect(projection.items.map(\.hasWriteID) == [true, false])
     }
+
+    @Test("artist preview discloses its coupled album artist effect")
+    func coupledArtistEffectIsVisible() {
+        let plan = makePlan(items: [
+            makeItem(
+                type: .artistRename,
+                albumArtistChange: AlbumArtistChange(oldValue: "AFX", newValue: "Aphex Twin")
+            ),
+        ])
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: decidedAt)
+
+        let projection = FixPlanProjector.makeProjection(
+            plan: plan,
+            decision: decision,
+            staleness: FixPlanStaleness.evaluate(
+                plan: plan,
+                currentScope: plan.scope,
+                currentConfiguration: plan.configuration
+            )
+        )
+
+        #expect(projection.items[0].oldValue == "2013 (album artist: AFX)")
+        #expect(projection.items[0].newValue == "2014 (album artist: Aphex Twin)")
+    }
 }
 
 private let decidedAt = Date(timeIntervalSince1970: 101)
@@ -239,7 +263,8 @@ private func makeItem(
     id: UUID = itemID(1),
     type: ChangeType,
     confidence: Int = 90,
-    writeID: String? = "script-id"
+    writeID: String? = "script-id",
+    albumArtistChange: AlbumArtistChange? = nil
 ) -> FixPlanItem {
     FixPlanItem(
         id: id,
@@ -254,7 +279,8 @@ private func makeItem(
         oldValue: type == .genreUpdate ? "Electronic" : "2013",
         newValue: type == .genreUpdate ? "IDM" : "2014",
         confidence: confidence,
-        source: "musicbrainz"
+        source: "musicbrainz",
+        albumArtistChange: albumArtistChange
     )
 }
 

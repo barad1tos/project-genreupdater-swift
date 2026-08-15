@@ -488,8 +488,17 @@ struct UpdateRunReport: Equatable {
         case .albumCleaning:
             (entry.oldAlbumName ?? "none", entry.newAlbumName ?? "none")
         case .artistRename:
-            (entry.oldArtist ?? "none", entry.newArtist ?? "none")
+            artistValuePair(for: entry)
         }
+    }
+
+    private static func artistValuePair(for entry: ChangeLogEntry) -> (old: String, new: String) {
+        let values = ChangeDisplay.values(
+            oldValue: entry.oldArtist ?? "none",
+            newValue: entry.newArtist ?? "none",
+            albumArtistChange: entry.albumArtistChange
+        )
+        return (values.oldValue ?? "none", values.newValue ?? "none")
     }
 
     private static func isRealChange(_ entry: ChangeLogEntry) -> Bool {

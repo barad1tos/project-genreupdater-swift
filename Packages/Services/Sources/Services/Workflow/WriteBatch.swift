@@ -29,16 +29,16 @@ extension UpdateCoordinator {
             return nil
         }
 
-        let batchOutcome: BatchFinalization
+        let verifiedWrite: (writes: [PreparedWrite], batch: BatchFinalization)
         do {
-            guard let verifiedBatchOutcome = try await performVerifiedBatchWrite(
+            guard let outcome = try await performVerifiedBatchWrite(
                 preparedWrites,
                 isReviewedChange: isReviewedChange,
                 checkpoint: checkpoint
             ) else {
                 return nil
             }
-            batchOutcome = verifiedBatchOutcome
+            verifiedWrite = outcome
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as PartialWriteError {
@@ -58,8 +58,8 @@ extension UpdateCoordinator {
         }
 
         return try await finishBatchWrite(
-            preparedWrites,
-            batch: batchOutcome,
+            verifiedWrite.writes,
+            batch: verifiedWrite.batch,
             failedTrackIDs: &failedTrackIDs,
             errorDescriptions: &errorDescriptions,
             checkpoint: checkpoint
@@ -98,7 +98,7 @@ extension UpdateCoordinator {
         _ preparedWrites: [PreparedWrite],
         isReviewedChange: Bool,
         checkpoint: WorkCheckpointSink?
-    ) async throws -> BatchFinalization? {
+    ) async throws -> (writes: [PreparedWrite], batch: BatchFinalization)? {
         guard let currentTracksByID = try await fetchBatchWriteTracks(preparedWrites) else {
             log.warning(
                 "Batch AppleScript write preflight could not fetch current tracks; falling back to single writes"
@@ -106,26 +106,36 @@ extension UpdateCoordinator {
             return nil
         }
 
+        let reconciledWrites = preparedWrites.map { write in
+            guard let currentTrack = currentTracksByID[write.trackID] else { return write }
+            return PreparedWrite(
+                change: Self.reconciledArtistRename(write.change, with: currentTrack),
+                trackID: write.trackID,
+                property: write.property,
+                value: write.value
+            )
+        }
         let preflight = try reviewedBatchPreflight(
-            preparedWrites,
+            reconciledWrites,
             currentTracksByID: currentTracksByID,
             isReviewedChange: isReviewedChange
         )
         guard !preflight.writeIndexes.isEmpty else {
-            return BatchFinalization(
+            return (reconciledWrites, BatchFinalization(
                 currentTracksByID: currentTracksByID,
                 appliedIndexes: [],
                 noOpIndexes: preflight.noOpIndexes,
                 preflightFailures: preflight.failures
-            )
+            ))
         }
 
-        return try await executeBatchWrite(
-            preparedWrites,
+        let batch = try await executeBatchWrite(
+            reconciledWrites,
             currentTracksByID: currentTracksByID,
             preflight: preflight,
             checkpoint: checkpoint
         )
+        return (reconciledWrites, batch)
     }
 
     private func executeBatchWrite(
@@ -174,13 +184,7 @@ extension UpdateCoordinator {
         let itemIDs = writesToApply.map(\.change.id)
         do {
             try await scriptBridge.batchUpdateTracks(
-                writesToApply.map { write in
-                    TrackPropertyUpdate(
-                        trackID: write.trackID,
-                        property: write.property,
-                        value: write.value
-                    )
-                },
+                writesToApply.flatMap(\.updates),
                 onAttempt: {
                     attemptState.markAttempted()
                     try await checkpoint?(.afterAttempt(itemIDs))
@@ -376,11 +380,10 @@ extension UpdateCoordinator {
             guard let refreshedTrack = refreshedTracksByID[preparedWrite.trackID] else {
                 continue
             }
-            let currentValue = Self.value(
-                forAppleScriptProperty: preparedWrite.property,
-                in: refreshedTrack
-            )
-            if currentValue == preparedWrite.value {
+            let hasExpectedValues = preparedWrite.updates.allSatisfy { update in
+                Self.value(forAppleScriptProperty: update.property, in: refreshedTrack) == update.value
+            }
+            if hasExpectedValues {
                 appliedIndexes.insert(index)
             }
         }

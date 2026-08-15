@@ -16,6 +16,7 @@ public struct ProposedChange: Sendable, Identifiable {
     public let confidence: Int
     public let source: String
     public var isAccepted: Bool
+    public let albumArtistChange: AlbumArtistChange?
 
     public init(
         id: UUID = UUID(),
@@ -25,7 +26,8 @@ public struct ProposedChange: Sendable, Identifiable {
         newValue: String?,
         confidence: Int,
         source: String,
-        isAccepted: Bool = true
+        isAccepted: Bool = true,
+        albumArtistChange: AlbumArtistChange? = nil
     ) {
         self.id = id
         self.track = track
@@ -35,6 +37,7 @@ public struct ProposedChange: Sendable, Identifiable {
         self.confidence = confidence
         self.source = source
         self.isAccepted = isAccepted
+        self.albumArtistChange = albumArtistChange
     }
 }
 

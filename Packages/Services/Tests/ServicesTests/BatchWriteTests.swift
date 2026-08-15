@@ -5,6 +5,61 @@ import Testing
 
 @Suite("UpdateCoordinator - batch write verification")
 struct BatchWriteTests {
+    @Test("A mixed batch keeps a coupled artist rename atomic")
+    func coupledArtistRenameBatch() async throws {
+        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
+        let input = coupledBatchInput(currentAlbumArtist: "Massive")
+        await fixture.bridge.setFetchedTracks([input.currentTrack])
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            input.proposals,
+            progressHandler: ignoreProgress
+        )
+
+        #expect(await fixture.bridge.batchUpdates == [[
+            TrackPropertyUpdate(trackID: "T1", property: "artist", value: "Massive Attack"),
+            TrackPropertyUpdate(trackID: "T1", property: "album_artist", value: "Massive Attack"),
+            TrackPropertyUpdate(trackID: "T1", property: "genre", value: "Trip-Hop"),
+        ]])
+        #expect(result.entries.count == 2)
+        #expect(result.entries.first?.albumArtistChange?.newValue == "Massive Attack")
+    }
+
+    @Test("A mixed batch preserves an album artist changed after review")
+    func batchPreservesDistinctAlbumArtist() async throws {
+        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
+        let input = coupledBatchInput(currentAlbumArtist: "Various Artists")
+        await fixture.bridge.setFetchedTracks([input.currentTrack])
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            input.proposals,
+            progressHandler: ignoreProgress
+        )
+
+        #expect(await fixture.bridge.batchUpdates == [[
+            TrackPropertyUpdate(trackID: "T1", property: "artist", value: "Massive Attack"),
+            TrackPropertyUpdate(trackID: "T1", property: "genre", value: "Trip-Hop"),
+        ]])
+        #expect(result.entries.first?.albumArtistChange == nil)
+    }
+
+    @Test("A partial coupled batch is not recorded as a verified rename")
+    func partialCoupledBatchIsUnverified() async throws {
+        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
+        let input = coupledBatchInput(currentAlbumArtist: "Massive")
+        await fixture.bridge.setFetchedTracks([input.currentTrack])
+        await fixture.bridge.setBatchMutationLimit(1)
+
+        await #expect(throws: AppleScriptOutcomeError.self) {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                input.proposals,
+                progressHandler: ignoreProgress
+            )
+        }
+
+        #expect(await fixture.undo.getHistory().isEmpty)
+    }
+
     @Test("Unavailable batch verification reports an unknown outcome")
     func unknownBatchVerification() async throws {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
@@ -284,7 +339,60 @@ struct BatchWriteTests {
                 maxBatchUpdateSize: 5
             )
         )
-        return BatchWriteFixture(coordinator: coordinator, bridge: bridge, cache: cache, snapshot: snapshot)
+        return BatchWriteFixture(
+            coordinator: coordinator,
+            bridge: bridge,
+            cache: cache,
+            snapshot: snapshot,
+            undo: undo
+        )
+    }
+
+    private func coupledBatchInput(
+        currentAlbumArtist: String
+    ) -> (currentTrack: Track, proposals: [ProposedChange]) {
+        let currentTrack = Track(
+            id: "T1",
+            name: "Teardrop",
+            artist: "Massive",
+            album: "Mezzanine",
+            genre: "Rock",
+            trackStatus: TrackKind.subscription.rawValue,
+            albumArtist: currentAlbumArtist
+        )
+        let reviewedTrack = Track(
+            id: currentTrack.id,
+            name: currentTrack.name,
+            artist: "Massive Attack",
+            album: currentTrack.album,
+            genre: currentTrack.genre,
+            trackStatus: currentTrack.trackStatus,
+            albumArtist: "Massive Attack"
+        )
+        return (currentTrack, [
+            ProposedChange(
+                track: reviewedTrack,
+                changeType: .artistRename,
+                oldValue: "Massive",
+                newValue: "Massive Attack",
+                confidence: 100,
+                source: "Artist mappings",
+                isAccepted: true,
+                albumArtistChange: AlbumArtistChange(
+                    oldValue: "Massive",
+                    newValue: "Massive Attack"
+                )
+            ),
+            ProposedChange(
+                track: reviewedTrack,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Trip-Hop",
+                confidence: 90,
+                source: "Library",
+                isAccepted: true
+            ),
+        ])
     }
 
     private func acceptedProposals(for track: Track) -> [ProposedChange] {
@@ -359,6 +467,7 @@ private struct BatchWriteFixture {
     let bridge: MockAppleScriptClient
     let cache: MockCacheService
     let snapshot: MockLibrarySnapshotService
+    let undo: UndoCoordinator
 }
 
 private actor CheckpointRecorder {

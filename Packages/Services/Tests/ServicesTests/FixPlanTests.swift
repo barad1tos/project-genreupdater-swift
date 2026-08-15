@@ -423,6 +423,52 @@ struct FixPlanTests {
         #expect(item.source == "musicbrainz")
     }
 
+    @Test("Artist rename plan preserves its coupled album artist effect")
+    func artistRenamePlanPreservesAlbumArtistEffect() throws {
+        let proposal = ProposedChange(
+            track: Track(
+                id: "MK1",
+                name: "Teardrop",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                albumArtist: "Massive Attack",
+                appleScriptID: "AS1"
+            ),
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            confidence: 100,
+            source: "Artist Renamer",
+            albumArtistChange: AlbumArtistChange(
+                oldValue: "Massive",
+                newValue: "Massive Attack"
+            )
+        )
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "unit-test"
+        )
+        let configuration = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let plan = try #require(FixPlanCapture.makePlan(
+            from: [proposal],
+            sourceRunID: RunID(),
+            scope: scope,
+            configuration: configuration,
+            createdAt: Date(timeIntervalSince1970: 200)
+        ))
+        let item = try #require(plan.items.first)
+
+        #expect(item.identity.albumArtist == "Massive Attack")
+        #expect(item.albumArtistChange == proposal.albumArtistChange)
+    }
+
     @Test("makePlan preserves proposal order and item ids")
     func makePlanPreservesProposalOrderAndItemIDs() throws {
         let proposals = (0 ..< 3).map { index in

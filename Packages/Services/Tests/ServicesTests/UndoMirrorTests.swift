@@ -129,29 +129,49 @@ struct UndoMirrorTests {
     func artistUndoRelaunch() async throws {
         let storeURL = try makeStoreURL()
         defer { removeStore(at: storeURL) }
-        let entry = artistEntry()
+        var entry = artistEntry()
+        entry.albumArtistChange = AlbumArtistChange(
+            oldValue: "Florence and the Machine",
+            newValue: "Florence + the Machine"
+        )
 
         do {
-            let trackStore = try makeStore(at: storeURL)
+            let container = try makeContainer(at: storeURL)
+            let trackStore = TrackDataStore(modelContainer: container)
+            let changeLogStore = ChangeLogDataStore(modelContainer: container)
             try await trackStore.saveTracks([Track(
                 id: entry.trackID,
                 name: entry.trackName,
                 artist: entry.newArtist ?? "",
-                album: entry.albumName
+                album: entry.albumName,
+                albumArtist: entry.albumArtistChange?.newValue
+            )])
+            let bridge = MockAppleScriptClient()
+            await bridge.setFetchedTracks([Track(
+                id: entry.trackID,
+                name: entry.trackName,
+                artist: entry.newArtist ?? "",
+                album: entry.albumName,
+                albumArtist: entry.albumArtistChange?.newValue
             )])
             let coordinator = UndoCoordinator(
-                scriptBridge: MockAppleScriptClient(),
-                stores: .init(tracks: trackStore),
+                scriptBridge: bridge,
+                stores: .init(changeLog: changeLogStore, tracks: trackStore),
                 directory: makeDirectory()
             )
 
+            try await coordinator.recordChange(entry)
             try await coordinator.revertChange(entry)
         }
 
-        let relaunchedStore = try makeStore(at: storeURL)
+        let relaunchedContainer = try makeContainer(at: storeURL)
+        let relaunchedStore = TrackDataStore(modelContainer: relaunchedContainer)
+        let relaunchedLog = ChangeLogDataStore(modelContainer: relaunchedContainer)
         let persistedTrack = try #require(try await relaunchedStore.getTrack(byID: entry.trackID))
         #expect(persistedTrack.artist == entry.oldArtist)
+        #expect(persistedTrack.albumArtist == entry.albumArtistChange?.oldValue)
         #expect(persistedTrack.originalArtist == entry.oldArtist)
+        #expect(try await relaunchedLog.loadAll().isEmpty)
     }
 
     @Test("Album undo after upgrade preserves the restored original across relaunch")
@@ -284,6 +304,10 @@ struct UndoMirrorTests {
     }
 
     private func makeStore(at storeURL: URL) throws -> TrackDataStore {
+        try TrackDataStore(modelContainer: makeContainer(at: storeURL))
+    }
+
+    private func makeContainer(at storeURL: URL) throws -> ModelContainer {
         let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
         let configuration = ModelConfiguration(
             "UndoMirrorTests",
@@ -291,8 +315,7 @@ struct UndoMirrorTests {
             url: storeURL,
             cloudKitDatabase: .none
         )
-        let container = try ModelContainer(for: schema, configurations: [configuration])
-        return TrackDataStore(modelContainer: container)
+        return try ModelContainer(for: schema, configurations: [configuration])
     }
 
     private func makeStoreURL() throws -> URL {

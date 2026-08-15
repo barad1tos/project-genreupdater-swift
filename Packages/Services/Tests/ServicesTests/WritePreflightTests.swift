@@ -111,6 +111,100 @@ struct WritePreflightTests {
         #expect(written.isEmpty)
     }
 
+    @Test("Reviewed artist rename preserves an album artist changed after preview")
+    func reviewedArtistRenamePreservesChangedAlbumArtist() async throws {
+        let proposalTrack = Track(
+            id: "MK1",
+            name: "Teardrop",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            trackStatus: nil,
+            albumArtist: "Massive Attack",
+            appleScriptID: "AS1"
+        )
+        let currentTrack = Track(
+            id: proposalTrack.id,
+            name: proposalTrack.name,
+            artist: "Massive",
+            album: proposalTrack.album,
+            trackStatus: TrackKind.subscription.rawValue,
+            albumArtist: "Various Artists",
+            appleScriptID: "AS1"
+        )
+        let mapper = ProcessedIDMapper(
+            musicKitID: proposalTrack.id,
+            appleScriptID: "AS1",
+            enrichedTrack: currentTrack
+        )
+        let fixture = await makeCoordinator(idMapper: mapper)
+        let change = ProposedChange(
+            track: proposalTrack,
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            confidence: 100,
+            source: "Artist Renamer",
+            albumArtistChange: AlbumArtistChange(
+                oldValue: "Massive",
+                newValue: "Massive Attack"
+            )
+        )
+
+        _ = try await fixture.coordinator.applyChange(change)
+
+        #expect(await fixture.bridge.batchUpdates.isEmpty)
+        #expect(await fixture.bridge.writtenProperties == [
+            TrackPropertyUpdate(trackID: "AS1", property: "artist", value: "Massive Attack"),
+        ])
+    }
+
+    @Test("Reviewed coupled artist rename skips when both fields already match")
+    func reviewedCoupledArtistRenameIsNoOp() async throws {
+        let proposalTrack = Track(
+            id: "MK1",
+            name: "Teardrop",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            trackStatus: nil,
+            albumArtist: "Massive Attack",
+            appleScriptID: "AS1"
+        )
+        let currentTrack = Track(
+            id: proposalTrack.id,
+            name: proposalTrack.name,
+            artist: "Massive Attack",
+            album: proposalTrack.album,
+            trackStatus: TrackKind.subscription.rawValue,
+            albumArtist: "Massive Attack",
+            appleScriptID: "AS1"
+        )
+        let mapper = ProcessedIDMapper(
+            musicKitID: proposalTrack.id,
+            appleScriptID: "AS1",
+            enrichedTrack: currentTrack
+        )
+        let fixture = await makeCoordinator(idMapper: mapper)
+        let change = ProposedChange(
+            track: proposalTrack,
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            confidence: 100,
+            source: "Artist Renamer",
+            albumArtistChange: AlbumArtistChange(
+                oldValue: "Massive",
+                newValue: "Massive Attack"
+            )
+        )
+
+        let outcome = try await fixture.coordinator.applyChangeOutcome(change)
+
+        #expect(outcome.entry == nil)
+        #expect(outcome.noOpEntry?.albumArtistChange?.newValue == "Massive Attack")
+        #expect(await fixture.bridge.batchUpdates.isEmpty)
+        #expect(await fixture.bridge.writtenProperties.isEmpty)
+    }
+
     @Test("Generated year update still writes already-processed metadata")
     func generatedYearWritesProcessed() async throws {
         let musicKitTrack = Track(

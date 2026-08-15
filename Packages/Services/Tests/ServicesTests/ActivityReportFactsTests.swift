@@ -76,4 +76,24 @@ struct ActivityReportFactsTests {
         #expect(facts.yearDistribution.map(\.label) == ["1990s", "2000s"])
         #expect(facts.yearDistribution.first?.count == 2)
     }
+
+    @Test("coupled artist changes disclose the album artist effect")
+    func coupledArtistChangeIsVisible() {
+        let change = AlbumArtistChange(oldValue: "Massive", newValue: "Massive Attack")
+        let entry = Core.ChangeLogEntry(
+            id: UUID(),
+            timestamp: now,
+            changeType: .artistRename,
+            trackID: "T1",
+            artist: "Massive",
+            oldArtist: "Massive",
+            newArtist: "Massive Attack",
+            albumArtistChange: change
+        )
+
+        let item = ActivityReportFacts.make(from: [entry], now: now).changeLog[0]
+
+        #expect(item.oldValue == "Massive (album artist: Massive)")
+        #expect(item.newValue == "Massive Attack (album artist: Massive Attack)")
+    }
 }

@@ -92,7 +92,12 @@ public enum RunReportDetailBuilder {
         case let .track(identity): identity.trackName
         case let .album(identity): identity.album
         }
-        let change = "\(item.change.oldValue ?? "—") → \(item.change.newValue ?? "—")"
+        let values = ChangeDisplay.values(
+            oldValue: item.change.oldValue,
+            newValue: item.change.newValue,
+            albumArtistChange: item.change.albumArtistChange
+        )
+        let change = "\(values.oldValue ?? "—") → \(values.newValue ?? "—")"
         return "\(makeChangeTypeLabel(for: item.change.changeType)): \(change) — \(subject)"
     }
 

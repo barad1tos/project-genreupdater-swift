@@ -11,7 +11,12 @@ public enum FixPlanProjector {
             uniqueKeysWithValues: decision.itemDecisions.map { ($0.itemID, $0.verdict) }
         )
         let items = plan.items.map { item in
-            FixPlanProjectionItem(
+            let values = ChangeDisplay.values(
+                oldValue: item.oldValue,
+                newValue: item.newValue,
+                albumArtistChange: item.albumArtistChange
+            )
+            return FixPlanProjectionItem(
                 id: item.id,
                 identity: FixPlanProjectionItem.Identity(
                     trackName: item.identity.trackName,
@@ -20,8 +25,8 @@ public enum FixPlanProjector {
                 ),
                 change: FixPlanProjectionItem.Change(
                     type: item.changeType,
-                    oldValue: item.oldValue,
-                    newValue: item.newValue,
+                    oldValue: values.oldValue,
+                    newValue: values.newValue,
                     confidence: item.confidence,
                     source: item.source
                 ),

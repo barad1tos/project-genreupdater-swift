@@ -314,16 +314,7 @@ public actor UndoCoordinator {
         prepareMirror: ((ProposedChange, AppleScriptWriteResult) async throws -> Void)? = nil
     ) async throws -> AppleScriptWriteResult {
         let mutation = try await mutationContext(for: change.track)
-        let mutationChange = ProposedChange(
-            id: change.id,
-            track: mutation.track,
-            changeType: change.changeType,
-            oldValue: change.oldValue,
-            newValue: change.newValue,
-            confidence: change.confidence,
-            source: change.source,
-            isAccepted: change.isAccepted
-        )
+        let mutationChange = UndoWrite.reconciledChange(change, currentTrack: mutation.track)
 
         do {
             try await prepareWrite?(mutationChange)
@@ -331,11 +322,15 @@ public actor UndoCoordinator {
             let attemptState = WriteAttemptState()
             let result: AppleScriptWriteResult
             do {
-                result = try await scriptBridge.updateTrackProperty(
-                    trackID: mutation.writeID,
-                    property: property,
-                    value: value,
-                    onAttempt: { attemptState.markAttempted() }
+                result = try await UndoWrite.dispatch(
+                    PreparedWrite(
+                        change: mutationChange,
+                        trackID: mutation.writeID,
+                        property: property,
+                        value: value
+                    ),
+                    scriptBridge: scriptBridge,
+                    attemptState: attemptState
                 )
             } catch {
                 if !attemptState.hasAttempted {
@@ -392,7 +387,8 @@ public actor UndoCoordinator {
             artist: entry.newArtist ?? entry.artist,
             album: entry.newAlbumName ?? entry.albumName,
             genre: entry.newGenre,
-            year: entry.newYear
+            year: entry.newYear,
+            albumArtist: entry.albumArtistChange?.newValue
         )
         let values: (oldValue: String?, newValue: String?) = switch entry.changeType {
         case .genreUpdate:
@@ -412,7 +408,10 @@ public actor UndoCoordinator {
             oldValue: values.newValue,
             newValue: values.oldValue,
             confidence: 100,
-            source: "undo"
+            source: "undo",
+            albumArtistChange: entry.albumArtistChange.map {
+                AlbumArtistChange(oldValue: $0.newValue, newValue: $0.oldValue)
+            }
         )
         let oldestEntry = history
             .filter { candidate in
