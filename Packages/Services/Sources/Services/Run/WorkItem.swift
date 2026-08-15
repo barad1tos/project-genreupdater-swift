@@ -69,16 +69,31 @@ public enum CheckpointBoundary: Equatable, Sendable {
 public struct WorkCheckpoint: Equatable, Sendable {
     public let boundary: CheckpointBoundary
     let states: [UUID: WorkState]
+    let writeChanges: [UUID: WorkChange]
 
-    private init(boundary: CheckpointBoundary, states: [UUID: WorkState]) {
+    private init(
+        boundary: CheckpointBoundary,
+        states: [UUID: WorkState],
+        writeChanges: [UUID: WorkChange] = [:]
+    ) {
         self.boundary = boundary
         self.states = states
+        self.writeChanges = writeChanges
     }
 
     public static func beforeAttempt(_ itemIDs: [UUID]) -> Self {
         Self(
             boundary: .beforeAttempt,
             states: Dictionary(uniqueKeysWithValues: Set(itemIDs).map { ($0, .attempting) })
+        )
+    }
+
+    /// Carries the authoritative metadata effect into the durable pre-dispatch checkpoint.
+    public static func beforeAttempt(_ writeChanges: [UUID: WorkChange]) -> Self {
+        Self(
+            boundary: .beforeAttempt,
+            states: writeChanges.mapValues { _ in .attempting },
+            writeChanges: writeChanges
         )
     }
 
@@ -153,6 +168,14 @@ public struct WorkChange: Codable, Equatable, Sendable {
         self.source = source
         self.albumArtistChange = albumArtistChange
     }
+
+    func matchesPrimaryEffect(of planned: Self) -> Bool {
+        changeType == planned.changeType
+            && oldValue == planned.oldValue
+            && newValue == planned.newValue
+            && confidence == planned.confidence
+            && source == planned.source
+    }
 }
 
 /// One immutable unit of run planning and processing.
@@ -160,6 +183,9 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
     public let id: UUID
     public let target: WorkTarget
     public let change: WorkChange
+    /// Authoritative metadata effect persisted immediately before dispatch.
+    /// Nil means the item has not crossed that boundary, or predates this evidence.
+    public let writeChange: WorkChange?
     public let state: WorkState
     public let detail: String?
     /// When the user explicitly dismissed this item (ADR 0006); nil for
@@ -172,11 +198,13 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         change: WorkChange,
         state: WorkState = .prepared,
         detail: String? = nil,
-        dismissedAt: Date? = nil
+        dismissedAt: Date? = nil,
+        writeChange: WorkChange? = nil
     ) {
         self.id = id
         self.target = target
         self.change = change
+        self.writeChange = writeChange
         self.state = state
         self.detail = detail
         self.dismissedAt = dismissedAt
@@ -198,7 +226,7 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
     }
 
     func transition(to nextState: WorkState) throws -> Self {
-        try transition(to: nextState, detail: detail)
+        try transition(to: nextState, detail: detail, writeChange: nil)
     }
 
     /// Replaces the audit note without a state transition. Terminal outcome
@@ -210,7 +238,8 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             change: change,
             state: state,
             detail: detail,
-            dismissedAt: dismissedAt
+            dismissedAt: dismissedAt,
+            writeChange: writeChange
         )
     }
 
@@ -223,12 +252,27 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             change: change,
             state: state,
             detail: detail,
-            dismissedAt: timestamp
+            dismissedAt: timestamp,
+            writeChange: writeChange
         )
     }
 
-    func transition(to nextState: WorkState, detail: String?) throws -> Self {
+    func transition(
+        to nextState: WorkState,
+        detail: String?,
+        writeChange suppliedWriteChange: WorkChange? = nil
+    ) throws -> Self {
         guard Self.canTransition(from: state, to: nextState) else {
+            throw WorkStateError.invalid(current: state, next: nextState)
+        }
+        if let suppliedWriteChange {
+            guard suppliedWriteChange.matchesPrimaryEffect(of: change),
+                  writeChange != nil || nextState == .attempting
+            else {
+                throw WorkStateError.invalid(current: state, next: nextState)
+            }
+        }
+        if let writeChange, let suppliedWriteChange, writeChange != suppliedWriteChange {
             throw WorkStateError.invalid(current: state, next: nextState)
         }
         return Self(
@@ -237,8 +281,13 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             change: change,
             state: nextState,
             detail: detail,
-            dismissedAt: dismissedAt
+            dismissedAt: dismissedAt,
+            writeChange: writeChange ?? suppliedWriteChange
         )
+    }
+
+    var effectiveChange: WorkChange {
+        writeChange ?? change
     }
 
     private static func canTransition(from state: WorkState, to nextState: WorkState) -> Bool {

@@ -43,9 +43,16 @@ struct RunRecordDataTests {
         )
         try await store.upsert(record)
         let originalPayload = try runPayload(runID: record.runID, in: container)
+        let writeChange = WorkChange(
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Metal",
+            confidence: 92,
+            source: "MusicBrainz"
+        )
 
         let boundaries: [(WorkCheckpoint, WorkState)] = [
-            (.beforeAttempt([item.id]), .attempting),
+            (.beforeAttempt([item.id: writeChange]), .attempting),
             (.afterAttempt([item.id]), .attempted),
             (.afterVerification([item.id: .written]), .outcome(.written)),
         ]
@@ -55,6 +62,7 @@ struct RunRecordDataTests {
             let storedItem = try #require(try await store.record(for: record.runID)?.workItems.first)
             #expect(storedItem.state == expectedState)
             #expect(storedItem.detail == detail)
+            #expect(storedItem.writeChange == writeChange)
         }
 
         #expect(try runPayload(runID: record.runID, in: container) == originalPayload)

@@ -270,7 +270,9 @@ func makeWorkItem(
     detail: String? = nil,
     changeType: ChangeType = .genreUpdate,
     oldValue: String? = "Rock",
-    newValue: String? = "Metal"
+    newValue: String? = "Metal",
+    albumArtistChange: AlbumArtistChange? = nil,
+    writeChange: WorkChange? = nil
 ) -> RunWorkItem {
     RunWorkItem(
         id: id,
@@ -286,10 +288,12 @@ func makeWorkItem(
             oldValue: oldValue,
             newValue: newValue,
             confidence: 92,
-            source: "MusicBrainz"
+            source: "MusicBrainz",
+            albumArtistChange: albumArtistChange
         ),
         state: state,
-        detail: detail
+        detail: detail,
+        writeChange: writeChange
     )
 }
 

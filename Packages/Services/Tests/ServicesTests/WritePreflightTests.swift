@@ -149,13 +149,20 @@ struct WritePreflightTests {
                 newValue: "Massive Attack"
             )
         )
+        let checkpoints = PreflightCheckpointRecorder()
 
-        _ = try await fixture.coordinator.applyChange(change)
+        _ = try await fixture.coordinator.applyChangeOutcome(
+            change,
+            checkpoint: { await checkpoints.append($0) }
+        )
 
         #expect(await fixture.bridge.batchUpdates.isEmpty)
         #expect(await fixture.bridge.writtenProperties == [
             TrackPropertyUpdate(trackID: "AS1", property: "artist", value: "Massive Attack"),
         ])
+        let prepared = await checkpoints.values.first
+        #expect(prepared?.boundary == .beforeAttempt)
+        #expect(prepared?.writeChanges[change.id]?.albumArtistChange == nil)
     }
 
     @Test("Reviewed coupled artist rename skips when both fields already match")
@@ -466,6 +473,14 @@ struct WritePreflightTests {
 private struct PreflightFixture {
     let coordinator: UpdateCoordinator
     let bridge: MockAppleScriptClient
+}
+
+private actor PreflightCheckpointRecorder {
+    private(set) var values: [WorkCheckpoint] = []
+
+    func append(_ checkpoint: WorkCheckpoint) {
+        values.append(checkpoint)
+    }
 }
 
 private actor ProcessedIDMapper: TrackIDMapping {

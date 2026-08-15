@@ -8,6 +8,17 @@ struct PreparedWrite {
     let property: String
     let value: String
 
+    var writeChange: WorkChange {
+        WorkChange(
+            changeType: change.changeType,
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            confidence: change.confidence,
+            source: change.source,
+            albumArtistChange: change.albumArtistChange
+        )
+    }
+
     var updates: [TrackPropertyUpdate] {
         var updates = [TrackPropertyUpdate(trackID: trackID, property: property, value: value)]
         if let albumArtistChange = change.albumArtistChange {
@@ -114,7 +125,7 @@ extension UpdateCoordinator {
         _ write: PreparedWrite,
         checkpoint: WorkCheckpointSink?
     ) async throws -> AppliedChangeOutcome {
-        try await checkpoint?(.beforeAttempt([write.change.id]))
+        try await checkpoint?(.beforeAttempt([write.change.id: write.writeChange]))
         let result = try await dispatchWrite(write, checkpoint: checkpoint)
         guard result == .changed else {
             await invalidateCaches(for: write.change)

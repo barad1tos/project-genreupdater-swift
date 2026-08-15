@@ -145,8 +145,8 @@ extension UpdateCoordinator {
         checkpoint: WorkCheckpointSink?
     ) async throws -> BatchFinalization {
         let writesToApply = preflight.writeIndexes.sorted().map { preparedWrites[$0] }
-        let itemIDs = writesToApply.map(\.change.id)
-        try await checkpoint?(.beforeAttempt(itemIDs))
+        let writeChanges = Dictionary(uniqueKeysWithValues: writesToApply.map { ($0.change.id, $0.writeChange) })
+        try await checkpoint?(.beforeAttempt(writeChanges))
         let attemptState = WriteAttemptState()
         do {
             try await dispatchBatchWrite(

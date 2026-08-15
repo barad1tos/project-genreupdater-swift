@@ -118,7 +118,15 @@ struct WorkLedger: Equatable, Sendable {
                         reason: "unknown work item \(itemID.uuidString)"
                     )
                 }
-                try transitions.append((itemID, current, current.transition(to: state)))
+                try transitions.append((
+                    itemID,
+                    current,
+                    current.transition(
+                        to: state,
+                        detail: current.detail,
+                        writeChange: checkpoint.writeChanges[itemID]
+                    )
+                ))
             }
         } catch let error as WorkCheckpointError {
             throw error

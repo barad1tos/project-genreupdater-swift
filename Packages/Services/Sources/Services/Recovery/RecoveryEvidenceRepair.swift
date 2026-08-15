@@ -13,30 +13,31 @@ public enum RecoveryEvidenceRepair {
               let trackID = identity.appleScriptID,
               !trackID.isEmpty
         else { return nil }
+        let change = item.effectiveChange
         var entry = ChangeLogEntry(
-            changeType: item.change.changeType,
+            changeType: change.changeType,
             trackID: identity.readID,
             artist: identity.artist,
             trackName: identity.trackName,
             albumName: identity.album
         )
-        switch item.change.changeType {
+        switch change.changeType {
         case .genreUpdate:
-            entry.oldGenre = item.change.oldValue
-            entry.newGenre = item.change.newValue
+            entry.oldGenre = change.oldValue
+            entry.newGenre = change.newValue
         case .yearUpdate, .yearRevert:
-            entry.oldYear = item.change.oldValue.flatMap(Int.init)
-            entry.newYear = item.change.newValue.flatMap(Int.init)
+            entry.oldYear = change.oldValue.flatMap(Int.init)
+            entry.newYear = change.newValue.flatMap(Int.init)
         case .trackCleaning:
-            entry.oldTrackName = item.change.oldValue
-            entry.newTrackName = item.change.newValue
+            entry.oldTrackName = change.oldValue
+            entry.newTrackName = change.newValue
         case .albumCleaning:
-            entry.oldAlbumName = item.change.oldValue
-            entry.newAlbumName = item.change.newValue
+            entry.oldAlbumName = change.oldValue
+            entry.newAlbumName = change.newValue
         case .artistRename:
-            entry.oldArtist = item.change.oldValue
-            entry.newArtist = item.change.newValue
-            entry.albumArtistChange = item.change.albumArtistChange
+            entry.oldArtist = change.oldValue
+            entry.newArtist = change.newValue
+            entry.albumArtistChange = change.albumArtistChange
         }
         return entry
     }

@@ -1,7 +1,12 @@
 import Foundation
 import SwiftData
 
-private typealias CheckpointItem = (row: PersistedRunWorkItem, item: RunWorkItem, state: WorkState)
+private struct CheckpointItem {
+    let row: PersistedRunWorkItem
+    let item: RunWorkItem
+    let state: WorkState
+    let writeChange: WorkChange?
+}
 
 extension RunRecordDataStore {
     public func checkpoint(_ checkpoint: WorkCheckpoint, runID: RunID) async throws {
@@ -53,11 +58,21 @@ extension RunRecordDataStore {
 
     private func loadCheckpointItems(_ checkpoint: WorkCheckpoint, runID: RunID) throws -> [CheckpointItem] {
         try checkpoint.states.map { itemID, state in
-            try loadCheckpointItem(itemID, state: state, runID: runID)
+            try loadCheckpointItem(
+                itemID,
+                state: state,
+                writeChange: checkpoint.writeChanges[itemID],
+                runID: runID
+            )
         }
     }
 
-    private func loadCheckpointItem(_ itemID: UUID, state: WorkState, runID: RunID) throws -> CheckpointItem {
+    private func loadCheckpointItem(
+        _ itemID: UUID,
+        state: WorkState,
+        writeChange: WorkChange?,
+        runID: RunID
+    ) throws -> CheckpointItem {
         let key = PersistedRunWorkItem.key(runID: runID.rawValue, itemID: itemID)
         var descriptor = FetchDescriptor<PersistedRunWorkItem>(
             predicate: #Predicate { $0.key == key }
@@ -72,7 +87,7 @@ extension RunRecordDataStore {
         guard let item = try? JSONDecoder().decode(RunWorkItem.self, from: row.itemData), item.id == itemID else {
             throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: runID.rawValue)
         }
-        return (row, item, state)
+        return CheckpointItem(row: row, item: item, state: state, writeChange: writeChange)
     }
 
     private func updateCheckpointItems(
@@ -82,7 +97,11 @@ extension RunRecordDataStore {
     ) throws {
         do {
             for item in items {
-                item.row.itemData = try JSONEncoder().encode(item.item.transition(to: item.state))
+                item.row.itemData = try JSONEncoder().encode(item.item.transition(
+                    to: item.state,
+                    detail: item.item.detail,
+                    writeChange: item.writeChange
+                ))
             }
         } catch {
             throw WorkCheckpointError.invalid(

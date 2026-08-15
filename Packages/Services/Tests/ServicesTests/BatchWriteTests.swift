@@ -30,10 +30,12 @@ struct BatchWriteTests {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
         let input = coupledBatchInput(currentAlbumArtist: "Various Artists")
         await fixture.bridge.setFetchedTracks([input.currentTrack])
+        let checkpoints = CheckpointProbe()
 
         let result = try await fixture.coordinator.applyAcceptedChanges(
             input.proposals,
-            progressHandler: ignoreProgress
+            progressHandler: ignoreProgress,
+            checkpoint: { await checkpoints.append($0) }
         )
 
         #expect(await fixture.bridge.batchUpdates == [[
@@ -41,6 +43,7 @@ struct BatchWriteTests {
             TrackPropertyUpdate(trackID: "T1", property: "genre", value: "Trip-Hop"),
         ]])
         #expect(result.entries.first?.albumArtistChange == nil)
+        #expect(await checkpoints.values.first?.writeChanges[input.proposals[0].id]?.albumArtistChange == nil)
     }
 
     @Test("A partial coupled batch is not recorded as a verified rename")

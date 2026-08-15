@@ -107,6 +107,71 @@ struct RecoveryObservationServiceTests {
         #expect(outcomes[yearItem.id]?.outcome == .failed)
     }
 
+    @Test("partial coupled artist writes require review")
+    func partialCoupledArtistWriteNeedsReview() async throws {
+        let albumArtistChange = AlbumArtistChange(oldValue: "Massive", newValue: "Massive Attack")
+        let item = makeWorkItem(
+            state: .attempted,
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            albumArtistChange: albumArtistChange,
+            writeChange: WorkChange(
+                changeType: .artistRename,
+                oldValue: "Massive",
+                newValue: "Massive Attack",
+                confidence: 92,
+                source: "Artist mappings",
+                albumArtistChange: albumArtistChange
+            )
+        )
+        let client = MockAppleScriptClient()
+        await client.setFetchedTracks([
+            observedTrack(
+                id: "persistent-1",
+                artist: "Massive Attack",
+                albumArtist: "Massive"
+            ),
+        ])
+
+        let outcomes = try await RecoveryObservationService(scriptClient: client).observeOutcomes(for: [item])
+
+        #expect(outcomes[item.id]?.outcome == .needsReview)
+        #expect(outcomes[item.id]?.observedValue == "Massive Attack (album artist: Massive)")
+    }
+
+    @Test("coupled artist recovery requires both physical values")
+    func classifiesCoupledArtistOutcome() async throws {
+        let albumArtistChange = AlbumArtistChange(oldValue: "Massive", newValue: "Massive Attack")
+        let item = makeWorkItem(
+            state: .attempted,
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            albumArtistChange: albumArtistChange,
+            writeChange: WorkChange(
+                changeType: .artistRename,
+                oldValue: "Massive",
+                newValue: "Massive Attack",
+                confidence: 92,
+                source: "Artist mappings",
+                albumArtistChange: albumArtistChange
+            )
+        )
+        let client = MockAppleScriptClient()
+        let service = RecoveryObservationService(scriptClient: client)
+
+        await client.setFetchedTracks([
+            observedTrack(id: "persistent-1", artist: "Massive Attack", albumArtist: "Massive Attack"),
+        ])
+        #expect(try await service.observeOutcomes(for: [item])[item.id]?.outcome == .written)
+
+        await client.setFetchedTracks([
+            observedTrack(id: "persistent-1", artist: "Massive", albumArtist: "Massive"),
+        ])
+        #expect(try await service.observeOutcomes(for: [item])[item.id]?.outcome == .failed)
+    }
+
     @Test("prepared items skip without observation")
     func skipsPreparedWithoutFetch() async throws {
         let prepared = makeWorkItem(state: .prepared)
@@ -155,14 +220,21 @@ struct RecoveryObservationServiceTests {
     }
 }
 
-private func observedTrack(id: String, genre: String, year: Int? = nil) -> Track {
+private func observedTrack(
+    id: String,
+    genre: String = "Rock",
+    year: Int? = nil,
+    artist: String = "Artist",
+    albumArtist: String? = nil
+) -> Track {
     Track(
         id: id,
         name: "Track",
-        artist: "Artist",
+        artist: artist,
         album: "Album",
         genre: genre,
-        year: year
+        year: year,
+        albumArtist: albumArtist
     )
 }
 

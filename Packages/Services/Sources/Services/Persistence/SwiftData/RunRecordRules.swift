@@ -386,7 +386,11 @@ extension RunRecordDataStore {
                 continue
             }
             guard item.state != next.state,
-                  let advanced = try? item.transition(to: next.state, detail: next.detail)
+                  let advanced = try? item.transition(
+                      to: next.state,
+                      detail: next.detail,
+                      writeChange: next.writeChange
+                  )
             else { return "workItems" }
             if advanced == next {
                 continue

@@ -7,6 +7,28 @@ import Testing
 struct ReportArtistTests {
     @Test("Work item labels disclose coupled album artist changes")
     func coupledArtistEffectIsVisible() {
+        let detail = makeDetail(writeChange: nil)
+
+        #expect(detail.workItems[0].changeLabel.contains(
+            "Massive (album artist: Massive) → Massive Attack (album artist: Massive Attack)"
+        ))
+    }
+
+    @Test("Work item labels use the reconciled write effect")
+    func reconciledArtistEffectIsVisible() {
+        let detail = makeDetail(writeChange: WorkChange(
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            confidence: 100,
+            source: "Artist mappings"
+        ))
+
+        #expect(detail.workItems[0].changeLabel.contains("Artist: Massive → Massive Attack"))
+        #expect(!detail.workItems[0].changeLabel.contains("album artist"))
+    }
+
+    private func makeDetail(writeChange: WorkChange?) -> RunReportDetailProjection {
         let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
         let workItem = RunWorkItem(
             id: UUID(),
@@ -25,7 +47,9 @@ struct ReportArtistTests {
                 confidence: 100,
                 source: "Artist mappings",
                 albumArtistChange: AlbumArtistChange(oldValue: "Massive", newValue: "Massive Attack")
-            )
+            ),
+            state: .attempting,
+            writeChange: writeChange
         )
         let record = RunRecord(
             header: RunRecord.Header(
@@ -54,13 +78,9 @@ struct ReportArtistTests {
             )
         )
 
-        let detail = RunReportDetailBuilder.makeDetail(
+        return RunReportDetailBuilder.makeDetail(
             from: record,
             now: startedAt.addingTimeInterval(10)
         )
-
-        #expect(detail.workItems[0].changeLabel.contains(
-            "Massive (album artist: Massive) → Massive Attack (album artist: Massive Attack)"
-        ))
     }
 }

@@ -64,6 +64,32 @@ struct RecoveryEvidenceRepairTests {
         #expect(entry.albumArtistChange == item.albumArtistChange)
     }
 
+    @Test("repair uses the reconciled write effect instead of stale plan evidence")
+    func rebuildsReconciledArtistEntry() throws {
+        let plannedEffect = AlbumArtistChange(oldValue: "Massive", newValue: "Massive Attack")
+        let writeChange = WorkChange(
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            confidence: 100,
+            source: "Artist Renamer"
+        )
+        let item = makeWorkItem(
+            state: .outcome(.written),
+            changeType: .artistRename,
+            oldValue: "Massive",
+            newValue: "Massive Attack",
+            albumArtistChange: plannedEffect,
+            writeChange: writeChange
+        )
+
+        let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: item))
+
+        #expect(entry.oldArtist == "Massive")
+        #expect(entry.newArtist == "Massive Attack")
+        #expect(entry.albumArtistChange == nil)
+    }
+
     @Test("written items cover checkpointed terminals and observed writes")
     func collectsWrittenItems() {
         let terminal = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
