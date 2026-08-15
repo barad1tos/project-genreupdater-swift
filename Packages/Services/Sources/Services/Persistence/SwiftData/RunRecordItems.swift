@@ -1,11 +1,6 @@
 import Foundation
 import SwiftData
 
-private struct WorkEvidenceHeader: Decodable {
-    let writeEvidenceVersion: Int
-    let hasWriteEvidence: Bool
-}
-
 private struct CheckpointItem {
     let row: PersistedRunWorkItem
     let item: RunWorkItem
@@ -171,14 +166,13 @@ extension RunRecordDataStore {
         do {
             for (position, row) in rows.enumerated() {
                 let expected = fallback[position]
-                let item = try JSONDecoder().decode(RunWorkItem.self, from: row.itemData)
-                let hasCurrentEvidenceFormat: Bool
-                if requiresRows {
-                    let header = try JSONDecoder().decode(WorkEvidenceHeader.self, from: row.itemData)
-                    hasCurrentEvidenceFormat = header.writeEvidenceVersion == RunWorkItem.evidenceVersion
-                        && header.hasWriteEvidence == (item.writeChange != nil)
+                let item: RunWorkItem = if requiresRows {
+                    try JSONDecoder().decode(
+                        CurrentWorkItemPayload.self,
+                        from: row.itemData
+                    ).item
                 } else {
-                    hasCurrentEvidenceFormat = true
+                    try JSONDecoder().decode(RunWorkItem.self, from: row.itemData)
                 }
                 guard row.runID == runID,
                       row.position == position,
@@ -189,8 +183,6 @@ extension RunRecordDataStore {
                       item.change == expected.change,
                       item.detail == expected.detail,
                       item.canReconcileWriteChange(from: expected),
-                      hasCurrentEvidenceFormat,
-                      !requiresRows || item.isWriteEvidenceComplete,
                       item.state.canFollow(expected.state)
                 else {
                     throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: runID)

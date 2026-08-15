@@ -38,8 +38,11 @@ struct RunRecordPayload: Codable {
     let continuesRunID: RunID?
     let writeSummary: RunWriteSummary?
 
-    init(record: RunRecord) {
-        version = Self.version(for: record.configuration)
+    init(record: RunRecord, preservingVersion storedVersion: Int? = nil) {
+        version = Self.recordVersion(
+            for: record.configuration,
+            preserving: storedVersion
+        )
         transitions = record.transitions
         workItems = record.workItems
         configuration = record.configuration
@@ -59,9 +62,14 @@ struct RunRecordPayload: Codable {
         writeTarget: FixPlanWriteTarget?,
         recoveryID: UUID?,
         continuesRunID: RunID?,
-        writeSummary: RunWriteSummary?
+        writeSummary: RunWriteSummary?,
+        preservingVersion storedVersion: Int? = nil
     ) {
-        version = Self.version(for: configuration)
+        version = Self.recoveryVersion(
+            for: configuration,
+            preserving: storedVersion,
+            workItems: workItems
+        )
         self.transitions = transitions
         self.workItems = workItems
         self.configuration = configuration
@@ -71,8 +79,29 @@ struct RunRecordPayload: Codable {
         self.writeSummary = writeSummary
     }
 
-    static func version(for configuration: RunConfig?) -> Int {
-        configuration == nil ? legacyVersion : currentVersion
+    private static func recordVersion(
+        for configuration: RunConfig?,
+        preserving storedVersion: Int?
+    ) -> Int {
+        guard configuration != nil else { return legacyVersion }
+        if let storedVersion,
+           (configurationVersion ... currentVersion).contains(storedVersion) {
+            return storedVersion
+        }
+        return currentVersion
+    }
+
+    private static func recoveryVersion(
+        for configuration: RunConfig?,
+        preserving storedVersion: Int?,
+        workItems: [RunWorkItem]
+    ) -> Int {
+        guard configuration != nil else { return legacyVersion }
+        if let storedVersion,
+           (configurationVersion ... currentVersion).contains(storedVersion) {
+            return storedVersion
+        }
+        return workItems.allSatisfy(\.isWriteEvidenceComplete) ? currentVersion : workItemVersion
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -84,7 +113,20 @@ struct RunRecordPayload: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decode(Int.self, forKey: .version)
         transitions = try container.decode([RunLifecycleTransition].self, forKey: .transitions)
-        if version >= Self.workItemVersion {
+        if version >= Self.checkpointEvidenceVersion {
+            do {
+                workItems = try container.decode(
+                    [CurrentWorkItemPayload].self,
+                    forKey: .workItems
+                ).map(\.item)
+            } catch {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .workItems,
+                    in: container,
+                    debugDescription: "Current work-item evidence is incomplete or malformed"
+                )
+            }
+        } else if version >= Self.workItemVersion {
             workItems = try container.decode([RunWorkItem].self, forKey: .workItems)
         } else {
             workItems = []

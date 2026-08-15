@@ -77,7 +77,7 @@ struct WorkItemStoreTests {
         )
         try insertRunRow(
             runID: runID,
-            transitionsData: JSONEncoder().encode(payload),
+            transitionsData: legacyItemData(payload),
             input: RunRowInput(
                 scopeData: JSONEncoder().encode(scope),
                 intent: .writeFixes,
@@ -92,6 +92,60 @@ struct WorkItemStoreTests {
         )
 
         #expect(record?.workItems == [item])
+    }
+
+    @Test("Version-three recovery claims preserve markerless write evidence")
+    func claimsLegacyRecovery() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let runID = UUID()
+        let recoveryID = UUID()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: startedAt,
+            reason: "manualCheck"
+        )
+        let item = makeWorkItem(state: .attempted)
+        let configuration = makeRunConfiguration(
+            scopeID: scope.id,
+            capturedAt: startedAt,
+            writeAuthority: .reviewedPlan
+        )
+        let payload = ItemPayload(
+            version: RunRecordPayload.workItemVersion,
+            transitions: [
+                RunLifecycleTransition(state: .created, timestamp: startedAt),
+                RunLifecycleTransition(state: .writing, timestamp: startedAt),
+                RunLifecycleTransition(state: .recoverable, timestamp: startedAt),
+            ],
+            workItems: [item],
+            configuration: configuration
+        )
+        try insertRunRow(
+            runID: runID,
+            transitionsData: legacyItemData(payload),
+            input: RunRowInput(
+                scopeData: JSONEncoder().encode(scope),
+                intent: .writeFixes,
+                state: .recoverable,
+                startedAt: startedAt
+            ),
+            into: container
+        )
+        let store = RunRecordDataStore(modelContainer: container)
+
+        let claimedID = try await store.claimRecovery(
+            for: RunID(rawValue: runID),
+            id: recoveryID,
+            at: startedAt.addingTimeInterval(1)
+        )
+        let claimed = try await store.record(for: RunID(rawValue: runID))
+
+        #expect(claimedID == recoveryID)
+        #expect(claimed?.recoveryID == recoveryID)
+        #expect(claimed?.workItems.first?.state == .attempted)
+        #expect(claimed?.workItems.first?.writeChange == nil)
     }
 
     @Test("Run record JSON preserves work-item outcomes")
@@ -307,6 +361,20 @@ struct ItemPayload: Encodable {
     let transitions: [RunLifecycleTransition]
     let workItems: [RunWorkItem]
     let configuration: RunConfig?
+}
+
+func legacyItemData(_ payload: ItemPayload) throws -> Data {
+    var object = try #require(
+        try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload)) as? [String: Any]
+    )
+    var workItems = try #require(object["workItems"] as? [[String: Any]])
+    for index in workItems.indices {
+        workItems[index].removeValue(forKey: "writeChange")
+        workItems[index].removeValue(forKey: "writeEvidenceVersion")
+        workItems[index].removeValue(forKey: "hasWriteEvidence")
+    }
+    object["workItems"] = workItems
+    return try JSONSerialization.data(withJSONObject: object)
 }
 
 func makeWorkItem(

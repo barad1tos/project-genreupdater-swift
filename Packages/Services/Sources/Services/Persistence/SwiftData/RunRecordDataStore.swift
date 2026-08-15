@@ -203,7 +203,10 @@ public actor RunRecordDataStore: RunRecordStore {
     }
 
     private func makePersisted(from record: RunRecord) throws -> PersistedRunRecord {
-        try PersistedRunRecord(
+        guard record.workItems.allSatisfy(\.isWriteEvidenceComplete) else {
+            throw RunRecordPersistenceError.invalidField(name: "workItems", runID: record.runID.rawValue)
+        }
+        return try PersistedRunRecord(
             record: record,
             scopeData: JSONEncoder().encode(record.scope),
             payloadData: JSONEncoder().encode(RunRecordPayload(record: record))
@@ -211,6 +214,7 @@ public actor RunRecordDataStore: RunRecordStore {
     }
 
     func apply(_ record: RunRecord, to persisted: PersistedRunRecord) throws {
+        let storedVersion = try RunPayloadCodec.decode(from: persisted).version
         persisted.requestID = record.requestID.rawValue
         persisted.triggerRaw = record.trigger.rawValue
         persisted.intentRaw = record.intent.rawValue
@@ -219,7 +223,10 @@ public actor RunRecordDataStore: RunRecordStore {
         persisted.recoveryID = record.recoveryID
         persisted.continuesRunID = record.continuesRunID?.rawValue
         persisted.scopeData = try JSONEncoder().encode(record.scope)
-        persisted.transitionsData = try JSONEncoder().encode(RunRecordPayload(record: record))
+        persisted.transitionsData = try JSONEncoder().encode(RunRecordPayload(
+            record: record,
+            preservingVersion: storedVersion
+        ))
         persisted.syncNewCount = record.syncSummary?.new
         persisted.syncModifiedCount = record.syncSummary?.modified
         persisted.syncIdentityChangedCount = record.syncSummary?.identityChanged

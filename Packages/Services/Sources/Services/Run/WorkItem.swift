@@ -503,3 +503,29 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         }
     }
 }
+
+struct CurrentWorkItemPayload: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case writeEvidenceVersion
+        case hasWriteEvidence
+    }
+
+    let item: RunWorkItem
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let evidenceVersion = try values.decode(Int.self, forKey: .writeEvidenceVersion)
+        let hasWriteEvidence = try values.decode(Bool.self, forKey: .hasWriteEvidence)
+        item = try RunWorkItem(from: decoder)
+        guard evidenceVersion == RunWorkItem.evidenceVersion,
+              hasWriteEvidence == (item.writeChange != nil),
+              item.isWriteEvidenceComplete
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .writeEvidenceVersion,
+                in: values,
+                debugDescription: "Current work item has incomplete write evidence"
+            )
+        }
+    }
+}
