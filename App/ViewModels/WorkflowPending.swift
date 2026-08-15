@@ -869,7 +869,7 @@ extension WorkflowViewModel {
     }
 
     static func artistKey(for track: Track) -> String {
-        normalizeForMatching(track.effectiveArtist)
+        normalizeForMatching(AlbumIdentity.groupingArtist(for: track))
     }
 
     private static func batchSortComponents(for track: Track) -> [String] {

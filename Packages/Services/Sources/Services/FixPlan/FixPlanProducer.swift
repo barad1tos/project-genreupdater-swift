@@ -139,7 +139,7 @@ public struct FixPlanProducer: Sendable {
     }
 
     private static func artistKey(for track: Track) -> String {
-        normalizeForMatching(track.effectiveArtist)
+        normalizeForMatching(AlbumIdentity.groupingArtist(for: track))
     }
 
     private static func isWriteEligibilityError(_ error: any Error) -> Bool {

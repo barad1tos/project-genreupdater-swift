@@ -6,9 +6,14 @@ import Services
 
 struct IncrementalTrackScopeOptions: Equatable {
     let updateGenre: Bool
+    let genreMappings: [String: String]
 
-    init(updateGenre: Bool = true) {
+    init(
+        updateGenre: Bool = true,
+        genreMappings: [String: String] = [:]
+    ) {
         self.updateGenre = updateGenre
+        self.genreMappings = genreMappings
     }
 }
 
@@ -70,7 +75,7 @@ enum UpdateTrackScopeResolver {
         }
         let missingGenreTracks = tracks.filter(isMissingOrUnknownGenre)
         let genreMismatchTracks = if options.updateGenre {
-            tracksWithGenreMismatch(tracks)
+            tracksWithGenreMismatch(tracks, genreMappings: options.genreMappings)
         } else {
             [Track]()
         }
@@ -112,11 +117,14 @@ enum UpdateTrackScopeResolver {
         return combinedTracks
     }
 
-    private static func tracksWithGenreMismatch(_ tracks: [Track]) -> [Track] {
+    private static func tracksWithGenreMismatch(
+        _ tracks: [Track],
+        genreMappings: [String: String]
+    ) -> [Track] {
         var artistKeys = [String]()
         var tracksByArtist: [String: [Track]] = [:]
         for track in tracks {
-            let artistKey = normalizeForMatching(track.effectiveArtist)
+            let artistKey = normalizeForMatching(AlbumIdentity.groupingArtist(for: track))
             if tracksByArtist[artistKey] == nil {
                 artistKeys.append(artistKey)
             }
@@ -126,11 +134,20 @@ enum UpdateTrackScopeResolver {
 
         return artistKeys.flatMap { artistKey in
             let artistTracks = tracksByArtist[artistKey] ?? []
-            guard let dominantGenre = genreDeterminator.determineDominantGenre(artistTracks: artistTracks).genre else {
+            guard let dominantGenre = genreDeterminator.determineDominantGenre(
+                artistTracks: artistTracks,
+                genreMappings: genreMappings
+            ).genre else {
                 return [Track]()
             }
-            return artistTracks.filter { hasGenreMismatch(track: $0, dominantGenre: dominantGenre) }
+            return artistTracks.filter {
+                canWriteGenre(to: $0) && hasGenreMismatch(track: $0, dominantGenre: dominantGenre)
+            }
         }
+    }
+
+    private static func canWriteGenre(to track: Track) -> Bool {
+        track.canEdit && (track.kind?.isAvailableForProcessing ?? true)
     }
 
     private static func tracksChangedSincePreviousSnapshot(

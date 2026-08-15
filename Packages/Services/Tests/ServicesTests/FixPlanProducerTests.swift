@@ -219,6 +219,22 @@ struct FixPlanProducerTests {
         #expect(calls[2].artistTrackIDs == ["T3"])
     }
 
+    @Test("feature credits share artist context during plan production")
+    func featureCreditContext() async throws {
+        let source = track("SOURCE", artist: "Artist", album: "Earlier")
+        let target = track("TARGET", artist: "Artist feat. Guest", album: "Later")
+        let spy = FixPlanProducerSpy(tracks: [source, target])
+
+        _ = try await makeProducer(spy).producePlan(
+            sourceRunID: sourceRunID,
+            scope: scope(requestedTestArtists: [], knownTrackCount: 2),
+            configuration: configuration(UpdateOptions(updateGenre: true, updateYear: false))
+        )
+
+        let calls = await spy.determinationCalls()
+        #expect(calls.map(\.artistTrackIDs) == [["SOURCE", "TARGET"], ["SOURCE", "TARGET"]])
+    }
+
     @Test("write eligibility errors skip tracks and continue")
     func skipsEligibilityErrors() async throws {
         let blocked = track("BLOCKED")

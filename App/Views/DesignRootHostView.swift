@@ -434,7 +434,10 @@ struct DesignRootHostView: View {
                     incrementalTracks,
                     lastRunTime: lastRunTime,
                     previousTracks: dependencies.previousIncrementalScopeTracks,
-                    options: options
+                    options: IncrementalTrackScopeOptions(
+                        updateGenre: options.updateGenre,
+                        genreMappings: dependencies.config.cleaning.genreMappings
+                    )
                 )
             },
             invalidateAlbumYearCache: {
