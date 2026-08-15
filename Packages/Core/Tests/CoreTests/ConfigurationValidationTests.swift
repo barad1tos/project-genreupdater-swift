@@ -52,6 +52,53 @@ struct ConfigurationValidationTests {
         #expect(decoded.artistRenamer.mappings.count == 3)
     }
 
+    @Test("Conflicting case-insensitive genre mappings are rejected with both rules")
+    func rejectsGenreConflicts() throws {
+        var configuration = AppConfiguration()
+        configuration.cleaning.genreMappings = [
+            " rock  ": "Pop",
+            "Rock": "Metal",
+        ]
+
+        do {
+            _ = try decode(configuration)
+            Issue.record("Expected conflicting genre mappings to be rejected")
+        } catch let error as ConfigurationValidationError {
+            #expect(error.issues.map(\.fieldPath) == ["cleaning.genreMappings"])
+            #expect(
+                error.issues.first?.receivedValue ==
+                    #""rock": [" rock  " -> "Pop", "Rock" -> "Metal"]"#
+            )
+            #expect(error.localizedDescription.contains("must map one normalized source to one target"))
+        }
+    }
+
+    @Test("Equivalent case-insensitive genre mappings remain valid")
+    func acceptsEquivalentGenreMappings() throws {
+        var configuration = AppConfiguration()
+        configuration.cleaning.genreMappings = [
+            " rock  ": " Metal ",
+            "Rock": "Metal",
+        ]
+
+        let decoded = try decode(configuration)
+
+        #expect(decoded.cleaning.genreMappings.count == 2)
+    }
+
+    @Test("Blank genre mappings remain repairable persisted settings")
+    func acceptsBlankGenreMappings() throws {
+        var configuration = AppConfiguration()
+        configuration.cleaning.genreMappings = [
+            " ": "Ignored",
+            "Rock": " ",
+        ]
+
+        let decoded = try decode(configuration)
+
+        #expect(decoded.cleaning.genreMappings.count == 2)
+    }
+
     @Test("Every invalid numeric field reports its canonical path and rule")
     func rejectsInvalidValues() {
         for probe in invalidNumericProbes {
