@@ -1,7 +1,7 @@
 [
   {
     "id": "valid_dominant_clear",
-    "description": "Clear dominant year (>50% of tracks)",
+    "description": "Clear dominant year above the production threshold",
     "tracks": [
       {
         "id": "1",
@@ -670,7 +670,7 @@
   },
   {
     "id": "valid_exactly_50_percent",
-    "description": "Exactly 50% threshold (2 of 4) is not dominant",
+    "description": "Exactly 50% share (2 of 4) is not dominant",
     "tracks": [
       {
         "id": "1",
@@ -729,7 +729,7 @@
   },
   {
     "id": "valid_just_over_50_percent",
-    "description": "Just over 50% threshold (3 of 5) is dominant",
+    "description": "Exactly 60% production threshold (3 of 5) is dominant",
     "tracks": [
       {
         "id": "1",
