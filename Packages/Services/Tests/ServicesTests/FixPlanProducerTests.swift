@@ -279,27 +279,29 @@ struct FixPlanProducerTests {
         #expect(await spy.savedPlans().isEmpty)
     }
 
-    @Test("confidence filter excludes below-threshold proposals")
-    func filtersByConfidence() async throws {
-        let weak = track("WEAK")
-        let strong = track("STRONG")
+    @Test("year confidence excludes weak years without suppressing genre work")
+    func scopesYearConfidence() async throws {
+        let genre = track("GENRE")
+        let weakYear = track("WEAK-YEAR")
+        let strongYear = track("STRONG-YEAR")
         let spy = FixPlanProducerSpy(
-            tracks: [weak, strong],
+            tracks: [genre, weakYear, strongYear],
             outcomes: [
-                "WEAK": .changes([proposal(for: weak, confidence: 59)]),
-                "STRONG": .changes([proposal(for: strong, confidence: 60)]),
+                "GENRE": .changes([proposal(for: genre, confidence: 80)]),
+                "WEAK-YEAR": .changes([proposal(for: weakYear, changeType: .yearUpdate, confidence: 80)]),
+                "STRONG-YEAR": .changes([proposal(for: strongYear, changeType: .yearUpdate, confidence: 100)]),
             ]
         )
 
         let production = try await makeProducer(spy).producePlan(
             sourceRunID: sourceRunID,
-            scope: scope(requestedTestArtists: [], knownTrackCount: 2),
-            configuration: configuration(UpdateOptions(minConfidence: 60))
+            scope: scope(requestedTestArtists: [], knownTrackCount: 3),
+            configuration: configuration(UpdateOptions(minConfidence: 100))
         )
 
         let saved = try #require(await spy.savedPlans().first)
-        #expect(production.proposalCount == 1)
-        #expect(saved.plan.items.map(\.identity.readID) == ["STRONG"])
+        #expect(production.proposalCount == 2)
+        #expect(saved.plan.items.map(\.identity.readID) == ["GENRE", "STRONG-YEAR"])
     }
 
     @Test("saved plan carries source scope configuration order and initial decision")
@@ -571,11 +573,12 @@ private func track(
 
 private func proposal(
     for track: Track,
+    changeType: ChangeType = .genreUpdate,
     confidence: Int = 80
 ) -> ProposedChange {
     ProposedChange(
         track: track,
-        changeType: .genreUpdate,
+        changeType: changeType,
         oldValue: "Rock",
         newValue: "Electronic",
         confidence: confidence,

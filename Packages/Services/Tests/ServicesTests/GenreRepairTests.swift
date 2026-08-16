@@ -117,6 +117,41 @@ struct GenreRepairTests {
         ])
     }
 
+    @Test("Year confidence does not suppress a generated genre write")
+    func preservesGenreWrite() async throws {
+        let fixture = await makeCoordinator()
+        let sourceTrack = makeEditableTrack(
+            id: "source",
+            name: "Source Song",
+            artist: "Artist",
+            album: "Earlier Album",
+            genre: "Post-Punk",
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 100)
+        )
+        let targetTrack = makeEditableTrack(
+            id: "target",
+            name: "Target Song",
+            artist: "Artist",
+            album: "Later Album",
+            genre: nil,
+            year: nil,
+            dateAdded: Date(timeIntervalSince1970: 200)
+        )
+
+        let changes = try await fixture.coordinator.updateTrack(
+            targetTrack,
+            artistTracks: [sourceTrack, targetTrack],
+            options: UpdateOptions(updateGenre: true, updateYear: false, minConfidence: 100),
+            dryRun: false
+        )
+
+        #expect(changes.map(\.changeType) == [.genreUpdate])
+        #expect(await fixture.bridge.writtenProperties == [
+            TrackPropertyUpdate(trackID: "target", property: "genre", value: "Post-Punk"),
+        ])
+    }
+
     @Test("Missing target write identity blocks an inferred genre write")
     func missingTargetIdentity() async {
         let sourceTrack = makeEditableTrack(

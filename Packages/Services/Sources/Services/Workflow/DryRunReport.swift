@@ -10,7 +10,7 @@ import Foundation
 /// now: the screen that rendered it went out with the pre-DesignUI App views,
 /// and the DesignUI dry-run surface has not claimed it yet.
 public struct DryRunReport: Sendable {
-    /// All proposed changes that passed the confidence threshold.
+    /// All proposed changes admitted for review after year-confidence filtering.
     public let proposedChanges: [ProposedChange]
 
     /// Total number of proposed changes.

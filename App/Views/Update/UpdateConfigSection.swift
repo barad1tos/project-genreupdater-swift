@@ -374,7 +374,7 @@ extension UpdateConfigSection {
 
     private var confidenceSection: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text("Minimum confidence: \(viewModel.confidencePercentage)%")
+            Text("Minimum year confidence: \(viewModel.confidencePercentage)%")
                 .font(AppFont.subheadline)
                 .foregroundStyle(Ayu.fgPrimary)
             Slider(
@@ -383,7 +383,7 @@ extension UpdateConfigSection {
                 step: 0.05
             )
             .tint(Ayu.accent)
-            Text("Changes below this threshold will be excluded.")
+            Text("Probabilistic year updates below this threshold will be excluded.")
                 .font(AppFont.caption)
                 .foregroundStyle(Ayu.fgSecondary)
         }
