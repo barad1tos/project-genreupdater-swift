@@ -271,8 +271,7 @@ public struct YearDeterminator: Sendable {
         // Step 1: Dominant year (Python parity: dominant first)
         if let dominant = validator.getDominantYear(
             tracks: albumTracks
-        ), !dominant.isSuspicious,
-        dominant.confidence >= validator.config.dominantYearMinConfidence {
+        ), !dominant.isSuspicious {
             return YearDeterminationResult(
                 yearResult: YearResult(
                     year: dominant.year,
@@ -297,7 +296,6 @@ public struct YearDeterminator: Sendable {
 
     private func validatedConsensusReleaseYear(_ tracks: [Track]) -> Int? {
         guard !tracks.isEmpty,
-              tracks.allSatisfy({ $0.releaseYear != nil }),
               let consensus = validator.getConsensusReleaseYear(tracks: tracks),
               case .valid = validator.validate(year: consensus)
         else {
@@ -314,7 +312,7 @@ public struct YearDeterminator: Sendable {
             yearResult: YearResult(
                 year: year,
                 isDefinitive: true,
-                confidence: 95
+                confidence: 80
             ),
             source: .consensus,
             candidateCount: candidateCount

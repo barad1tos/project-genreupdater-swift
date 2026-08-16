@@ -29,10 +29,10 @@
       "verifiedByExecution": 6
     },
     "year_validation_reference.json": {
-      "digest": "sha256:aa9779489a890fe9c22e5f6cb69ba946cc3ba57523f0c1ef1d9755e94d91e09c",
+      "digest": "sha256:df8e693f73ad45f00b23449d13175b21ba3a2f8c6b2e1f94c85ce349bb145d4e",
       "caseCount": 18,
-      "generated": 13,
-      "verifiedByExecution": 5
+      "generated": 11,
+      "verifiedByExecution": 7
     }
   }
 }

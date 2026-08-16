@@ -606,7 +606,6 @@ extension UpdateCoordinator {
 
     private func consensusReleaseYear(in tracks: [Track]) -> Int? {
         guard !tracks.isEmpty,
-              tracks.allSatisfy({ $0.releaseYear != nil }),
               let consensus = yearDeterminator.validator.getConsensusReleaseYear(tracks: tracks),
               case .valid = yearDeterminator.validator.validate(year: consensus)
         else {

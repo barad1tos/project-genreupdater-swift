@@ -6,8 +6,8 @@ import Testing
 struct ReleaseYearTests {
     private let determinator = YearDeterminator()
 
-    @Test("Consensus release year requires complete album coverage")
-    func consensusReleaseYearRequiresCompleteAlbumCoverage() {
+    @Test("Consensus release year uses all present values")
+    func consensusReleaseYearUsesPresentValues() {
         let track = makeTrack()
         let albumTracks = [
             Track(
@@ -31,8 +31,9 @@ struct ReleaseYearTests {
             albumTracks: albumTracks
         )
 
-        #expect(result.yearResult.year == nil)
-        #expect(result.source == .fallback)
+        #expect(result.yearResult.year == 2005)
+        #expect(result.yearResult.confidence == 80)
+        #expect(result.source == .consensus)
     }
 
     @Test("Valid dominant editable year wins over conflicting release year locally")

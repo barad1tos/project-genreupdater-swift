@@ -388,21 +388,11 @@ struct AlbumIdentityFlowTests {
                 maxBatchUpdateSize: 5
             )
         )
-        let firstTrack = makeTrack(
-            id: "ram-1",
-            artist: "Daft Punk feat. Pharrell Williams",
-            album: "Random Access Memories"
-        )
-        let secondTrack = makeTrack(
-            id: "ram-2",
-            artist: "Daft Punk feat. Julian Casablancas",
-            album: "Random Access Memories",
-            year: 2013
-        )
-        await bridge.setFetchedTracks([firstTrack, secondTrack])
+        let tracks = collaborationTracks()
+        await bridge.setFetchedTracks(tracks)
 
         let result = try await coordinator.updateTracks(
-            [firstTrack, secondTrack],
+            tracks,
             options: UpdateOptions(updateGenre: false, updateYear: true),
             progressHandler: ignoreAlbumIdentityProgress
         )
@@ -492,43 +482,14 @@ struct AlbumIdentityFlowTests {
         let bridge = MockAppleScriptClient()
         let mapper = TrackIDMapper()
         let coordinator = makeCoordinator(script: bridge, idMapper: mapper)
-        let firstMusicKitTrack = makeTrack(
-            id: "mk-1",
-            name: "Get Lucky",
-            artist: "Pharrell Williams",
-            album: "Random Access Memories"
-        )
-        let secondMusicKitTrack = makeTrack(
-            id: "mk-2",
-            name: "Instant Crush",
-            artist: "Julian Casablancas",
-            album: "Random Access Memories",
-            year: 2001
-        )
-        let firstAppleScriptTrack = makeTrack(
-            id: "as-1",
-            name: "Get Lucky",
-            artist: "Pharrell Williams",
-            album: "Random Access Memories",
-            trackStatus: TrackKind.subscription.rawValue,
-            metadata: .init(albumArtist: "Daft Punk")
-        )
-        let secondAppleScriptTrack = makeTrack(
-            id: "as-2",
-            name: "Instant Crush",
-            artist: "Julian Casablancas",
-            album: "Random Access Memories",
-            year: 2001,
-            trackStatus: TrackKind.subscription.rawValue,
-            metadata: .init(albumArtist: "Daft Punk")
-        )
+        let tracks = enrichedTracks()
         await mapper.refreshMapping(
-            musicKitTracks: [firstMusicKitTrack, secondMusicKitTrack],
-            appleScriptTracks: [firstAppleScriptTrack, secondAppleScriptTrack]
+            musicKitTracks: tracks.musicKit,
+            appleScriptTracks: tracks.appleScript
         )
 
         let result = try await coordinator.updateTracks(
-            [firstMusicKitTrack, secondMusicKitTrack],
+            tracks.musicKit,
             options: UpdateOptions(updateGenre: false, updateYear: true),
             progressHandler: ignoreAlbumIdentityProgress
         )
@@ -681,13 +642,13 @@ struct AlbumIdentityFlowTests {
         )
     }
 
-    private struct TrackFixtureMetadata {
+    struct TrackFixtureMetadata {
         var originalArtist: String?
         var releaseYear: Int?
         var albumArtist: String?
     }
 
-    private func makeTrack(
+    func makeTrack(
         id: String,
         name: String? = nil,
         artist: String,

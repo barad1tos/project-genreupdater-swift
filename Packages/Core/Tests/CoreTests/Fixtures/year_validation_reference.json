@@ -88,7 +88,7 @@
       }
     ],
     "expected": {
-      "dominantYear": 2020,
+      "dominantYear": null,
       "mostCommonYear": 2020,
       "consensusReleaseYear": null
     }
@@ -142,7 +142,7 @@
   },
   {
     "id": "valid_empty_years",
-    "description": "Some tracks have empty/zero years",
+    "description": "Empty and zero years count against production dominance",
     "tracks": [
       {
         "id": "1",
@@ -194,7 +194,7 @@
       }
     ],
     "expected": {
-      "dominantYear": 2020,
+      "dominantYear": null,
       "mostCommonYear": 2020,
       "consensusReleaseYear": null
     }
@@ -635,7 +635,7 @@
   },
   {
     "id": "valid_null_year_strings",
-    "description": "Tracks with null year values are ignored",
+    "description": "Null years count against production dominance",
     "tracks": [
       {
         "id": "1",
@@ -663,7 +663,7 @@
       }
     ],
     "expected": {
-      "dominantYear": 2020,
+      "dominantYear": null,
       "mostCommonYear": 2020,
       "consensusReleaseYear": null
     }
@@ -722,7 +722,7 @@
       }
     ],
     "expected": {
-      "dominantYear": 2020,
+      "dominantYear": null,
       "mostCommonYear": 2020,
       "consensusReleaseYear": null
     }
