@@ -17,8 +17,8 @@ import Foundation
 /// - Valid: passes all checks
 ///
 /// Cross-track analysis:
-/// - Dominant year: most common year across album tracks (>50% share)
-/// - Consensus release year: all tracks agree on the same releaseYear
+/// - Dominant year: most common year across all album tracks at the configured minimum share
+/// - Consensus release year: all present release years agree
 public struct YearValidator: Sendable {
     public let config: YearLogicConfig
 
@@ -84,14 +84,20 @@ public struct YearValidator: Sendable {
         guard !tracksWithYear.isEmpty else { return nil }
 
         var yearCounts: [Int: Int] = [:]
+        var firstSeenYears: [Int] = []
         for year in tracksWithYear {
+            if yearCounts[year] == nil {
+                firstSeenYears.append(year)
+            }
             yearCounts[year, default: 0] += 1
         }
 
-        // Python parity: tiebreak picks higher year (first-seen in Counter)
-        guard let (bestYear, bestCount) = yearCounts.max(by: {
-            $0.value < $1.value || ($0.value == $1.value && $0.key < $1.key)
-        }) else { return nil }
+        guard var bestYear = firstSeenYears.first else { return nil }
+        for year in firstSeenYears.dropFirst()
+            where yearCounts[year, default: 0] > yearCounts[bestYear, default: 0] {
+            bestYear = year
+        }
+        let bestCount = yearCounts[bestYear, default: 0]
 
         // Check release year inconsistency: all same year but
         // different release_years → use the consistent track year
@@ -102,16 +108,14 @@ public struct YearValidator: Sendable {
                 year: consistentYear,
                 confidence: 1.0,
                 trackCount: tracksWithYear.count,
-                totalTracks: tracksWithYear.count,
+                totalTracks: tracks.count,
                 isSuspicious: false
             )
         }
 
-        let confidence = Double(bestCount) / Double(tracksWithYear.count)
+        let confidence = Double(bestCount) / Double(tracks.count)
 
-        // Python parity: require >=50% share (not strictly >50%).
-        // Below 50% means no single year dominates → API verification needed.
-        guard confidence >= 0.5 else {
+        guard confidence >= config.dominantYearMinConfidence else {
             return nil
         }
 
@@ -138,7 +142,7 @@ public struct YearValidator: Sendable {
             year: bestYear,
             confidence: confidence,
             trackCount: bestCount,
-            totalTracks: tracksWithYear.count,
+            totalTracks: tracks.count,
             isSuspicious: isFutureYear
         )
     }

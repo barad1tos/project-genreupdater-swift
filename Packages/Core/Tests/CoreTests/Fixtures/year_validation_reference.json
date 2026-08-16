@@ -1,7 +1,7 @@
 [
   {
     "id": "valid_dominant_clear",
-    "description": "Clear dominant year (>50% of tracks)",
+    "description": "Clear dominant year above the production threshold",
     "tracks": [
       {
         "id": "1",
@@ -88,7 +88,7 @@
       }
     ],
     "expected": {
-      "dominantYear": 2020,
+      "dominantYear": null,
       "mostCommonYear": 2020,
       "consensusReleaseYear": null
     }
@@ -142,7 +142,7 @@
   },
   {
     "id": "valid_empty_years",
-    "description": "Some tracks have empty/zero years",
+    "description": "Empty and zero years count against production dominance",
     "tracks": [
       {
         "id": "1",
@@ -194,7 +194,7 @@
       }
     ],
     "expected": {
-      "dominantYear": 2020,
+      "dominantYear": null,
       "mostCommonYear": 2020,
       "consensusReleaseYear": null
     }
@@ -635,7 +635,7 @@
   },
   {
     "id": "valid_null_year_strings",
-    "description": "Tracks with null year values are ignored",
+    "description": "Null years count against production dominance",
     "tracks": [
       {
         "id": "1",
@@ -663,14 +663,14 @@
       }
     ],
     "expected": {
-      "dominantYear": 2020,
+      "dominantYear": null,
       "mostCommonYear": 2020,
       "consensusReleaseYear": null
     }
   },
   {
     "id": "valid_exactly_50_percent",
-    "description": "Exactly 50% threshold (2 of 4) is not dominant",
+    "description": "Exactly 50% share (2 of 4) is not dominant",
     "tracks": [
       {
         "id": "1",
@@ -722,14 +722,14 @@
       }
     ],
     "expected": {
-      "dominantYear": 2020,
+      "dominantYear": null,
       "mostCommonYear": 2020,
       "consensusReleaseYear": null
     }
   },
   {
     "id": "valid_just_over_50_percent",
-    "description": "Just over 50% threshold (3 of 5) is dominant",
+    "description": "Exactly 60% production threshold (3 of 5) is dominant",
     "tracks": [
       {
         "id": "1",

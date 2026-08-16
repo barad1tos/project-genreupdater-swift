@@ -147,32 +147,38 @@ struct YearValidatorTests {
         #expect(result?.confidence == 0.75)
     }
 
-    @Test("50/50 split returns higher year at 0.5 confidence")
-    func evenSplitReturnsHigherYear() {
-        // Python parity: >=0.5 confidence passes, tiebreaker picks higher year
+    @Test("Even split does not produce a dominant year")
+    func evenSplitHasNoDominantYear() {
         let tracks = [
             Track(id: "1", name: "A", artist: "X", album: "Y", year: 2000),
             Track(id: "2", name: "B", artist: "X", album: "Y", year: 2001),
         ]
-        let result = validator.getDominantYear(tracks: tracks)
-        #expect(result != nil)
-        #expect(result?.year == 2001)
-        #expect(result?.confidence == 0.5)
+        #expect(validator.getDominantYear(tracks: tracks) == nil)
     }
 
-    @Test("Dominant year ignores tracks without year")
-    func dominantYearIgnoresNilYears() {
+    @Test("Sparse known years use the complete album denominator")
+    func sparseYearsUseAlbumCount() {
+        let tracks = [
+            Track(id: "1", name: "A", artist: "X", album: "Y", year: 2000),
+            Track(id: "2", name: "B", artist: "X", album: "Y", year: nil),
+            Track(id: "3", name: "C", artist: "X", album: "Y", year: nil),
+        ]
+        #expect(validator.getDominantYear(tracks: tracks) == nil)
+    }
+
+    @Test("Exact sixty percent is dominant")
+    func exactSixtyPercentIsDominant() throws {
         let tracks = [
             Track(id: "1", name: "A", artist: "X", album: "Y", year: 2000),
             Track(id: "2", name: "B", artist: "X", album: "Y", year: 2000),
-            Track(id: "3", name: "C", artist: "X", album: "Y", year: nil),
-            Track(id: "4", name: "D", artist: "X", album: "Y", year: nil),
+            Track(id: "3", name: "C", artist: "X", album: "Y", year: 2000),
+            Track(id: "4", name: "D", artist: "X", album: "Y", year: 2001),
+            Track(id: "5", name: "E", artist: "X", album: "Y", year: 2001),
         ]
-        let result = validator.getDominantYear(tracks: tracks)
-        #expect(result != nil)
-        #expect(result?.year == 2000)
-        #expect(result?.confidence == 1.0)
-        #expect(result?.totalTracks == 2)
+        let result = try #require(validator.getDominantYear(tracks: tracks))
+        #expect(result.year == 2000)
+        #expect(result.confidence == 0.6)
+        #expect(result.totalTracks == 5)
     }
 
     @Test("No dominant year with empty tracks")

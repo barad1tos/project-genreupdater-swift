@@ -291,7 +291,7 @@ public struct YearLogicConfig: Sendable, Codable {
     public var definitiveScoreDiff: Int = 15
     public var minConfidenceForNewYear: Double = 30
     public var majorMarketCodes: [String] = ["us", "gb", "uk", "de", "jp", "fr", "ca", "au"]
-    public var dominantYearMinConfidence: Double = 0.8
+    public var dominantYearMinConfidence: Double = 0.6
 
     public init() {
         // Defaults mirror the Python scoring thresholds and can be overridden from configuration files.

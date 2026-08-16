@@ -7,13 +7,17 @@ import Testing
 struct YearLocalFirstTests {
     /// Coordinator whose API orchestrator yields no usable year, reproducing an
     /// album absent from external catalogs (the runtime case that surfaced this).
-    private func makeCoordinator() async -> UpdateCoordinator {
+    private func makeCoordinator(apiProbe: APIRequestProbe? = nil) async -> UpdateCoordinator {
         let bridge = MockAppleScriptClient()
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("YearLocalFirstTests-\(UUID().uuidString)")
-        let apiService = MockAPIService(
-            yearResult: YearResult(year: nil, confidence: 0, yearScores: [:])
-        )
+        let apiService: any ExternalAPIService = if let apiProbe {
+            UpdateAPIDouble(probe: apiProbe)
+        } else {
+            MockAPIService(
+                yearResult: YearResult(year: nil, confidence: 0, yearScores: [:])
+            )
+        }
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: apiService,
             discogs: apiService,
@@ -41,7 +45,7 @@ struct YearLocalFirstTests {
         )
     }
 
-    private func albumTrack(id: String, name: String, year: Int, releaseYear: Int) -> Track {
+    private func albumTrack(id: String, name: String, year: Int?, releaseYear: Int?) -> Track {
         Track(
             id: id,
             name: name,
@@ -121,5 +125,26 @@ struct YearLocalFirstTests {
         let yearChange = try #require(change)
         #expect(yearChange.oldValue == "2024")
         #expect(yearChange.newValue == "2020")
+    }
+
+    @Test("Uses the one release year present without consulting APIs")
+    func partialConsensusSkipsAPI() async throws {
+        let apiProbe = APIRequestProbe()
+        let coordinator = await makeCoordinator(apiProbe: apiProbe)
+        let target = albumTrack(id: "MK-target", name: "Target", year: nil, releaseYear: 2010)
+        let peer = albumTrack(id: "MK-peer", name: "Peer", year: nil, releaseYear: nil)
+
+        let change = try await coordinator.determineYearChange(
+            track: target,
+            albumTracks: [target, peer],
+            forceYearLookup: false
+        )
+
+        let yearChange = try #require(change)
+        #expect(yearChange.changeType == .yearUpdate)
+        #expect(yearChange.newValue == "2010")
+        #expect(yearChange.confidence == 80)
+        #expect(yearChange.source == "Consensus")
+        #expect(await apiProbe.requestCount == 0)
     }
 }
