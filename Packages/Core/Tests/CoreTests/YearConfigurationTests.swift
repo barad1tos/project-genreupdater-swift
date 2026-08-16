@@ -4,6 +4,55 @@ import Testing
 
 @Suite("Year configuration persistence")
 struct YearConfigurationTests {
+    @Test("Pre-G2 year logic keeps its values and defaults local-source policy")
+    func preG2LogicDefaultsLocalSourcePolicy() throws {
+        let data = Data(
+            #"""
+            {
+              "yearRetrieval": {
+                "logic": {
+                  "minValidYear": 1900,
+                  "absurdYearThreshold": 1970,
+                  "suspicionThresholdYears": 10,
+                  "definitiveScoreThreshold": 50,
+                  "definitiveScoreDiff": 15,
+                  "minConfidenceForNewYear": 42,
+                  "majorMarketCodes": ["us", "gb"],
+                  "dominantYearMinConfidence": 0.8
+                }
+              }
+            }
+            """#.utf8
+        )
+
+        let decoded = try AppConfiguration.configurationDecoder().decode(
+            AppConfiguration.self,
+            from: data
+        )
+
+        #expect(decoded.yearRetrieval.logic.minConfidenceForNewYear == 42)
+        #expect(decoded.yearRetrieval.logic.majorMarketCodes == ["us", "gb"])
+        #expect(decoded.yearRetrieval.logic.dominantYearMinConfidence == 0.8)
+        #expect(decoded.yearRetrieval.logic.cacheTrustThreshold == 90)
+        #expect(decoded.yearRetrieval.logic.consensusYearConfidence == 80)
+    }
+
+    @Test("Persisted local-source policy overrides both defaults")
+    func explicitLocalSourcePolicyRoundTrips() throws {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.logic.cacheTrustThreshold = 94
+        configuration.yearRetrieval.logic.consensusYearConfidence = 73
+
+        let data = try JSONEncoder().encode(configuration)
+        let decoded = try AppConfiguration.configurationDecoder().decode(
+            AppConfiguration.self,
+            from: data
+        )
+
+        #expect(decoded.yearRetrieval.logic.cacheTrustThreshold == 94)
+        #expect(decoded.yearRetrieval.logic.consensusYearConfidence == 73)
+    }
+
     @Test("Persisted dominance threshold overrides the current default")
     func explicitDominanceThresholdRoundTrips() throws {
         var configuration = AppConfiguration()

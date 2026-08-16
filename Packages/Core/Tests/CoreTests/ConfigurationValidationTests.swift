@@ -597,6 +597,12 @@ struct ConfigurationValidationTests {
             zeroToHundred("yearRetrieval.logic.minConfidenceForNewYear", "101.0") {
                 $0.yearRetrieval.logic.minConfidenceForNewYear = 101
             },
+            zeroToHundred("yearRetrieval.logic.cacheTrustThreshold", "101") {
+                $0.yearRetrieval.logic.cacheTrustThreshold = 101
+            },
+            zeroToHundred("yearRetrieval.logic.consensusYearConfidence", "101") {
+                $0.yearRetrieval.logic.consensusYearConfidence = 101
+            },
             minimumZero("yearRetrieval.fallback.yearDifferenceThreshold", "-1") {
                 $0.yearRetrieval.fallback.yearDifferenceThreshold = -1
             },
@@ -639,6 +645,12 @@ struct ConfigurationValidationTests {
             },
             zeroToHundred("yearRetrieval.logic.minConfidenceForNewYear", "-0.01") {
                 $0.yearRetrieval.logic.minConfidenceForNewYear = -0.01
+            },
+            zeroToHundred("yearRetrieval.logic.cacheTrustThreshold", "-1") {
+                $0.yearRetrieval.logic.cacheTrustThreshold = -1
+            },
+            zeroToHundred("yearRetrieval.logic.consensusYearConfidence", "-1") {
+                $0.yearRetrieval.logic.consensusYearConfidence = -1
             },
             zeroToOne("yearRetrieval.logic.dominantYearMinConfidence", "-0.01") {
                 $0.yearRetrieval.logic.dominantYearMinConfidence = -0.01

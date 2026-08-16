@@ -150,6 +150,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public let isYearLookupEnabled: Bool
     public let minimumYearUpdateConfidence: Double
     public let minimumConfidenceToCache: Int
+    public let cacheTrustThreshold: Int
     public let albumTypeDetection: AlbumTypeDetectionConfig
     public let cleaning: CleaningConfig
     public let skipPrerelease: Bool
@@ -166,6 +167,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         public let isYearLookupEnabled: Bool
         public let minimumYearUpdateConfidence: Double
         public let minimumConfidenceToCache: Int
+        public let cacheTrustThreshold: Int
         public let albumTypeDetection: AlbumTypeDetectionConfig
         public let cleaning: CleaningConfig
         public let skipPrerelease: Bool
@@ -177,6 +179,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             isYearLookupEnabled: Bool = AppConfiguration().yearRetrieval.enabled,
             minimumYearUpdateConfidence: Double = AppConfiguration().yearRetrieval.logic.minConfidenceForNewYear,
             minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
+            cacheTrustThreshold: Int = AppConfiguration().yearRetrieval.logic.cacheTrustThreshold,
             albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig(),
             cleaning: CleaningConfig = CleaningConfig(),
             skipPrerelease: Bool = AppConfiguration().processing.skipPrerelease,
@@ -187,6 +190,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             self.isYearLookupEnabled = isYearLookupEnabled
             self.minimumYearUpdateConfidence = minimumYearUpdateConfidence
             self.minimumConfidenceToCache = minimumConfidenceToCache
+            self.cacheTrustThreshold = cacheTrustThreshold
             self.albumTypeDetection = albumTypeDetection
             self.cleaning = cleaning
             self.skipPrerelease = skipPrerelease
@@ -210,6 +214,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         self.isYearLookupEnabled = policies.isYearLookupEnabled
         self.minimumYearUpdateConfidence = policies.minimumYearUpdateConfidence
         self.minimumConfidenceToCache = policies.minimumConfidenceToCache
+        self.cacheTrustThreshold = policies.cacheTrustThreshold
         self.albumTypeDetection = policies.albumTypeDetection
         self.cleaning = policies.cleaning
         self.skipPrerelease = policies.skipPrerelease
@@ -240,6 +245,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
                 isYearLookupEnabled: configuration.yearRetrieval.enabled,
                 minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
                 minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
+                cacheTrustThreshold: configuration.yearRetrieval.logic.cacheTrustThreshold,
                 albumTypeDetection: configuration.albumTypeDetection,
                 cleaning: cleaning,
                 skipPrerelease: configuration.processing.skipPrerelease,

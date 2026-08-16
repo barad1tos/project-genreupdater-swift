@@ -400,6 +400,16 @@ extension AppConfiguration {
             path: "yearRetrieval.logic.minConfidenceForNewYear"
         )
         validation.requireInRange(
+            yearRetrieval.logic.cacheTrustThreshold,
+            range: 0 ... 100,
+            path: "yearRetrieval.logic.cacheTrustThreshold"
+        )
+        validation.requireInRange(
+            yearRetrieval.logic.consensusYearConfidence,
+            range: 0 ... 100,
+            path: "yearRetrieval.logic.consensusYearConfidence"
+        )
+        validation.requireInRange(
             yearRetrieval.logic.dominantYearMinConfidence,
             range: 0 ... 1,
             path: "yearRetrieval.logic.dominantYearMinConfidence"

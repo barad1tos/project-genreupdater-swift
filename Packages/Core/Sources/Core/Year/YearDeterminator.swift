@@ -12,14 +12,8 @@ import OSLog
 /// Orchestrates year determination by composing scorer, validator,
 /// and fallback strategy with external services.
 ///
-/// Flow:
-/// 1. Pre-flight checks (already processed, rejected, prerelease)
-/// 2. Check cache → return if high confidence
-/// 3. Call API → get release candidates
-/// 4. Score all candidates
-/// 5. Validate (dominant year, consensus)
-/// 6. Run fallback strategy
-/// 7. Cache result, return determination
+/// The pure determination order is dominant editable metadata, release-year
+/// consensus, candidate scoring, then fallback. Services own cache and API I/O.
 public struct YearDeterminator: Sendable {
     public let scorer: YearScorer
     public let validator: YearValidator
@@ -266,53 +260,54 @@ public struct YearDeterminator: Sendable {
         albumTracks: [Track],
         candidateCount: Int
     ) -> YearDeterminationResult? {
-        let consensusReleaseYear = validatedConsensusReleaseYear(albumTracks)
-
-        // Step 1: Dominant year (Python parity: dominant first)
-        if let dominant = validator.getDominantYear(
-            tracks: albumTracks
-        ), !dominant.isSuspicious {
-            return YearDeterminationResult(
-                yearResult: YearResult(
-                    year: dominant.year,
-                    isDefinitive: dominant.confidence >= 0.9,
-                    confidence: Int(dominant.confidence * 100)
-                ),
-                source: .dominant,
-                candidateCount: candidateCount
-            )
-        }
-
-        // Step 2: Consensus release year
-        if let consensusReleaseYear {
-            return consensusDetermination(
-                year: consensusReleaseYear,
-                candidateCount: candidateCount
-            )
-        }
-
-        return nil
+        dominantDetermination(
+            albumTracks: albumTracks,
+            candidateCount: candidateCount
+        ) ?? consensusDetermination(
+            albumTracks: albumTracks,
+            candidateCount: candidateCount
+        )
     }
 
-    private func validatedConsensusReleaseYear(_ tracks: [Track]) -> Int? {
-        guard !tracks.isEmpty,
-              let consensus = validator.getConsensusReleaseYear(tracks: tracks),
+    /// Returns trusted dominant editable-year evidence without falling through to another local source.
+    public func dominantDetermination(
+        albumTracks: [Track],
+        candidateCount: Int
+    ) -> YearDeterminationResult? {
+        guard let dominant = validator.getDominantYear(tracks: albumTracks),
+              !dominant.isSuspicious
+        else {
+            return nil
+        }
+
+        return YearDeterminationResult(
+            yearResult: YearResult(
+                year: dominant.year,
+                isDefinitive: dominant.confidence >= 0.9,
+                confidence: Int(dominant.confidence * 100)
+            ),
+            source: .dominant,
+            candidateCount: candidateCount
+        )
+    }
+
+    /// Returns valid release-year consensus without consulting dominant years or external candidates.
+    public func consensusDetermination(
+        albumTracks: [Track],
+        candidateCount: Int
+    ) -> YearDeterminationResult? {
+        guard !albumTracks.isEmpty,
+              let consensus = validator.getConsensusReleaseYear(tracks: albumTracks),
               case .valid = validator.validate(year: consensus)
         else {
             return nil
         }
-        return consensus
-    }
 
-    private func consensusDetermination(
-        year: Int,
-        candidateCount: Int
-    ) -> YearDeterminationResult {
-        YearDeterminationResult(
+        return YearDeterminationResult(
             yearResult: YearResult(
-                year: year,
+                year: consensus,
                 isDefinitive: true,
-                confidence: 80
+                confidence: validator.config.consensusYearConfidence
             ),
             source: .consensus,
             candidateCount: candidateCount

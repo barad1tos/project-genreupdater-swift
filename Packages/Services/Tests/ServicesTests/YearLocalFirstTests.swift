@@ -7,22 +7,37 @@ import Testing
 struct YearLocalFirstTests {
     /// Coordinator whose API orchestrator yields no usable year, reproducing an
     /// album absent from external catalogs (the runtime case that surfaced this).
-    private func makeCoordinator(apiProbe: APIRequestProbe? = nil) async -> UpdateCoordinator {
+    private func makeCoordinator(
+        apiProbe: APIRequestProbe? = nil,
+        apiYearResult: YearResult = YearResult(year: nil, confidence: 0, yearScores: [:]),
+        apiReleaseCandidates: [ReleaseCandidate] = [],
+        cache: MockCacheService? = nil,
+        yearDeterminator: YearDeterminator = YearDeterminator(),
+        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+    ) async -> UpdateCoordinator {
         let bridge = MockAppleScriptClient()
+        let effectiveCache = cache ?? MockCacheService()
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("YearLocalFirstTests-\(UUID().uuidString)")
-        let apiService: any ExternalAPIService = if let apiProbe {
-            UpdateAPIDouble(probe: apiProbe)
+        let orchestrator: APIOrchestrator
+        if let apiProbe {
+            orchestrator = makeAPIOrchestrator(
+                musicBrainz: UpdateAPIDouble(
+                    probe: apiProbe,
+                    yearResult: apiYearResult,
+                    releaseCandidates: apiReleaseCandidates
+                ),
+                discogs: UpdateAPIDouble(probe: apiProbe),
+                appleMusic: UpdateAPIDouble(probe: apiProbe)
+            )
         } else {
-            MockAPIService(
-                yearResult: YearResult(year: nil, confidence: 0, yearScores: [:])
+            let apiService = MockAPIService(yearResult: apiYearResult)
+            orchestrator = makeAPIOrchestrator(
+                musicBrainz: apiService,
+                discogs: apiService,
+                appleMusic: apiService
             )
         }
-        let orchestrator = makeAPIOrchestrator(
-            musicBrainz: apiService,
-            discogs: apiService,
-            appleMusic: apiService
-        )
 
         return UpdateCoordinator(
             dependencies: UpdateDependencies(
@@ -30,7 +45,7 @@ struct YearLocalFirstTests {
                 scriptBridge: bridge,
                 stores: .init(
                     trackStore: MockTrackStore(),
-                    cache: MockCacheService()
+                    cache: effectiveCache
                 ),
                 undoCoordinator: UndoCoordinator(
                     scriptBridge: bridge,
@@ -40,8 +55,8 @@ struct YearLocalFirstTests {
                 librarySnapshotService: nil
             ),
             genreDeterminator: GenreDeterminator(),
-            yearDeterminator: YearDeterminator(),
-            runtimeConfiguration: UpdateRuntimeConfiguration()
+            yearDeterminator: yearDeterminator,
+            runtimeConfiguration: runtimeConfiguration
         )
     }
 
@@ -127,6 +142,154 @@ struct YearLocalFirstTests {
         #expect(yearChange.newValue == "2020")
     }
 
+    @Test("Dominant metadata wins over a disagreeing high-confidence cache")
+    func dominantWinsOverTrustedCache() async throws {
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "паліндром",
+            album: "Декілька пісень невизначеності (ч.1)",
+            year: 2019,
+            confidence: 100
+        )
+        let apiProbe = APIRequestProbe()
+        let coordinator = await makeCoordinator(apiProbe: apiProbe, cache: cache)
+        let outlier = albumTrack(id: "MK-out", name: "Out", year: 2024, releaseYear: nil)
+        let consistent = (1 ... 6).map {
+            albumTrack(id: "MK-\($0)", name: "Track \($0)", year: 2020, releaseYear: nil)
+        }
+
+        let change = try await coordinator.determineYearChange(
+            track: outlier,
+            albumTracks: [outlier] + consistent,
+            forceYearLookup: false
+        )
+
+        let yearChange = try #require(change)
+        #expect(yearChange.newValue == "2020")
+        #expect(yearChange.source == "Dominant")
+        #expect(await apiProbe.requestCount == 0)
+    }
+
+    @Test("Trusted cache wins over release-year consensus for an invalid editable year")
+    func trustedCacheWinsOverConsensus() async throws {
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "паліндром",
+            album: "Декілька пісень невизначеності (ч.1)",
+            year: 2019,
+            confidence: 90
+        )
+        let coordinator = await makeCoordinator(cache: cache)
+        let target = albumTrack(id: "MK-target", name: "Target", year: 0, releaseYear: 2018)
+        let peer = albumTrack(id: "MK-peer", name: "Peer", year: nil, releaseYear: 2018)
+
+        let change = try await coordinator.determineYearChange(
+            track: target,
+            albumTracks: [target, peer],
+            forceYearLookup: false
+        )
+
+        let yearChange = try #require(change)
+        #expect(yearChange.newValue == "2019")
+        #expect(yearChange.source == "Cache")
+    }
+
+    @Test("Cache below the configured trust threshold falls through to consensus")
+    func weakCacheFallsThroughToConsensus() async throws {
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "паліндром",
+            album: "Декілька пісень невизначеності (ч.1)",
+            year: 2019,
+            confidence: 94
+        )
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: .init(cacheTrustThreshold: 95)
+        )
+        let coordinator = await makeCoordinator(
+            cache: cache,
+            runtimeConfiguration: runtimeConfiguration
+        )
+        let target = albumTrack(id: "MK-target", name: "Target", year: nil, releaseYear: 2018)
+        let peer = albumTrack(id: "MK-peer", name: "Peer", year: nil, releaseYear: 2018)
+
+        let change = try await coordinator.determineYearChange(
+            track: target,
+            albumTracks: [target, peer],
+            forceYearLookup: false
+        )
+
+        let yearChange = try #require(change)
+        #expect(yearChange.newValue == "2018")
+        #expect(yearChange.source == "Consensus")
+    }
+
+    @Test("Weak cache without consensus reaches a fresh API result")
+    func weakCacheWithoutConsensusUsesAPI() async throws {
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "паліндром",
+            album: "Декілька пісень невизначеності (ч.1)",
+            year: 2019,
+            confidence: 89
+        )
+        let apiProbe = APIRequestProbe()
+        let coordinator = await makeCoordinator(
+            apiProbe: apiProbe,
+            apiReleaseCandidates: [
+                ReleaseCandidate(
+                    artist: "паліндром",
+                    album: "Декілька пісень невизначеності (ч.1)",
+                    year: 2021,
+                    source: .musicBrainz,
+                    mbReleaseGroupFirstYear: 2021
+                ),
+            ],
+            cache: cache
+        )
+        let target = albumTrack(id: "MK-target", name: "Target", year: nil, releaseYear: nil)
+        let peer = albumTrack(id: "MK-peer", name: "Peer", year: nil, releaseYear: nil)
+
+        let change = try await coordinator.determineYearChange(
+            track: target,
+            albumTracks: [target, peer],
+            forceYearLookup: false
+        )
+
+        let yearChange = try #require(change)
+        #expect(yearChange.newValue == "2021")
+        #expect(await apiProbe.requestCount > 0)
+    }
+
+    @Test("Trusted cache disambiguates conflicting live release years")
+    func trustedCacheDisambiguatesReleaseYears() async throws {
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "паліндром",
+            album: "Декілька пісень невизначеності (ч.1)",
+            year: 2017,
+            confidence: 95
+        )
+        let apiProbe = APIRequestProbe()
+        let coordinator = await makeCoordinator(apiProbe: apiProbe, cache: cache)
+        let target = albumTrack(id: "MK-a", name: "A", year: 2024, releaseYear: 2018)
+        let mixed = [
+            albumTrack(id: "MK-b", name: "B", year: 2019, releaseYear: 2019),
+            albumTrack(id: "MK-c", name: "C", year: 2020, releaseYear: 2020),
+        ]
+
+        let change = try await coordinator.determineYearChange(
+            track: target,
+            albumTracks: [target] + mixed,
+            forceYearLookup: false
+        )
+
+        let yearChange = try #require(change)
+        #expect(yearChange.newValue == "2017")
+        #expect(yearChange.source == "Cache")
+        #expect(await apiProbe.requestCount == 0)
+    }
+
     @Test("Uses the one release year present without consulting APIs")
     func partialConsensusSkipsAPI() async throws {
         let apiProbe = APIRequestProbe()
@@ -146,5 +309,34 @@ struct YearLocalFirstTests {
         #expect(yearChange.confidence == 80)
         #expect(yearChange.source == "Consensus")
         #expect(await apiProbe.requestCount == 0)
+    }
+
+    @Test("Consensus persists with its configured confidence")
+    func consensusPersistsConfiguredConfidence() async throws {
+        var logic = YearLogicConfig()
+        logic.consensusYearConfidence = 73
+        let cache = MockCacheService()
+        let coordinator = await makeCoordinator(
+            cache: cache,
+            yearDeterminator: YearDeterminator(validator: YearValidator(config: logic))
+        )
+        let target = albumTrack(id: "MK-target", name: "Target", year: nil, releaseYear: 2010)
+        let peer = albumTrack(id: "MK-peer", name: "Peer", year: nil, releaseYear: nil)
+
+        let change = try await coordinator.determineYearChange(
+            track: target,
+            albumTracks: [target, peer],
+            forceYearLookup: false
+        )
+        let cached = await cache.getAlbumYear(
+            artist: target.albumIdentity.artist,
+            album: target.albumIdentity.album
+        )
+
+        let yearChange = try #require(change)
+        #expect(yearChange.newValue == "2010")
+        #expect(yearChange.confidence == 73)
+        #expect(cached?.year == 2010)
+        #expect(cached?.confidence == 73)
     }
 }

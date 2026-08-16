@@ -335,7 +335,7 @@ struct UpdateCoordinatorTests {
     @Test("Cache hit skips API call")
     func cacheHitSkipsAPI() async throws {
         let cache = MockCacheService()
-        await cache.storeAlbumYear(artist: "Beatles", album: "Abbey Road", year: 1970, confidence: 85)
+        await cache.storeAlbumYear(artist: "Beatles", album: "Abbey Road", year: 1970, confidence: 90)
 
         let fixture = await makeCoordinator(
             cache: cache

@@ -146,8 +146,8 @@ struct CandidateScoringTests {
         #expect(yearChange.newValue == "2023")
     }
 
-    @Test("Repairs invalid editable year from release year before trusting cache")
-    func repairsInvalidEditableYearBeforeTrustingCache() async throws {
+    @Test("Repairs invalid editable year from consensus when cache is not trusted")
+    func repairsInvalidEditableYearFromConsensusAfterWeakCache() async throws {
         let track = Track(
             id: "clutch-1",
             name: "The Elephant Riders",
@@ -173,7 +173,7 @@ struct CandidateScoringTests {
             artist: "Clutch",
             album: "The Elephant Riders",
             year: 2004,
-            confidence: 100
+            confidence: 89
         )
         let api = makeAPIOrchestrator(
             musicBrainz: MockAPIService(),
