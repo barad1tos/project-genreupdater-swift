@@ -84,4 +84,52 @@ extension AlbumIdentityFlowTests {
         #expect(yearChange.source == "Cache")
         #expect(await apiProbe.albumRequests.isEmpty)
     }
+
+    @Test("Weaker consensus does not replace trusted cache evidence")
+    func weakerConsensusKeepsTrustedCache() async throws {
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            year: 2019,
+            confidence: 90
+        )
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: .init(
+                minimumYearUpdateConfidence: 95,
+                cacheTrustThreshold: 90
+            )
+        )
+        let coordinator = makeCoordinator(
+            cache: cache,
+            runtimeConfiguration: runtimeConfiguration
+        )
+        let target = makeTrack(
+            id: "ram-consensus-target",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            metadata: .init(releaseYear: 2018)
+        )
+        let peer = makeTrack(
+            id: "ram-consensus-peer",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            metadata: .init(releaseYear: 2018)
+        )
+
+        let changes = try await coordinator.updateTrack(
+            target,
+            albumTracks: [target, peer],
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+        let cachedEntry = await cache.getAlbumYear(
+            artist: "Daft Punk",
+            album: "Random Access Memories"
+        )
+
+        #expect(!changes.contains { $0.changeType == .yearUpdate })
+        #expect(cachedEntry?.year == 2019)
+        #expect(cachedEntry?.confidence == 90)
+    }
 }

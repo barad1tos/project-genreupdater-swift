@@ -161,7 +161,8 @@ extension UpdateCoordinator {
         if releaseYearConflict == nil,
            let decision = await consensusDecision(
                track: track,
-               albumTracks: albumTracks
+               albumTracks: albumTracks,
+               cachedEntry: cachedAlbumYear
            ) {
             return decision
         }
@@ -219,7 +220,8 @@ extension UpdateCoordinator {
 
     private func consensusDecision(
         track: Track,
-        albumTracks: [Track]
+        albumTracks: [Track],
+        cachedEntry: AlbumCacheEntry?
     ) async -> YearShortcutDecision? {
         guard let consensus = yearDeterminator.consensusDetermination(
             albumTracks: albumTracks,
@@ -229,13 +231,16 @@ extension UpdateCoordinator {
             return nil
         }
 
-        let identity = track.albumIdentity
-        await cache.storeAlbumYear(
-            artist: identity.artist,
-            album: identity.album,
-            year: year,
-            confidence: consensus.yearResult.confidence
-        )
+        if !isTrustedCacheEntry(cachedEntry)
+            || consensus.yearResult.confidence >= (cachedEntry?.confidence ?? 0) {
+            let identity = track.albumIdentity
+            await cache.storeAlbumYear(
+                artist: identity.artist,
+                album: identity.album,
+                year: year,
+                confidence: consensus.yearResult.confidence
+            )
+        }
 
         if let change = yearChange(track: track, determination: consensus) {
             return .change(change)

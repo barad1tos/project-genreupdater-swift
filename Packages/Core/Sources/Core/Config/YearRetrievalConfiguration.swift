@@ -306,21 +306,29 @@ public struct YearLogicConfig: Sendable, Codable {
     }
 
     public init(from decoder: any Decoder) throws {
+        self.init()
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        minValidYear = try container.decodeIfPresent(Int.self, forKey: .minValidYear) ?? 1900
-        absurdYearThreshold = try container.decodeIfPresent(Int.self, forKey: .absurdYearThreshold) ?? 1970
-        suspicionThresholdYears = try container.decodeIfPresent(Int.self, forKey: .suspicionThresholdYears) ?? 10
-        definitiveScoreThreshold = try container.decodeIfPresent(Int.self, forKey: .definitiveScoreThreshold) ?? 50
-        definitiveScoreDiff = try container.decodeIfPresent(Int.self, forKey: .definitiveScoreDiff) ?? 15
-        minConfidenceForNewYear = try container.decodeIfPresent(Double.self, forKey: .minConfidenceForNewYear) ?? 30
+        minValidYear = try container.decodeIfPresent(Int.self, forKey: .minValidYear) ?? minValidYear
+        absurdYearThreshold = try container.decodeIfPresent(Int.self, forKey: .absurdYearThreshold)
+            ?? absurdYearThreshold
+        suspicionThresholdYears = try container.decodeIfPresent(Int.self, forKey: .suspicionThresholdYears)
+            ?? suspicionThresholdYears
+        definitiveScoreThreshold = try container.decodeIfPresent(Int.self, forKey: .definitiveScoreThreshold)
+            ?? definitiveScoreThreshold
+        definitiveScoreDiff = try container.decodeIfPresent(Int.self, forKey: .definitiveScoreDiff)
+            ?? definitiveScoreDiff
+        minConfidenceForNewYear = try container.decodeIfPresent(Double.self, forKey: .minConfidenceForNewYear)
+            ?? minConfidenceForNewYear
         majorMarketCodes = try container.decodeIfPresent([String].self, forKey: .majorMarketCodes)
-            ?? ["us", "gb", "uk", "de", "jp", "fr", "ca", "au"]
+            ?? majorMarketCodes
         dominantYearMinConfidence = try container.decodeIfPresent(
             Double.self,
             forKey: .dominantYearMinConfidence
-        ) ?? 0.6
-        cacheTrustThreshold = try container.decodeIfPresent(Int.self, forKey: .cacheTrustThreshold) ?? 90
-        consensusYearConfidence = try container.decodeIfPresent(Int.self, forKey: .consensusYearConfidence) ?? 80
+        ) ?? dominantYearMinConfidence
+        cacheTrustThreshold = try container.decodeIfPresent(Int.self, forKey: .cacheTrustThreshold)
+            ?? cacheTrustThreshold
+        consensusYearConfidence = try container.decodeIfPresent(Int.self, forKey: .consensusYearConfidence)
+            ?? consensusYearConfidence
     }
 }
 
