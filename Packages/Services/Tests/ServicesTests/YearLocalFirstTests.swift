@@ -157,6 +157,24 @@ struct YearLocalFirstTests {
         #expect(change == nil)
     }
 
+    @Test("Zero year is treated as missing for the confidence threshold")
+    func rejectsWeakFillForZeroYear() async throws {
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: .init(missingYearThreshold: 95)
+        )
+        let coordinator = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
+        let track = albumTrack(id: "MK-zero", name: "Zero", year: 0, releaseYear: 1970)
+        let peer = albumTrack(id: "MK-peer", name: "Peer", year: nil, releaseYear: 1970)
+
+        let change = try await coordinator.determineYearChange(
+            track: track,
+            albumTracks: [track, peer],
+            forceYearLookup: false
+        )
+
+        #expect(change == nil)
+    }
+
     @Test("Does not repair when the album year signal is ambiguous")
     func skipsRepairWhenAlbumYearAmbiguous() async throws {
         let coordinator = await makeCoordinator()

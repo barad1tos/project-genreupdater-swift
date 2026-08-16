@@ -145,7 +145,10 @@ public struct UpdateOptions: Equatable, Sendable {
 
 enum YearConfidencePolicy {
     static func allows(existingYear: Int?, confidence: Int, threshold: Double) -> Bool {
-        existingYear != nil || Double(confidence) >= threshold
+        if let existingYear, existingYear > 0 {
+            return true
+        }
+        return Double(confidence) >= threshold
     }
 }
 
