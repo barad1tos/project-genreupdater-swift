@@ -96,7 +96,7 @@ extension AlbumIdentityFlowTests {
         )
         let runtimeConfiguration = UpdateRuntimeConfiguration(
             policies: .init(
-                minimumYearUpdateConfidence: 95,
+                missingYearThreshold: 95,
                 cacheTrustThreshold: 90
             )
         )

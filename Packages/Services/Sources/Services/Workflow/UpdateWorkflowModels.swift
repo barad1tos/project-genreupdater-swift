@@ -143,12 +143,18 @@ public struct UpdateOptions: Equatable, Sendable {
     }
 }
 
+enum YearConfidencePolicy {
+    static func allows(existingYear: Int?, confidence: Int, threshold: Double) -> Bool {
+        existingYear != nil || Double(confidence) >= threshold
+    }
+}
+
 /// Runtime configuration applied by update workflows.
 public struct UpdateRuntimeConfiguration: Sendable, Equatable {
     public let genreMappings: [String: String]
     public let artistRenameMappings: [String: String]
     public let isYearLookupEnabled: Bool
-    public let minimumYearUpdateConfidence: Double
+    public let missingYearThreshold: Double
     public let minimumConfidenceToCache: Int
     public let cacheTrustThreshold: Int
     public let albumTypeDetection: AlbumTypeDetectionConfig
@@ -165,7 +171,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
 
     public struct Policies: Sendable, Equatable {
         public let isYearLookupEnabled: Bool
-        public let minimumYearUpdateConfidence: Double
+        public let missingYearThreshold: Double
         public let minimumConfidenceToCache: Int
         public let cacheTrustThreshold: Int
         public let albumTypeDetection: AlbumTypeDetectionConfig
@@ -177,7 +183,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
 
         public init(
             isYearLookupEnabled: Bool = AppConfiguration().yearRetrieval.enabled,
-            minimumYearUpdateConfidence: Double = AppConfiguration().yearRetrieval.logic.minConfidenceForNewYear,
+            missingYearThreshold: Double = AppConfiguration().yearRetrieval.logic.minConfidenceForNewYear,
             minimumConfidenceToCache: Int = AppConfiguration().processing.minConfidenceToCache,
             cacheTrustThreshold: Int = AppConfiguration().yearRetrieval.logic.cacheTrustThreshold,
             albumTypeDetection: AlbumTypeDetectionConfig = AlbumTypeDetectionConfig(),
@@ -188,7 +194,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             shouldOverrideExistingGenres: Bool = AppConfiguration().genreUpdate.overrideExisting
         ) {
             self.isYearLookupEnabled = isYearLookupEnabled
-            self.minimumYearUpdateConfidence = minimumYearUpdateConfidence
+            self.missingYearThreshold = missingYearThreshold
             self.minimumConfidenceToCache = minimumConfidenceToCache
             self.cacheTrustThreshold = cacheTrustThreshold
             self.albumTypeDetection = albumTypeDetection
@@ -212,7 +218,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
         self.genreMappings = genreMappings
         self.artistRenameMappings = Self.normalizedMappings(artistRenameMappings)
         self.isYearLookupEnabled = policies.isYearLookupEnabled
-        self.minimumYearUpdateConfidence = policies.minimumYearUpdateConfidence
+        self.missingYearThreshold = policies.missingYearThreshold
         self.minimumConfidenceToCache = policies.minimumConfidenceToCache
         self.cacheTrustThreshold = policies.cacheTrustThreshold
         self.albumTypeDetection = policies.albumTypeDetection
@@ -243,7 +249,7 @@ public struct UpdateRuntimeConfiguration: Sendable, Equatable {
             idsBatchSize: configuration.applescript.batchProcessing.idsBatchSize,
             policies: Policies(
                 isYearLookupEnabled: configuration.yearRetrieval.enabled,
-                minimumYearUpdateConfidence: configuration.yearRetrieval.logic.minConfidenceForNewYear,
+                missingYearThreshold: configuration.yearRetrieval.logic.minConfidenceForNewYear,
                 minimumConfidenceToCache: configuration.processing.minConfidenceToCache,
                 cacheTrustThreshold: configuration.yearRetrieval.logic.cacheTrustThreshold,
                 albumTypeDetection: configuration.albumTypeDetection,

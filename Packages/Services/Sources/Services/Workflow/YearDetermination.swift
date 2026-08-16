@@ -450,7 +450,11 @@ extension UpdateCoordinator {
             )
             return nil
         }
-        guard Double(apiDetermination.yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence else {
+        guard YearConfidencePolicy.allows(
+            existingYear: track.year,
+            confidence: apiDetermination.yearResult.confidence,
+            threshold: runtimeConfiguration.missingYearThreshold
+        ) else {
             return nil
         }
         if !apiDetermination.yearResult.isDefinitive,
@@ -540,7 +544,11 @@ extension UpdateCoordinator {
         guard let entry,
               let year = entry.year,
               year != track.year,
-              Double(entry.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence
+              YearConfidencePolicy.allows(
+                  existingYear: track.year,
+                  confidence: entry.confidence,
+                  threshold: runtimeConfiguration.missingYearThreshold
+              )
         else {
             return nil
         }
@@ -564,9 +572,13 @@ extension UpdateCoordinator {
     ) -> ProposedChange? {
         let yearResult = determination.yearResult
 
-        guard Double(yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence,
-              let year = yearResult.year,
-              year != track.year
+        guard YearConfidencePolicy.allows(
+            existingYear: track.year,
+            confidence: yearResult.confidence,
+            threshold: runtimeConfiguration.missingYearThreshold
+        ),
+            let year = yearResult.year,
+            year != track.year
         else {
             return nil
         }

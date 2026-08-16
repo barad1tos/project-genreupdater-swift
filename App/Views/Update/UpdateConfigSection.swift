@@ -374,7 +374,7 @@ extension UpdateConfigSection {
 
     private var confidenceSection: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text("Minimum year confidence: \(viewModel.confidencePercentage)%")
+            Text("Minimum confidence for missing years: \(viewModel.confidencePercentage)%")
                 .font(AppFont.subheadline)
                 .foregroundStyle(Ayu.fgPrimary)
             Slider(
@@ -383,7 +383,7 @@ extension UpdateConfigSection {
                 step: 0.05
             )
             .tint(Ayu.accent)
-            Text("Probabilistic year updates below this threshold will be excluded.")
+            Text("Suggestions below this threshold are excluded only when a track has no year.")
                 .font(AppFont.caption)
                 .foregroundStyle(Ayu.fgSecondary)
         }

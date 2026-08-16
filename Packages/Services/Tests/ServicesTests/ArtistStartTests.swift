@@ -232,7 +232,7 @@ struct ArtistStartTests {
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),
             runtimeConfiguration: UpdateRuntimeConfiguration(
-                policies: UpdateRuntimeConfiguration.Policies(minimumYearUpdateConfidence: 30)
+                policies: UpdateRuntimeConfiguration.Policies(missingYearThreshold: 30)
             )
         )
     }

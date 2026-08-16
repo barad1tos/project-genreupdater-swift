@@ -49,7 +49,7 @@ public struct ProposedChange: Sendable, Identifiable {
 public struct ChangePreviewPipeline: Sendable {
     public init() {}
 
-    /// Filters probabilistic year updates below the selected confidence threshold.
+    /// Filters proposals that fill a missing year below the selected confidence threshold.
     ///
     /// Deterministic metadata work such as genre repair, cleaning, renaming, and year restoration remains eligible.
     public func filter(
@@ -57,7 +57,11 @@ public struct ChangePreviewPipeline: Sendable {
         minConfidence: Int
     ) -> [ProposedChange] {
         changes.filter { change in
-            change.changeType != .yearUpdate || change.confidence >= minConfidence
+            change.changeType != .yearUpdate || YearConfidencePolicy.allows(
+                existingYear: change.track.year,
+                confidence: change.confidence,
+                threshold: Double(minConfidence)
+            )
         }
     }
 
