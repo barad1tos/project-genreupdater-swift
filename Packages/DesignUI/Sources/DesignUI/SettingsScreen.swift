@@ -174,7 +174,7 @@ struct SettingsScreen: View {
                 row("Safe mode (dry-run)", "Always preview proposed changes before any tag is written.") {
                     Toggle("", isOn: dryRunBinding).labelsHidden().tint(Ayu.accent)
                 }
-                row("Minimum confidence", "Reject suggestions below this score.") {
+                row("Minimum year confidence", "Reject probabilistic year suggestions below this score.") {
                     HStack {
                         Slider(
                             value: minimumConfidenceBinding,

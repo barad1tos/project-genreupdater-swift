@@ -40,19 +40,34 @@ private func makeChange(
 struct ChangePreviewPipelineTests {
     let pipeline = ChangePreviewPipeline()
 
-    @Test("Filter removes changes below minimum confidence")
-    func filterByConfidence() {
+    @Test("Filter removes year updates below minimum confidence")
+    func filtersYearUpdates() {
         let changes = [
-            makeChange(confidence: 90),
-            makeChange(confidence: 50),
-            makeChange(confidence: 70),
-            makeChange(confidence: 30),
+            makeChange(changeType: .yearUpdate, confidence: 90),
+            makeChange(changeType: .yearUpdate, confidence: 50),
+            makeChange(changeType: .yearUpdate, confidence: 70),
+            makeChange(changeType: .yearUpdate, confidence: 30),
         ]
         let filtered = pipeline.filter(changes: changes, minConfidence: 60)
         #expect(filtered.count == 2)
         for change in filtered {
             #expect(change.confidence >= 60)
         }
+    }
+
+    @Test("Filter preserves deterministic metadata changes below the year threshold")
+    func preservesNonYearChanges() {
+        let changes = [
+            makeChange(changeType: .genreUpdate, confidence: 1),
+            makeChange(changeType: .trackCleaning, confidence: 1),
+            makeChange(changeType: .albumCleaning, confidence: 1),
+            makeChange(changeType: .artistRename, confidence: 1),
+            makeChange(changeType: .yearRevert, confidence: 1),
+        ]
+
+        let filtered = pipeline.filter(changes: changes, minConfidence: 100)
+
+        #expect(filtered.map(\.changeType) == changes.map(\.changeType))
     }
 
     @Test("Filter with zero threshold returns all changes")
