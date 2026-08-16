@@ -118,8 +118,23 @@ extension UpdateCoordinator {
         if let dominant = yearDeterminator.dominantDetermination(
             albumTracks: albumTracks,
             candidateCount: 0
-        ), let change = yearChange(track: track, determination: dominant) {
-            return .change(change)
+        ) {
+            if let change = yearChange(track: track, determination: dominant) {
+                return .change(change)
+            }
+            let contextTracks = albumContextTracks(track: track, albumTracks: albumTracks)
+            if let dominantYear = dominant.yearResult.year,
+               contextTracks.count > 1,
+               releaseYearConflict == nil,
+               !hasAmbiguousReleaseYearSignal,
+               !contextTracks.contains(where: { $0.yearSetByMGU != nil }),
+               !requiresAPIVerificationForRecentYearWithoutReleaseSignal(
+                   dominantYear,
+                   tracks: contextTracks
+               ),
+               dominantYear == track.year {
+                return .skip
+            }
         }
 
         let cachedAlbumYear = await cachedAlbumYear(for: track)
@@ -155,12 +170,17 @@ extension UpdateCoordinator {
     }
 
     private func cachedAlbumYear(for track: Track) async -> AlbumCacheEntry? {
+        var firstWeakEntry: AlbumCacheEntry?
         for identity in AlbumIdentity.lookupCandidates(for: track) {
-            if let entry = await cache.getAlbumYear(artist: identity.artist, album: identity.album) {
+            guard let entry = await cache.getAlbumYear(artist: identity.artist, album: identity.album) else {
+                continue
+            }
+            if isTrustedCacheEntry(entry) {
                 return entry
             }
+            firstWeakEntry = firstWeakEntry ?? entry
         }
-        return nil
+        return firstWeakEntry
     }
 
     private func cachedDecision(

@@ -5,8 +5,8 @@ import Testing
 
 @Suite("UpdateCoordinator — local-first year repair")
 struct YearLocalFirstTests {
-    /// Coordinator whose API orchestrator yields no usable year, reproducing an
-    /// album absent from external catalogs (the runtime case that surfaced this).
+    /// Builds a coordinator whose default API fixtures yield no usable year;
+    /// callers can inject API results, cache state, and year policy.
     private func makeCoordinator(
         apiProbe: APIRequestProbe? = nil,
         apiYearResult: YearResult = YearResult(year: nil, confidence: 0, yearScores: [:]),
@@ -167,6 +167,32 @@ struct YearLocalFirstTests {
         let yearChange = try #require(change)
         #expect(yearChange.newValue == "2020")
         #expect(yearChange.source == "Dominant")
+        #expect(await apiProbe.requestCount == 0)
+    }
+
+    @Test("Matching album dominant prevents a disagreeing trusted cache rewrite")
+    func matchingAlbumDominantSkipsTrustedCacheRewrite() async throws {
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: "паліндром",
+            album: "Декілька пісень невизначеності (ч.1)",
+            year: 2019,
+            confidence: 100
+        )
+        let apiProbe = APIRequestProbe()
+        let coordinator = await makeCoordinator(apiProbe: apiProbe, cache: cache)
+        let target = albumTrack(id: "MK-target", name: "Target", year: 2020, releaseYear: nil)
+        let peers = (1 ... 6).map {
+            albumTrack(id: "MK-\($0)", name: "Track \($0)", year: 2020, releaseYear: nil)
+        }
+
+        let change = try await coordinator.determineYearChange(
+            track: target,
+            albumTracks: [target] + peers,
+            forceYearLookup: false
+        )
+
+        #expect(change == nil)
         #expect(await apiProbe.requestCount == 0)
     }
 
