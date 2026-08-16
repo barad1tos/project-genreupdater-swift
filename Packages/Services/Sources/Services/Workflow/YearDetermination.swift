@@ -114,20 +114,38 @@ extension UpdateCoordinator {
         hasAmbiguousReleaseYearSignal: Bool
     ) async -> YearShortcutDecision {
         guard !forceYearLookup else { return .continueToAPI }
-        if shouldPreferLocalYearRepair(for: track),
-           let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
-            return .change(localChange)
+
+        if let dominant = yearDeterminator.dominantDetermination(
+            albumTracks: albumTracks,
+            candidateCount: 0
+        ) {
+            if let change = yearChange(track: track, determination: dominant) {
+                return .change(change)
+            }
+            let contextTracks = albumContextTracks(track: track, albumTracks: albumTracks)
+            if let dominantYear = dominant.yearResult.year,
+               contextTracks.count > 1,
+               releaseYearConflict == nil,
+               !hasAmbiguousReleaseYearSignal,
+               !contextTracks.contains(where: { $0.yearSetByMGU != nil }),
+               !requiresAPIVerificationForRecentYearWithoutReleaseSignal(
+                   dominantYear,
+                   tracks: contextTracks
+               ),
+               dominantYear == track.year {
+                return .skip
+            }
         }
 
         let cachedAlbumYear = await cachedAlbumYear(for: track)
-        if !hasAmbiguousReleaseYearSignal,
-           let cachedDecision = cachedYearShortcutDecision(
-               track: track,
-               albumTracks: albumTracks,
-               entry: cachedAlbumYear,
-               releaseYearConflict: releaseYearConflict
-           ) {
-            return cachedDecision
+        if let decision = cachedDecision(
+            track: track,
+            albumTracks: albumTracks,
+            entry: cachedAlbumYear,
+            releaseYearConflict: releaseYearConflict,
+            hasAmbiguousReleaseYearSignal: hasAmbiguousReleaseYearSignal
+        ) {
+            return decision
         }
 
         if releaseYearConflict == nil,
@@ -140,35 +158,42 @@ extension UpdateCoordinator {
             return .skip
         }
 
-        // Local-first (Python `_try_local_sources`): a confident dominant/consensus
-        // year repairs a valid outlier before any API call, even when the release
-        // year conflicts with the current year. The majority and suspicious-old
-        // guards live inside `yearChangeFromLocalDetermination`; ambiguity is gated
-        // here via `!hasAmbiguousReleaseYearSignal`.
-        if !hasAmbiguousReleaseYearSignal,
-           let localChange = yearChangeFromLocalDetermination(track: track, albumTracks: albumTracks) {
-            return .change(localChange)
+        if releaseYearConflict == nil,
+           let decision = await consensusDecision(
+               track: track,
+               albumTracks: albumTracks,
+               cachedEntry: cachedAlbumYear
+           ) {
+            return decision
         }
 
         return .continueToAPI
     }
 
     private func cachedAlbumYear(for track: Track) async -> AlbumCacheEntry? {
+        var firstWeakEntry: AlbumCacheEntry?
         for identity in AlbumIdentity.lookupCandidates(for: track) {
-            if let entry = await cache.getAlbumYear(artist: identity.artist, album: identity.album) {
+            guard let entry = await cache.getAlbumYear(artist: identity.artist, album: identity.album) else {
+                continue
+            }
+            if isTrustedCacheEntry(entry) {
                 return entry
             }
+            firstWeakEntry = firstWeakEntry ?? entry
         }
-        return nil
+        return firstWeakEntry
     }
 
-    private func cachedYearShortcutDecision(
+    private func cachedDecision(
         track: Track,
         albumTracks: [Track],
         entry: AlbumCacheEntry?,
-        releaseYearConflict: ReleaseYearConflict?
+        releaseYearConflict: ReleaseYearConflict?,
+        hasAmbiguousReleaseYearSignal: Bool
     ) -> YearShortcutDecision? {
+        let isTrusted = isTrustedCacheEntry(entry)
         if releaseYearConflict == nil,
+           !hasAmbiguousReleaseYearSignal || isTrusted,
            shouldSkipYearLookupFromCachedAlbumYear(
                track: track,
                albumTracks: albumTracks,
@@ -177,6 +202,7 @@ extension UpdateCoordinator {
             return .skip
         }
 
+        guard isTrusted else { return nil }
         if let cachedChange = yearChangeFromCached(
             track: track,
             entry: entry,
@@ -185,6 +211,41 @@ extension UpdateCoordinator {
             return .change(cachedChange)
         }
         return nil
+    }
+
+    private func isTrustedCacheEntry(_ entry: AlbumCacheEntry?) -> Bool {
+        guard let entry else { return false }
+        return entry.confidence >= runtimeConfiguration.cacheTrustThreshold
+    }
+
+    private func consensusDecision(
+        track: Track,
+        albumTracks: [Track],
+        cachedEntry: AlbumCacheEntry?
+    ) async -> YearShortcutDecision? {
+        guard let consensus = yearDeterminator.consensusDetermination(
+            albumTracks: albumTracks,
+            candidateCount: 0
+        ), let year = consensus.yearResult.year
+        else {
+            return nil
+        }
+
+        if !isTrustedCacheEntry(cachedEntry)
+            || consensus.yearResult.confidence >= (cachedEntry?.confidence ?? 0) {
+            let identity = track.albumIdentity
+            await cache.storeAlbumYear(
+                artist: identity.artist,
+                album: identity.album,
+                year: year,
+                confidence: consensus.yearResult.confidence
+            )
+        }
+
+        if let change = yearChange(track: track, determination: consensus) {
+            return .change(change)
+        }
+        return year == track.year ? .skip : nil
     }
 
     private func isAlbumAlreadyProcessedByMGU(track: Track, albumTracks: [Track]) -> Bool {
@@ -311,14 +372,6 @@ extension UpdateCoordinator {
     private func isValidLibraryYearForCacheComparison(_ year: Int) -> Bool {
         let currentYear = Calendar.current.component(.year, from: Date())
         return year >= yearDeterminator.validator.config.minValidYear && year <= currentYear
-    }
-
-    private func shouldPreferLocalYearRepair(for track: Track) -> Bool {
-        guard let year = track.year else { return false }
-        if case .valid = yearDeterminator.validator.validate(year: year) {
-            return false
-        }
-        return true
     }
 
     private func determineYearFromAPI(
@@ -505,17 +558,10 @@ extension UpdateCoordinator {
         )
     }
 
-    private func yearChangeFromLocalDetermination(
+    private func yearChange(
         track: Track,
-        albumTracks: [Track]
+        determination: YearDeterminationResult
     ) -> ProposedChange? {
-        guard !albumTracks.isEmpty else { return nil }
-
-        let determination = yearDeterminator.determineYear(
-            candidates: [],
-            track: track,
-            albumTracks: albumTracks
-        )
         let yearResult = determination.yearResult
 
         guard Double(yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence,

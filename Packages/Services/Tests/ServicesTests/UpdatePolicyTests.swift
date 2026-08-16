@@ -73,17 +73,17 @@ extension UpdateCoordinatorTests {
         #expect(afterUpdate.allSatisfy { $0.changeType != .yearUpdate })
     }
 
-    @Test("Configured year confidence skips weak cache entries")
-    func configuredYearConfidenceSkipsWeakCacheEntries() async throws {
+    @Test("Configured year confidence skips trusted cache below the update threshold")
+    func configuredYearConfidenceSkipsCacheBelowUpdateThreshold() async throws {
         let cache = MockCacheService()
-        await cache.storeAlbumYear(artist: "Beatles", album: "Abbey Road", year: 1970, confidence: 70)
+        await cache.storeAlbumYear(artist: "Beatles", album: "Abbey Road", year: 1970, confidence: 90)
 
         let runtimeConfiguration = UpdateRuntimeConfiguration(
-            policies: UpdateRuntimeConfiguration.Policies(minimumYearUpdateConfidence: 80)
+            policies: UpdateRuntimeConfiguration.Policies(minimumYearUpdateConfidence: 95)
         )
         let fixture = await makeCoordinator(
             year: 2020,
-            confidence: 90,
+            confidence: 100,
             cache: cache,
             runtimeConfiguration: runtimeConfiguration
         )

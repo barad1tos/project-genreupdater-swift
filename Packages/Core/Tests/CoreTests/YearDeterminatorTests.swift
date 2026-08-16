@@ -560,6 +560,41 @@ struct YearDeterminatorTests {
 
     // MARK: - Consensus Validation
 
+    @Test("Dominant-only evidence does not substitute release-year consensus")
+    func dominantEvidenceDoesNotSubstituteConsensus() {
+        let albumTracks = [
+            Track(id: "birds-1", name: "Myth", artist: "Beach House", album: "Bloom", releaseYear: 2012),
+            Track(id: "birds-2", name: "Wild", artist: "Beach House", album: "Bloom", releaseYear: 2012),
+        ]
+
+        let result = determinator.dominantDetermination(
+            albumTracks: albumTracks,
+            candidateCount: 0
+        )
+
+        #expect(result == nil)
+    }
+
+    @Test("Consensus evidence reports the configured confidence")
+    func consensusEvidenceUsesConfiguredConfidence() throws {
+        var logic = YearLogicConfig()
+        logic.consensusYearConfidence = 73
+        let configured = YearDeterminator(validator: YearValidator(config: logic))
+        let albumTracks = [
+            Track(id: "birds-1", name: "Myth", artist: "Beach House", album: "Bloom", releaseYear: 2012),
+            Track(id: "birds-2", name: "Wild", artist: "Beach House", album: "Bloom", releaseYear: nil),
+        ]
+
+        let result = try #require(configured.consensusDetermination(
+            albumTracks: albumTracks,
+            candidateCount: 0
+        ))
+
+        #expect(result.yearResult.year == 2012)
+        #expect(result.yearResult.confidence == 73)
+        #expect(result.source == .consensus)
+    }
+
     @Test("Absurd consensus year falls through to scoring")
     func absurdConsensusSkipped() {
         let track = makeTrack()

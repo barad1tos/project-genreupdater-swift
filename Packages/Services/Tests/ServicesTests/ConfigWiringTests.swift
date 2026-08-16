@@ -156,4 +156,14 @@ struct ConfigWiringTests {
         #expect(orchestrator.cache == nil)
         #expect(orchestrator.disabledSources.isEmpty)
     }
+
+    @Test("Update runtime receives the configured cache trust threshold")
+    func updateRuntimeReceivesCacheTrustThreshold() {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.logic.cacheTrustThreshold = 94
+
+        let runtime = UpdateRuntimeConfiguration(configuration: configuration)
+
+        #expect(runtime.cacheTrustThreshold == 94)
+    }
 }
