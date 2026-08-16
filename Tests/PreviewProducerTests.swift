@@ -133,6 +133,54 @@ struct PreviewProducerTests {
         #expect(snapshot.testArtists == [["First Artist"], ["Second Artist"]])
     }
 
+    @Test("Headless preview uses the captured run confidence")
+    func usesRunConfidence() async throws {
+        let services = RunServiceFactory(
+            makeScripts: { _ in PreviewScriptClient(tracks: []) },
+            makePendingVerification: { _ in nil }
+        )
+        let factory = try await makeRuntime(services: services)
+        let runScope = scope(artist: "Probe Artist")
+        var appConfiguration = AppConfiguration()
+        appConfiguration.yearRetrieval.logic.minConfidenceForNewYear = 95
+        let configuration = FixPlanConfig.capture(
+            configuration: appConfiguration,
+            options: UpdateOptions(updateGenre: false, updateYear: true, minConfidence: 60),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+        let target = Track(
+            id: "target",
+            name: "Target",
+            artist: "Probe Artist",
+            album: "Consensus Album",
+            year: nil,
+            trackStatus: nil,
+            releaseYear: 1970
+        )
+        let peer = Track(
+            id: "peer",
+            name: "Peer",
+            artist: "Probe Artist",
+            album: "Consensus Album",
+            year: nil,
+            trackStatus: nil,
+            releaseYear: 1970
+        )
+
+        _ = try await factory.makeSync(configuration: configuration, scope: runScope)
+        let preview = try await factory.makePreview(configuration: configuration, scope: runScope)
+        let changes = try await preview.determineChanges(
+            target,
+            [target, peer],
+            [],
+            configuration.determinationOptions
+        )
+
+        let yearChange = try #require(changes.first { $0.changeType == .yearUpdate })
+        #expect(yearChange.newValue == "1970")
+        #expect(yearChange.confidence == 80)
+    }
+
     @Test("run services rebuild when a configuration changes under the same ID")
     func rebuildsChangedConfig() async throws {
         let probe = RunConfigProbe()

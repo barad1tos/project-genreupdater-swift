@@ -228,7 +228,8 @@ public actor UpdateCoordinator {
                    album: proposalTrack.album,
                    soundtrackPatterns: runtimeConfiguration.albumTypeDetection.soundtrackPatterns,
                    variousArtistsNames: runtimeConfiguration.albumTypeDetection.variousArtistsNames
-               ).strategy == .soundtrack ? proposalTrack.album : decisionTrack.album
+               ).strategy == .soundtrack ? proposalTrack.album : decisionTrack.album,
+               missingYearThreshold: Double(options.minConfidence)
            ) {
             proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
         }

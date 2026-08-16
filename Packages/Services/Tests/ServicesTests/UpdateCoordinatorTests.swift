@@ -310,6 +310,46 @@ struct UpdateCoordinatorTests {
         #expect(storedTrack?.year == 2020)
     }
 
+    @Test("Run confidence overrides the persisted threshold", arguments: [true, false])
+    func runConfidenceWins(dryRun: Bool) async throws {
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: .init(missingYearThreshold: 95)
+        )
+        let fixture = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
+        let target = Track(
+            id: "T1",
+            name: "Come Together",
+            artist: "Beatles",
+            album: "Abbey Road",
+            year: nil,
+            trackStatus: nil,
+            releaseYear: 1970
+        )
+        let peer = Track(
+            id: "T2",
+            name: "Something",
+            artist: "Beatles",
+            album: "Abbey Road",
+            year: nil,
+            trackStatus: nil,
+            releaseYear: 1970
+        )
+        try await fixture.store.saveTracks([target])
+
+        let changes = try await fixture.coordinator.updateTrack(
+            target,
+            albumTracks: [target, peer],
+            options: UpdateOptions(updateGenre: false, updateYear: true, minConfidence: 60),
+            dryRun: dryRun
+        )
+
+        let yearChange = try #require(changes.first { $0.changeType == .yearUpdate })
+        #expect(yearChange.newValue == "1970")
+        #expect(yearChange.confidence == 80)
+        let written = await fixture.bridge.writtenProperties
+        #expect(written.contains { $0.property == "year" && $0.value == "1970" } == !dryRun)
+    }
+
     @Test("Non-editable track throws trackNotEditable")
     func nonEditableTrackThrows() async {
         let runtimeConfiguration = UpdateRuntimeConfiguration(policies: .init(skipPrerelease: false))
