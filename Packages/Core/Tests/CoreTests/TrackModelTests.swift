@@ -225,6 +225,45 @@ struct TrackModelTests {
         #expect(decoded.appleScriptID == original.appleScriptID)
     }
 
+    @Test("Current Music.app years normalize zero without changing recovery provenance")
+    func normalizesZeroYear() {
+        var track = Track(
+            id: "track-0",
+            name: "Angel",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            year: 0,
+            yearBeforeMGU: 0,
+            yearSetByMGU: 0,
+            releaseYear: 0
+        )
+
+        #expect(track.year == nil)
+        #expect(track.releaseYear == nil)
+        #expect(track.yearBeforeMGU == 0)
+        #expect(track.yearSetByMGU == 0)
+
+        track.year = 0
+        track.releaseYear = 0
+
+        #expect(track.year == nil)
+        #expect(track.releaseYear == nil)
+    }
+
+    @Test("Legacy JSON zero years decode as missing without changing recovery provenance")
+    func decodesLegacyZeroYears() throws {
+        let identity = #"{"id":"track-0","name":"Angel","artist":"Massive Attack","album":"Mezzanine","#
+        let years = #""year":0,"releaseYear":0,"yearBeforeMGU":0,"yearSetByMGU":0}"#
+        let data = Data((identity + years).utf8)
+
+        let track = try JSONDecoder().decode(Track.self, from: data)
+
+        #expect(track.year == nil)
+        #expect(track.releaseYear == nil)
+        #expect(track.yearBeforeMGU == 0)
+        #expect(track.yearSetByMGU == 0)
+    }
+
     @Test("Track equality and hash ignore AppleScript mutation metadata")
     func equalityAndHashIgnoreAppleScriptMutationMetadata() {
         let musicKitTrack = Track(

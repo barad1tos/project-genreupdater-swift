@@ -209,6 +209,32 @@ struct RunReportFilterTests {
         #expect(report.plainTextSummary.contains("Genre none -> none"))
     }
 
+    @Test("zero and missing historical years are the same report value")
+    func treatsZeroAsMissing() {
+        var entry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "year-empty",
+            artist: "Massive Attack",
+            trackName: "Angel",
+            albumName: "Mezzanine"
+        )
+        entry.oldYear = 0
+        entry.newYear = nil
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(entries: [entry], failedTrackIDs: [], errorDescriptions: []),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: []
+        )
+
+        #expect(entry.oldYear == 0)
+        #expect(report.changedEntries.isEmpty)
+        #expect(report.albumGroups.isEmpty)
+        #expect(report.plainTextSummary.contains("No Changes"))
+    }
+
     @Test("filters real changes across cleaning, rename, and revert change types")
     func filtersRealChangesAcrossCleaningRenameAndRevert() {
         let entries = [

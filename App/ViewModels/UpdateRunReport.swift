@@ -388,7 +388,7 @@ struct UpdateRunReport: Equatable {
             title: entry.trackName.isEmpty ? "Unknown track" : entry.trackName,
             trackNumber: nil,
             currentGenre: entry.oldGenre,
-            currentYear: entry.oldYear,
+            currentYear: MusicAppYear.normalized(entry.oldYear),
             releaseYear: nil,
             trackStatus: nil,
             changes: isRealChange(entry) ? [makeChangeSummary(entry)] : [],
@@ -482,7 +482,10 @@ struct UpdateRunReport: Equatable {
         case .genreUpdate:
             (entry.oldGenre ?? "none", entry.newGenre ?? "none")
         case .yearUpdate, .yearRevert:
-            (entry.oldYear.map(String.init) ?? "none", entry.newYear.map(String.init) ?? "none")
+            (
+                MusicAppYear.normalized(entry.oldYear).map(String.init) ?? "none",
+                MusicAppYear.normalized(entry.newYear).map(String.init) ?? "none"
+            )
         case .trackCleaning:
             (entry.oldTrackName ?? "none", entry.newTrackName ?? "none")
         case .albumCleaning:
@@ -506,7 +509,7 @@ struct UpdateRunReport: Equatable {
         case .genreUpdate:
             entry.oldGenre != entry.newGenre
         case .yearUpdate, .yearRevert:
-            entry.oldYear != entry.newYear
+            MusicAppYear.normalized(entry.oldYear) != MusicAppYear.normalized(entry.newYear)
         case .trackCleaning:
             entry.oldTrackName != entry.newTrackName
         case .albumCleaning:

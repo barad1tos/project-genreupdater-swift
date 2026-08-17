@@ -12,6 +12,10 @@ struct TrackDataTests {
     }
 
     private func makeStore(at url: URL) throws -> TrackDataStore {
+        try TrackDataStore(modelContainer: makeContainer(at: url))
+    }
+
+    private func makeContainer(at url: URL) throws -> ModelContainer {
         let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
         let configuration = ModelConfiguration(
             "TrackRecoveryRelaunch",
@@ -19,8 +23,7 @@ struct TrackDataTests {
             url: url,
             cloudKitDatabase: .none
         )
-        let container = try ModelContainer(for: schema, configurations: [configuration])
-        return TrackDataStore(modelContainer: container)
+        return try ModelContainer(for: schema, configurations: [configuration])
     }
 
     private func sampleTrack(id: String = "T001", name: String = "Test Song") -> Track {
@@ -401,6 +404,74 @@ struct TrackDataTests {
         #expect(stored.originalArtist == "Test Artist")
         #expect(stored.originalAlbum == "Test Album")
         #expect(stored.hasBeenProcessed)
+    }
+
+    @Test("Persisted track construction normalizes current zero years")
+    func normalizesPersistedZeros() {
+        let persisted = PersistedTrack(
+            trackID: "T001",
+            name: "Angel",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            year: 0,
+            yearBeforeMGU: 0,
+            yearSetByMGU: 0,
+            releaseYear: 0
+        )
+
+        #expect(persisted.year == nil)
+        #expect(persisted.releaseYear == nil)
+        #expect(persisted.yearBeforeMGU == 0)
+        #expect(persisted.yearSetByMGU == 0)
+    }
+
+    @Test("Initialization durably repairs stored current zero years")
+    func repairsStoredZeroYears() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TrackZeroYearRepair-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            do {
+                try FileManager.default.removeItem(at: directory)
+            } catch {
+                Issue.record("Failed to remove zero-year repair fixture: \(error)")
+            }
+        }
+        let storeURL = directory.appendingPathComponent("GenreUpdater.store")
+
+        do {
+            let container = try makeContainer(at: storeURL)
+            let context = ModelContext(container)
+            let persisted = PersistedTrack(
+                trackID: "T001",
+                name: "Angel",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                year: 1998,
+                yearBeforeMGU: 0,
+                yearSetByMGU: 0,
+                releaseYear: 1998
+            )
+            context.insert(persisted)
+            persisted.year = 0
+            persisted.releaseYear = 0
+            try context.save()
+        }
+
+        do {
+            let store = try makeStore(at: storeURL)
+            try await store.initialize()
+        }
+
+        let relaunchedContainer = try makeContainer(at: storeURL)
+        let context = ModelContext(relaunchedContainer)
+        let rows = try context.fetch(FetchDescriptor<PersistedTrack>())
+        let persisted = try #require(rows.first)
+
+        #expect(persisted.year == nil)
+        #expect(persisted.releaseYear == nil)
+        #expect(persisted.yearBeforeMGU == 0)
+        #expect(persisted.yearSetByMGU == 0)
     }
 
     @Test("Applied change persistence fails when the track is missing")

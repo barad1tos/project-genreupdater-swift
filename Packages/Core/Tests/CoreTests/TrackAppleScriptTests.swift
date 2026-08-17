@@ -190,7 +190,7 @@ struct TrackAppleScriptTests {
         #expect(track?.year == 2023)
     }
 
-    @Test("Zero year parses as 0 (callers decide validity)")
+    @Test("Zero year parses as missing")
     func parseZeroYear() {
         let fields = [
             "1", "Song", "Artist", "", "Album",
@@ -199,7 +199,7 @@ struct TrackAppleScriptTests {
         let raw = fields.joined(separator: fs)
         let track = Track.fromAppleScriptOutput(raw)
 
-        #expect(track?.year == 0)
+        #expect(track?.year == nil)
     }
 
     @Test("Non-numeric year parses as nil")
@@ -227,6 +227,19 @@ struct TrackAppleScriptTests {
 
         #expect(track?.year == 2023)
         #expect(track?.releaseYear == 2020)
+    }
+
+    @Test("Zero release year parses as missing")
+    func parseMissingReleaseYear() {
+        let fields = [
+            "1", "Song", "Artist", "", "Album",
+            "", "", "", "", "2023", "0", "",
+        ]
+        let raw = fields.joined(separator: fs)
+        let track = Track.fromAppleScriptOutput(raw)
+
+        #expect(track?.year == 2023)
+        #expect(track?.releaseYear == nil)
     }
 
     @Test("Parses releaseYear from AppleScript date field")
