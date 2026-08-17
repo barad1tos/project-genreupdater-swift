@@ -80,10 +80,13 @@ struct RunReportTextTests {
         #expect(trackResult.proposedSummary == "1999 -> 2001")
     }
 
-    @Test("historical zero year displays as missing without rewriting audit data")
-    func displaysZeroAsMissing() throws {
+    @Test(
+        "historical zero year displays as missing without rewriting audit data",
+        arguments: [ChangeType.yearUpdate, .yearRevert]
+    )
+    func displaysOldZero(changeType: ChangeType) throws {
         var entry = ChangeLogEntry(
-            changeType: .yearUpdate,
+            changeType: changeType,
             trackID: "angel-1",
             artist: "Massive Attack",
             trackName: "Angel",
@@ -105,6 +108,35 @@ struct RunReportTextTests {
         #expect(trackResult.currentYear == nil)
         #expect(trackResult.currentMetadataSummary == "Year none")
         #expect(trackResult.proposedSummary == "none -> 2001")
+    }
+
+    @Test(
+        "new historical zero year displays as missing without rewriting audit data",
+        arguments: [ChangeType.yearUpdate, .yearRevert]
+    )
+    func displaysNewZero(changeType: ChangeType) throws {
+        var entry = ChangeLogEntry(
+            changeType: changeType,
+            trackID: "angel-1",
+            artist: "Massive Attack",
+            trackName: "Angel",
+            albumName: "Mezzanine"
+        )
+        entry.oldYear = 2001
+        entry.newYear = 0
+
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(entries: [entry], failedTrackIDs: [], errorDescriptions: []),
+            completedEntries: [],
+            trackStatuses: [:],
+            tracks: [],
+            testArtists: []
+        )
+        let trackResult = try #require(report.albumResults.first?.tracks.first)
+
+        #expect(entry.newYear == 0)
+        #expect(trackResult.currentMetadataSummary == "Year 2001")
+        #expect(trackResult.proposedSummary == "2001 -> none")
     }
 
     @Test("plain text summary respects compact and detailed display modes")

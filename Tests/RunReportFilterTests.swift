@@ -209,27 +209,44 @@ struct RunReportFilterTests {
         #expect(report.plainTextSummary.contains("Genre none -> none"))
     }
 
-    @Test("zero and missing historical years are the same report value")
-    func treatsZeroAsMissing() {
-        var entry = ChangeLogEntry(
-            changeType: .yearUpdate,
-            trackID: "year-empty",
+    @Test(
+        "zero and missing historical years are the same report value",
+        arguments: [ChangeType.yearUpdate, .yearRevert]
+    )
+    func filtersZeroNoOps(changeType: ChangeType) {
+        var zeroToMissing = ChangeLogEntry(
+            changeType: changeType,
+            trackID: "zero-to-missing",
             artist: "Massive Attack",
             trackName: "Angel",
             albumName: "Mezzanine"
         )
-        entry.oldYear = 0
-        entry.newYear = nil
+        zeroToMissing.oldYear = 0
+        zeroToMissing.newYear = nil
+        var missingToZero = ChangeLogEntry(
+            changeType: changeType,
+            trackID: "missing-to-zero",
+            artist: "Massive Attack",
+            trackName: "Teardrop",
+            albumName: "Mezzanine"
+        )
+        missingToZero.oldYear = nil
+        missingToZero.newYear = 0
 
         let report = UpdateRunReport(
-            result: BatchUpdateResult(entries: [entry], failedTrackIDs: [], errorDescriptions: []),
+            result: BatchUpdateResult(
+                entries: [zeroToMissing, missingToZero],
+                failedTrackIDs: [],
+                errorDescriptions: []
+            ),
             completedEntries: [],
             trackStatuses: [:],
             tracks: [],
             testArtists: []
         )
 
-        #expect(entry.oldYear == 0)
+        #expect(zeroToMissing.oldYear == 0)
+        #expect(missingToZero.newYear == 0)
         #expect(report.changedEntries.isEmpty)
         #expect(report.albumGroups.isEmpty)
         #expect(report.plainTextSummary.contains("No Changes"))

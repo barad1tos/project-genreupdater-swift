@@ -426,7 +426,7 @@ struct TrackDataTests {
     }
 
     @Test("Initialization durably repairs stored current zero years")
-    func repairsStoredZeroYears() async throws {
+    func repairsStoredZeros() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TrackZeroYearRepair-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -442,19 +442,30 @@ struct TrackDataTests {
         do {
             let container = try makeContainer(at: storeURL)
             let context = ModelContext(container)
-            let persisted = PersistedTrack(
+            let missingYear = PersistedTrack(
                 trackID: "T001",
                 name: "Angel",
                 artist: "Massive Attack",
                 album: "Mezzanine",
                 year: 1998,
-                yearBeforeMGU: 0,
-                yearSetByMGU: 0,
+                yearBeforeMGU: 1996,
+                yearSetByMGU: 2003,
                 releaseYear: 1998
             )
-            context.insert(persisted)
-            persisted.year = 0
-            persisted.releaseYear = 0
+            let missingReleaseYear = PersistedTrack(
+                trackID: "T002",
+                name: "Teardrop",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                year: 2004,
+                yearBeforeMGU: 1997,
+                yearSetByMGU: 2004,
+                releaseYear: 2007
+            )
+            context.insert(missingYear)
+            context.insert(missingReleaseYear)
+            missingYear.year = 0
+            missingReleaseYear.releaseYear = 0
             try context.save()
         }
 
@@ -466,12 +477,18 @@ struct TrackDataTests {
         let relaunchedContainer = try makeContainer(at: storeURL)
         let context = ModelContext(relaunchedContainer)
         let rows = try context.fetch(FetchDescriptor<PersistedTrack>())
-        let persisted = try #require(rows.first)
+        let rowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.trackID, $0) })
+        let repairedYear = try #require(rowsByID["T001"])
+        let repairedReleaseYear = try #require(rowsByID["T002"])
 
-        #expect(persisted.year == nil)
-        #expect(persisted.releaseYear == nil)
-        #expect(persisted.yearBeforeMGU == 0)
-        #expect(persisted.yearSetByMGU == 0)
+        #expect(repairedYear.year == nil)
+        #expect(repairedYear.releaseYear == 1998)
+        #expect(repairedYear.yearBeforeMGU == 1996)
+        #expect(repairedYear.yearSetByMGU == 2003)
+        #expect(repairedReleaseYear.year == 2004)
+        #expect(repairedReleaseYear.releaseYear == nil)
+        #expect(repairedReleaseYear.yearBeforeMGU == 1997)
+        #expect(repairedReleaseYear.yearSetByMGU == 2004)
     }
 
     @Test("Applied change persistence fails when the track is missing")
