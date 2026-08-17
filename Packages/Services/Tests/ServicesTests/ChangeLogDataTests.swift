@@ -44,6 +44,21 @@ struct ChangeLogDataTests {
         #expect(loaded.first?.runID == runID)
     }
 
+    @Test("Year-revert audit preserves the Music.app empty-year sentinel")
+    func roundTripsYearClear() async throws {
+        let store = try makeStore()
+        var entry = makeEntry(changeType: .yearRevert)
+        entry.oldYear = 2019
+        entry.newYear = MusicAppYear.missingValue
+
+        try await store.saveEntry(entry)
+        let loaded = try #require(try await store.loadAll().first)
+
+        #expect(loaded.changeType == .yearRevert)
+        #expect(loaded.oldYear == 2019)
+        #expect(loaded.newYear == MusicAppYear.missingValue)
+    }
+
     @Test("Legacy JSON without a run key decodes with nil attribution")
     func legacyJSONDecodesWithoutRunID() throws {
         let legacy = Data("""

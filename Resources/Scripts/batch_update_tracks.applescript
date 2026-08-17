@@ -13,6 +13,11 @@
 --   3. No size increase (URL-encoding can 3x string length)
 --   4. Proven pattern (fetch_tracks handles 37k+ tracks this way)
 
+on isYearAllowed(propValueInt, maxValidYear)
+    set missingYearValue to 0
+    return propValueInt is missingYearValue or (propValueInt ≥ 1900 and propValueInt ≤ maxValidYear)
+end isYearAllowed
+
 on run argv
     if (count of argv) is 0 then
         return "Error: No update string provided."
@@ -59,7 +64,7 @@ on run argv
                         else if propName is "year" then
                             set propValueInt to propValue as integer
                             -- Validate year range
-                            if propValueInt < 1900 or propValueInt > maxValidYear then
+                            if not my isYearAllowed(propValueInt, maxValidYear) then
                                 log "Year " & propValue & " out of range for track " & trackID
                             else
                                 set year of the_track to propValueInt

@@ -70,6 +70,11 @@ on normalizePropertyName(propName)
 	return lowered
 end normalizePropertyName
 
+on isYearAllowed(propValueInt, maxValidYear)
+    set missingYearValue to 0
+    return propValueInt is missingYearValue or (propValueInt ≥ 1900 and propValueInt ≤ maxValidYear)
+end isYearAllowed
+
 on run argv
     try
         -- Validate arguments
@@ -167,8 +172,8 @@ on run argv
                             set propValueInt to propValue as integer
                             -- Soft validation: reject obviously invalid years
                             -- Allow future years (up to +2 years) for pre-releases and scheduled albums
-                            if propValueInt < 1900 or propValueInt > maxValidYear then
-                                return "Error: Year value '" & propValueInt & "' is out of reasonable range (1900-" & maxValidYear & ")"
+                            if not my isYearAllowed(propValueInt, maxValidYear) then
+                                return "Error: Year value '" & propValueInt & "' must be 0 or within the reasonable range (1900-" & maxValidYear & ")"
                             end if
                             set year of trackRef to propValueInt
                         on error yearErr

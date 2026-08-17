@@ -238,6 +238,32 @@ struct AppleScriptPayloadTests {
         }
     }
 
+    @Test("Batch verification accepts Music.app's empty-year sentinel")
+    func verifiesMissingYear() throws {
+        let missingYear = TrackPropertyUpdate(
+            trackID: "101",
+            property: "year",
+            value: String(MusicAppYear.missingValue)
+        )
+        let invalidYear = TrackPropertyUpdate(
+            trackID: "101",
+            property: "year",
+            value: "-1"
+        )
+        let refreshedTrack = Track(
+            id: "101",
+            name: "American Sleep",
+            artist: "Clutch",
+            album: "Pure Rock Fury",
+            year: nil
+        )
+
+        try AppleScriptBridge.verifyBatchUpdateValues([missingYear], in: [refreshedTrack])
+        #expect(throws: AppleScriptBatchVerificationError.self) {
+            try AppleScriptBridge.verifyBatchUpdateValues([invalidYear], in: [refreshedTrack])
+        }
+    }
+
     @Test("Batch update argv preserves direct metadata payloads")
     func batchUpdateArgvPreservesDirectMetadataPayloads() throws {
         let value = #"Паліндром / Альбом, Частина & "Live"\Raw (EP) [Single]"#
@@ -249,6 +275,19 @@ struct AppleScriptPayloadTests {
             .map(String.init)
 
         #expect(fields == [#"T"1"#, "genre", value])
+    }
+
+    @Test("Batch year-clear payload preserves the Music.app sentinel")
+    func preservesYearClear() throws {
+        let missingValue = String(MusicAppYear.missingValue)
+        let argument = try AppleScriptBridge.makeBatchUpdateArgument([
+            TrackPropertyUpdate(trackID: "101", property: "year", value: missingValue)
+        ])
+        let fields = argument
+            .split(separator: Track.fieldSeparator, omittingEmptySubsequences: false)
+            .map(String.init)
+
+        #expect(fields == ["101", "year", "0"])
     }
 
     @Test("Batch update argv rejects reserved separators and unknown properties")
