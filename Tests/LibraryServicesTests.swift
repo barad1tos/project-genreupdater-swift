@@ -1,4 +1,5 @@
 import Core
+import CryptoKit
 import Foundation
 import Services
 import SwiftData
@@ -151,6 +152,63 @@ struct LibraryServicesTests {
         #expect(persistedTrack.year == 2004)
         #expect(persistedTrack.albumArtist == "Clutch")
         #expect(persistedTrack.trackStatus == TrackKind.purchased.rawValue)
+    }
+
+    @Test("A legacy zero-year snapshot rebuilds once and loads canonically after relaunch")
+    func rebuildsZeroSnapshot() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySnapshotUpgrade-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { removeStoreDirectory(directory) }
+        let cachePath = directory.appendingPathComponent("cache.sqlite").path
+        let configuration = LibrarySnapshotConfig()
+        let snapshotDate = Date(timeIntervalSince1970: 1_800_000_000)
+        let provider = SnapshotRebuildProvider()
+
+        do {
+            let cache = try GRDBCacheService(databasePath: cachePath)
+            try await cache.initialize()
+            let snapshotService = try await seedLegacySnapshot(
+                cache: cache,
+                configuration: configuration,
+                date: snapshotDate
+            )
+            let dependencies = try makeDependencies(
+                trackStore: TrackDataStore.createInMemory(),
+                snapshotService: snapshotService
+            )
+            dependencies.installTestLibraryReadProvider(provider)
+
+            await dependencies.loadLibrary()
+
+            #expect(await provider.loadCount() == 1)
+            #expect(dependencies.libraryTracks.first?.year == nil)
+            #expect(dependencies.libraryTracks.first?.releaseYear == nil)
+            let rebuilt = try #require(try await snapshotService.loadSnapshot()?.first)
+            #expect(rebuilt.year == nil)
+            #expect(rebuilt.releaseYear == nil)
+        }
+
+        do {
+            let cache = try GRDBCacheService(databasePath: cachePath)
+            try await cache.initialize()
+            let snapshotService = CachedLibrarySnapshotService(
+                cache: cache,
+                configuration: configuration,
+                currentDate: { snapshotDate }
+            )
+            let dependencies = try makeDependencies(
+                trackStore: TrackDataStore.createInMemory(),
+                snapshotService: snapshotService
+            )
+
+            await dependencies.loadLibrary()
+
+            let cachedTrack = try #require(dependencies.libraryTracks.first)
+            #expect(cachedTrack.year == nil)
+            #expect(cachedTrack.releaseYear == nil)
+            #expect(await provider.loadCount() == 1)
+        }
     }
 
     @Test("A mirror read failure blocks a partial MusicKit load")
@@ -511,7 +569,10 @@ struct LibraryServicesTests {
 }
 
 @MainActor
-private func makeDependencies(trackStore: TrackDataStore) -> AppDependencies {
+private func makeDependencies(
+    trackStore: TrackDataStore,
+    snapshotService: any LibrarySnapshotService = SnapshotServiceSpy()
+) -> AppDependencies {
     let dependencies = AppDependencies(
         configurationLoader: { AppConfiguration() },
         configurationSaver: { _ in
@@ -520,7 +581,7 @@ private func makeDependencies(trackStore: TrackDataStore) -> AppDependencies {
     )
     dependencies.configureLibraryPersistenceForTesting(
         trackStore: trackStore,
-        librarySnapshotService: SnapshotServiceSpy(),
+        librarySnapshotService: snapshotService,
         runRecordStore: RunRecordStoreStub()
     )
     return dependencies
@@ -566,6 +627,76 @@ private actor GenreReadProvider: LibraryReadProvider {
             ),
         ], scannedAt: Date(timeIntervalSince1970: 200))
     }
+}
+
+private actor SnapshotRebuildProvider: LibraryReadProvider {
+    private var count = 0
+
+    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        count += 1
+        return LibraryReadSnapshot(tracks: [
+            Core.Track(
+                id: "T1",
+                name: "Angel",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                year: 0,
+                releaseYear: 0
+            ),
+        ], scannedAt: Date(timeIntervalSince1970: 1_800_000_000))
+    }
+
+    func loadCount() -> Int {
+        count
+    }
+}
+
+private struct LegacySnapshotTrack: Codable, Sendable {
+    let id: String
+    let name: String
+    let artist: String
+    let album: String
+    let year: Int
+    let releaseYear: Int
+}
+
+private func seedLegacySnapshot(
+    cache: GRDBCacheService,
+    configuration: LibrarySnapshotConfig,
+    date: Date
+) async throws -> CachedLibrarySnapshotService {
+    let tracks = [LegacySnapshotTrack(
+        id: "T1",
+        name: "Angel",
+        artist: "Massive Attack",
+        album: "Mezzanine",
+        year: 0,
+        releaseYear: 0
+    )]
+    let namespace = "library-snapshot:\(configuration.cacheFile)"
+    await cache.setPersistent(key: "\(namespace):tracks", value: tracks)
+    let service = CachedLibrarySnapshotService(
+        cache: cache,
+        configuration: configuration,
+        currentDate: { date }
+    )
+    try await service.updateSnapshotMetadata(LibraryCacheMetadata(
+        trackCount: tracks.count,
+        snapshotHash: legacySnapshotHash(for: tracks),
+        timestamp: date,
+        libraryModificationDate: date
+    ))
+    return service
+}
+
+private func legacySnapshotHash(for tracks: [LegacySnapshotTrack]) throws -> String {
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.outputFormatting = [.sortedKeys]
+    let data = try encoder.encode(tracks.sorted { $0.id < $1.id })
+    return SHA256.hash(data: data)
+        .map { String(format: "%02x", $0) }
+        .joined()
 }
 
 private actor FailingMirrorReadStore: TrackStateStore {

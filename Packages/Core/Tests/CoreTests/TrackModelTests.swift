@@ -193,9 +193,9 @@ struct TrackModelTests {
             trackStatus: "matched",
             originalArtist: "Metallica (Original)",
             originalAlbum: "Metallica",
-            yearBeforeMGU: 0,
-            yearSetByMGU: 1991,
-            releaseYear: 1991,
+            yearBeforeMGU: 1988,
+            yearSetByMGU: 1994,
+            releaseYear: 1990,
             originalPosition: 7,
             albumArtist: "Metallica",
             appleScriptID: "AS-42"
@@ -223,6 +223,59 @@ struct TrackModelTests {
         #expect(decoded.originalPosition == original.originalPosition)
         #expect(decoded.albumArtist == original.albumArtist)
         #expect(decoded.appleScriptID == original.appleScriptID)
+    }
+
+    @Test("Current Music.app years normalize zero without changing recovery provenance")
+    func normalizesZeroYear() {
+        var track = Track(
+            id: "track-0",
+            name: "Angel",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            year: 0,
+            yearBeforeMGU: 0,
+            yearSetByMGU: 0,
+            releaseYear: 0
+        )
+
+        #expect(track.year == nil)
+        #expect(track.releaseYear == nil)
+        #expect(track.yearBeforeMGU == 0)
+        #expect(track.yearSetByMGU == 0)
+
+        track.year = 0
+        track.releaseYear = 0
+
+        #expect(track.year == nil)
+        #expect(track.releaseYear == nil)
+    }
+
+    @Test("Legacy JSON zero year decodes as missing without changing other year fields")
+    func decodesYearSentinel() throws {
+        let identity = #"{"id":"track-0","name":"Angel","artist":"Massive Attack","album":"Mezzanine","#
+        let years = #""year":0,"releaseYear":1998,"yearBeforeMGU":1996,"yearSetByMGU":2003}"#
+        let data = Data((identity + years).utf8)
+
+        let track = try JSONDecoder().decode(Track.self, from: data)
+
+        #expect(track.year == nil)
+        #expect(track.releaseYear == 1998)
+        #expect(track.yearBeforeMGU == 1996)
+        #expect(track.yearSetByMGU == 2003)
+    }
+
+    @Test("Legacy JSON zero release year decodes as missing without changing other year fields")
+    func decodesReleaseSentinel() throws {
+        let identity = #"{"id":"track-0","name":"Angel","artist":"Massive Attack","album":"Mezzanine","#
+        let years = #""year":2003,"releaseYear":0,"yearBeforeMGU":1996,"yearSetByMGU":2004}"#
+        let data = Data((identity + years).utf8)
+
+        let track = try JSONDecoder().decode(Track.self, from: data)
+
+        #expect(track.year == 2003)
+        #expect(track.releaseYear == nil)
+        #expect(track.yearBeforeMGU == 1996)
+        #expect(track.yearSetByMGU == 2004)
     }
 
     @Test("Track equality and hash ignore AppleScript mutation metadata")

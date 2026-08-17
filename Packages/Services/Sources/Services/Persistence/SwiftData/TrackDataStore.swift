@@ -20,7 +20,8 @@ public actor TrackDataStore: TrackStateStore {
     // MARK: - Initialization
 
     public func initialize() async throws {
-        log.info("SwiftData track store initialized")
+        let repairedCount = try normalizeStoredYears()
+        log.info("SwiftData track store initialized; repaired zero-year rows: \(repairedCount, privacy: .public)")
     }
 
     // MARK: - Read Operations
@@ -128,6 +129,29 @@ public actor TrackDataStore: TrackStateStore {
             persisted.processedDate = .now
 
             try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
+    }
+
+    private func normalizeStoredYears() throws -> Int {
+        let missingValue = MusicAppYear.missingValue
+        let descriptor = FetchDescriptor<PersistedTrack>(
+            predicate: #Predicate {
+                $0.year == missingValue || $0.releaseYear == missingValue
+            }
+        )
+        let tracks = try modelContext.fetch(descriptor)
+        guard !tracks.isEmpty else { return 0 }
+
+        do {
+            for track in tracks {
+                track.year = MusicAppYear.normalized(track.year)
+                track.releaseYear = MusicAppYear.normalized(track.releaseYear)
+            }
+            try modelContext.save()
+            return tracks.count
         } catch {
             modelContext.rollback()
             throw error

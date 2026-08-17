@@ -68,7 +68,7 @@ public final class PersistedTrack {
         self.artist = artist
         self.album = album
         self.genre = genre
-        self.year = year
+        self.year = MusicAppYear.normalized(year)
         self.genreUpdated = genreUpdated
         self.yearUpdated = yearUpdated
         self.processedDate = processedDate
@@ -80,7 +80,7 @@ public final class PersistedTrack {
         self.originalAlbum = originalAlbum
         self.yearBeforeMGU = yearBeforeMGU
         self.yearSetByMGU = yearSetByMGU
-        self.releaseYear = releaseYear
+        self.releaseYear = MusicAppYear.normalized(releaseYear)
     }
 }
 
@@ -135,7 +135,7 @@ extension PersistedTrack {
         artist = track.artist
         album = track.album
         genre = track.genre
-        year = track.year
+        year = MusicAppYear.normalized(track.year)
         appleScriptID = track.appleScriptID ?? appleScriptID
         dateAdded = track.dateAdded
         albumArtist = track.albumArtist
@@ -144,6 +144,6 @@ extension PersistedTrack {
         originalAlbum = originalAlbum ?? track.originalAlbum
         yearBeforeMGU = yearBeforeMGU ?? track.yearBeforeMGU
         yearSetByMGU = track.yearSetByMGU ?? yearSetByMGU
-        releaseYear = track.releaseYear
+        releaseYear = MusicAppYear.normalized(track.releaseYear)
     }
 }

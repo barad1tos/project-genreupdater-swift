@@ -47,7 +47,9 @@ public struct Track: Sendable, Codable, Identifiable, Hashable {
     public var genre: String?
 
     /// Release year as determined by the app or Music.app.
-    public var year: Int?
+    public var year: Int? {
+        didSet { year = MusicAppYear.normalized(year) }
+    }
 
     /// Date the track was added to the library.
     public var dateAdded: Date?
@@ -71,7 +73,9 @@ public struct Track: Sendable, Codable, Identifiable, Hashable {
     public var yearSetByMGU: Int?
 
     /// Release year from Music.app's release date field.
-    public var releaseYear: Int?
+    public var releaseYear: Int? {
+        didSet { releaseYear = MusicAppYear.normalized(releaseYear) }
+    }
 
     /// Original position in the track list (for sort stability).
     public var originalPosition: Int?
@@ -104,7 +108,7 @@ public struct Track: Sendable, Codable, Identifiable, Hashable {
         self.artist = artist
         self.album = album
         self.genre = genre
-        self.year = year
+        self.year = MusicAppYear.normalized(year)
         self.dateAdded = dateAdded
         self.lastModified = lastModified
         self.trackStatus = trackStatus
@@ -112,9 +116,53 @@ public struct Track: Sendable, Codable, Identifiable, Hashable {
         self.originalAlbum = originalAlbum
         self.yearBeforeMGU = yearBeforeMGU
         self.yearSetByMGU = yearSetByMGU
-        self.releaseYear = releaseYear
+        self.releaseYear = MusicAppYear.normalized(releaseYear)
         self.originalPosition = originalPosition
         self.albumArtist = albumArtist
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case appleScriptID
+        case name
+        case artist
+        case album
+        case genre
+        case year
+        case dateAdded
+        case lastModified
+        case trackStatus
+        case originalArtist
+        case originalAlbum
+        case yearBeforeMGU
+        case yearSetByMGU
+        case releaseYear
+        case originalPosition
+        case albumArtist
+    }
+
+    /// Decodes persisted track data while canonicalizing Music.app's empty-year sentinel.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            id: container.decode(String.self, forKey: .id),
+            name: container.decode(String.self, forKey: .name),
+            artist: container.decode(String.self, forKey: .artist),
+            album: container.decode(String.self, forKey: .album),
+            genre: container.decodeIfPresent(String.self, forKey: .genre),
+            year: container.decodeIfPresent(Int.self, forKey: .year),
+            dateAdded: container.decodeIfPresent(Date.self, forKey: .dateAdded),
+            lastModified: container.decodeIfPresent(Date.self, forKey: .lastModified),
+            trackStatus: container.decodeIfPresent(String.self, forKey: .trackStatus),
+            originalArtist: container.decodeIfPresent(String.self, forKey: .originalArtist),
+            originalAlbum: container.decodeIfPresent(String.self, forKey: .originalAlbum),
+            yearBeforeMGU: container.decodeIfPresent(Int.self, forKey: .yearBeforeMGU),
+            yearSetByMGU: container.decodeIfPresent(Int.self, forKey: .yearSetByMGU),
+            releaseYear: container.decodeIfPresent(Int.self, forKey: .releaseYear),
+            originalPosition: container.decodeIfPresent(Int.self, forKey: .originalPosition),
+            albumArtist: container.decodeIfPresent(String.self, forKey: .albumArtist),
+            appleScriptID: container.decodeIfPresent(String.self, forKey: .appleScriptID)
+        )
     }
 
     /// Compares track content while excluding write-path enrichment metadata.

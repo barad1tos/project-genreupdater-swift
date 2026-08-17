@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import GRDB
 import Testing
@@ -6,6 +7,15 @@ import Testing
 
 @Suite("CachedLibrarySnapshotService")
 struct LibrarySnapshotCacheTests {
+    private struct LegacySnapshotTrack: Codable, Sendable {
+        let id: String
+        let name: String
+        let artist: String
+        let album: String
+        let year: Int
+        let releaseYear: Int
+    }
+
     @Test("Save and load snapshot through cache service")
     func saveAndLoadSnapshot() async throws {
         let cache = try GRDBCacheService.createInMemory()
@@ -234,6 +244,56 @@ struct LibrarySnapshotCacheTests {
         #expect(await !(service.isSnapshotValid()))
     }
 
+    @Test("Legacy zero-year snapshot is rejected and rebuilt with canonical missing years")
+    func rebuildsLegacyZeros() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let configuration = LibrarySnapshotConfig()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let service = CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: configuration,
+            currentDate: { now }
+        )
+        let legacyTracks = [
+            LegacySnapshotTrack(
+                id: "T1",
+                name: "Angel",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                year: 0,
+                releaseYear: 0
+            ),
+        ]
+        let legacyHash = try snapshotHash(for: legacyTracks)
+        let namespace = "library-snapshot:\(configuration.cacheFile)"
+        await cache.setPersistent(key: "\(namespace):tracks", value: legacyTracks)
+        try await service.updateSnapshotMetadata(LibraryCacheMetadata(
+            trackCount: legacyTracks.count,
+            snapshotHash: legacyHash,
+            timestamp: now,
+            libraryModificationDate: now
+        ))
+
+        #expect(try await service.loadSnapshot() == nil)
+
+        _ = try await service.saveSnapshot([
+            Track(
+                id: "T1",
+                name: "Angel",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                year: 0,
+                releaseYear: 0
+            ),
+        ])
+        let rebuilt = try #require(try await service.loadSnapshot())
+
+        #expect(rebuilt[0].year == nil)
+        #expect(rebuilt[0].releaseYear == nil)
+        #expect(await service.isSnapshotValid())
+    }
+
     @Test("Refreshing a snapshot persists only tracks and metadata")
     func refreshStoresOnlySnapshotState() async throws {
         let cache = try GRDBCacheService.createInMemory()
@@ -308,5 +368,15 @@ struct LibrarySnapshotCacheTests {
 
         #expect(try await service.loadSnapshot() == replacementSnapshot)
         #expect(await service.getSnapshotMetadata()?.lastForceScanDate == forceScanDate)
+    }
+
+    private func snapshotHash(for tracks: [LegacySnapshotTrack]) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(tracks.sorted { $0.id < $1.id })
+        return SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }
