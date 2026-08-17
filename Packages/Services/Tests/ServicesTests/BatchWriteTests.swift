@@ -410,6 +410,47 @@ struct BatchWriteTests {
         #expect(history.first?.newYear == MusicAppYear.missingValue)
     }
 
+    @Test("A generated batch treats an already-empty year clear as a no-op")
+    func recognizesEmptyYearClear() async throws {
+        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
+        let track = makeTrack(id: "Y1", genre: "Rock", year: nil)
+        await fixture.bridge.setFetchedTracks([track])
+        let proposals = [
+            ProposedChange(
+                track: track,
+                changeType: .yearRevert,
+                oldValue: "2019",
+                newValue: String(MusicAppYear.missingValue),
+                confidence: 100,
+                source: "undo",
+                isAccepted: true
+            ),
+            ProposedChange(
+                track: track,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library",
+                isAccepted: true
+            ),
+        ]
+        var failedTrackIDs: [String] = []
+        var errorDescriptions: [String] = []
+
+        let result = try #require(await fixture.coordinator.applyChangesAsBatchIfPossible(
+            proposals,
+            isReviewedChange: false,
+            failedTrackIDs: &failedTrackIDs,
+            errorDescriptions: &errorDescriptions
+        ))
+
+        #expect(result.entries.map(\.changeType) == [.genreUpdate])
+        #expect(result.noOpEntries.map(\.changeType) == [.yearRevert])
+        #expect(failedTrackIDs.isEmpty)
+        #expect(errorDescriptions.isEmpty)
+    }
+
     private func makeCoordinator(
         batchUpdatesEnabled: Bool,
         idMapper: (any TrackIDMapping)? = nil

@@ -198,7 +198,9 @@ extension UpdateCoordinator {
             return .written
         }
         let wasAlreadyApplied = write.updates.allSatisfy { update in
-            value(forAppleScriptProperty: update.property, in: priorTrack) == update.value
+            guard let property = AppleScriptTrackProperty(rawValue: update.property) else { return false }
+            return property.comparisonValue(value(forAppleScriptProperty: update.property, in: priorTrack))
+                == property.comparisonValue(update.value)
         }
         return wasAlreadyApplied ? .noFixNeeded : .written
     }
