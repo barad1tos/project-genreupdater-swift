@@ -174,7 +174,10 @@ struct SettingsScreen: View {
                 row("Safe mode (dry-run)", "Always preview proposed changes before any tag is written.") {
                     Toggle("", isOn: dryRunBinding).labelsHidden().tint(Ayu.accent)
                 }
-                row("Minimum year confidence", "Reject probabilistic year suggestions below this score.") {
+                row(
+                    "Minimum confidence for missing years",
+                    "Reject lower-confidence suggestions only when a track has no year."
+                ) {
                     HStack {
                         Slider(
                             value: minimumConfidenceBinding,

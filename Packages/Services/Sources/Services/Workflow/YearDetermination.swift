@@ -7,6 +7,12 @@ private struct ReleaseYearConflict {
     let verificationYear: Int
 }
 
+private struct YearDecisionContext {
+    let releaseYearConflict: ReleaseYearConflict?
+    let hasAmbiguousReleaseYearSignal: Bool
+    let missingYearThreshold: Double
+}
+
 private enum YearShortcutDecision {
     case continueToAPI
     case skip
@@ -34,7 +40,8 @@ extension UpdateCoordinator {
             track: track,
             albumTracks: albumTracks,
             forceYearLookup: forceYearLookup,
-            albumTypeInfo: albumTypeInfo
+            albumTypeInfo: albumTypeInfo,
+            missingYearThreshold: runtimeConfiguration.missingYearThreshold
         )
     }
 
@@ -43,7 +50,8 @@ extension UpdateCoordinator {
         albumTracks: [Track],
         forceYearLookup: Bool,
         albumTypeInfo: AlbumTypeInfo,
-        queryAlbum: String? = nil
+        queryAlbum: String? = nil,
+        missingYearThreshold: Double
     ) async throws -> ProposedChange? {
         guard albumTypeInfo.strategy != .markAndSkip else { return nil }
         if await shouldSkipYearPreflight(
@@ -62,13 +70,17 @@ extension UpdateCoordinator {
             for: track,
             albumTracks: albumTracks
         )
+        let context = YearDecisionContext(
+            releaseYearConflict: releaseYearConflict,
+            hasAmbiguousReleaseYearSignal: hasAmbiguousReleaseYearSignal,
+            missingYearThreshold: missingYearThreshold
+        )
 
         switch await yearShortcutDecision(
             track: track,
             albumTracks: albumTracks,
             forceYearLookup: forceYearLookup,
-            releaseYearConflict: releaseYearConflict,
-            hasAmbiguousReleaseYearSignal: hasAmbiguousReleaseYearSignal
+            context: context
         ) {
         case .continueToAPI:
             break
@@ -90,7 +102,7 @@ extension UpdateCoordinator {
             track: track,
             albumTracks: albumTracks,
             apiDetermination: apiDetermination,
-            releaseYearConflict: releaseYearConflict
+            context: context
         )
     }
 
@@ -110,8 +122,7 @@ extension UpdateCoordinator {
         track: Track,
         albumTracks: [Track],
         forceYearLookup: Bool,
-        releaseYearConflict: ReleaseYearConflict?,
-        hasAmbiguousReleaseYearSignal: Bool
+        context: YearDecisionContext
     ) async -> YearShortcutDecision {
         guard !forceYearLookup else { return .continueToAPI }
 
@@ -119,14 +130,18 @@ extension UpdateCoordinator {
             albumTracks: albumTracks,
             candidateCount: 0
         ) {
-            if let change = yearChange(track: track, determination: dominant) {
+            if let change = yearChange(
+                track: track,
+                determination: dominant,
+                missingYearThreshold: context.missingYearThreshold
+            ) {
                 return .change(change)
             }
             let contextTracks = albumContextTracks(track: track, albumTracks: albumTracks)
             if let dominantYear = dominant.yearResult.year,
                contextTracks.count > 1,
-               releaseYearConflict == nil,
-               !hasAmbiguousReleaseYearSignal,
+               context.releaseYearConflict == nil,
+               !context.hasAmbiguousReleaseYearSignal,
                !contextTracks.contains(where: { $0.yearSetByMGU != nil }),
                !requiresAPIVerificationForRecentYearWithoutReleaseSignal(
                    dominantYear,
@@ -142,14 +157,13 @@ extension UpdateCoordinator {
             track: track,
             albumTracks: albumTracks,
             entry: cachedAlbumYear,
-            releaseYearConflict: releaseYearConflict,
-            hasAmbiguousReleaseYearSignal: hasAmbiguousReleaseYearSignal
+            context: context
         ) {
             return decision
         }
 
-        if releaseYearConflict == nil,
-           !hasAmbiguousReleaseYearSignal,
+        if context.releaseYearConflict == nil,
+           !context.hasAmbiguousReleaseYearSignal,
            shouldSkipYearLookupFromUncachedConsistentAlbumYear(
                track: track,
                albumTracks: albumTracks,
@@ -158,11 +172,12 @@ extension UpdateCoordinator {
             return .skip
         }
 
-        if releaseYearConflict == nil,
+        if context.releaseYearConflict == nil,
            let decision = await consensusDecision(
                track: track,
                albumTracks: albumTracks,
-               cachedEntry: cachedAlbumYear
+               cachedEntry: cachedAlbumYear,
+               missingYearThreshold: context.missingYearThreshold
            ) {
             return decision
         }
@@ -188,12 +203,11 @@ extension UpdateCoordinator {
         track: Track,
         albumTracks: [Track],
         entry: AlbumCacheEntry?,
-        releaseYearConflict: ReleaseYearConflict?,
-        hasAmbiguousReleaseYearSignal: Bool
+        context: YearDecisionContext
     ) -> YearShortcutDecision? {
         let isTrusted = isTrustedCacheEntry(entry)
-        if releaseYearConflict == nil,
-           !hasAmbiguousReleaseYearSignal || isTrusted,
+        if context.releaseYearConflict == nil,
+           !context.hasAmbiguousReleaseYearSignal || isTrusted,
            shouldSkipYearLookupFromCachedAlbumYear(
                track: track,
                albumTracks: albumTracks,
@@ -206,7 +220,8 @@ extension UpdateCoordinator {
         if let cachedChange = yearChangeFromCached(
             track: track,
             entry: entry,
-            requiredYear: releaseYearConflict?.verificationYear
+            missingYearThreshold: context.missingYearThreshold,
+            requiredYear: context.releaseYearConflict?.verificationYear
         ) {
             return .change(cachedChange)
         }
@@ -221,7 +236,8 @@ extension UpdateCoordinator {
     private func consensusDecision(
         track: Track,
         albumTracks: [Track],
-        cachedEntry: AlbumCacheEntry?
+        cachedEntry: AlbumCacheEntry?,
+        missingYearThreshold: Double
     ) async -> YearShortcutDecision? {
         guard let consensus = yearDeterminator.consensusDetermination(
             albumTracks: albumTracks,
@@ -242,7 +258,11 @@ extension UpdateCoordinator {
             )
         }
 
-        if let change = yearChange(track: track, determination: consensus) {
+        if let change = yearChange(
+            track: track,
+            determination: consensus,
+            missingYearThreshold: missingYearThreshold
+        ) {
             return .change(change)
         }
         return year == track.year ? .skip : nil
@@ -437,7 +457,7 @@ extension UpdateCoordinator {
         track: Track,
         albumTracks: [Track],
         apiDetermination: (yearResult: YearResult, sourceLabel: String),
-        releaseYearConflict: ReleaseYearConflict?
+        context: YearDecisionContext
     ) async -> ProposedChange? {
         guard let year = apiDetermination.yearResult.year else {
             return nil
@@ -450,7 +470,11 @@ extension UpdateCoordinator {
             )
             return nil
         }
-        guard Double(apiDetermination.yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence else {
+        guard YearConfidencePolicy.allows(
+            existingYear: track.year,
+            confidence: apiDetermination.yearResult.confidence,
+            threshold: context.missingYearThreshold
+        ) else {
             return nil
         }
         if !apiDetermination.yearResult.isDefinitive,
@@ -462,7 +486,7 @@ extension UpdateCoordinator {
            ) {
             return releaseYearChange
         }
-        if let releaseYearConflict, releaseYearConflict.verificationYear != year {
+        if let releaseYearConflict = context.releaseYearConflict, releaseYearConflict.verificationYear != year {
             return nil
         }
 
@@ -535,12 +559,17 @@ extension UpdateCoordinator {
     private func yearChangeFromCached(
         track: Track,
         entry: AlbumCacheEntry?,
+        missingYearThreshold: Double,
         requiredYear: Int? = nil
     ) -> ProposedChange? {
         guard let entry,
               let year = entry.year,
               year != track.year,
-              Double(entry.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence
+              YearConfidencePolicy.allows(
+                  existingYear: track.year,
+                  confidence: entry.confidence,
+                  threshold: missingYearThreshold
+              )
         else {
             return nil
         }
@@ -560,13 +589,18 @@ extension UpdateCoordinator {
 
     private func yearChange(
         track: Track,
-        determination: YearDeterminationResult
+        determination: YearDeterminationResult,
+        missingYearThreshold: Double
     ) -> ProposedChange? {
         let yearResult = determination.yearResult
 
-        guard Double(yearResult.confidence) >= runtimeConfiguration.minimumYearUpdateConfidence,
-              let year = yearResult.year,
-              year != track.year
+        guard YearConfidencePolicy.allows(
+            existingYear: track.year,
+            confidence: yearResult.confidence,
+            threshold: missingYearThreshold
+        ),
+            let year = yearResult.year,
+            year != track.year
         else {
             return nil
         }

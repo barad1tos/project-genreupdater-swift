@@ -277,8 +277,8 @@ struct WriteFailureTests {
         }
     }
 
-    @Test("Confidence filter removes low-confidence changes")
-    func confidenceFilterRemovesLow() async throws {
+    @Test("Confidence filter removes low-confidence missing-year changes")
+    func rejectsWeakYearFill() async throws {
         let bridge = MockAppleScriptClient()
         let store = MockTrackStore()
         let cache = MockCacheService()
@@ -315,7 +315,7 @@ struct WriteFailureTests {
 
         let track = Track(
             id: "T1", name: "Song", artist: "Artist", album: "Album",
-            year: 1969, trackStatus: nil
+            year: nil, trackStatus: nil
         )
 
         let changes = try await coordinator.updateTrack(
@@ -328,7 +328,7 @@ struct WriteFailureTests {
             dryRun: true
         )
 
-        // The low-confidence change (30) should be filtered out by minConfidence (60)
+        // The low-confidence missing-year change (30) should be filtered out by minConfidence (60).
         #expect(changes.isEmpty)
     }
 }

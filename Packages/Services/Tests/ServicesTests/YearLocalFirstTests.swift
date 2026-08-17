@@ -75,8 +75,11 @@ struct YearLocalFirstTests {
     }
 
     @Test("Repairs a valid outlier year from the album dominant without an API result")
-    func repairsValidOutlierFromDominantWithoutAPI() async throws {
-        let coordinator = await makeCoordinator()
+    func repairsDominantOutlier() async throws {
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: .init(missingYearThreshold: 95)
+        )
+        let coordinator = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
 
         let outlier = albumTrack(id: "MK-zabuty", name: "Забути", year: 2024, releaseYear: 2026)
         let consistent = (1 ... 6).map {
@@ -94,6 +97,82 @@ struct YearLocalFirstTests {
         #expect(yearChange.changeType == .yearUpdate)
         #expect(yearChange.oldValue == "2024")
         #expect(yearChange.newValue == "2026")
+    }
+
+    @Test("Missing-year threshold does not suppress a single-provider API correction")
+    func allowsAPICorrection() async throws {
+        let apiProbe = APIRequestProbe()
+        let apiResult = YearResult(
+            year: 2020,
+            isDefinitive: true,
+            confidence: 90,
+            yearScores: [2020: 90]
+        )
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: .init(missingYearThreshold: 95)
+        )
+        let coordinator = await makeCoordinator(
+            apiProbe: apiProbe,
+            apiYearResult: apiResult,
+            runtimeConfiguration: runtimeConfiguration
+        )
+        let track = albumTrack(id: "MK-existing", name: "Existing", year: 1969, releaseYear: nil)
+
+        let change = try await coordinator.determineYearChange(
+            track: track,
+            albumTracks: [track],
+            forceYearLookup: false
+        )
+
+        let yearChange = try #require(change)
+        #expect(yearChange.newValue == "2020")
+        #expect(yearChange.source == "API")
+    }
+
+    @Test("Missing-year threshold still rejects a weak fill")
+    func rejectsWeakFill() async throws {
+        let apiProbe = APIRequestProbe()
+        let apiResult = YearResult(
+            year: 2020,
+            isDefinitive: true,
+            confidence: 90,
+            yearScores: [2020: 90]
+        )
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: .init(missingYearThreshold: 95)
+        )
+        let coordinator = await makeCoordinator(
+            apiProbe: apiProbe,
+            apiYearResult: apiResult,
+            runtimeConfiguration: runtimeConfiguration
+        )
+        let track = albumTrack(id: "MK-missing", name: "Missing", year: nil, releaseYear: nil)
+
+        let change = try await coordinator.determineYearChange(
+            track: track,
+            albumTracks: [track],
+            forceYearLookup: false
+        )
+
+        #expect(change == nil)
+    }
+
+    @Test("Zero year is treated as missing for the confidence threshold")
+    func rejectsWeakFillForZeroYear() async throws {
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: .init(missingYearThreshold: 95)
+        )
+        let coordinator = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
+        let track = albumTrack(id: "MK-zero", name: "Zero", year: 0, releaseYear: 1970)
+        let peer = albumTrack(id: "MK-peer", name: "Peer", year: nil, releaseYear: 1970)
+
+        let change = try await coordinator.determineYearChange(
+            track: track,
+            albumTracks: [track, peer],
+            forceYearLookup: false
+        )
+
+        #expect(change == nil)
     }
 
     @Test("Does not repair when the album year signal is ambiguous")

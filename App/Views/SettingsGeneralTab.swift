@@ -67,7 +67,8 @@ struct GeneralTab: View {
 
             VStack(alignment: .leading) {
                 Text(
-                    "Minimum year confidence: \(Int(dependencies.config.yearRetrieval.logic.minConfidenceForNewYear))%"
+                    "Minimum confidence for missing years: "
+                        + "\(Int(dependencies.config.yearRetrieval.logic.minConfidenceForNewYear))%"
                 )
                 Slider(value: confidenceBinding, in: 0 ... 100, step: 5)
             }

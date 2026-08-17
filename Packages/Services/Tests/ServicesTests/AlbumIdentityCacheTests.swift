@@ -96,7 +96,6 @@ extension AlbumIdentityFlowTests {
         )
         let runtimeConfiguration = UpdateRuntimeConfiguration(
             policies: .init(
-                minimumYearUpdateConfidence: 95,
                 cacheTrustThreshold: 90
             )
         )
@@ -120,7 +119,7 @@ extension AlbumIdentityFlowTests {
         let changes = try await coordinator.updateTrack(
             target,
             albumTracks: [target, peer],
-            options: UpdateOptions(updateGenre: false, updateYear: true),
+            options: UpdateOptions(updateGenre: false, updateYear: true, minConfidence: 95),
             dryRun: true
         )
         let cachedEntry = await cache.getAlbumYear(

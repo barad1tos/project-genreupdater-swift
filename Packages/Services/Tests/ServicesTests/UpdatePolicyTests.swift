@@ -13,7 +13,7 @@ extension UpdateCoordinatorTests {
 
         let runtimeConfiguration = UpdateRuntimeConfiguration(
             policies: UpdateRuntimeConfiguration.Policies(
-                minimumYearUpdateConfidence: 30,
+                missingYearThreshold: 30,
                 albumTypeDetection: albumTypeDetection
             )
         )
@@ -39,7 +39,7 @@ extension UpdateCoordinatorTests {
             year: 2024,
             confidence: 95,
             runtimeConfiguration: UpdateRuntimeConfiguration(
-                policies: UpdateRuntimeConfiguration.Policies(minimumYearUpdateConfidence: 30)
+                policies: UpdateRuntimeConfiguration.Policies(missingYearThreshold: 30)
             )
         )
         let track = makeEditableTrack(album: "Session Archive", year: 1999)
@@ -58,7 +58,7 @@ extension UpdateCoordinatorTests {
         await fixture.coordinator.updateRuntimeConfiguration(
             UpdateRuntimeConfiguration(
                 policies: UpdateRuntimeConfiguration.Policies(
-                    minimumYearUpdateConfidence: 30,
+                    missingYearThreshold: 30,
                     albumTypeDetection: albumTypeDetection
                 )
             ),
@@ -73,13 +73,13 @@ extension UpdateCoordinatorTests {
         #expect(afterUpdate.allSatisfy { $0.changeType != .yearUpdate })
     }
 
-    @Test("Configured year confidence skips trusted cache below the update threshold")
-    func configuredYearConfidenceSkipsCacheBelowUpdateThreshold() async throws {
+    @Test("Missing-year threshold does not suppress a trusted cache correction")
+    func allowsTrustedCacheCorrection() async throws {
         let cache = MockCacheService()
         await cache.storeAlbumYear(artist: "Beatles", album: "Abbey Road", year: 1970, confidence: 90)
 
         let runtimeConfiguration = UpdateRuntimeConfiguration(
-            policies: UpdateRuntimeConfiguration.Policies(minimumYearUpdateConfidence: 95)
+            policies: UpdateRuntimeConfiguration.Policies(missingYearThreshold: 95)
         )
         let fixture = await makeCoordinator(
             year: 2020,
@@ -96,8 +96,8 @@ extension UpdateCoordinatorTests {
         )
 
         let yearChange = changes.first { $0.changeType == .yearUpdate }
-        #expect(yearChange?.newValue == "2020")
-        #expect(yearChange?.source == "Definitive")
+        #expect(yearChange?.newValue == "1970")
+        #expect(yearChange?.source == "Cache")
     }
 
     @Test("Cached year match skips lookup regardless of cache confidence")
@@ -106,7 +106,7 @@ extension UpdateCoordinatorTests {
         await cache.storeAlbumYear(artist: "Beatles", album: "Abbey Road", year: 1969, confidence: 70)
 
         let runtimeConfiguration = UpdateRuntimeConfiguration(
-            policies: UpdateRuntimeConfiguration.Policies(minimumYearUpdateConfidence: 80)
+            policies: UpdateRuntimeConfiguration.Policies(missingYearThreshold: 80)
         )
         let fixture = await makeCoordinator(
             year: 2020,
@@ -130,7 +130,7 @@ extension UpdateCoordinatorTests {
         let cache = MockCacheService()
         let runtimeConfiguration = UpdateRuntimeConfiguration(
             policies: UpdateRuntimeConfiguration.Policies(
-                minimumYearUpdateConfidence: 30,
+                missingYearThreshold: 30,
                 minimumConfidenceToCache: 95
             )
         )
@@ -160,7 +160,7 @@ extension UpdateCoordinatorTests {
         let runtimeConfiguration = UpdateRuntimeConfiguration(
             policies: UpdateRuntimeConfiguration.Policies(
                 isYearLookupEnabled: false,
-                minimumYearUpdateConfidence: 30
+                missingYearThreshold: 30
             )
         )
         let fixture = await makeCoordinator(

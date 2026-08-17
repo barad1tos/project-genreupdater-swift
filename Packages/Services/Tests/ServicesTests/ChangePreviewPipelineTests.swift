@@ -55,6 +55,50 @@ struct ChangePreviewPipelineTests {
         }
     }
 
+    @Test("Filter keeps a low-confidence correction when the track already has a year")
+    func keepsExistingCorrection() {
+        let existingYearTrack = Track(
+            id: "existing-year",
+            name: "Come Together",
+            artist: "Beatles",
+            album: "Abbey Road",
+            year: 1969
+        )
+        let change = makeChange(
+            track: existingYearTrack,
+            changeType: .yearUpdate,
+            oldValue: "1969",
+            newValue: "1970",
+            confidence: 30
+        )
+
+        let filtered = pipeline.filter(changes: [change], minConfidence: 60)
+
+        #expect(filtered.map(\.id) == [change.id])
+    }
+
+    @Test("Filter treats a zero year as missing")
+    func filtersZeroYearFill() {
+        let zeroYearTrack = Track(
+            id: "zero-year",
+            name: "Come Together",
+            artist: "Beatles",
+            album: "Abbey Road",
+            year: 0
+        )
+        let change = makeChange(
+            track: zeroYearTrack,
+            changeType: .yearUpdate,
+            oldValue: "0",
+            newValue: "1970",
+            confidence: 30
+        )
+
+        let filtered = pipeline.filter(changes: [change], minConfidence: 60)
+
+        #expect(filtered.isEmpty)
+    }
+
     @Test("Filter preserves deterministic metadata changes below the year threshold")
     func preservesNonYearChanges() {
         let changes = [
