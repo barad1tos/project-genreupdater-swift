@@ -15,22 +15,18 @@ struct AppleScriptYearPolicyTests {
         }
     }
 
-    private func evaluateYearPolicy(_ scriptName: String, year: Int) throws -> Bool {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AppleScriptYearPolicyTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer {
-            do {
-                try FileManager.default.removeItem(at: directory)
-            } catch {
-                Issue.record("Failed to remove AppleScript policy fixture: \(error)")
-            }
+    @Test("Bundled year writers wire the policy into the write branch")
+    func wiresPolicy() throws {
+        for scriptName in ["update_property", "batch_update_tracks"] {
+            let source = try scriptSource(scriptName)
+            #expect(source.contains("if not my isYearAllowed(propValueInt, maxValidYear) then"))
         }
+    }
 
-        let source = repositoryRoot
-            .appendingPathComponent("Resources/Scripts")
-            .appendingPathComponent("\(scriptName).applescript")
-        let sourceText = try String(contentsOf: source, encoding: .utf8)
+    private func evaluateYearPolicy(_ scriptName: String, year: Int) throws -> Bool {
+        let directory = try temporaryDirectory(for: scriptName)
+        defer { removeDirectory(directory) }
+        let sourceText = try scriptSource(scriptName)
         let handler = try yearPolicyHandler(in: sourceText, scriptName: scriptName)
         let policySource = directory.appendingPathComponent("\(scriptName)-year-policy.applescript")
         let compiled = directory.appendingPathComponent("\(scriptName).scpt")
@@ -39,6 +35,31 @@ struct AppleScriptYearPolicyTests {
         _ = try run("/usr/bin/osacompile", arguments: ["-o", compiled.path, policySource.path])
         let output = try run("/usr/bin/osascript", arguments: [compiled.path])
         return output.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+    }
+
+    private func scriptSource(_ scriptName: String) throws -> String {
+        try String(contentsOf: scriptURL(scriptName), encoding: .utf8)
+    }
+
+    private func scriptURL(_ scriptName: String) -> URL {
+        repositoryRoot
+            .appendingPathComponent("Resources/Scripts")
+            .appendingPathComponent("\(scriptName).applescript")
+    }
+
+    private func temporaryDirectory(for scriptName: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppleScriptYearPolicyTests-\(scriptName)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func removeDirectory(_ directory: URL) {
+        do {
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            Issue.record("Failed to remove AppleScript policy fixture: \(error)")
+        }
     }
 
     private func yearPolicyHandler(in source: String, scriptName: String) throws -> String {

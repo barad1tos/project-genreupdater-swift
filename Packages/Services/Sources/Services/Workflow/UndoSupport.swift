@@ -1,7 +1,49 @@
 import Core
 import Foundation
 
+private struct YearCheckpointPayload: Codable {
+    let entry: ChangeLogEntry
+    let phase: BackupRestorePhase
+    let historyEntryID: UUID?
+    let recoveryOriginYear: Int?
+}
+
 extension UndoCoordinator {
+    func yearRevertChange(
+        for historyEntry: ChangeLogEntry,
+        context: (change: ProposedChange, oldestEntry: ChangeLogEntry?),
+        targetYear: Int
+    ) -> ProposedChange {
+        ProposedChange(
+            id: context.change.id,
+            track: context.change.track,
+            changeType: .yearRevert,
+            oldValue: historyEntry.newYear.map(String.init),
+            newValue: String(targetYear),
+            confidence: context.change.confidence,
+            source: context.change.source
+        )
+    }
+
+    func recoveryWriteID(for trackID: String) async throws -> String {
+        if let mappedID = await idMapper?.appleScriptID(forMusicKitID: trackID) {
+            return mappedID
+        }
+        do {
+            if let storedID = try await trackStore?.getTrack(byID: trackID)?.appleScriptID {
+                return storedID
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw UndoCoordinatorError.recoveryStorageFailed(trackID: trackID)
+        }
+        guard idMapper == nil else {
+            throw UndoCoordinatorError.missingAppleScriptID(trackID: trackID)
+        }
+        return trackID
+    }
+
     func mutationContext(for track: Track) async throws -> (track: Track, writeID: String) {
         let mutationTrack: Track
         if let idMapper {
@@ -90,18 +132,12 @@ extension UndoCoordinator {
             metadata: (phase: BackupRestorePhase, historyEntryID: UUID?, originYear: Int?)
         )? = nil,
         shouldRemove: Bool = false,
+        purpose: YearCheckpointPurpose = .backupRestore,
         effect: String = "backup recovery checkpoint"
     ) throws -> (
         entry: ChangeLogEntry,
         metadata: (phase: BackupRestorePhase, historyEntryID: UUID?, originYear: Int?)
     )? {
-        struct Payload: Codable {
-            let entry: ChangeLogEntry
-            let phase: BackupRestorePhase
-            let historyEntryID: UUID?
-            let recoveryOriginYear: Int?
-        }
-
         if !shouldRemove, checkpoint == nil, !fileManager.fileExists(atPath: backupCheckpointURL.path) {
             return nil
         }
@@ -114,7 +150,7 @@ extension UndoCoordinator {
                 try fileManager.createDirectory(
                     at: backupCheckpointURL.deletingLastPathComponent(), withIntermediateDirectories: true
                 )
-                let payload = Payload(
+                let payload = YearCheckpointPayload(
                     entry: checkpoint.entry,
                     phase: checkpoint.metadata.phase,
                     historyEntryID: checkpoint.metadata.historyEntryID,
@@ -127,34 +163,47 @@ extension UndoCoordinator {
             }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            let payload = try decoder.decode(Payload.self, from: Data(contentsOf: backupCheckpointURL))
-            if let targetYear {
-                guard payload.historyEntryID == nil,
-                      payload.entry.changeType == .yearRevert,
-                      payload.entry.trackID == trackID,
-                      payload.entry.newYear == targetYear
-                else {
-                    throw UpdateCoordinatorError.writeFinalizationFailed(
-                        trackID: payload.entry.trackID, effects: ["prior backup recovery checkpoint"]
-                    )
-                }
-                guard payload.phase != .dispatchedUnknown else {
-                    throw UpdateCoordinatorError.writeFinalizationFailed(
-                        trackID: trackID, effects: ["ambiguous backup write outcome"]
-                    )
-                }
-                let expectedYear = payload.phase == .prepared ? payload.entry.oldYear : targetYear
-                guard observedYear == expectedYear else {
-                    throw UpdateCoordinatorError.writeFinalizationFailed(
-                        trackID: trackID, effects: ["stale backup recovery checkpoint"]
-                    )
-                }
-            }
+            let payload = try decoder.decode(YearCheckpointPayload.self, from: Data(contentsOf: backupCheckpointURL))
+            try validateBackupCheckpoint(payload, trackID: trackID, targetYear: targetYear, observedYear: observedYear)
             return (payload.entry, (payload.phase, payload.historyEntryID, payload.recoveryOriginYear))
         } catch let error as UpdateCoordinatorError {
             throw error
         } catch {
-            throw UpdateCoordinatorError.writeFinalizationFailed(trackID: trackID, effects: [effect])
+            switch purpose {
+            case .backupRestore:
+                throw UpdateCoordinatorError.writeFinalizationFailed(trackID: trackID, effects: [effect])
+            case .historyUndo:
+                throw UndoCoordinatorError.recoveryStorageFailed(trackID: trackID)
+            }
+        }
+    }
+
+    private func validateBackupCheckpoint(
+        _ payload: YearCheckpointPayload,
+        trackID: String,
+        targetYear: Int?,
+        observedYear: Int?
+    ) throws {
+        guard let targetYear else { return }
+        guard payload.historyEntryID == nil,
+              payload.entry.changeType == .yearRevert,
+              payload.entry.trackID == trackID,
+              payload.entry.newYear == targetYear
+        else {
+            throw UpdateCoordinatorError.writeFinalizationFailed(
+                trackID: payload.entry.trackID, effects: ["prior backup recovery checkpoint"]
+            )
+        }
+        guard payload.phase != .dispatchedUnknown else {
+            throw UpdateCoordinatorError.writeFinalizationFailed(
+                trackID: trackID, effects: ["ambiguous backup write outcome"]
+            )
+        }
+        let expectedYear = payload.phase == .prepared ? payload.entry.oldYear : targetYear
+        guard observedYear == expectedYear else {
+            throw UpdateCoordinatorError.writeFinalizationFailed(
+                trackID: trackID, effects: ["stale backup recovery checkpoint"]
+            )
         }
     }
 
@@ -163,7 +212,14 @@ extension UndoCoordinator {
             switch undoError {
             case let .revertFailed(_, reason):
                 return reason == "AppleScript write failed" ? reason : "Failed to revert track"
-            case .noChangesToRevert, .invalidBackupCSV, .missingAppleScriptID, .historyStoreUnavailable:
+            case .noChangesToRevert,
+                 .invalidBackupCSV,
+                 .missingAppleScriptID,
+                 .historyStoreUnavailable,
+                 .undoOutcomeUnknown,
+                 .undoWriteNotApplied,
+                 .undoRecoveryConflict,
+                 .recoveryStorageFailed:
                 return undoError.errorDescription ?? "Undo operation failed"
             case let .partialRevertFailure(succeeded, failed, _):
                 return "Partial revert: \(succeeded) succeeded, \(failed) failed"

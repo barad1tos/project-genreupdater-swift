@@ -17,6 +17,7 @@ actor MockAppleScriptClient: AppleScriptClient {
     var shouldCancelWrite = false
     var shouldThrowBatch = false
     var shouldThrowFetch = false
+    var shouldCancelFetch = false
     var shouldCancelBatch = false
     var shouldApplyBatchUpdates = true
     var shouldClearFetchedTracksAfterBatchUpdate = false
@@ -55,6 +56,9 @@ actor MockAppleScriptClient: AppleScriptClient {
         ))
         if shouldThrowFetch {
             throw MockScriptError.intentional
+        }
+        if shouldCancelFetch {
+            throw CancellationError()
         }
         return trackIDs.compactMap { tracksByID[$0] }
     }
@@ -174,6 +178,10 @@ actor MockAppleScriptClient: AppleScriptClient {
 
     func setFetchThrowMode(_ shouldFail: Bool) {
         shouldThrowFetch = shouldFail
+    }
+
+    func setFetchCancellationMode(_ isEnabled: Bool) {
+        shouldCancelFetch = isEnabled
     }
 
     func setThrowMode(_ shouldFail: Bool) {

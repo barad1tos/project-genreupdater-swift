@@ -364,6 +364,52 @@ struct BatchWriteTests {
         #expect(await fixture.snapshot.wasCleared())
     }
 
+    @Test("A partial batch records a verified empty-year write")
+    func partialBatchRecordsYearClear() async throws {
+        let fixture = await makeCoordinator(batchUpdatesEnabled: true)
+        await fixture.bridge.setBatchMutationLimit(1)
+        let yearTrack = makeTrack(id: "Y1", genre: "Rock", year: 2019)
+        await fixture.bridge.setFetchedTracks([yearTrack])
+        let proposals = [
+            ProposedChange(
+                track: yearTrack,
+                changeType: .yearRevert,
+                oldValue: "2019",
+                newValue: String(MusicAppYear.missingValue),
+                confidence: 100,
+                source: "undo",
+                isAccepted: true
+            ),
+            ProposedChange(
+                track: yearTrack,
+                changeType: .genreUpdate,
+                oldValue: "Rock",
+                newValue: "Stoner Rock",
+                confidence: 90,
+                source: "Library",
+                isAccepted: true
+            ),
+        ]
+
+        do {
+            _ = try await fixture.coordinator.applyAcceptedChanges(
+                proposals,
+                progressHandler: ignoreProgress
+            )
+            Issue.record("Expected a partially applied batch outcome")
+        } catch let error as PartialWriteError {
+            #expect(error.appliedTrackIDs == [yearTrack.id])
+            #expect(error.underlyingError is AppleScriptOutcomeError)
+        } catch {
+            Issue.record("Expected PartialWriteError, got \(error)")
+        }
+
+        let history = await fixture.undo.getHistory()
+        #expect(history.map(\.trackID) == [yearTrack.id])
+        #expect(history.map(\.changeType) == [.yearRevert])
+        #expect(history.first?.newYear == MusicAppYear.missingValue)
+    }
+
     private func makeCoordinator(
         batchUpdatesEnabled: Bool,
         idMapper: (any TrackIDMapping)? = nil
