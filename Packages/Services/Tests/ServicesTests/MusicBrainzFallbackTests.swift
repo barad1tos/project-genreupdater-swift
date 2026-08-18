@@ -87,7 +87,7 @@ extension CandidateAdapterTests {
             let (_, query) = try musicBrainzQuery(from: request)
             APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
 
-            let json: String = if query == "AC/DC Powerage" {
+            let json: String = if query == "AC\\/DC Powerage" {
                 fallbackGroupJSON(
                     releaseGroupID: "rg-wrong",
                     artist: "The Flaming Lips"
@@ -118,7 +118,7 @@ extension CandidateAdapterTests {
         #expect(candidates.isEmpty)
         #expect(APIReleaseCandidateMockURLProtocol.requestedQueries == [
             "artist:\"AC/DC\" AND releasegroup:\"Powerage\"",
-            "AC/DC Powerage",
+            "AC\\/DC Powerage",
             "Powerage",
         ])
     }
@@ -160,9 +160,150 @@ extension CandidateAdapterTests {
         #expect(candidates.map(\.mbReleaseGroupID) == ["rg-acdc"])
         #expect(APIReleaseCandidateMockURLProtocol.requestedQueries == [
             "artist:\"AC/DC\" AND releasegroup:\"Powerage\"",
-            "AC/DC Powerage",
+            "AC\\/DC Powerage",
             "Powerage",
         ])
+    }
+
+    @Test(
+        "MusicBrainz rejects unrelated albums from broad searches",
+        arguments: [BroadSearchStage.generic, .albumOnly]
+    )
+    func rejectsUnrelatedAlbum(_ stage: BroadSearchStage) async throws {
+        APIReleaseCandidateMockURLProtocol.requestedQueries = []
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            if Array(url.pathComponents.dropFirst()) == musicBrainzReleasePathComponents {
+                return try (jsonResponse(url: url), Data(#"{"releases":[]}"#.utf8))
+            }
+
+            let (_, query) = try musicBrainzQuery(from: request)
+            APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
+            let json = switch (stage, query) {
+            case (.generic, "Artist Target Album"):
+                fallbackGroupJSON(releaseGroupID: "rg-wrong-generic", artist: "Artist", title: "Other Album")
+            case (.albumOnly, "Artist Target Album"):
+                fallbackGroupJSON(releaseGroupID: "rg-other-artist", artist: "Other Artist", title: "Target Album")
+            case (.albumOnly, "Target Album"):
+                fallbackGroupJSON(releaseGroupID: "rg-wrong-album", artist: "Artist", title: "Other Album")
+            default:
+                #"{"release-groups":[]}"#
+            }
+            return try (jsonResponse(url: url), Data(json.utf8))
+        }
+        defer { resetFallbackMock() }
+
+        let candidates = try await makeMockMusicBrainzClient().getReleaseCandidates(
+            artist: "Artist",
+            album: "Target Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.isEmpty)
+        #expect(APIReleaseCandidateMockURLProtocol.requestedQueries == [
+            "artist:\"Artist\" AND releasegroup:\"Target Album\"",
+            "Artist Target Album",
+            "Target Album",
+        ])
+    }
+
+    @Test("MusicBrainz escapes Lucene syntax in broad searches")
+    func escapesBroadQueries() async throws {
+        APIReleaseCandidateMockURLProtocol.requestedQueries = []
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            let (url, query) = try musicBrainzQuery(from: request)
+            APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
+            return try (jsonResponse(url: url), Data(#"{"release-groups":[]}"#.utf8))
+        }
+        defer { resetFallbackMock() }
+
+        _ = try await makeMockMusicBrainzClient().getReleaseCandidates(
+            artist: "AC/DC AND Alias",
+            album: "Love OR War NOT Noise",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(APIReleaseCandidateMockURLProtocol.requestedQueries == [
+            "artist:\"AC/DC AND Alias\" AND releasegroup:\"Love OR War NOT Noise\"",
+            "AC\\/DC \\AND Alias Love \\OR War \\NOT Noise",
+            "Love \\OR War \\NOT Noise",
+        ])
+    }
+
+    @Test("MusicBrainz broad matching uses configured edition markers")
+    func matchesCustomMarkers() async throws {
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            if Array(url.pathComponents.dropFirst()) == musicBrainzReleasePathComponents {
+                return try (jsonResponse(url: url), Data(#"{"releases":[]}"#.utf8))
+            }
+
+            let (_, query) = try musicBrainzQuery(from: request)
+            let json = query == "Artist Target Album"
+                ? fallbackGroupJSON(
+                    releaseGroupID: "rg-configured",
+                    artist: "Artist",
+                    title: "Target (Archive) Album"
+                )
+                : #"{"release-groups":[]}"#
+            return try (jsonResponse(url: url), Data(json.utf8))
+        }
+        defer { resetFallbackMock() }
+
+        var cleaning = CleaningConfig()
+        cleaning.editionMarkers = ["archive"]
+        cleaning.albumSuffixes = []
+        let client = MusicBrainzClient(
+            session: makeMockSession(json: "{}"),
+            cleaningConfiguration: cleaning
+        )
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Artist",
+            album: "Target Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.map(\.mbReleaseGroupID) == ["rg-configured"])
+    }
+
+    @Test("MusicBrainz broad matching uses configured album suffixes")
+    func matchesCustomSuffixes() async throws {
+        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            if Array(url.pathComponents.dropFirst()) == musicBrainzReleasePathComponents {
+                return try (jsonResponse(url: url), Data(#"{"releases":[]}"#.utf8))
+            }
+
+            let (_, query) = try musicBrainzQuery(from: request)
+            let json = query == "Artist Target Album"
+                ? fallbackGroupJSON(
+                    releaseGroupID: "rg-suffix",
+                    artist: "Artist",
+                    title: "Target Album Bonus Cut"
+                )
+                : #"{"release-groups":[]}"#
+            return try (jsonResponse(url: url), Data(json.utf8))
+        }
+        defer { resetFallbackMock() }
+
+        var cleaning = CleaningConfig()
+        cleaning.editionMarkers = []
+        cleaning.albumSuffixes = ["Bonus Cut"]
+        let client = MusicBrainzClient(
+            session: makeMockSession(json: "{}"),
+            cleaningConfiguration: cleaning
+        )
+        let candidates = try await client.getReleaseCandidates(
+            artist: "Artist",
+            album: "Target Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(candidates.map(\.mbReleaseGroupID) == ["rg-suffix"])
     }
 
     @Test("MusicBrainz continues after canonical lookup failure")
@@ -181,7 +322,7 @@ extension CandidateAdapterTests {
             let (_, query) = try musicBrainzQuery(from: request)
             APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
             let json = query == "молчат дома Этажи"
-                ? fallbackGroupJSON(releaseGroupID: "rg-etazhi", artist: "Молчат Дома")
+                ? fallbackGroupJSON(releaseGroupID: "rg-etazhi", artist: "Молчат Дома", title: "Этажи")
                 : #"{"release-groups":[]}"#
             return try (jsonResponse(url: url), Data(json.utf8))
         }
@@ -217,7 +358,7 @@ extension CandidateAdapterTests {
                 throw URLError(.timedOut)
             }
             let json = query == "artist Album"
-                ? fallbackGroupJSON(releaseGroupID: "rg-generic", artist: "Artist")
+                ? fallbackGroupJSON(releaseGroupID: "rg-generic", artist: "Artist", title: "Album")
                 : #"{"release-groups":[]}"#
             return try (jsonResponse(url: url), Data(json.utf8))
         }
@@ -253,7 +394,7 @@ extension CandidateAdapterTests {
                 throw URLError(.timedOut)
             }
             let json = query == "Album"
-                ? fallbackGroupJSON(releaseGroupID: "rg-album", artist: "Artist")
+                ? fallbackGroupJSON(releaseGroupID: "rg-album", artist: "Artist", title: "Album")
                 : #"{"release-groups":[]}"#
             return try (jsonResponse(url: url), Data(json.utf8))
         }
@@ -429,6 +570,11 @@ enum DetailCancellation: Sendable {
     case transport
 }
 
+enum BroadSearchStage: Sendable {
+    case generic
+    case albumOnly
+}
+
 private func resetFallbackMock() {
     APIReleaseCandidateMockURLProtocol.requestHandler = nil
     APIReleaseCandidateMockURLProtocol.requestedQueries = []
@@ -455,13 +601,17 @@ private actor SearchTransitionGate {
     }
 }
 
-private func fallbackGroupJSON(releaseGroupID: String, artist: String) -> String {
+private func fallbackGroupJSON(
+    releaseGroupID: String,
+    artist: String,
+    title: String = "Powerage"
+) -> String {
     """
     {
       "release-groups": [
         {
           "id": "\(releaseGroupID)",
-          "title": "Powerage",
+          "title": "\(title)",
           "first-release-date": "1998-11-24",
           "primary-type": "Album",
           "artist-credit": [

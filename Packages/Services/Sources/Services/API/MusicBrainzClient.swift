@@ -24,6 +24,8 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     private let session: URLSession
     private let rateLimiter: TokenBucketRateLimiter
     private let baseURL: URL
+    private let editionMarkers: [String]
+    private let albumSuffixes: [String]
     private let rawRequestCache: RawAPIRequestCache?
     private let log = AppLogger.api
     #if DEBUG
@@ -39,6 +41,9 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         let name: String?
         let failure: (any Error)?
     }
+
+    private static let luceneTermSyntax = Set<Character>(#"+-&|!(){}[]^"~*?:\/"#)
+    private static let luceneOperators: Set<String> = ["AND", "OR", "NOT"]
 
     #if DEBUG
     struct TestHooks: Sendable {
@@ -57,12 +62,14 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     ///   - session: URL session for network requests. Defaults to `.shared`.
     ///   - rateLimiter: Rate limiter for throttling. Defaults to 1 req/sec.
     ///   - baseURL: Base MusicBrainz API URL.
+    ///   - cleaningConfiguration: User-controlled album edition and suffix rules used to validate broad matches.
     public init(
         appName: String = "GenreUpdater/1.0",
         contactEmail: String = "",
         session: URLSession = .shared,
         rateLimiter: TokenBucketRateLimiter? = nil,
         baseURL: URL = Self.defaultBaseURL,
+        cleaningConfiguration: CleaningConfig = CleaningConfig(),
         rawRequestCache: RawAPIRequestCache? = nil
     ) {
         let trimmedAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -74,6 +81,8 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         }
         self.session = session
         self.baseURL = baseURL
+        self.editionMarkers = cleaningConfiguration.editionMarkers
+        self.albumSuffixes = cleaningConfiguration.albumSuffixes
         self.rawRequestCache = rawRequestCache
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
             maxTokens: 1,
@@ -379,17 +388,18 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             return ReleaseGroupFetch(groups: [], failure: nil)
         }
 
-        let generic = try await fetchGroupOutcome(query: "\(artist) \(album)", limit: limit)
+        let genericQuery = "\(Self.escapeLuceneTerm(artist)) \(Self.escapeLuceneTerm(album))"
+        let generic = try await fetchGroupOutcome(query: genericQuery, limit: limit)
         try await checkSearchCancellation()
-        let matchingGenericGroups = Self.matchingReleaseGroups(generic.groups, artist: artist)
+        let matchingGenericGroups = matchingReleaseGroups(generic.groups, artist: artist, album: album)
         guard matchingGenericGroups.isEmpty else {
             return ReleaseGroupFetch(groups: matchingGenericGroups, failure: nil)
         }
 
         try await checkSearchCancellation()
-        let albumOnly = try await fetchGroupOutcome(query: album, limit: limit)
+        let albumOnly = try await fetchGroupOutcome(query: Self.escapeLuceneTerm(album), limit: limit)
         try await checkSearchCancellation()
-        let matchingAlbumGroups = Self.matchingReleaseGroups(albumOnly.groups, artist: artist)
+        let matchingAlbumGroups = matchingReleaseGroups(albumOnly.groups, artist: artist, album: album)
         return ReleaseGroupFetch(
             groups: matchingAlbumGroups,
             failure: generic.failure ?? albumOnly.failure
@@ -423,14 +433,30 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         ).releaseGroups
     }
 
-    private static func matchingReleaseGroups(
+    private func matchingReleaseGroups(
         _ releaseGroups: [MBReleaseGroup],
-        artist: String
+        artist: String,
+        album: String
     ) -> [MBReleaseGroup] {
-        let normalizedArtist = normalizedCreditName(artist)
+        let normalizedArtist = Self.normalizedCreditName(artist)
+        let normalizedAlbum = normalizedAlbumTitle(album)
+        guard !normalizedArtist.isEmpty, !normalizedAlbum.isEmpty else { return [] }
         return releaseGroups.filter {
-            groupMatchesArtist($0, normalizedArtist: normalizedArtist)
+            Self.groupMatchesArtist($0, normalizedArtist: normalizedArtist)
+                && albumTitleMatches($0.title, normalizedAlbum: normalizedAlbum)
         }
+    }
+
+    private func albumTitleMatches(_ title: String, normalizedAlbum: String) -> Bool {
+        let normalizedTitle = normalizedAlbumTitle(title)
+        guard !normalizedTitle.isEmpty else { return false }
+        return normalizedTitle == normalizedAlbum
+    }
+
+    private func normalizedAlbumTitle(_ title: String) -> String {
+        let withoutEditions = removeParenthesesWithKeywords(title, keywords: editionMarkers)
+        let withoutSuffixes = stripAlbumSuffixes(withoutEditions, suffixes: albumSuffixes)
+        return normalizeForMatching(withoutSuffixes)
     }
 
     private static func groupMatchesArtist(
@@ -480,6 +506,42 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             .lowercased()
             .replacingOccurrences(of: "&", with: "and")
         return foldedName.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    private static func escapeLuceneTerm(_ term: String) -> String {
+        var escaped = ""
+        var tokenStart = term.startIndex
+        var index = term.startIndex
+
+        while index < term.endIndex {
+            guard term[index].isWhitespace else {
+                index = term.index(after: index)
+                continue
+            }
+
+            if tokenStart < index {
+                escaped += escapeLuceneToken(String(term[tokenStart ..< index]))
+            }
+            escaped.append(term[index])
+            index = term.index(after: index)
+            tokenStart = index
+        }
+
+        if tokenStart < term.endIndex {
+            escaped += escapeLuceneToken(String(term[tokenStart...]))
+        }
+        return escaped
+    }
+
+    private static func escapeLuceneToken(_ token: String) -> String {
+        var escaped = luceneOperators.contains(token) ? "\\" : ""
+        for character in token {
+            if character == "\\" || luceneTermSyntax.contains(character) {
+                escaped.append("\\")
+            }
+            escaped.append(character)
+        }
+        return escaped
     }
 
     private func fetchReleases(for releaseGroupID: String) async throws -> [MBRelease] {
