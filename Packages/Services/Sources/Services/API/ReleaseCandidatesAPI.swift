@@ -126,6 +126,7 @@ extension APIOrchestrator {
             positiveResultTTL: candidateResultTTL,
             negativeResultTTL: negativeResultTTL,
             discogsReissueKeywords: discogsReissueKeywords,
+            discogsSearchConfiguration: discogsSearchConfiguration,
             iTunesScoringYear: scoringYear
         )
     }
@@ -247,7 +248,8 @@ private func cachedReleaseCandidates(
     let cacheKey = releaseCandidateCacheKey(
         source: source,
         query: query,
-        discogsReissueKeywords: cacheContext.discogsReissueKeywords
+        discogsReissueKeywords: cacheContext.discogsReissueKeywords,
+        discogsSearchConfiguration: cacheContext.discogsSearchConfiguration
     )
     let cachedEntry: CandidateCacheEntry? = await cacheContext.cache?.get(key: cacheKey)
     guard let cachedEntry else { return nil }
@@ -275,7 +277,8 @@ private func cacheReleaseCandidates(
     let cacheKey = releaseCandidateCacheKey(
         source: source,
         query: query,
-        discogsReissueKeywords: cacheContext.discogsReissueKeywords
+        discogsReissueKeywords: cacheContext.discogsReissueKeywords,
+        discogsSearchConfiguration: cacheContext.discogsSearchConfiguration
     )
     let ttl = candidates.isEmpty ? cacheContext.negativeResultTTL : cacheContext.positiveResultTTL
     await cacheContext.cache?.set(
@@ -290,7 +293,8 @@ private func cacheReleaseCandidates(
 private func releaseCandidateCacheKey(
     source: APISource,
     query: ReleaseCandidateQuery,
-    discogsReissueKeywords: [String]
+    discogsReissueKeywords: [String],
+    discogsSearchConfiguration: DiscogsSearchConfig
 ) -> String {
     var components = [
         "v3",
@@ -302,6 +306,7 @@ private func releaseCandidateCacheKey(
     ]
     if source == .discogs {
         components.append(reissueRuleComponent(discogsReissueKeywords))
+        components.append(discogsAcquisitionComponent(discogsSearchConfiguration))
     }
 
     return [
@@ -360,6 +365,10 @@ private func reissueRuleComponent(_ keywords: [String]) -> String {
     return "reissue_rules=" + normalizedKeywords.map(cacheKeyComponent).joined(separator: "|")
 }
 
+private func discogsAcquisitionComponent(_ configuration: DiscogsSearchConfig) -> String {
+    "discogs_acquisition=2,result_limit=\(configuration.clampedResultLimit),detail_limit=\(configuration.clampedDetailLookupLimit)"
+}
+
 private func cacheKeyComponent(_ value: String) -> String {
     "\(value.utf8.count):\(value)"
 }
@@ -377,6 +386,7 @@ private struct ReleaseCandidateCacheContext {
     let positiveResultTTL: TimeInterval?
     let negativeResultTTL: TimeInterval
     let discogsReissueKeywords: [String]
+    let discogsSearchConfiguration: DiscogsSearchConfig
     let iTunesScoringYear: Int
 }
 

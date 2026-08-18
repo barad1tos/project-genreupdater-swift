@@ -67,7 +67,7 @@ extension DiscogsClientRequestTests {
     }
 
     @Test("Discogs search settings control result breadth and detail recovery")
-    func releaseCandidatesUseConfiguredSearchLimits() async throws {
+    func configuredSearchLimits() async throws {
         var configuration = DiscogsSearchConfig()
         configuration.resultLimit = 17
         configuration.detailLookupLimit = 2
@@ -91,8 +91,27 @@ extension DiscogsClientRequestTests {
         #expect(releaseDetailPaths(from: lookup.requests).count == 2)
     }
 
+    @Test("Zero detail limit skips candidate release-detail recovery")
+    func zeroDetailCandidates() async throws {
+        var configuration = DiscogsSearchConfig()
+        configuration.detailLookupLimit = 0
+        let lookup = try await getReleaseCandidates(configuration: configuration) { url in
+            guard url.path == discogsSearchPath else {
+                Issue.record("Unexpected Discogs detail request: \(url.absoluteString)")
+                return try makeDiscogsJSONResponse(url: url, json: discogsReleaseDetailYearResponseJSON)
+            }
+            return try makeDiscogsJSONResponse(
+                url: url,
+                json: makeDiscogsMissingReleaseSearchResponseJSON(count: 1)
+            )
+        }
+
+        #expect(lookup.candidates.isEmpty)
+        #expect(releaseDetailPaths(from: lookup.requests).isEmpty)
+    }
+
     @Test("Discogs search breadth also applies to direct year lookup")
-    func albumYearUsesConfiguredSearchLimit() async throws {
+    func albumYearLimit() async throws {
         var configuration = DiscogsSearchConfig()
         configuration.resultLimit = 17
         let lookup = try await getAlbumYear(configuration: configuration) { url in
@@ -107,8 +126,30 @@ extension DiscogsClientRequestTests {
         #expect(searchURLs.allSatisfy { queryValue("per_page", in: $0) == "17" })
     }
 
+    @Test("Zero detail limit skips direct-year release recovery")
+    func zeroDetailYear() async throws {
+        var configuration = DiscogsSearchConfig()
+        configuration.detailLookupLimit = 0
+        let lookup = try await getAlbumYear(configuration: configuration) { url in
+            guard url.path == discogsSearchPath else {
+                Issue.record("Unexpected Discogs detail request: \(url.absoluteString)")
+                return try makeDiscogsJSONResponse(url: url, json: discogsReleaseDetailYearResponseJSON)
+            }
+            let payload = queryValue("type", in: url) == "release"
+                ? discogsMissingSearchYearResponseJSON
+                : discogsMissingCanonicalSearchYearJSON
+            return try makeDiscogsJSONResponse(
+                url: url,
+                json: payload
+            )
+        }
+
+        #expect(lookup.result.year == nil)
+        #expect(releaseDetailPaths(from: lookup.requests).isEmpty)
+    }
+
     @Test("getReleaseCandidates continues after an ordinary search failure")
-    func releaseCandidatesContinueAfterFailure() async throws {
+    func searchFailureFallback() async throws {
         let lookup = try await getReleaseCandidates { url in
             if queryValue("artist", in: url) != nil {
                 throw URLError(.timedOut)
@@ -138,7 +179,7 @@ extension DiscogsClientRequestTests {
     }
 
     @Test("getReleaseCandidates does not start a fallback after cancellation")
-    func releaseCandidatesStopAfterCancellation() async {
+    func cancellationStopsFallback() async {
         let outcome = await releaseCandidateOutcome { _ in
             throw URLError(.cancelled)
         }
@@ -193,21 +234,20 @@ extension DiscogsClientRequestTests {
         }
     }
 
-    @Test("getAlbumYear treats malformed release-search payload as empty")
-    func getAlbumYearTreatsMalformedReleaseSearchPayloadAsEmpty() async throws {
-        let lookup = try await getAlbumYear { url in
-            switch url.path {
-            case discogsSearchPath where queryValue("type", in: url) == "master":
-                return try makeDiscogsJSONResponse(url: url, json: discogsMissingCanonicalSearchYearJSON)
-            case discogsSearchPath where queryValue("type", in: url) == "release":
-                return try makeDiscogsJSONResponse(url: url, json: "{")
-            default:
-                throw URLError(.badURL)
+    @Test("getAlbumYear preserves malformed release-search failure")
+    func malformedReleaseSearch() async throws {
+        await #expect(throws: DecodingError.self) {
+            _ = try await getAlbumYear { url in
+                switch url.path {
+                case discogsSearchPath where queryValue("type", in: url) == "master":
+                    return try makeDiscogsJSONResponse(url: url, json: discogsMissingCanonicalSearchYearJSON)
+                case discogsSearchPath where queryValue("type", in: url) == "release":
+                    return try makeDiscogsJSONResponse(url: url, json: "{")
+                default:
+                    throw URLError(.badURL)
+                }
             }
         }
-
-        #expect(lookup.result.year == nil)
-        #expect(lookup.requests.map { $0.url?.path } == [discogsSearchPath, discogsSearchPath])
     }
 
     @Test("getAlbumYear propagates release-search cancellation")
@@ -270,9 +310,9 @@ extension DiscogsClientRequestTests {
         #expect(releaseDetailPaths.count == 10)
     }
 
-    @Test("getReleaseCandidates limits failed release detail lookups")
-    func getReleaseCandidatesLimitsFailedReleaseDetailLookups() async throws {
-        let lookup = try await getReleaseCandidates { url in
+    @Test("getReleaseCandidates preserves failure after bounded detail recovery")
+    func boundedDetailFailure() async {
+        let outcome = await releaseCandidateOutcome { url in
             switch url.path {
             case discogsSearchPath:
                 return try makeDiscogsJSONResponse(
@@ -285,10 +325,72 @@ extension DiscogsClientRequestTests {
                 throw URLError(.badURL)
             }
         }
-        let releaseDetailPaths = releaseDetailPaths(from: lookup.requests)
+        let detailPaths = releaseDetailPaths(from: outcome.requests)
 
-        #expect(lookup.candidates.isEmpty)
-        #expect(releaseDetailPaths.count == 10)
+        #expect(detailPaths.count == 10)
+        guard case let .failure(error as DiscogsError) = outcome.result else {
+            Issue.record("Expected the first release-detail failure")
+            return
+        }
+        #expect(error.matches(.httpError(500)))
+    }
+
+    @Test("Failed Discogs detail recovery is retried instead of negative-cached")
+    func detailFailureRetry() async throws {
+        let recorder = DiscogsRequestRecorder()
+        let session = makeDiscogsMockSession { request in
+            recorder.append(request)
+            guard let url = request.url else { throw URLError(.badURL) }
+            switch url.path {
+            case discogsSearchPath:
+                return try makeDiscogsJSONResponse(
+                    url: url,
+                    json: makeDiscogsMissingReleaseSearchResponseJSON(count: 1)
+                )
+            case _ where url.path.hasPrefix(discogsReleasePathPrefix):
+                let detailAttempt = releaseDetailPaths(from: recorder.snapshot).count
+                return try makeDiscogsJSONResponse(
+                    url: url,
+                    json: detailAttempt == 1 ? "{}" : discogsReleaseDetailYearResponseJSON,
+                    statusCode: detailAttempt == 1 ? 500 : 200
+                )
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        defer {
+            resetDiscogsMockSession()
+            session.invalidateAndCancel()
+        }
+        let discogs = try DiscogsClient(
+            token: "test-token-123",
+            session: session,
+            baseURL: makeDiscogsSandboxBaseURL()
+        )
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: discogs,
+            appleMusic: MockAPIService(),
+            cache: MockCacheService(),
+            disabledSources: [.musicBrainz, .itunes]
+        )
+
+        let failed = await orchestrator.getReleaseCandidates(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+        let recovered = await orchestrator.getReleaseCandidates(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(failed.isEmpty)
+        #expect(recovered.map(\.year) == [1984])
+        #expect(releaseDetailPaths(from: recorder.snapshot).count == 2)
     }
 
     @Test("getReleaseCandidates propagates release detail cancellation")
@@ -311,6 +413,134 @@ extension DiscogsClientRequestTests {
         } catch let error as URLError {
             #expect(error.code == .cancelled)
         }
+    }
+
+    @Test("getReleaseCandidates propagates canonical master cancellation")
+    func candidateCanonicalCancellation() async throws {
+        do {
+            _ = try await getReleaseCandidates { url in
+                switch url.path {
+                case discogsSearchPath:
+                    return try makeDiscogsJSONResponse(url: url, json: discogsMissingReleaseWithCanonicalIDJSON)
+                case discogsCanonicalPath:
+                    throw URLError(.cancelled)
+                default:
+                    throw URLError(.badURL)
+                }
+            }
+            Issue.record("Expected canonical-master cancellation to propagate")
+        } catch let error as URLError {
+            #expect(error.code == .cancelled)
+        }
+    }
+
+    @Test("getAlbumYear propagates canonical master cancellation")
+    func yearCanonicalCancellation() async throws {
+        do {
+            _ = try await getAlbumYear { url in
+                switch url.path {
+                case discogsSearchPath:
+                    return try makeDiscogsJSONResponse(url: url, json: discogsMissingReleaseWithCanonicalIDJSON)
+                case discogsCanonicalPath:
+                    throw URLError(.cancelled)
+                default:
+                    throw URLError(.badURL)
+                }
+            }
+            Issue.record("Expected canonical-master cancellation to propagate")
+        } catch let error as URLError {
+            #expect(error.code == .cancelled)
+        }
+    }
+
+    @Test("Discogs cancellation removes a queued rate-limit wait")
+    func queuedWaitCancellation() async throws {
+        let recorder = DiscogsRequestRecorder()
+        let session = makeDiscogsMockSession { request in
+            recorder.append(request)
+            guard let url = request.url else { throw URLError(.badURL) }
+            return try makeDiscogsJSONResponse(url: url, json: discogsEmptySearchResponseJSON)
+        }
+        defer {
+            resetDiscogsMockSession()
+            session.invalidateAndCancel()
+        }
+        let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(30))
+        _ = await limiter.acquire()
+        let client = try DiscogsClient(
+            token: "test-token-123",
+            session: session,
+            rateLimiter: limiter,
+            baseURL: makeDiscogsSandboxBaseURL()
+        )
+        let lookup = Task {
+            try await client.getReleaseCandidates(
+                artist: "Iron Maiden",
+                album: "Powerslave",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+
+        #expect(await limiter.waitForQueue(1, timeout: .seconds(1)))
+        lookup.cancel()
+        var didCancelPromptly = false
+        do {
+            _ = try await taskValue(lookup, timeout: .milliseconds(100))
+        } catch is CancellationError {
+            didCancelPromptly = true
+        } catch {
+            Issue.record("Expected prompt CancellationError, got \(error)")
+        }
+        await limiter.release()
+        _ = try? await lookup.value
+
+        #expect(didCancelPromptly)
+        #expect(recorder.snapshot.isEmpty)
+    }
+
+    @Test("Discogs observes cancellation after an empty search response")
+    func postResponseCancellation() async throws {
+        let cancellation = DiscogsCancellation()
+        let recorder = DiscogsRequestRecorder()
+        let session = makeDiscogsMockSession { request in
+            recorder.append(request)
+            guard let url = request.url else { throw URLError(.badURL) }
+            return try makeDiscogsJSONResponse(url: url, json: discogsEmptySearchResponseJSON)
+        }
+        DiscogsRequestMockURLProtocol.didFinishLoading = {
+            cancellation.cancel()
+        }
+        defer {
+            resetDiscogsMockSession()
+            session.invalidateAndCancel()
+        }
+        let client = try DiscogsClient(
+            token: "test-token-123",
+            session: session,
+            baseURL: makeDiscogsSandboxBaseURL()
+        )
+        let lookup = Task {
+            try await client.getReleaseCandidates(
+                artist: "Iron Maiden",
+                album: "Powerslave",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+        cancellation.install { lookup.cancel() }
+
+        do {
+            _ = try await taskValue(lookup, timeout: .milliseconds(100))
+            Issue.record("Expected cancellation after the empty response")
+        } catch is CancellationError {
+            // Expected.
+        } catch let error as URLError where error.code == .cancelled {
+            // URLSession may surface task cancellation at its response boundary.
+        } catch {
+            Issue.record("Expected prompt CancellationError, got \(error)")
+        }
+        #expect(recorder.snapshot.count == 1)
     }
 }
 
@@ -363,6 +593,30 @@ private func queryParameters(_ url: URL) -> [String: String] {
 private func releaseDetailPaths(from requests: [URLRequest]) -> [String] {
     requests.compactMap { $0.url?.path }
         .filter { $0.hasPrefix(discogsReleasePathPrefix) }
+}
+
+private final class DiscogsCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var action: (@Sendable () -> Void)?
+    private var isRequested = false
+
+    func install(_ action: @escaping @Sendable () -> Void) {
+        let shouldCancel = lock.withLock {
+            self.action = action
+            return isRequested
+        }
+        if shouldCancel {
+            action()
+        }
+    }
+
+    func cancel() {
+        let cancellationAction = lock.withLock {
+            isRequested = true
+            return action
+        }
+        cancellationAction?()
+    }
 }
 
 private func makeDiscogsMissingReleaseSearchResponseJSON(count: Int) -> String {

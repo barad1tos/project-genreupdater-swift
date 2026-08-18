@@ -228,7 +228,7 @@ struct APIClientsTests {
     }
 
     @Test("Configured Discogs search limits reach the composed client")
-    func composesDiscogsSearchLimits() async throws {
+    func wiresDiscogsSearch() async throws {
         var configuration = AppConfiguration()
         configuration.yearRetrieval.preferredAPI = .discogs
         configuration.yearRetrieval.apiAuth.discogsTokenReference = "configured-token"
@@ -236,7 +236,7 @@ struct APIClientsTests {
         configuration.yearRetrieval.discogsSearch.detailLookupLimit = 1
         let requestProbe = DiscogsRequestProbe()
         CapturedAuthURLProtocol.requestHandler = { request in
-            try makeDiscogsSearchLimitResponse(for: request, probe: requestProbe)
+            try makeDiscogsLimitResponse(for: request, probe: requestProbe)
         }
         defer { CapturedAuthURLProtocol.requestHandler = nil }
         let sessionConfiguration = URLSessionConfiguration.ephemeral
@@ -723,7 +723,7 @@ private func requestQueryValue(_ name: String, in url: URL) -> String? {
         .value
 }
 
-private func makeDiscogsSearchLimitResponse(
+private func makeDiscogsLimitResponse(
     for request: URLRequest,
     probe: DiscogsRequestProbe
 ) throws -> (HTTPURLResponse, Data) {

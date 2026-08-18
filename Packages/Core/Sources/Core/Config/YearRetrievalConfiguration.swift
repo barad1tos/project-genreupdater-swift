@@ -413,15 +413,15 @@ public struct FallbackConfig: Sendable, Codable {
     }
 }
 
-/// Controls Discogs candidate breadth and the extra requests used to recover missing years.
+/// Controls Discogs search-result breadth and missing-year release-detail requests.
 public struct DiscogsSearchConfig: Sendable, Codable, Equatable {
     /// Discogs accepts at most 100 results per search request.
     public static let resultLimitRange = 1 ... 100
 
-    /// Extra detail recovery can be disabled or bounded to the search result ceiling.
+    /// Release-detail recovery can be disabled or bounded to 100 requests.
     public static let detailLookupLimitRange = 0 ... 100
 
-    /// Maximum candidate rows requested by each Discogs search stage.
+    /// Maximum rows requested by each Discogs search request.
     public var resultLimit: Int = 25
 
     /// Maximum release-detail requests used to recover missing years.

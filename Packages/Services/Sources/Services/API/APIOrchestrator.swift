@@ -101,6 +101,7 @@ public struct APIOrchestratorConfiguration: Sendable {
     public var soundtrackPatterns: [String]
     public var variousArtistsNames: [String]
     public var discogsReissueKeywords: [String]
+    public var discogsSearchConfiguration: DiscogsSearchConfig
     public var dateProvider: @Sendable () -> Date
 
     public init() {
@@ -120,6 +121,7 @@ public struct APIOrchestratorConfiguration: Sendable {
         soundtrackPatterns = SearchStrategyDefaults.soundtrackPatterns
         variousArtistsNames = SearchStrategyDefaults.variousArtistsNames
         discogsReissueKeywords = MetadataRuleDefaults.releaseReissues
+        discogsSearchConfiguration = DiscogsSearchConfig()
     }
 
     /// Maps every config-derived field from `AppConfiguration`.
@@ -139,6 +141,7 @@ public struct APIOrchestratorConfiguration: Sendable {
         soundtrackPatterns = configuration.albumTypeDetection.soundtrackPatterns
         variousArtistsNames = configuration.albumTypeDetection.variousArtistsNames
         discogsReissueKeywords = configuration.yearRetrieval.reissueDetection.reissueKeywords
+        discogsSearchConfiguration = configuration.yearRetrieval.discogsSearch
     }
 }
 
@@ -181,6 +184,7 @@ public actor APIOrchestrator {
     let soundtrackPatterns: [String]
     let variousArtistsNames: [String]
     let discogsReissueKeywords: [String]
+    let discogsSearchConfiguration: DiscogsSearchConfig
     let dateProvider: @Sendable () -> Date
     private let log = AppLogger.api
 
@@ -208,6 +212,7 @@ public actor APIOrchestrator {
         soundtrackPatterns = configuration.soundtrackPatterns
         variousArtistsNames = configuration.variousArtistsNames
         discogsReissueKeywords = configuration.discogsReissueKeywords
+        discogsSearchConfiguration = configuration.discogsSearchConfiguration
         dateProvider = configuration.dateProvider
         apiRetryConfiguration = APIRetryConfiguration(
             maxRetries: configuration.maxAPIRetries,

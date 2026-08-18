@@ -172,6 +172,68 @@ struct ReleaseCandidateAPITests {
         #expect(await callCounter.count() == 2)
     }
 
+    @Test("Discogs candidate cache changes with each acquisition setting")
+    func discogsAcquisitionCache() async {
+        let cache = MockCacheService()
+        let callCounter = APICallCounter()
+        let candidates = [1997, 2007, 2017].map {
+            ReleaseCandidate(
+                artist: "Björk",
+                album: "Homogenic",
+                year: $0,
+                source: .discogs
+            )
+        }
+        let firstOrchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: CountingReleaseCandidateService(
+                callCounter: callCounter,
+                releaseCandidates: [candidates[0]]
+            ),
+            appleMusic: MockAPIService(),
+            cache: cache,
+            disabledSources: [.musicBrainz, .itunes]
+        ) {
+            $0.discogsSearchConfiguration.resultLimit = 10
+            $0.discogsSearchConfiguration.detailLookupLimit = 1
+        }
+        let resultLimitOrchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: CountingReleaseCandidateService(
+                callCounter: callCounter,
+                releaseCandidates: [candidates[1]]
+            ),
+            appleMusic: MockAPIService(),
+            cache: cache,
+            disabledSources: [.musicBrainz, .itunes]
+        ) {
+            $0.discogsSearchConfiguration.resultLimit = 20
+            $0.discogsSearchConfiguration.detailLookupLimit = 1
+        }
+        let detailLimitOrchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: CountingReleaseCandidateService(
+                callCounter: callCounter,
+                releaseCandidates: [candidates[2]]
+            ),
+            appleMusic: MockAPIService(),
+            cache: cache,
+            disabledSources: [.musicBrainz, .itunes]
+        ) {
+            $0.discogsSearchConfiguration.resultLimit = 20
+            $0.discogsSearchConfiguration.detailLookupLimit = 2
+        }
+
+        let first = await releaseCandidates(from: firstOrchestrator)
+        let resultLimit = await releaseCandidates(from: resultLimitOrchestrator)
+        let detailLimit = await releaseCandidates(from: detailLimitOrchestrator)
+
+        #expect(first == [candidates[0]])
+        #expect(resultLimit == [candidates[1]])
+        #expect(detailLimit == [candidates[2]])
+        #expect(await callCounter.count() == 3)
+    }
+
     @Test("Discogs candidate cache normalizes equivalent reissue rules")
     func discogsEquivalentRuleCache() async {
         let cache = MockCacheService()
@@ -569,6 +631,15 @@ struct ReleaseCandidateAPITests {
         #expect(recoveredResult == [expectedCandidate])
         #expect(await callCounter.count() == 2)
     }
+}
+
+private func releaseCandidates(from orchestrator: APIOrchestrator) async -> [ReleaseCandidate] {
+    await orchestrator.getReleaseCandidates(
+        artist: "Björk",
+        album: "Homogenic",
+        currentLibraryYear: nil,
+        earliestTrackAddedYear: nil
+    )
 }
 
 private typealias ReleaseCandidateResolver = @Sendable (

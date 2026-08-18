@@ -427,6 +427,7 @@ func makeDiscogsMockSession(
 
 func resetDiscogsMockSession() {
     DiscogsRequestMockURLProtocol.requestHandler = nil
+    DiscogsRequestMockURLProtocol.didFinishLoading = nil
 }
 
 private func makeDiscogsMockSessionWithRawResponse(
@@ -526,6 +527,7 @@ private let discogsReleaseDetailPath = makeDiscogsTestPath("releases", "42")
 final class DiscogsRequestMockURLProtocol: URLProtocol {
     // Safety: each test installs this handler before constructing its isolated URLSession.
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (URLResponse, Data))?
+    nonisolated(unsafe) static var didFinishLoading: (@Sendable () -> Void)?
 
     override static func canInit(with request: URLRequest) -> Bool {
         request.url?.host?.hasSuffix(".discogs.com") == true
@@ -546,6 +548,7 @@ final class DiscogsRequestMockURLProtocol: URLProtocol {
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
+            Self.didFinishLoading?()
         } catch {
             client?.urlProtocol(self, didFailWithError: error)
         }

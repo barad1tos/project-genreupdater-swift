@@ -150,14 +150,15 @@ struct APICacheTab: View {
                 in: DiscogsSearchConfig.detailLookupLimitRange
             ) {
                 LabeledContent(
-                    "Missing-year detail lookups",
+                    "Missing-year release lookups",
                     value: "\(dependencies.config.yearRetrieval.discogsSearch.detailLookupLimit)"
                 )
             }
 
             Text(
                 "Higher limits can recover more release years but use more Discogs requests and may make runs slower. "
-                    + "Set detail lookups to 0 to skip extra requests for results without a year."
+                    + "Set detail lookups to 0 to skip release-detail recovery requests for missing years; "
+                    + "canonical master lookups may still occur."
             )
             .foregroundStyle(.secondary)
             .font(.caption)
