@@ -318,6 +318,7 @@ struct DiscogsClientRequestTests {
     }
 
     func getAlbumYear(
+        configuration: DiscogsSearchConfig = DiscogsSearchConfig(),
         response: @escaping (URL) throws -> (HTTPURLResponse, Data)
     ) async throws -> (result: YearResult, requests: [URLRequest]) {
         let recorder = DiscogsRequestRecorder()
@@ -337,6 +338,7 @@ struct DiscogsClientRequestTests {
             session: session,
             baseURL: baseURL
         )
+        .withSearchConfiguration(configuration)
         let result = try await client.getAlbumYear(
             artist: "Iron Maiden",
             album: "Powerslave",
@@ -358,6 +360,7 @@ struct DiscogsClientRequestTests {
     }
 
     func getReleaseCandidates(
+        configuration: DiscogsSearchConfig = DiscogsSearchConfig(),
         response: @escaping (URL) throws -> (HTTPURLResponse, Data)
     ) async throws -> (candidates: [ReleaseCandidate], requests: [URLRequest]) {
         let recorder = DiscogsRequestRecorder()
@@ -377,6 +380,7 @@ struct DiscogsClientRequestTests {
             session: session,
             baseURL: baseURL
         )
+        .withSearchConfiguration(configuration)
         let candidates = try await client.getReleaseCandidates(
             artist: "Iron Maiden",
             album: "Powerslave",
@@ -419,6 +423,10 @@ func makeDiscogsMockSession(
     requestHandler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
 ) -> URLSession {
     makeDiscogsMockSessionWithRawResponse(requestHandler: requestHandler)
+}
+
+func resetDiscogsMockSession() {
+    DiscogsRequestMockURLProtocol.requestHandler = nil
 }
 
 private func makeDiscogsMockSessionWithRawResponse(
@@ -488,7 +496,7 @@ func makeDiscogsTestPath(_ components: String...) -> String {
     return pathSeparator + components.joined(separator: pathSeparator)
 }
 
-private func makeAlbumYearReleaseFallbackResponse(
+func makeAlbumYearReleaseFallbackResponse(
     url: URL,
     releaseSearchJSON: String = discogsMissingSearchYearResponseJSON,
     releaseDetailJSON: String = discogsReleaseDetailYearResponseJSON,

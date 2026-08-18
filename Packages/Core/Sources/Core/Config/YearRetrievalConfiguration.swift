@@ -14,6 +14,7 @@ public struct YearRetrievalConfig: Sendable, Codable {
     public var reissueDetection = ReissueDetectionConfig()
     public var scoring = ScoringConfig()
     public var fallback = FallbackConfig()
+    public var discogsSearch = DiscogsSearchConfig()
     public var itunesSearch = ITunesSearchConfig()
 
     /// API priority per script type (e.g., "latin" -> prefer musicbrainz).
@@ -21,12 +22,12 @@ public struct YearRetrievalConfig: Sendable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case enabled, preferredAPI, apiAuth, rateLimits, logic, reissueDetection, scoring, fallback
-        case itunesSearch, scriptAPIPriorities
+        case discogsSearch, itunesSearch, scriptAPIPriorities
     }
 
     private enum DecodingKeys: String, CodingKey {
         case enabled, preferredAPI, apiAuth, rateLimits, logic, reissueDetection, scoring, fallback
-        case itunesSearch, scriptAPIPriorities
+        case discogsSearch, itunesSearch, scriptAPIPriorities
         case preferredApi
         case scriptApiPriorities
         case legacyPreferredAPI = "preferred_api"
@@ -51,6 +52,8 @@ public struct YearRetrievalConfig: Sendable, Codable {
             .decodeIfPresent(ReissueDetectionConfig.self, forKey: .reissueDetection) ?? ReissueDetectionConfig()
         scoring = try container.decodeIfPresent(ScoringConfig.self, forKey: .scoring) ?? ScoringConfig()
         fallback = try container.decodeIfPresent(FallbackConfig.self, forKey: .fallback) ?? FallbackConfig()
+        discogsSearch = try container.decodeIfPresent(DiscogsSearchConfig.self, forKey: .discogsSearch)
+            ?? DiscogsSearchConfig()
         itunesSearch = try container.decodeIfPresent(ITunesSearchConfig.self, forKey: .itunesSearch)
             ?? ITunesSearchConfig()
         scriptAPIPriorities = try container.decodeIfPresent(
@@ -407,6 +410,45 @@ public struct FallbackConfig: Sendable, Codable {
 
     public init() {
         // Defaults keep fallback verification enabled with conservative thresholds.
+    }
+}
+
+/// Controls Discogs candidate breadth and the extra requests used to recover missing years.
+public struct DiscogsSearchConfig: Sendable, Codable, Equatable {
+    /// Discogs accepts at most 100 results per search request.
+    public static let resultLimitRange = 1 ... 100
+
+    /// Extra detail recovery can be disabled or bounded to the search result ceiling.
+    public static let detailLookupLimitRange = 0 ... 100
+
+    /// Maximum candidate rows requested by each Discogs search stage.
+    public var resultLimit: Int = 25
+
+    /// Maximum release-detail requests used to recover missing years.
+    public var detailLookupLimit: Int = 10
+
+    private enum CodingKeys: String, CodingKey {
+        case resultLimit, detailLookupLimit
+    }
+
+    public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let defaults = Self()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        resultLimit = try container.decodeIfPresent(Int.self, forKey: .resultLimit) ?? defaults.resultLimit
+        detailLookupLimit = try container.decodeIfPresent(Int.self, forKey: .detailLookupLimit)
+            ?? defaults.detailLookupLimit
+    }
+
+    /// Returns the result limit constrained to the supported Discogs range.
+    public var clampedResultLimit: Int {
+        min(Self.resultLimitRange.upperBound, max(Self.resultLimitRange.lowerBound, resultLimit))
+    }
+
+    /// Returns the detail lookup limit constrained to its supported range.
+    public var clampedDetailLookupLimit: Int {
+        min(Self.detailLookupLimitRange.upperBound, max(Self.detailLookupLimitRange.lowerBound, detailLookupLimit))
     }
 }
 

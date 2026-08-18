@@ -135,6 +135,33 @@ struct APICacheTab: View {
                 }
             }
 
+            Stepper(
+                value: configBinding(dependencies, \.yearRetrieval.discogsSearch.resultLimit),
+                in: DiscogsSearchConfig.resultLimitRange
+            ) {
+                LabeledContent(
+                    "Search results per request",
+                    value: "\(dependencies.config.yearRetrieval.discogsSearch.resultLimit)"
+                )
+            }
+
+            Stepper(
+                value: configBinding(dependencies, \.yearRetrieval.discogsSearch.detailLookupLimit),
+                in: DiscogsSearchConfig.detailLookupLimitRange
+            ) {
+                LabeledContent(
+                    "Missing-year detail lookups",
+                    value: "\(dependencies.config.yearRetrieval.discogsSearch.detailLookupLimit)"
+                )
+            }
+
+            Text(
+                "Higher limits can recover more release years but use more Discogs requests and may make runs slower. "
+                    + "Set detail lookups to 0 to skip extra requests for results without a year."
+            )
+            .foregroundStyle(.secondary)
+            .font(.caption)
+
             discogsHostEditor
         } header: {
             Text("Discogs API")

@@ -19,7 +19,7 @@ func normalizedReissueKeywords(_ keywords: [String]) -> [String] {
 /// Rate limited at 60 requests/minute per Discogs policy.
 ///
 /// Endpoints used:
-/// - `/database/search?artist=...&release_title=...&type=master` — find master releases
+/// - `/database/search` — fielded, generic, and album-only release searches
 /// - `/releases/{id}` — release detail fallback when search results omit year
 /// - `/masters/{id}` — master release details (year, genres, styles)
 ///
@@ -33,14 +33,13 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     /// Keychain account identifier used for Discogs token storage.
     public static let keychainAccount = "personal-access-token"
 
-    private static let releaseDetailLookupLimit = 10
-
     private let userAgent: String
     private let session: URLSession
     private let rateLimiter: TokenBucketRateLimiter
     private let token: String?
     private var rawRequestCache: RawAPIRequestCache?
     private var reissueKeywords: [String]
+    private var searchConfiguration: DiscogsSearchConfig
     private let baseURL: URL
     private let log = AppLogger.api
 
@@ -60,6 +59,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     ///   - baseURL: Base Discogs API URL. Defaults to the public Discogs API endpoint.
     ///   - rawRequestCache: Optional cache for raw API responses.
     ///   - reissueKeywords: Release text treated as reissue evidence.
+    ///   - searchConfiguration: Candidate and missing-year request limits.
     public init(
         token: String? = nil,
         contactEmail: String = "",
@@ -67,7 +67,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         rateLimiter: TokenBucketRateLimiter? = nil,
         baseURL: URL = Self.defaultBaseURL,
         rawRequestCache: RawAPIRequestCache? = nil,
-        reissueKeywords: [String] = MetadataRuleDefaults.releaseReissues
+        reissueKeywords: [String] = MetadataRuleDefaults.releaseReissues,
+        searchConfiguration: DiscogsSearchConfig = DiscogsSearchConfig()
     ) {
         if contactEmail.isEmpty {
             self.userAgent = "GenreUpdater/1.0"
@@ -77,6 +78,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         self.token = token
         self.rawRequestCache = rawRequestCache
         self.reissueKeywords = normalizedReissueKeywords(reissueKeywords)
+        self.searchConfiguration = searchConfiguration
         self.session = session
         self.baseURL = baseURL
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
@@ -125,6 +127,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         guard let url = Self.buildSearchURL(
             artist: artist,
             album: album,
+            perPage: searchConfiguration.clampedResultLimit,
             baseURL: baseURL
         ) else {
             log.warning("Failed to build Discogs search URL for \(artist, privacy: .private)")
@@ -162,6 +165,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             artist: artist,
             album: album,
             type: "release",
+            perPage: searchConfiguration.clampedResultLimit,
             baseURL: baseURL
         ) else {
             log.warning("Failed to build Discogs release search URL for \(artist, privacy: .private)")
@@ -196,22 +200,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             throw DiscogsError.noToken
         }
 
-        guard let url = Self.buildSearchURL(
-            artist: artist,
-            album: album,
-            type: nil,
-            perPage: 10,
-            baseURL: baseURL
-        ) else {
-            log.warning("Failed to build Discogs candidate search URL for \(artist, privacy: .private)")
-            return []
-        }
-
-        let data = try await fetchWithRateLimit(url: url)
-        let response = try JSONDecoder().decode(
-            DiscogsSearchResponse.self,
-            from: data
-        )
+        guard let response = try await candidateSearchResponse(artist: artist, album: album) else { return [] }
 
         var candidates: [ReleaseCandidate] = []
         var detailLookupCount = 0
@@ -225,7 +214,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             if outcome.didAttemptDetailLookup {
                 detailLookupCount += 1
             }
-            if let candidate = outcome.candidate {
+            if let candidate = outcome.candidate,
+               Self.matchesArtist(result.title, expected: artist) {
                 candidates.append(candidate)
             }
         }
@@ -257,17 +247,15 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
 
     /// Builds a search URL for master releases matching the given artist and album.
     ///
-    /// Query parameters: `artist`, `release_title`, `type=master`, `per_page=5`.
+    /// Query parameters: `artist`, `release_title`, `type=master`, and the configured result limit.
     static func buildSearchURL(
         artist: String,
         album: String,
         type: String? = "master",
-        perPage: Int = 5,
+        perPage: Int = DiscogsSearchConfig().clampedResultLimit,
         baseURL: URL = Self.defaultBaseURL
     ) -> URL? {
-        let searchURL = baseURL
-            .appendingPathComponent("database")
-            .appendingPathComponent("search")
+        let searchURL = baseURL.appendingPathComponent("database").appendingPathComponent("search")
         var components = URLComponents(url: searchURL, resolvingAgainstBaseURL: false)
         var queryItems = [
             URLQueryItem(name: "artist", value: artist),
@@ -277,6 +265,34 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         if let type {
             queryItems.append(URLQueryItem(name: "type", value: type))
         }
+        components?.queryItems = queryItems
+        return components?.url
+    }
+
+    private static func buildCandidateSearchURL(
+        artist: String,
+        album: String,
+        search: CandidateSearch,
+        perPage: Int,
+        baseURL: URL
+    ) -> URL? {
+        let searchURL = baseURL
+            .appendingPathComponent("database")
+            .appendingPathComponent("search")
+        var components = URLComponents(url: searchURL, resolvingAgainstBaseURL: false)
+        var queryItems: [URLQueryItem] = switch search {
+        case .fielded:
+            [
+                URLQueryItem(name: "artist", value: artist),
+                URLQueryItem(name: "release_title", value: album),
+            ]
+        case .generic:
+            [URLQueryItem(name: "q", value: "\(artist) \(album)")]
+        case .albumOnly:
+            [URLQueryItem(name: "release_title", value: album)]
+        }
+        queryItems.append(URLQueryItem(name: "type", value: "release"))
+        queryItems.append(URLQueryItem(name: "per_page", value: String(perPage)))
         components?.queryItems = queryItems
         return components?.url
     }
@@ -325,6 +341,37 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         let title = discogsTitle.components(separatedBy: " - ").last ?? fallback
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedTitle.isEmpty ? fallback : trimmedTitle
+    }
+
+    private static func matchesArtist(_ title: String, expected artist: String) -> Bool {
+        let expectedArtist = normalizedDiscogsArtist(artist)
+        let expectedWithoutThe = removingThePrefix(expectedArtist)
+
+        if let separator = title.range(of: " - ") {
+            let titleArtist = normalizedDiscogsArtist(String(title[..<separator.lowerBound]))
+            if titleArtist == expectedArtist || removingThePrefix(titleArtist) == expectedWithoutThe {
+                return true
+            }
+        }
+
+        let normalizedTitle = normalizedDiscogsArtist(title)
+        return normalizedTitle.contains(expectedArtist) || normalizedTitle.contains(expectedWithoutThe)
+    }
+
+    private static func normalizedDiscogsArtist(_ artist: String) -> String {
+        var normalized = normalizeForMatching(artist)
+        if normalized.hasSuffix(", the") {
+            normalized = "the \(normalized.dropLast(5))"
+        }
+        return normalized.replacingOccurrences(
+            of: "\\s*\\(\\d+\\)\\s*$",
+            with: "",
+            options: .regularExpression
+        )
+    }
+
+    private static func removingThePrefix(_ artist: String) -> String {
+        artist.hasPrefix("the ") ? String(artist.dropFirst(4)) : artist
     }
 
     private static func releaseType(from formats: [String]) -> ReleaseType {
@@ -406,7 +453,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         attemptedLookupCount: Int
     ) async throws -> (year: Int?, didAttempt: Bool) {
         guard Self.validYear(result.releaseYear) == nil,
-              attemptedLookupCount < Self.releaseDetailLookupLimit,
+              attemptedLookupCount < searchConfiguration.clampedDetailLookupLimit,
               Self.hasReleaseDetailIdentifier(result) else {
             return (nil, false)
         }
@@ -431,6 +478,51 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         } catch let error as URLError {
             throw error
         }
+    }
+
+    private func candidateSearchResponse(
+        artist: String,
+        album: String
+    ) async throws -> DiscogsSearchResponse? {
+        var firstFailure: (any Error)?
+        for search in CandidateSearch.allCases {
+            try Task.checkCancellation()
+            guard let url = Self.buildCandidateSearchURL(
+                artist: artist,
+                album: album,
+                search: search,
+                perPage: searchConfiguration.clampedResultLimit,
+                baseURL: baseURL
+            ) else {
+                continue
+            }
+
+            do {
+                let data = try await fetchWithRateLimit(url: url)
+                let response = try JSONDecoder().decode(DiscogsSearchResponse.self, from: data)
+                if !response.results.isEmpty {
+                    return response
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as URLError where error.code == .cancelled {
+                throw error
+            } catch let error as DiscogsError {
+                switch error {
+                case .noToken, .unauthorized, .rateLimited:
+                    throw error
+                case .invalidResponse, .httpError:
+                    firstFailure = firstFailure ?? error
+                }
+            } catch {
+                firstFailure = firstFailure ?? error
+            }
+        }
+
+        if let firstFailure {
+            throw firstFailure
+        }
+        return nil
     }
 
     private func releaseCandidate(
@@ -627,6 +719,13 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         return copy
     }
 
+    /// Returns a copy using the supplied candidate and missing-year request limits.
+    public func withSearchConfiguration(_ configuration: DiscogsSearchConfig) -> Self {
+        var copy = self
+        copy.searchConfiguration = configuration
+        return copy
+    }
+
     private func fetchWithRateLimit(url: URL) async throws -> Data {
         guard let rawRequestCache else {
             return try await performRateLimitedFetch(url: url)
@@ -660,6 +759,12 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             throw DiscogsError.httpError(httpResponse.statusCode)
         }
     }
+}
+
+private enum CandidateSearch: CaseIterable {
+    case fielded
+    case generic
+    case albumOnly
 }
 
 // MARK: - DiscogsError

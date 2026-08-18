@@ -340,6 +340,7 @@ extension AppConfiguration {
         validateYearRateLimits(using: &validation)
         validateYearLogic(using: &validation)
         validateYearFallback(using: &validation)
+        validateProviderSearch(using: &validation)
     }
 
     private func validateYearRateLimits(using validation: inout ValidationCollector) {
@@ -431,6 +432,19 @@ extension AppConfiguration {
             yearRetrieval.fallback.maxVerificationAttempts,
             minimum: 0,
             path: "yearRetrieval.fallback.maxVerificationAttempts"
+        )
+    }
+
+    private func validateProviderSearch(using validation: inout ValidationCollector) {
+        validation.requireInRange(
+            yearRetrieval.discogsSearch.resultLimit,
+            range: DiscogsSearchConfig.resultLimitRange,
+            path: "yearRetrieval.discogsSearch.resultLimit"
+        )
+        validation.requireInRange(
+            yearRetrieval.discogsSearch.detailLookupLimit,
+            range: DiscogsSearchConfig.detailLookupLimitRange,
+            path: "yearRetrieval.discogsSearch.detailLookupLimit"
         )
         validation.requireInRange(
             yearRetrieval.itunesSearch.limit,
