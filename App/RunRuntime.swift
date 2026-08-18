@@ -105,7 +105,8 @@ struct RunRuntimeFactory {
                     albumTracks: $1,
                     artistTracks: $2,
                     options: $3,
-                    dryRun: true
+                    dryRun: true,
+                    yearSafetyScope: $4
                 )
             }
         )

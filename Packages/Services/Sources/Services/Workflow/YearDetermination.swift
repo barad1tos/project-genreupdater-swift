@@ -19,6 +19,22 @@ private enum YearShortcutDecision {
     case change(ProposedChange)
 }
 
+/// Deduplicates pending-verification marks for unsafe albums within one preview or write run.
+///
+/// Create one scope per multi-track run and pass the same instance to every `updateTrack` call in that run.
+/// Safety evaluation and skipping still occur per track.
+public actor YearSafetyScope {
+    private var albumKeys: Set<String> = []
+
+    public init() {
+        // Each run starts without any recorded album marks.
+    }
+
+    func insert(_ track: Track) -> Bool {
+        albumKeys.insert(AlbumIdentity.key(for: track)).inserted
+    }
+}
+
 extension UpdateCoordinator {
     private static let fallbackRejectionReasons: Set<String> = [
         "suspicious_year_change",
@@ -47,20 +63,23 @@ extension UpdateCoordinator {
 
     func determineYearChange(
         track: Track,
+        safetyTrack: Track? = nil,
         albumTracks: [Track],
         forceYearLookup: Bool,
         albumTypeInfo: AlbumTypeInfo,
         queryAlbum: String? = nil,
-        missingYearThreshold: Double
+        missingYearThreshold: Double,
+        yearSafetyScope: YearSafetyScope? = nil
     ) async throws -> ProposedChange? {
-        guard albumTypeInfo.strategy != .markAndSkip else { return nil }
         if await shouldSkipYearPreflight(
-            track: track,
+            track: safetyTrack ?? track,
             albumTracks: albumTracks,
-            forceYearLookup: forceYearLookup
+            forceYearLookup: forceYearLookup,
+            yearSafetyScope: yearSafetyScope
         ) {
             return nil
         }
+        guard albumTypeInfo.strategy != .markAndSkip else { return nil }
 
         let releaseYearConflict = releaseYearConflict(
             for: track,
@@ -109,13 +128,58 @@ extension UpdateCoordinator {
     private func shouldSkipYearPreflight(
         track: Track,
         albumTracks: [Track],
-        forceYearLookup: Bool
+        forceYearLookup: Bool,
+        yearSafetyScope: YearSafetyScope?
     ) async -> Bool {
+        if let issue = yearDeterminator.yearSafetyIssue(
+            track: track,
+            albumTracks: albumTracks
+        ) {
+            if await yearSafetyScope?.insert(track) != false {
+                await markYearSafetyIssue(issue, track: track, albumTracks: albumTracks)
+            }
+            return true
+        }
+
         guard !forceYearLookup else { return false }
         if isAlbumAlreadyProcessedByMGU(track: track, albumTracks: albumTracks) {
             return true
         }
         return await shouldSkipRecentFallbackRejection(track: track)
+    }
+
+    private func markYearSafetyIssue(
+        _ issue: YearSafetyIssue,
+        track: Track,
+        albumTracks: [Track]
+    ) async {
+        let reason: PendingAlbumReason
+        let metadata: [String: String]
+        let recheckDays: Int?
+
+        switch issue {
+        case let .suspiciousAlbum(uniqueYearCount, albumNameLength):
+            reason = .suspiciousAlbum
+            metadata = [
+                "album_name_length": String(albumNameLength),
+                "unique_years": String(uniqueYearCount),
+            ]
+            recheckDays = nil
+        case let .farFutureYear(year):
+            reason = .prerelease
+            metadata = [
+                "expected_year": String(year),
+                "track_count": String(albumContextTracks(track: track, albumTracks: albumTracks).count),
+            ]
+            recheckDays = runtimeConfiguration.prereleaseRecheckDays
+        }
+
+        await markPendingAlbum(
+            track: track,
+            reason: reason,
+            metadata: metadata,
+            recheckDays: recheckDays
+        )
     }
 
     private func yearShortcutDecision(

@@ -387,12 +387,12 @@ struct FixPlanProducerTests {
                     refreshIdentity: { try await spy.refreshWriteIdentity(for: $0, scope: $1) },
                     albumContext: { await spy.albumContextTracksByTrackID(for: $0) },
                     artistContext: { await spy.artistContextTracksByTrackID(for: $0) },
-                    determineChanges: {
+                    determineChanges: { track, albumTracks, artistTracks, options, _ in
                         try await spy.determineTrackChanges(
-                            track: $0,
-                            albumTracks: $1,
-                            artistTracks: $2,
-                            options: $3
+                            track: track,
+                            albumTracks: albumTracks,
+                            artistTracks: artistTracks,
+                            options: options
                         )
                     }
                 )

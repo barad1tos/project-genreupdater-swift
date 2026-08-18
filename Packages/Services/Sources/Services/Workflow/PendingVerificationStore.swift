@@ -133,7 +133,10 @@ public actor PendingVerificationStore: ModelActor, Core.PendingVerificationServi
         let effectiveReason = pendingReason(existingReason: existing?.reason, requestedReason: reason)
         let resolvedRecheckDays = resolvedRecheckDays(reason: effectiveReason, recheckDays: recheckDays)
         let interval = resolvedRecheckDays.map { TimeInterval($0) * 86400 } ?? verificationInterval
-        var mergedMetadata = existing?.metadata ?? [:]
+        let replacesPrerelease = existing.map {
+            Self.isPrereleaseReason($0.reason) && !Self.isPrereleaseReason(effectiveReason)
+        } ?? false
+        var mergedMetadata = replacesPrerelease ? [:] : existing?.metadata ?? [:]
         if let metadata {
             mergedMetadata.merge(metadata) { _, new in new }
         }
@@ -590,10 +593,18 @@ extension PendingVerificationStore {
 
     private func pendingReason(existingReason: String?, requestedReason: String) -> String {
         guard let existingReason, Self.isPrereleaseReason(existingReason),
-              !Self.isPrereleaseReason(requestedReason) else {
+              Self.isMissingYearReason(requestedReason) else {
             return requestedReason
         }
         return existingReason
+    }
+
+    private static func isMissingYearReason(_ reason: String) -> Bool {
+        let normalizedReason = reason
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "_")
+            .lowercased()
+        return normalizedReason == "no_year_found" || normalizedReason == "missing_year"
     }
 
     private static func resolvedPrereleaseRecheckDays(_ days: Int, fallbackDays: Int) -> Int {

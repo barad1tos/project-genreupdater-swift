@@ -142,6 +142,7 @@ extension UpdateCoordinator {
     func applyGeneratedAcceptedChanges(
         for request: GeneratedUpdateRequest,
         trackProviders: UpdateTrackProviders,
+        yearSafetyScope: YearSafetyScope,
         failedTrackIDs: inout [String],
         errorDescriptions: inout [String]
     ) async throws -> AppliedChangeEntries {
@@ -155,7 +156,8 @@ extension UpdateCoordinator {
             artistTracks: artistTracks,
             options: request.options,
             pass: request.pass,
-            dryRun: true
+            dryRun: true,
+            yearSafetyScope: yearSafetyScope
         )
 
         let acceptedChanges = changes.filter(\.isAccepted)

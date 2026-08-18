@@ -6,7 +6,8 @@ public struct FixPlanProducer: Sendable {
         public let refreshIdentity: @Sendable ([Track], ProcessingScopeSnapshot) async throws -> Void
         public let albumContext: @Sendable ([Track]) async -> [String: [Track]]
         public let artistContext: @Sendable ([Track]) async -> [String: [Track]]
-        public let determineChanges: @Sendable (Track, [Track], [Track], UpdateOptions) async throws
+        /// Determines one track's changes. Forward the run scope unchanged to `UpdateCoordinator.updateTrack`.
+        public let determineChanges: @Sendable (Track, [Track], [Track], UpdateOptions, YearSafetyScope) async throws
             -> [ProposedChange]
 
         public init(
@@ -17,7 +18,8 @@ public struct FixPlanProducer: Sendable {
                 Track,
                 [Track],
                 [Track],
-                UpdateOptions
+                UpdateOptions,
+                YearSafetyScope
             ) async throws -> [ProposedChange]
         ) {
             self.refreshIdentity = refreshIdentity
@@ -72,6 +74,7 @@ public struct FixPlanProducer: Sendable {
         // targeted preview would propose different metadata than a
         // whole-scope one for the same track.
         let artistTracksByTrackID = await runtime.artistContext(scopedTracks)
+        let yearSafetyScope = YearSafetyScope()
 
         var proposals: [ProposedChange] = []
         for track in targetedTracks {
@@ -81,7 +84,8 @@ public struct FixPlanProducer: Sendable {
                     track,
                     albumTracksByTrackID[track.id] ?? [],
                     artistTracksByTrackID[track.id] ?? [],
-                    options
+                    options,
+                    yearSafetyScope
                 )
                 proposals.append(contentsOf: changes)
             } catch let error where Self.isWriteEligibilityError(error) {

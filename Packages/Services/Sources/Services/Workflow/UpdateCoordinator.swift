@@ -2,6 +2,11 @@ import Core
 import Foundation
 import OSLog
 
+enum PendingAlbumReason: String, Sendable {
+    case prerelease
+    case suspiciousAlbum = "suspicious_album_name"
+}
+
 extension AlbumTypeDetectionConfig {
     func classifyAlbum(_ albumName: String) -> AlbumTypeInfo {
         detectAlbumType(
@@ -92,22 +97,17 @@ public actor UpdateCoordinator {
 
     // MARK: Single Track
 
-    /// Process a single track: determine changes, optionally write to Music.app.
+    /// Determines changes for one track and optionally writes them to Music.app.
     ///
-    /// - Parameters:
-    ///   - track: The track to update
-    ///   - albumTracks: Other tracks on the same album (for cross-track scoring)
-    ///   - artistTracks: All tracks by the same artist (for dominant genre)
-    ///   - options: Update configuration (genre/year, confidence, auto-accept)
-    ///   - dryRun: If true, return proposed changes without writing
-    /// - Returns: Proposed changes (written if not dry-run)
+    /// Reuse `yearSafetyScope` across a multi-track run to record at most one pending attempt per unsafe album.
     public func updateTrack(
         _ track: Track,
         albumTracks: [Track] = [],
         artistTracks: [Track] = [],
         options: UpdateOptions,
         pass: UpdatePass = .standard,
-        dryRun: Bool = false
+        dryRun: Bool = false,
+        yearSafetyScope: YearSafetyScope? = nil
     ) async throws -> [ProposedChange] {
         guard runtimeConfiguration.allowsTrack(track) else {
             log
@@ -149,10 +149,10 @@ public actor UpdateCoordinator {
 
         let candidateChanges = try await proposedChanges(
             for: inputTrack,
-            albumTracks: inputAlbumTracks,
-            artistTracks: inputArtistTracks,
+            trackContext: (album: inputAlbumTracks, artist: inputArtistTracks),
             options: options,
-            pass: pass
+            pass: pass,
+            yearSafetyScope: yearSafetyScope
         )
         let proposedChanges = ChangePreviewPipeline().filter(
             changes: candidateChanges,
@@ -173,10 +173,10 @@ public actor UpdateCoordinator {
 
     private func proposedChanges(
         for track: Track,
-        albumTracks: [Track],
-        artistTracks: [Track],
+        trackContext: (album: [Track], artist: [Track]),
         options: UpdateOptions,
-        pass: UpdatePass
+        pass: UpdatePass,
+        yearSafetyScope: YearSafetyScope?
     ) async throws -> [ProposedChange] {
         var proposedChanges: [ProposedChange] = []
         let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(track.album)
@@ -204,8 +204,8 @@ public actor UpdateCoordinator {
             (proposalTrack.artist, proposalTrack.originalArtist, proposalTrack.albumArtist)
         let genreContextTracks = Self.genreContextTracks(
             track: decisionTrack,
-            artistTracks: artistTracks,
-            albumTracks: albumTracks
+            artistTracks: trackContext.artist,
+            albumTracks: trackContext.album
         )
         if pass.includesStandardMetadata,
            let change = determineGenreChange(
@@ -220,7 +220,8 @@ public actor UpdateCoordinator {
            runtimeConfiguration.isYearLookupEnabled,
            let change = try await determineYearChange(
                track: decisionTrack,
-               albumTracks: albumTracks,
+               safetyTrack: track,
+               albumTracks: trackContext.album,
                forceYearLookup: options.forceYearLookup,
                albumTypeInfo: albumTypeInfo,
                queryAlbum: detectSearchStrategy(
@@ -229,7 +230,8 @@ public actor UpdateCoordinator {
                    soundtrackPatterns: runtimeConfiguration.albumTypeDetection.soundtrackPatterns,
                    variousArtistsNames: runtimeConfiguration.albumTypeDetection.variousArtistsNames
                ).strategy == .soundtrack ? proposalTrack.album : decisionTrack.album,
-               missingYearThreshold: Double(options.minConfidence)
+               missingYearThreshold: Double(options.minConfidence),
+               yearSafetyScope: yearSafetyScope
            ) {
             proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
         }
@@ -399,13 +401,27 @@ public actor UpdateCoordinator {
         track: Track,
         metadata: [String: String]
     ) async {
+        await markPendingAlbum(
+            track: track,
+            reason: .prerelease,
+            metadata: metadata,
+            recheckDays: runtimeConfiguration.prereleaseRecheckDays
+        )
+    }
+
+    func markPendingAlbum(
+        track: Track,
+        reason: PendingAlbumReason,
+        metadata: [String: String],
+        recheckDays: Int?
+    ) async {
         let identity = track.albumIdentity
         await pendingVerificationService?.markForVerification(
             artist: identity.artist,
             album: identity.album,
-            reason: "prerelease",
+            reason: reason.rawValue,
             metadata: metadata,
-            recheckDays: runtimeConfiguration.prereleaseRecheckDays
+            recheckDays: recheckDays
         )
     }
 
@@ -484,12 +500,14 @@ public actor UpdateCoordinator {
             albumTracksProvider: albumTracksProvider,
             artistTracksProvider: artistTracksProvider
         )
+        let yearSafetyScope = YearSafetyScope()
 
         for (index, track) in tracks.enumerated() {
             do {
                 let trackOutcome = try await applyGeneratedAcceptedChanges(
                     for: GeneratedUpdateRequest(track: track, options: options, pass: pass),
                     trackProviders: trackProviders,
+                    yearSafetyScope: yearSafetyScope,
                     failedTrackIDs: &failedTrackIDs,
                     errorDescriptions: &errorDescriptions
                 )

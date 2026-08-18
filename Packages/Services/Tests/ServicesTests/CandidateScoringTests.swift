@@ -153,7 +153,7 @@ struct CandidateScoringTests {
             name: "The Elephant Riders",
             artist: "Clutch",
             album: "The Elephant Riders",
-            year: 2211,
+            year: 1899,
             releaseYear: 1998
         )
         let albumTracks = [
@@ -163,7 +163,7 @@ struct CandidateScoringTests {
                 name: "Ship of Gold",
                 artist: "Clutch",
                 album: "The Elephant Riders",
-                year: 2211,
+                year: 1899,
                 releaseYear: 1998
             ),
         ]
@@ -190,7 +190,7 @@ struct CandidateScoringTests {
         )
 
         let yearChange = try #require(changes.first { $0.changeType == ChangeType.yearUpdate })
-        #expect(yearChange.oldValue == "2211")
+        #expect(yearChange.oldValue == "1899")
         #expect(yearChange.newValue == "1998")
         #expect(yearChange.source == "Consensus")
     }
@@ -218,7 +218,7 @@ struct CandidateScoringTests {
             name: "Sugar Creek",
             artist: "SubRosa",
             album: "Strega",
-            year: 2211,
+            year: 1899,
             trackStatus: "subscription",
             releaseYear: 2008,
             albumArtist: "SubRosa"
@@ -245,7 +245,7 @@ struct CandidateScoringTests {
         )
 
         let yearChange = try #require(changes.first { $0.changeType == ChangeType.yearUpdate })
-        #expect(yearChange.oldValue == "2211")
+        #expect(yearChange.oldValue == "1899")
         #expect(yearChange.newValue == "2008")
         #expect(yearChange.source == "Consensus")
     }
