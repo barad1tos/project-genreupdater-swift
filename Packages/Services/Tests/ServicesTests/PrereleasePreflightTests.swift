@@ -184,7 +184,9 @@ struct PrereleasePreflightTests {
         _ = try await coordinator.updateTracks(
             tracks,
             options: UpdateOptions(updateGenre: false, updateYear: true),
-            progressHandler: { _ in }
+            progressHandler: { _ in
+                // Progress is outside this persistence assertion.
+            }
         )
 
         let firstEntry = try #require(await pendingVerification.getEntry(
@@ -196,7 +198,9 @@ struct PrereleasePreflightTests {
         _ = try await coordinator.updateTracks(
             tracks,
             options: UpdateOptions(updateGenre: false, updateYear: true),
-            progressHandler: { _ in }
+            progressHandler: { _ in
+                // Progress is outside this persistence assertion.
+            }
         )
 
         let secondEntry = try #require(await pendingVerification.getEntry(
@@ -254,7 +258,9 @@ struct PrereleasePreflightTests {
             loadTracks: { tracks },
             makeRuntime: { _, _ in
                 FixPlanProducer.Runtime(
-                    refreshIdentity: { _, _ in },
+                    refreshIdentity: { _, _ in
+                        // Fixture tracks already carry their grouping identity.
+                    },
                     albumContext: {
                         await coordinator.albumContextTracksByTrackID(
                             for: $0,
@@ -274,7 +280,9 @@ struct PrereleasePreflightTests {
                     }
                 )
             },
-            savePlan: { _, _ in },
+            savePlan: { _, _ in
+                Issue.record("Unsafe albums must not produce a fix plan")
+            },
             now: { Date(timeIntervalSince1970: 1_700_000_000) }
         ))
     }

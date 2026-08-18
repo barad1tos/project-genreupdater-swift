@@ -26,7 +26,9 @@ private enum YearShortcutDecision {
 public actor YearSafetyScope {
     private var albumKeys: Set<String> = []
 
-    public init() {}
+    public init() {
+        // Each run starts without any recorded album marks.
+    }
 
     func insert(_ track: Track) -> Bool {
         albumKeys.insert(AlbumIdentity.key(for: track)).inserted
