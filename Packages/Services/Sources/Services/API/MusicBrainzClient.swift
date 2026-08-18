@@ -17,11 +17,13 @@ import OSLog
 /// - `/ws/2/release-group?query=...` — album year, genres/tags
 /// - `/ws/2/artist?query=...` — artist activity period (life-span)
 public struct MusicBrainzClient: ExternalAPIService, Sendable {
-    private static let baseURL = "https://musicbrainz.org/ws/2"
+    /// Default public MusicBrainz API endpoint.
+    public static let defaultBaseURL = APIAuthConfig.defaultMusicBrainzBaseURL
 
     private let userAgent: String
     private let session: URLSession
     private let rateLimiter: TokenBucketRateLimiter
+    private let baseURL: URL
     private let rawRequestCache: RawAPIRequestCache?
     private let log = AppLogger.api
 
@@ -31,11 +33,13 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     ///   - contactEmail: Contact email included in User-Agent header per MusicBrainz policy.
     ///   - session: URL session for network requests. Defaults to `.shared`.
     ///   - rateLimiter: Rate limiter for throttling. Defaults to 1 req/sec.
+    ///   - baseURL: Base MusicBrainz API URL.
     public init(
         appName: String = "GenreUpdater/1.0",
         contactEmail: String = "",
         session: URLSession = .shared,
         rateLimiter: TokenBucketRateLimiter? = nil,
+        baseURL: URL = Self.defaultBaseURL,
         rawRequestCache: RawAPIRequestCache? = nil
     ) {
         let trimmedAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -46,6 +50,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             self.userAgent = "\(effectiveAppName) (\(contactEmail); https://github.com/barad1tos/project-genreupdater-swift)"
         }
         self.session = session
+        self.baseURL = baseURL
         self.rawRequestCache = rawRequestCache
         self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
             maxTokens: 1,
@@ -125,7 +130,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         return start
     }
 
-    public func initialize(force: Bool) async throws {
+    public func initialize(force _: Bool) async throws {
         // No initialization needed — stateless HTTP client
     }
 
@@ -137,18 +142,31 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
 
     /// Builds a release group search URL for the given artist and album.
     ///
-    /// Query format: `artist:"<artist>" AND release:"<album>"` with `&fmt=json`.
+    /// Query format: `artist:"<artist>" AND releasegroup:"<album>"` with `&fmt=json`.
     static func buildReleaseGroupSearchURL(
         artist: String,
         album: String,
-        limit: Int = 5
+        limit: Int = 5,
+        baseURL: URL = Self.defaultBaseURL
     ) -> URL? {
-        var components = URLComponents(string: "\(baseURL)/release-group")
         // An empty artist is the album-only alternative search (Python
         // parity: Various Artists and flagged soundtracks drop the artist).
+        let escapedAlbum = escapeLucenePhrase(album)
         let query = artist.isEmpty
-            ? "release:\"\(album)\""
-            : "artist:\"\(artist)\" AND release:\"\(album)\""
+            ? "releasegroup:\"\(escapedAlbum)\""
+            : "artist:\"\(escapeLucenePhrase(artist))\" AND releasegroup:\"\(escapedAlbum)\""
+        return releaseGroupSearchURL(query: query, limit: limit, baseURL: baseURL)
+    }
+
+    private static func releaseGroupSearchURL(
+        query: String,
+        limit: Int,
+        baseURL: URL
+    ) -> URL? {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("release-group"),
+            resolvingAgainstBaseURL: false
+        )
         components?.queryItems = [
             URLQueryItem(name: "query", value: query),
             URLQueryItem(name: "fmt", value: "json"),
@@ -159,9 +177,13 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
 
     static func buildReleaseSearchURL(
         releaseGroupID: String,
-        limit: Int = 100
+        limit: Int = 100,
+        baseURL: URL = Self.defaultBaseURL
     ) -> URL? {
-        var components = URLComponents(string: "\(baseURL)/release")
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("release"),
+            resolvingAgainstBaseURL: false
+        )
         components?.queryItems = [
             URLQueryItem(name: "release-group", value: releaseGroupID),
             URLQueryItem(name: "inc", value: "media+artist-credits"),
@@ -173,10 +195,8 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
 
     /// Escapes a value for use inside a Lucene quoted phrase.
     ///
-    /// A quoted phrase treats every metacharacter literally except `\` and `"`,
-    /// so those two are the whole job — Python escapes its full metacharacter
-    /// list only because it sends an unquoted, non-fielded query. Backslash
-    /// goes first or it would double-escape the quotes added after it.
+    /// A quoted phrase treats every metacharacter literally except `\` and `"`.
+    /// Backslash goes first or it would double-escape the quotes added after it.
     ///
     /// Without this, an artist name carrying a quote rewrites the query: a
     /// library entry named `Radiohead" OR artist:"Metallica` returns Metallica,
@@ -190,8 +210,14 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     /// Builds an artist search URL for the given artist name.
     ///
     /// Query format: `artist:"<artist>"` with `&fmt=json`.
-    static func buildArtistSearchURL(artist: String) -> URL? {
-        var components = URLComponents(string: "\(baseURL)/artist")
+    static func buildArtistSearchURL(
+        artist: String,
+        baseURL: URL = Self.defaultBaseURL
+    ) -> URL? {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("artist"),
+            resolvingAgainstBaseURL: false
+        )
         components?.queryItems = [
             URLQueryItem(
                 name: "query",
@@ -226,24 +252,27 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         let releaseGroups = try await fetchReleaseGroups(artist: artist, album: album, limit: limit)
         guard releaseGroups.isEmpty else { return releaseGroups }
 
-        guard Self.shouldRetryWithCanonicalArtist(for: artist),
-              let canonicalArtist = try await canonicalArtistName(for: artist)
-        else {
-            return []
+        if Self.shouldRetryWithCanonicalArtist(for: artist),
+           let canonicalArtist = try await canonicalArtistName(for: artist) {
+            let normalizedArtist = normalizeForMatching(artist)
+            let normalizedCanonicalArtist = normalizeForMatching(canonicalArtist)
+            if !normalizedCanonicalArtist.isEmpty,
+               normalizedCanonicalArtist != normalizedArtist {
+                log.debug(
+                    "MusicBrainz canonical fallback for \(artist, privacy: .private) -> \(normalizedCanonicalArtist, privacy: .private)"
+                )
+                let canonicalGroups = try await fetchReleaseGroups(
+                    artist: normalizedCanonicalArtist,
+                    album: album,
+                    limit: limit
+                )
+                if !canonicalGroups.isEmpty {
+                    return canonicalGroups
+                }
+            }
         }
 
-        let normalizedArtist = normalizeForMatching(artist)
-        let normalizedCanonicalArtist = normalizeForMatching(canonicalArtist)
-        guard !normalizedCanonicalArtist.isEmpty,
-              normalizedCanonicalArtist != normalizedArtist
-        else {
-            return []
-        }
-
-        log.debug(
-            "MusicBrainz canonical fallback for \(artist, privacy: .private) -> \(normalizedCanonicalArtist, privacy: .private)"
-        )
-        return try await fetchReleaseGroups(artist: normalizedCanonicalArtist, album: album, limit: limit)
+        return try await fallbackReleaseGroups(artist: artist, album: album, limit: limit)
     }
 
     private func fetchReleaseGroups(
@@ -254,7 +283,8 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         guard let url = Self.buildReleaseGroupSearchURL(
             artist: artist,
             album: album,
-            limit: limit
+            limit: limit,
+            baseURL: baseURL
         ) else {
             log.warning("Failed to build release group search URL for \(artist, privacy: .private)")
             return []
@@ -267,8 +297,95 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         ).releaseGroups
     }
 
+    private func fallbackReleaseGroups(
+        artist: String,
+        album: String,
+        limit: Int
+    ) async throws -> [MBReleaseGroup] {
+        guard !artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return []
+        }
+
+        let genericGroups = try await fetchReleaseGroups(query: "\(artist) \(album)", limit: limit)
+        let matchingGenericGroups = Self.matchingReleaseGroups(genericGroups, artist: artist)
+        guard matchingGenericGroups.isEmpty else {
+            return matchingGenericGroups
+        }
+
+        let albumGroups = try await fetchReleaseGroups(query: album, limit: limit)
+        return Self.matchingReleaseGroups(albumGroups, artist: artist)
+    }
+
+    private func fetchReleaseGroups(query: String, limit: Int) async throws -> [MBReleaseGroup] {
+        guard let url = Self.releaseGroupSearchURL(
+            query: query,
+            limit: limit,
+            baseURL: baseURL
+        ) else {
+            log.warning("Failed to build release group fallback URL")
+            return []
+        }
+
+        let data = try await fetchWithRateLimit(url: url)
+        return try JSONDecoder().decode(
+            MBReleaseGroupSearchResponse.self,
+            from: data
+        ).releaseGroups
+    }
+
+    private static func matchingReleaseGroups(
+        _ releaseGroups: [MBReleaseGroup],
+        artist: String
+    ) -> [MBReleaseGroup] {
+        let normalizedArtist = normalizedCreditName(artist)
+        return releaseGroups.filter {
+            groupMatchesArtist($0, normalizedArtist: normalizedArtist)
+        }
+    }
+
+    private static func groupMatchesArtist(
+        _ releaseGroup: MBReleaseGroup,
+        normalizedArtist: String
+    ) -> Bool {
+        releaseGroup.artistCredits?.contains {
+            creditMatchesArtist($0, normalizedArtist: normalizedArtist)
+        } == true
+    }
+
+    private static func creditMatchesArtist(
+        _ credit: MBArtistCredit,
+        normalizedArtist: String
+    ) -> Bool {
+        guard let artist = credit.artist else { return false }
+        if normalizedCreditName(artist.name) == normalizedArtist {
+            return true
+        }
+        return artist.aliases?.contains {
+            normalizedCreditName($0.name) == normalizedArtist
+        } == true
+    }
+
+    private static func normalizedCreditName(_ name: String?) -> String {
+        guard let name else { return "" }
+        let foldedName = name
+            .folding(options: [.caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+            .replacingOccurrences(of: "&", with: "and")
+        let allowedCharacters = CharacterSet.alphanumerics
+            .union(.whitespacesAndNewlines)
+            .union(CharacterSet(charactersIn: "_"))
+        var filteredName = ""
+        for scalar in foldedName.unicodeScalars where allowedCharacters.contains(scalar) {
+            filteredName.unicodeScalars.append(scalar)
+        }
+        return filteredName.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
     private func fetchReleases(for releaseGroupID: String) async throws -> [MBRelease] {
-        guard let url = Self.buildReleaseSearchURL(releaseGroupID: releaseGroupID) else {
+        guard let url = Self.buildReleaseSearchURL(
+            releaseGroupID: releaseGroupID,
+            baseURL: baseURL
+        ) else {
             log.warning("Failed to build release search URL for release group \(releaseGroupID, privacy: .public)")
             return []
         }
@@ -315,7 +432,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     }
 
     private func fetchFirstArtist(named artist: String) async throws -> MBArtist? {
-        guard let url = Self.buildArtistSearchURL(artist: artist) else {
+        guard let url = Self.buildArtistSearchURL(artist: artist, baseURL: baseURL) else {
             log.warning("Failed to build artist search URL for \(artist, privacy: .private)")
             return nil
         }

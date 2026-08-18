@@ -154,7 +154,8 @@ struct MusicBrainzClientTests {
             primaryType: "Album",
             firstReleaseDate: "1984",
             tags: nil,
-            genres: nil
+            genres: nil,
+            artistCredits: nil
         )
 
         #expect(group.releaseYear == 1984)
@@ -168,7 +169,8 @@ struct MusicBrainzClientTests {
             primaryType: nil,
             firstReleaseDate: nil,
             tags: nil,
-            genres: nil
+            genres: nil,
+            artistCredits: nil
         )
 
         #expect(group.releaseYear == nil)
@@ -176,21 +178,22 @@ struct MusicBrainzClientTests {
 
     // MARK: - URL Building
 
-    @Test("buildReleaseGroupSearchURL encodes query correctly")
-    func buildReleaseGroupSearchURL() throws {
+    @Test("release group query uses escaped MusicBrainz fields")
+    func escapesReleaseQuery() throws {
         let url = MusicBrainzClient.buildReleaseGroupSearchURL(
-            artist: "Iron Maiden",
-            album: "Powerslave"
+            artist: #"AC\DC" OR artist:"Other"#,
+            album: #"Live\Cut"#
         )
+        let components = try #require(url.flatMap {
+            URLComponents(url: $0, resolvingAgainstBaseURL: false)
+        })
+        let queryItems = try #require(components.queryItems)
 
-        #expect(url != nil)
-
-        let urlString = try #require(url?.absoluteString)
-        #expect(urlString.contains("release-group"))
-        #expect(urlString.contains("fmt=json"))
-        #expect(urlString.contains("limit=5"))
-        // URLComponents percent-encodes spaces
-        #expect(urlString.contains("Iron%20Maiden") || urlString.contains("Iron+Maiden"))
+        #expect(components.path == "/ws/2/release-group")
+        #expect(queryItems.first { $0.name == "query" }?.value
+            == "artist:\"AC\\\\DC\\\" OR artist:\\\"Other\" AND releasegroup:\"Live\\\\Cut\"")
+        #expect(queryItems.first { $0.name == "fmt" }?.value == "json")
+        #expect(queryItems.first { $0.name == "limit" }?.value == "5")
     }
 
     @Test("buildArtistSearchURL encodes query correctly")
@@ -237,4 +240,64 @@ struct MusicBrainzClientTests {
         let accept = request.value(forHTTPHeaderField: "Accept")
         #expect(accept == "application/json")
     }
+
+    @Test("release group lookup uses the injected base URL")
+    func usesInjectedBaseURL() async throws {
+        let baseURL = try #require(URL(string: "https://musicbrainz.example.test/custom/ws/2"))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MusicBrainzRequestURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        MusicBrainzRequestURLProtocol.handler = { request in
+            let url = try #require(request.url)
+            #expect(url.host == "musicbrainz.example.test")
+            #expect(url.path == "/custom/ws/2/release-group")
+            let data = Data(#"{"release-groups":[{"id":"rg-1","title":"Album","first-release-date":"1998"}]}"#.utf8)
+            return try (jsonResponse(url: url), data)
+        }
+        defer { MusicBrainzRequestURLProtocol.handler = nil }
+
+        let client = MusicBrainzClient(
+            session: session,
+            rateLimiter: TokenBucketRateLimiter(maxTokens: 10, refillInterval: .seconds(1)),
+            baseURL: baseURL
+        )
+        let result = try await client.getAlbumYear(
+            artist: "Artist",
+            album: "Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == 1998)
+    }
+}
+
+private final class MusicBrainzRequestURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override static func canInit(with request: URLRequest) -> Bool {
+        request.url?.host != nil
+    }
+
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
