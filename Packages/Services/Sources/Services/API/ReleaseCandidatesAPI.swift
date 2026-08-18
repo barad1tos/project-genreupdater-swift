@@ -366,7 +366,7 @@ private func reissueRuleComponent(_ keywords: [String]) -> String {
 }
 
 private func discogsAcquisitionComponent(_ configuration: DiscogsSearchConfig) -> String {
-    "discogs_acquisition=2,result_limit=\(configuration.clampedResultLimit),detail_limit=\(configuration.clampedDetailLookupLimit)"
+    "discogs_acquisition=\(DiscogsAcquisition.signature(for: configuration))"
 }
 
 private func cacheKeyComponent(_ value: String) -> String {

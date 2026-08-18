@@ -81,3 +81,12 @@ enum DiscogsSearch: CaseIterable {
     case generic
     case albumOnly
 }
+
+enum DiscogsAcquisition {
+    static let metadataKey = "discogsAcquisition"
+    private static let revision = 2
+
+    static func signature(for configuration: DiscogsSearchConfig) -> String {
+        "revision=\(revision),result_limit=\(configuration.clampedResultLimit),detail_limit=\(configuration.clampedDetailLookupLimit)"
+    }
+}

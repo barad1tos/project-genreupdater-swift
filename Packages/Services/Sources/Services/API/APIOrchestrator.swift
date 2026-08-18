@@ -418,7 +418,8 @@ public actor APIOrchestrator {
         let cacheContext = SourceCacheContext(
             cache: cache,
             negativeResultTTL: negativeResultTTL,
-            candidateResultTTL: candidateResultTTL
+            candidateResultTTL: candidateResultTTL,
+            discogsAcquisitionSignature: DiscogsAcquisition.signature(for: discogsSearchConfiguration)
         )
 
         return await withTaskGroup(
@@ -516,6 +517,10 @@ public actor APIOrchestrator {
         ) else {
             return nil
         }
+        guard source != .discogs ||
+            cached.metadata[DiscogsAcquisition.metadataKey] == cacheContext.discogsAcquisitionSignature else {
+            return nil
+        }
 
         guard let year = cached.year else {
             guard cacheContext.negativeResultTTL > 0,
@@ -554,11 +559,11 @@ public actor APIOrchestrator {
                 source: source.rawValue,
                 timestamp: .now,
                 ttl: cacheContext.candidateResultTTL,
-                metadata: [
+                metadata: cacheMetadata([
                     "confidence": String(result.confidence),
                     "rawScore": String(result.rawScore),
                     "isDefinitive": String(result.isDefinitive),
-                ]
+                ], source: source, cacheContext: cacheContext)
             ))
             return
         }
@@ -572,10 +577,21 @@ public actor APIOrchestrator {
             source: source.rawValue,
             timestamp: .now,
             ttl: cacheContext.negativeResultTTL,
-            metadata: [
+            metadata: cacheMetadata([
                 "cacheKind": "negative",
-            ]
+            ], source: source, cacheContext: cacheContext)
         ))
+    }
+
+    private static func cacheMetadata(
+        _ metadata: [String: String],
+        source: APISource,
+        cacheContext: SourceCacheContext
+    ) -> [String: String] {
+        guard source == .discogs else { return metadata }
+        var metadata = metadata
+        metadata[DiscogsAcquisition.metadataKey] = cacheContext.discogsAcquisitionSignature
+        return metadata
     }
 
     /// Combines source year scores and selects the best year.
@@ -727,6 +743,7 @@ private struct SourceCacheContext {
     let cache: (any CacheService)?
     let negativeResultTTL: TimeInterval
     let candidateResultTTL: TimeInterval?
+    let discogsAcquisitionSignature: String
 }
 
 private struct SourceFetchResult {
