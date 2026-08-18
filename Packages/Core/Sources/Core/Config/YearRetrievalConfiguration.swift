@@ -107,6 +107,20 @@ public struct APIRateLimits: Sendable, Codable {
 }
 
 public struct APIAuthConfig: Sendable, Codable {
+    /// Default MusicBrainz API host.
+    public static let defaultMusicBrainzBaseHost = "musicbrainz.org"
+
+    /// Default MusicBrainz API v2 endpoint.
+    public static let defaultMusicBrainzBaseURL: URL = {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = defaultMusicBrainzBaseHost
+        components.path = "/ws/2"
+        guard let url = components.url else {
+            preconditionFailure("Default MusicBrainz API endpoint must be valid")
+        }
+        return url
+    }()
     public static let defaultDiscogsBaseHost = "api.discogs.com"
     public static let defaultDiscogsBaseURL: URL = {
         guard let url = makeDiscogsBaseURL(host: defaultDiscogsBaseHost) else {

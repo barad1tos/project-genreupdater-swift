@@ -27,6 +27,7 @@ struct MBReleaseGroup: Codable {
     let firstReleaseDate: String?
     let tags: [MBTag]?
     let genres: [MBGenre]?
+    let artistCredits: [MBArtistCredit]?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -35,6 +36,7 @@ struct MBReleaseGroup: Codable {
         case firstReleaseDate = "first-release-date"
         case tags
         case genres
+        case artistCredits = "artist-credit"
     }
 
     /// Extracts a four-digit year from `firstReleaseDate`.
@@ -48,6 +50,19 @@ struct MBReleaseGroup: Codable {
         }
         return Int(dateString.prefix(4))
     }
+}
+
+struct MBArtistCredit: Codable {
+    let artist: MBCreditedArtist?
+}
+
+struct MBCreditedArtist: Codable {
+    let name: String?
+    let aliases: [MBArtistAlias]?
+}
+
+struct MBArtistAlias: Codable {
+    let name: String?
 }
 
 // MARK: - Release Search

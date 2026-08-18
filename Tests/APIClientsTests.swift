@@ -227,6 +227,32 @@ struct APIClientsTests {
         #expect(candidates.first?.isReissue == true)
     }
 
+    @Test("MusicBrainz factory receives the current cleaning snapshot without an instance override")
+    func wiresMusicBrainzRules() {
+        var configuration = AppConfiguration()
+        configuration.cleaning.editionMarkers = ["archive-only"]
+        configuration.cleaning.albumSuffixes = ["bonus-only"]
+        var capturedCleaning: CleaningConfig?
+        let service = DashboardStateAPIService()
+        let factoryOverrides = APIClientFactoryOverrides(
+            musicBrainzFactory: { _, _, _, cleaning, _ in
+                capturedCleaning = cleaning
+                return service
+            },
+            appleMusic: service
+        )
+
+        _ = AppDependencies.makeAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            factoryOverrides: factoryOverrides
+        )
+
+        #expect(capturedCleaning == configuration.cleaning)
+    }
+
     @Test("Captured Discogs access is not reloaded during execution")
     func freezesDiscogsAccess() async {
         var configuration = AppConfiguration()

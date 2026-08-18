@@ -48,9 +48,17 @@ struct APIClientFactoryOverrides {
         _ rateLimiter: TokenBucketRateLimiter?,
         _ baseURL: URL
     ) -> DiscogsClient
+    typealias MusicBrainzFactory = (
+        _ appName: String,
+        _ contactEmail: String,
+        _ rateLimiter: TokenBucketRateLimiter?,
+        _ cleaningConfiguration: CleaningConfig,
+        _ rawRequestCache: RawAPIRequestCache?
+    ) -> any ExternalAPIService
 
     var keychainDiscogsClientFactory: KeychainDiscogsClientFactory
     var configuredDiscogsClientFactory: ConfiguredDiscogsClientFactory
+    var musicBrainzFactory: MusicBrainzFactory
     var keychainErrorHandler: (any Error) -> Void
     var discogsCredentialIssueHandler: DiscogsIssueHandler
     var musicBrainz: (any ExternalAPIService)?
@@ -59,6 +67,7 @@ struct APIClientFactoryOverrides {
     init(
         keychainDiscogsClientFactory: @escaping KeychainDiscogsClientFactory = Self.makeKeychainDiscogsClient,
         configuredDiscogsClientFactory: @escaping ConfiguredDiscogsClientFactory = Self.makeConfiguredDiscogsClient,
+        musicBrainzFactory: @escaping MusicBrainzFactory = Self.makeMusicBrainz,
         keychainErrorHandler: @escaping (any Error) -> Void = { error in
             apiClientLog.error(
                 "Failed to load Discogs token from Keychain: \(error.localizedDescription, privacy: .public)"
@@ -72,6 +81,7 @@ struct APIClientFactoryOverrides {
     ) {
         self.keychainDiscogsClientFactory = keychainDiscogsClientFactory
         self.configuredDiscogsClientFactory = configuredDiscogsClientFactory
+        self.musicBrainzFactory = musicBrainzFactory
         self.keychainErrorHandler = keychainErrorHandler
         self.discogsCredentialIssueHandler = discogsCredentialIssueHandler
         self.musicBrainz = musicBrainz
@@ -101,6 +111,22 @@ struct APIClientFactoryOverrides {
             contactEmail: contactEmail,
             rateLimiter: rateLimiter,
             baseURL: baseURL
+        )
+    }
+
+    static func makeMusicBrainz(
+        appName: String,
+        contactEmail: String,
+        rateLimiter: TokenBucketRateLimiter?,
+        cleaningConfiguration: CleaningConfig,
+        rawRequestCache: RawAPIRequestCache?
+    ) -> any ExternalAPIService {
+        MusicBrainzClient(
+            appName: appName,
+            contactEmail: contactEmail,
+            rateLimiter: rateLimiter,
+            cleaningConfiguration: cleaningConfiguration,
+            rawRequestCache: rawRequestCache
         )
     }
 }
@@ -258,11 +284,12 @@ extension AppDependencies {
             apiAuth.contactEmailReference,
             fallbackUserDefaultsKey: "contactEmail"
         )
-        let musicBrainz = factoryOverrides.musicBrainz ?? MusicBrainzClient(
-            appName: apiAuth.musicBrainzAppName,
-            contactEmail: contactEmail,
-            rateLimiter: makeMusicBrainzRateLimiter(configuration: configuration),
-            rawRequestCache: rawRequestCache
+        let musicBrainz = factoryOverrides.musicBrainz ?? factoryOverrides.musicBrainzFactory(
+            apiAuth.musicBrainzAppName,
+            contactEmail,
+            makeMusicBrainzRateLimiter(configuration: configuration),
+            configuration.cleaning,
+            rawRequestCache
         )
         let appleMusic = factoryOverrides.appleMusic ?? makeCatalogClient(
             configuration: configuration,

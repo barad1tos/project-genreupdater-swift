@@ -4,8 +4,8 @@ import Testing
 @testable import Services
 
 private let musicBrainzArtistPathComponents = ["ws", "2", "artist"]
-private let musicBrainzReleasePathComponents = ["ws", "2", "release"]
-private let musicBrainzReleaseGroupPathComponents = ["ws", "2", "release-group"]
+let musicBrainzReleasePathComponents = ["ws", "2", "release"]
+let musicBrainzReleaseGroupPathComponents = ["ws", "2", "release-group"]
 
 @Suite("API release candidate adapters", .serialized)
 struct CandidateAdapterTests {
@@ -289,38 +289,6 @@ struct CandidateAdapterTests {
             #expect(requestedQueries[1].contains("artist:\"паліндром\""))
             #expect(requestedQueries[2].contains("artist:\"palindrom\""))
         }
-    }
-
-    @Test("MusicBrainz skips canonical artist lookup for Latin artist aliases")
-    func musicBrainzSkipsCanonicalArtistFallbackForLatinArtist() async throws {
-        APIReleaseCandidateMockURLProtocol.requestedQueries = []
-        APIReleaseCandidateMockURLProtocol.requestHandler = { request in
-            let (url, query) = try musicBrainzQuery(from: request)
-            APIReleaseCandidateMockURLProtocol.requestedQueries.append(query)
-
-            let requestPathComponents = Array(url.pathComponents.dropFirst())
-            guard requestPathComponents == musicBrainzReleaseGroupPathComponents else {
-                throw URLError(.badURL)
-            }
-            return try (jsonResponse(url: url), Data(#"{"release-groups":[]}"#.utf8))
-        }
-        defer {
-            APIReleaseCandidateMockURLProtocol.requestHandler = nil
-            APIReleaseCandidateMockURLProtocol.requestedQueries = []
-        }
-
-        let client = makeMockMusicBrainzClient()
-
-        let candidates = try await client.getReleaseCandidates(
-            artist: "Björk",
-            album: "Debut",
-            currentLibraryYear: nil,
-            earliestTrackAddedYear: nil
-        )
-
-        #expect(candidates.isEmpty)
-        #expect(APIReleaseCandidateMockURLProtocol.requestedQueries.count == 1)
-        #expect(APIReleaseCandidateMockURLProtocol.requestedQueries.first?.contains("artist:\"Björk\"") == true)
     }
 
     @Test("Discogs returns release candidates from search results")
@@ -645,7 +613,7 @@ func makeMockSession(json: String) -> URLSession {
     return URLSession(configuration: configuration)
 }
 
-private func makeMockMusicBrainzClient(json: String = "{}") -> MusicBrainzClient {
+func makeMockMusicBrainzClient(json: String = "{}") -> MusicBrainzClient {
     MusicBrainzClient(
         appName: "GenreUpdaterTests",
         contactEmail: "tests@example.invalid",
@@ -653,7 +621,7 @@ private func makeMockMusicBrainzClient(json: String = "{}") -> MusicBrainzClient
     )
 }
 
-private func musicBrainzQuery(from request: URLRequest) throws -> (url: URL, query: String) {
+func musicBrainzQuery(from request: URLRequest) throws -> (url: URL, query: String) {
     guard let url = request.url,
           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
           let query = components.queryItems?.first(where: { $0.name == "query" })?.value
