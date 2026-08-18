@@ -421,17 +421,29 @@ public struct DiscogsSearchConfig: Sendable, Codable, Equatable {
     /// Release-detail recovery can be disabled or bounded to 100 requests.
     public static let detailLookupLimitRange = 0 ... 100
 
+    /// Default rows requested by each Discogs search request.
+    public static let defaultResultLimit = 25
+
+    /// Default release-detail requests available to recover missing years.
+    public static let defaultDetailLookupLimit = 10
+
     /// Maximum rows requested by each Discogs search request.
-    public var resultLimit: Int = 25
+    public var resultLimit: Int
 
     /// Maximum release-detail requests used to recover missing years.
-    public var detailLookupLimit: Int = 10
+    public var detailLookupLimit: Int
 
     private enum CodingKeys: String, CodingKey {
         case resultLimit, detailLookupLimit
     }
 
-    public init() {}
+    public init(
+        resultLimit: Int = Self.defaultResultLimit,
+        detailLookupLimit: Int = Self.defaultDetailLookupLimit
+    ) {
+        self.resultLimit = resultLimit
+        self.detailLookupLimit = detailLookupLimit
+    }
 
     public init(from decoder: any Decoder) throws {
         let defaults = Self()

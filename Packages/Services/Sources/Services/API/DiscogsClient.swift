@@ -178,32 +178,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         guard token != nil else {
             throw DiscogsError.noToken
         }
-
-        guard let response = try await candidateSearchResponse(artist: artist, album: album) else { return [] }
-
-        var candidates: [ReleaseCandidate] = []
-        var detailLookupCount = 0
-        var firstFailure: (any Error)?
-        for result in response.results {
-            let outcome = try await releaseCandidate(
-                from: result,
-                artist: artist,
-                album: album,
-                attemptedLookupCount: detailLookupCount
-            )
-            if outcome.didAttemptDetailLookup {
-                detailLookupCount += 1
-            }
-            firstFailure = firstFailure ?? outcome.failure
-            if let candidate = outcome.candidate,
-               Self.matchesArtist(result.title, expected: artist) {
-                candidates.append(candidate)
-            }
-        }
-        if candidates.isEmpty, let firstFailure {
-            throw firstFailure
-        }
-        return candidates
+        return try await searchReleaseCandidates(artist: artist, album: album)
     }
 
     public func getArtistActivityPeriod(
@@ -259,9 +234,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
 
         if let separator = title.range(of: " - ") {
             let titleArtist = normalizedDiscogsArtist(String(title[..<separator.lowerBound]))
-            if titleArtist == expectedArtist || removingThePrefix(titleArtist) == expectedWithoutThe {
-                return true
-            }
+            return titleArtist == expectedArtist || removingThePrefix(titleArtist) == expectedWithoutThe
         }
 
         let normalizedTitle = normalizedDiscogsArtist(title)
@@ -444,11 +417,12 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         return try await (fetchReleaseDetailYear(releaseID: result.id), true)
     }
 
-    private func candidateSearchResponse(
+    private func searchReleaseCandidates(
         artist: String,
         album: String
-    ) async throws -> DiscogsSearchResponse? {
+    ) async throws -> [ReleaseCandidate] {
         var firstFailure: (any Error)?
+        var detailLookupCount = 0
         for search in DiscogsSearch.allCases {
             try Task.checkCancellation()
             guard let url = Self.buildCandidateSearchURL(
@@ -465,8 +439,16 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
                 let data = try await fetchWithRateLimit(url: url)
                 let response = try JSONDecoder().decode(DiscogsSearchResponse.self, from: data)
                 try await checkSearchCancellation()
-                if !response.results.isEmpty {
-                    return response
+                let outcome = try await releaseCandidates(
+                    from: response.results,
+                    artist: artist,
+                    album: album,
+                    attemptedLookupCount: detailLookupCount
+                )
+                detailLookupCount = outcome.detailLookupCount
+                firstFailure = firstFailure ?? outcome.failure
+                if !outcome.candidates.isEmpty {
+                    return outcome.candidates
                 }
             } catch {
                 try Self.rethrowTerminal(error)
@@ -477,11 +459,38 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         if let firstFailure {
             throw firstFailure
         }
-        return nil
+        return []
     }
 
     private func checkSearchCancellation() async throws {
         try Task.checkCancellation()
+    }
+
+    private func releaseCandidates(
+        from results: [DiscogsSearchResult],
+        artist: String,
+        album: String,
+        attemptedLookupCount: Int
+    ) async throws -> (candidates: [ReleaseCandidate], detailLookupCount: Int, failure: (any Error)?) {
+        var candidates: [ReleaseCandidate] = []
+        var detailLookupCount = attemptedLookupCount
+        var firstFailure: (any Error)?
+        for result in results where Self.matchesArtist(result.title, expected: artist) {
+            let outcome = try await releaseCandidate(
+                from: result,
+                artist: artist,
+                album: album,
+                attemptedLookupCount: detailLookupCount
+            )
+            if outcome.didAttemptDetailLookup {
+                detailLookupCount += 1
+            }
+            firstFailure = firstFailure ?? outcome.failure
+            if let candidate = outcome.candidate {
+                candidates.append(candidate)
+            }
+        }
+        return (candidates, detailLookupCount, firstFailure)
     }
 
     private func releaseCandidate(

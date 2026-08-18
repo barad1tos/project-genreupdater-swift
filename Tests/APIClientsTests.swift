@@ -274,7 +274,7 @@ struct APIClientsTests {
         let searchURL = try #require(requests.first?.url)
 
         #expect(requestQueryValue("per_page", in: searchURL) == "17")
-        #expect(requests.compactMap(\.url).filter { $0.path.contains("/releases/") }.count == 1)
+        #expect(requests.compactMap(\.url).filter(isDiscogsRelease).count == 1)
         #expect(candidates.map(\.year) == [2020])
     }
 
@@ -735,7 +735,7 @@ private func makeDiscogsLimitResponse(
         httpVersion: nil,
         headerFields: ["Content-Type": "application/json"]
     ))
-    let payload = if url.path.hasSuffix("/database/search") {
+    let payload = if isDiscogsSearch(url) {
         """
         {"results":[
           {"id":7,"title":"Test Artist - Test Album","year":null,"type":"release"},
@@ -746,6 +746,15 @@ private func makeDiscogsLimitResponse(
         #"{"id":7,"title":"Test Album","year":2020}"#
     }
     return (response, Data(payload.utf8))
+}
+
+private func isDiscogsSearch(_ url: URL) -> Bool {
+    url.lastPathComponent == "search"
+        && url.deletingLastPathComponent().lastPathComponent == "database"
+}
+
+private func isDiscogsRelease(_ url: URL) -> Bool {
+    url.deletingLastPathComponent().lastPathComponent == "releases"
 }
 
 private final class CapturedAuthURLProtocol: URLProtocol {

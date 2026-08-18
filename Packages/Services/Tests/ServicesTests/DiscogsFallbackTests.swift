@@ -362,10 +362,13 @@ extension DiscogsClientRequestTests {
             resetDiscogsMockSession()
             session.invalidateAndCancel()
         }
+        var configuration = DiscogsSearchConfig()
+        configuration.detailLookupLimit = 1
         let discogs = try DiscogsClient(
             token: "test-token-123",
             session: session,
-            baseURL: makeDiscogsSandboxBaseURL()
+            baseURL: makeDiscogsSandboxBaseURL(),
+            searchConfiguration: configuration
         )
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(),
