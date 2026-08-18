@@ -3,7 +3,7 @@ import Testing
 @testable import Core
 @testable import Services
 
-@Suite("UpdateCoordinator - prerelease preflight")
+@Suite("UpdateCoordinator - year safety preflight")
 struct PrereleasePreflightTests {
     @Test("Marks prerelease tracks pending before AppleScript ID lookup")
     func marksPrereleaseTracksPendingBeforeAppleScriptIDLookup() async throws {
@@ -107,7 +107,7 @@ struct PrereleasePreflightTests {
         ])
     }
 
-    @Test("Suspicious albums stay pending even during forced lookup", arguments: [false, true])
+    @Test("Suspicious albums block normal and forced lookup and mark pending", arguments: [false, true])
     func blocksSuspiciousAlbum(forceYearLookup: Bool) async throws {
         let tracks = suspiciousTracks()
         let context = makePrereleaseContext()
@@ -137,7 +137,7 @@ struct PrereleasePreflightTests {
         #expect(markedAlbum.recheckDays == nil)
     }
 
-    @Test("Far-future albums stay pending even during forced lookup", arguments: [false, true])
+    @Test("Far-future albums block normal and forced lookup and mark pending", arguments: [false, true])
     func blocksFutureYear(forceYearLookup: Bool) async throws {
         let futureYear = currentUTCYear() + 3
         let track = makeYearTrack(id: "future", year: futureYear)
@@ -161,6 +161,109 @@ struct PrereleasePreflightTests {
             "expected_year": String(futureYear),
             "track_count": "1",
         ])
+    }
+
+    @Test("Batch marks a far-future album once")
+    func batchMarksFutureAlbumOnce() async throws {
+        let futureYear = currentUTCYear() + 3
+        let tracks = [
+            makeYearTrack(id: "future-1", year: futureYear),
+            makeYearTrack(id: "future-2", year: futureYear),
+        ]
+        let pendingVerification = try PendingVerificationStore(
+            modelContainer: ModelContainerFactory.createInMemory(),
+            legacyStorageURL: nil
+        )
+        let coordinator = makeCoordinator(
+            api: makeAPI(probe: APIRequestProbe()),
+            bridge: MockAppleScriptClient(),
+            cache: MockCacheService(),
+            pendingVerificationService: pendingVerification
+        )
+
+        _ = try await coordinator.updateTracks(
+            tracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            progressHandler: { _ in }
+        )
+
+        let firstEntry = try #require(await pendingVerification.getEntry(
+            artist: PrereleaseFixture.artist,
+            album: PrereleaseFixture.album
+        ))
+        #expect(firstEntry.attemptCount == 1)
+
+        _ = try await coordinator.updateTracks(
+            tracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            progressHandler: { _ in }
+        )
+
+        let secondEntry = try #require(await pendingVerification.getEntry(
+            artist: PrereleaseFixture.artist,
+            album: PrereleaseFixture.album
+        ))
+        #expect(secondEntry.attemptCount == 2)
+    }
+
+    @Test("Special albums still run non-bypassable year safety")
+    func specialAlbumRunsYearSafety() async throws {
+        let futureYear = currentUTCYear() + 3
+        let track = makeYearTrack(id: "compilation", album: "Greatest Hits", year: futureYear)
+        let context = makePrereleaseContext()
+
+        let changes = try await context.coordinator.updateTrack(
+            track,
+            albumTracks: [track],
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            dryRun: true
+        )
+
+        #expect(changes.isEmpty)
+        #expect(await context.apiProbe.requestCount == 0)
+        let mark = try await requireSingleMark(in: context, album: "Greatest Hits")
+        #expect(mark.reason == "prerelease")
+    }
+
+    @Test("Year safety persists the raw album identity before cleaning")
+    func yearSafetyUsesRawAlbumIdentity() async throws {
+        let futureYear = currentUTCYear() + 3
+        let track = makeYearTrack(
+            id: "future-remaster",
+            album: "Future Album Remastered",
+            year: futureYear
+        )
+        let context = makePrereleaseContext()
+
+        _ = try await context.coordinator.updateTrack(
+            track,
+            albumTracks: [track],
+            options: UpdateOptions(updateGenre: false, updateYear: true, cleanAlbumNames: true),
+            dryRun: true
+        )
+
+        let mark = try await requireSingleMark(in: context, album: "Future Album Remastered")
+        #expect(mark.reason == "prerelease")
+    }
+
+    @Test("Cleaning does not turn a raw album into a suspicious album")
+    func suspiciousCheckUsesRawAlbumName() async throws {
+        let tracks = [
+            makeYearTrack(id: "raw-1", album: "EP Remastered", year: 2000),
+            makeYearTrack(id: "raw-2", album: "EP Remastered", year: 2001),
+            makeYearTrack(id: "raw-3", album: "EP Remastered", year: 2002),
+        ]
+        let context = makePrereleaseContext()
+
+        _ = try await context.coordinator.updateTrack(
+            tracks[0],
+            albumTracks: tracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true, cleanAlbumNames: true),
+            dryRun: true
+        )
+
+        #expect(await context.pendingVerification.markedAlbums.isEmpty)
+        #expect(await context.apiProbe.requestCount > 0)
     }
 
     @Test("Configured future-year threshold allows lookup inside its window")

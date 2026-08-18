@@ -175,6 +175,37 @@ struct PendingVerificationStoreTests {
         #expect(entry.metadata["recheck_days"] == "7")
     }
 
+    @Test("Safety marks replace an existing prerelease reason")
+    func safetyMarkReplacesPrereleaseReason() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let service = PendingVerificationStore(
+            modelContainer: container,
+            legacyStorageURL: nil,
+            verificationIntervalDays: 30,
+            prereleaseRecheckDays: 7
+        )
+        await service.markForVerification(
+            artist: "Daft Punk",
+            album: "Future Memories",
+            reason: "prerelease",
+            metadata: ["expected_year": "2030"],
+            recheckDays: 7
+        )
+        await service.markForVerification(
+            artist: "Daft Punk",
+            album: "Future Memories",
+            reason: "suspicious_album_name",
+            metadata: ["album_name_length": "2", "unique_years": "3"]
+        )
+
+        let entry = try #require(await service.getEntry(artist: "Daft Punk", album: "Future Memories"))
+        #expect(entry.reason == "suspicious_album_name")
+        #expect(entry.recheckInterval == 30 * day)
+        #expect(entry.metadata["recheck_days"] == nil)
+        #expect(entry.metadata["album_name_length"] == "2")
+        #expect(entry.metadata["unique_years"] == "3")
+    }
+
     @Test("Due pending albums use each entry's effective recheck interval")
     func duePendingAlbumsUseEffectiveRecheckInterval() async throws {
         let directory = try makeTempDirectory()

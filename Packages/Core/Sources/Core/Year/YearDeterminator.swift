@@ -132,7 +132,11 @@ public struct YearDeterminator: Sendable {
         )
     }
 
-    /// Returns a configured integrity risk before local, cache, or API year lookup.
+    /// Returns the first configured integrity risk before local, cache, or API year lookup.
+    ///
+    /// The target track is added to missing album context. Suspicious album evidence
+    /// is evaluated first and is always active; prerelease skipping controls only the
+    /// subsequent far-future-year check.
     public func yearSafetyIssue(
         track: Track,
         albumTracks: [Track]

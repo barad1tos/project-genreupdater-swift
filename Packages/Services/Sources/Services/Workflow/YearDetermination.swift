@@ -19,6 +19,16 @@ private enum YearShortcutDecision {
     case change(ProposedChange)
 }
 
+actor YearSafetyContext {
+    @TaskLocal static var current: YearSafetyContext?
+
+    private var albumKeys: Set<String> = []
+
+    func insert(_ track: Track) -> Bool {
+        albumKeys.insert(AlbumIdentity.key(for: track)).inserted
+    }
+}
+
 extension UpdateCoordinator {
     private static let fallbackRejectionReasons: Set<String> = [
         "suspicious_year_change",
@@ -47,20 +57,21 @@ extension UpdateCoordinator {
 
     func determineYearChange(
         track: Track,
+        safetyTrack: Track? = nil,
         albumTracks: [Track],
         forceYearLookup: Bool,
         albumTypeInfo: AlbumTypeInfo,
         queryAlbum: String? = nil,
         missingYearThreshold: Double
     ) async throws -> ProposedChange? {
-        guard albumTypeInfo.strategy != .markAndSkip else { return nil }
         if await shouldSkipYearPreflight(
-            track: track,
+            track: safetyTrack ?? track,
             albumTracks: albumTracks,
             forceYearLookup: forceYearLookup
         ) {
             return nil
         }
+        guard albumTypeInfo.strategy != .markAndSkip else { return nil }
 
         let releaseYearConflict = releaseYearConflict(
             for: track,
@@ -115,7 +126,9 @@ extension UpdateCoordinator {
             track: track,
             albumTracks: albumTracks
         ) {
-            await markYearSafetyIssue(issue, track: track, albumTracks: albumTracks)
+            if await YearSafetyContext.current?.insert(track) != false {
+                await markYearSafetyIssue(issue, track: track, albumTracks: albumTracks)
+            }
             return true
         }
 

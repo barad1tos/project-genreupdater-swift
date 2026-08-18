@@ -220,6 +220,7 @@ public actor UpdateCoordinator {
            runtimeConfiguration.isYearLookupEnabled,
            let change = try await determineYearChange(
                track: decisionTrack,
+               safetyTrack: track,
                albumTracks: albumTracks,
                forceYearLookup: options.forceYearLookup,
                albumTypeInfo: albumTypeInfo,
@@ -498,15 +499,18 @@ public actor UpdateCoordinator {
             albumTracksProvider: albumTracksProvider,
             artistTracksProvider: artistTracksProvider
         )
+        let yearSafety = YearSafetyContext()
 
         for (index, track) in tracks.enumerated() {
             do {
-                let trackOutcome = try await applyGeneratedAcceptedChanges(
-                    for: GeneratedUpdateRequest(track: track, options: options, pass: pass),
-                    trackProviders: trackProviders,
-                    failedTrackIDs: &failedTrackIDs,
-                    errorDescriptions: &errorDescriptions
-                )
+                let trackOutcome = try await YearSafetyContext.$current.withValue(yearSafety) {
+                    try await applyGeneratedAcceptedChanges(
+                        for: GeneratedUpdateRequest(track: track, options: options, pass: pass),
+                        trackProviders: trackProviders,
+                        failedTrackIDs: &failedTrackIDs,
+                        errorDescriptions: &errorDescriptions
+                    )
+                }
                 entries.append(contentsOf: trackOutcome.entries)
                 noOpEntries.append(contentsOf: trackOutcome.noOpEntries)
             } catch {
