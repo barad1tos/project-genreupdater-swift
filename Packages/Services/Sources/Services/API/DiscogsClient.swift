@@ -19,7 +19,8 @@ func normalizedReissueKeywords(_ keywords: [String]) -> [String] {
 /// Rate limited at 60 requests/minute per Discogs policy.
 ///
 /// Endpoints used:
-/// - `/database/search` — fielded, generic, and album-only release searches
+/// - `/database/search` — fielded master and release searches for direct-year lookup;
+///   fielded, generic, and album-only release searches for candidates
 /// - `/releases/{id}` — release detail fallback when search results omit year
 /// - `/masters/{id}` — master release details (year, genres, styles)
 ///
