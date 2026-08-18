@@ -7,6 +7,50 @@ import Testing
 @Suite("Workflow year stage scope")
 @MainActor
 struct YearStageScopeTests {
+    @Test("dry-run preview marks a far-future album once")
+    func previewMarksFutureAlbumOnce() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let futureYear = calendar.component(.year, from: Date()) + 3
+        let tracks = [
+            Track(
+                id: "preview-future-1",
+                name: "First",
+                artist: "SubRosa",
+                album: "Future Album",
+                year: futureYear,
+                trackStatus: TrackKind.subscription.rawValue
+            ),
+            Track(
+                id: "preview-future-2",
+                name: "Second",
+                artist: "SubRosa",
+                album: "Future Album",
+                year: futureYear,
+                trackStatus: TrackKind.subscription.rawValue
+            ),
+        ]
+        let pendingVerification = try PendingVerificationStore(
+            modelContainer: ModelContainerFactory.createInMemory(),
+            legacyStorageURL: nil
+        )
+        let fixture = makeWorkflowFixture(pendingVerificationService: pendingVerification)
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = true
+        viewModel.updateGenre = false
+        viewModel.updateYear = true
+
+        viewModel.start(tracks: tracks)
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        let entry = try #require(await pendingVerification.getEntry(
+            artist: "SubRosa",
+            album: "Future Album"
+        ))
+        #expect(entry.attemptCount == 1)
+    }
+
     @Test("empty incremental admission skips the year stage")
     func emptyAdmissionSkipsYearStage() async throws {
         let fixture = makeWorkflowFixture(

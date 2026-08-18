@@ -77,12 +77,12 @@ struct PreviewPlanTests {
                     refreshIdentity: { await probe.refreshWriteIdentity(for: $0, scope: $1) },
                     albumContext: { await probe.albumContextTracksByTrackID(for: $0) },
                     artistContext: Self.singleTrackArtistContext,
-                    determineChanges: {
+                    determineChanges: { track, albumTracks, artistTracks, options, _ in
                         try await probe.determineTrackChanges(
-                            track: $0,
-                            albumTracks: $1,
-                            artistTracks: $2,
-                            options: $3
+                            track: track,
+                            albumTracks: albumTracks,
+                            artistTracks: artistTracks,
+                            options: options
                         )
                     }
                 )

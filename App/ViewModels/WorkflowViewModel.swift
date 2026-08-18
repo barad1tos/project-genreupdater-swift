@@ -68,6 +68,13 @@ enum TrackProcessingStatus: Equatable {
     case skipped
 }
 
+private struct DryRunInputs {
+    let albumTracksByTrackID: [String: [Track]]
+    let artistTracksByTrackID: [String: [Track]]
+    let options: UpdateOptions
+    let yearSafetyScope: YearSafetyScope
+}
+
 // MARK: - Workflow View Model
 
 /// Unified ViewModel driving genre/year updates for any track selection mode.
@@ -301,10 +308,10 @@ final class WorkflowViewModel {
 
                 var allChanges: [ProposedChange] = []
                 let total = tracks.count
-                let contextTracks = contextTracks ?? tracks
-
-                let albumTracksByTrackID = await dryRunAlbumTracksByTrackID(for: contextTracks)
-                let artistTracksByTrackID = await updateCoordinator.artistContextTracksByTrackID(for: contextTracks)
+                let dryRunInputs = await makeDryRunInputs(
+                    for: contextTracks ?? tracks,
+                    options: options
+                )
 
                 for (index, track) in tracks.enumerated() {
                     try Task.checkCancellation()
@@ -314,10 +321,8 @@ final class WorkflowViewModel {
                     do {
                         let changes = try await previewChanges(
                             for: track,
-                            albumTracksByTrackID: albumTracksByTrackID,
-                            artistTracksByTrackID: artistTracksByTrackID,
-                            options: options,
-                            pass: scope.pass(for: track)
+                            pass: scope.pass(for: track),
+                            inputs: dryRunInputs
                         )
                         allChanges.append(contentsOf: changes)
                         trackStatuses[track.id] = .done
@@ -365,18 +370,26 @@ final class WorkflowViewModel {
 
     private func previewChanges(
         for track: Track,
-        albumTracksByTrackID: [String: [Track]],
-        artistTracksByTrackID: [String: [Track]],
-        options: UpdateOptions,
-        pass: UpdatePass
+        pass: UpdatePass,
+        inputs: DryRunInputs
     ) async throws -> [ProposedChange] {
         try await updateCoordinator.updateTrack(
             track,
-            albumTracks: albumTracksByTrackID[track.id] ?? [],
-            artistTracks: artistTracksByTrackID[track.id] ?? [],
-            options: options,
+            albumTracks: inputs.albumTracksByTrackID[track.id] ?? [],
+            artistTracks: inputs.artistTracksByTrackID[track.id] ?? [],
+            options: inputs.options,
             pass: pass,
-            dryRun: true
+            dryRun: true,
+            yearSafetyScope: inputs.yearSafetyScope
+        )
+    }
+
+    private func makeDryRunInputs(for tracks: [Track], options: UpdateOptions) async -> DryRunInputs {
+        await DryRunInputs(
+            albumTracksByTrackID: dryRunAlbumTracksByTrackID(for: tracks),
+            artistTracksByTrackID: updateCoordinator.artistContextTracksByTrackID(for: tracks),
+            options: options,
+            yearSafetyScope: YearSafetyScope()
         )
     }
 

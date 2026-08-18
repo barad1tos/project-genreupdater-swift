@@ -206,6 +206,79 @@ struct PrereleasePreflightTests {
         #expect(secondEntry.attemptCount == 2)
     }
 
+    @Test("Fix plan preview marks a far-future album once")
+    func fixPlanMarksFutureAlbumOnce() async throws {
+        let futureYear = currentUTCYear() + 3
+        let tracks = [
+            makeYearTrack(id: "plan-future-1", year: futureYear),
+            makeYearTrack(id: "plan-future-2", year: futureYear),
+        ]
+        let pendingVerification = try PendingVerificationStore(
+            modelContainer: ModelContainerFactory.createInMemory(),
+            legacyStorageURL: nil
+        )
+        let coordinator = makeCoordinator(
+            api: makeAPI(probe: APIRequestProbe()),
+            bridge: MockAppleScriptClient(),
+            cache: MockCacheService(),
+            pendingVerificationService: pendingVerification
+        )
+        let producer = makeFixPlanProducer(coordinator: coordinator, tracks: tracks)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: tracks.count,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "year-safety-test"
+        )
+        let configuration = FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(updateGenre: false, updateYear: true),
+            capturedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        _ = try await producer.producePlan(
+            sourceRunID: RunID(),
+            scope: scope,
+            configuration: configuration
+        )
+
+        let entry = try #require(await pendingVerification.getEntry(
+            artist: PrereleaseFixture.artist,
+            album: PrereleaseFixture.album
+        ))
+        #expect(entry.attemptCount == 1)
+    }
+
+    private func makeFixPlanProducer(coordinator: UpdateCoordinator, tracks: [Track]) -> FixPlanProducer {
+        FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
+            loadTracks: { tracks },
+            makeRuntime: { _, _ in
+                FixPlanProducer.Runtime(
+                    refreshIdentity: { _, _ in },
+                    albumContext: {
+                        await coordinator.albumContextTracksByTrackID(
+                            for: $0,
+                            requiresMutationMetadata: false
+                        )
+                    },
+                    artistContext: { await coordinator.artistContextTracksByTrackID(for: $0) },
+                    determineChanges: {
+                        try await coordinator.updateTrack(
+                            $0,
+                            albumTracks: $1,
+                            artistTracks: $2,
+                            options: $3,
+                            dryRun: true,
+                            yearSafetyScope: $4
+                        )
+                    }
+                )
+            },
+            savePlan: { _, _ in },
+            now: { Date(timeIntervalSince1970: 1_700_000_000) }
+        ))
+    }
+
     @Test("Special albums still run non-bypassable year safety")
     func specialAlbumRunsYearSafety() async throws {
         let futureYear = currentUTCYear() + 3

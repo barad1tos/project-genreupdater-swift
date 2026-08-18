@@ -19,10 +19,14 @@ private enum YearShortcutDecision {
     case change(ProposedChange)
 }
 
-actor YearSafetyContext {
-    @TaskLocal static var current: YearSafetyContext?
-
+/// Deduplicates pending-verification marks for unsafe albums within one preview or write run.
+///
+/// Create one scope per multi-track run and pass the same instance to every `updateTrack` call in that run.
+/// Safety evaluation and skipping still occur per track.
+public actor YearSafetyScope {
     private var albumKeys: Set<String> = []
+
+    public init() {}
 
     func insert(_ track: Track) -> Bool {
         albumKeys.insert(AlbumIdentity.key(for: track)).inserted
@@ -62,12 +66,14 @@ extension UpdateCoordinator {
         forceYearLookup: Bool,
         albumTypeInfo: AlbumTypeInfo,
         queryAlbum: String? = nil,
-        missingYearThreshold: Double
+        missingYearThreshold: Double,
+        yearSafetyScope: YearSafetyScope? = nil
     ) async throws -> ProposedChange? {
         if await shouldSkipYearPreflight(
             track: safetyTrack ?? track,
             albumTracks: albumTracks,
-            forceYearLookup: forceYearLookup
+            forceYearLookup: forceYearLookup,
+            yearSafetyScope: yearSafetyScope
         ) {
             return nil
         }
@@ -120,13 +126,14 @@ extension UpdateCoordinator {
     private func shouldSkipYearPreflight(
         track: Track,
         albumTracks: [Track],
-        forceYearLookup: Bool
+        forceYearLookup: Bool,
+        yearSafetyScope: YearSafetyScope?
     ) async -> Bool {
         if let issue = yearDeterminator.yearSafetyIssue(
             track: track,
             albumTracks: albumTracks
         ) {
-            if await YearSafetyContext.current?.insert(track) != false {
+            if await yearSafetyScope?.insert(track) != false {
                 await markYearSafetyIssue(issue, track: track, albumTracks: albumTracks)
             }
             return true
