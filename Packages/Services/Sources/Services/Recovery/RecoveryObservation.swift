@@ -47,7 +47,7 @@ enum RecoveryObservation {
         let property = AppleScriptTrackProperty(changeType: change.changeType)
         let observedValue = property.currentValue(in: observedTrack)
         guard let albumArtistChange = change.albumArtistChange else {
-            return classify(change, observedValue: observedValue)
+            return classify(change, property: property, observedValue: observedValue)
         }
         let observedAlbumArtist = observedTrack.albumArtist ?? ""
         let combinedValue = "\(observedValue ?? "") (album artist: \(observedAlbumArtist))"
@@ -62,17 +62,21 @@ enum RecoveryObservation {
         return ObservedWorkOutcome(outcome: .needsReview, observedValue: combinedValue)
     }
 
-    private static func classify(_ change: WorkChange, observedValue: String?) -> ObservedWorkOutcome {
+    private static func classify(
+        _ change: WorkChange,
+        property: AppleScriptTrackProperty,
+        observedValue: String?
+    ) -> ObservedWorkOutcome {
         guard let observedValue else {
             return ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
         }
         guard let intended = change.newValue else {
             return ObservedWorkOutcome(outcome: .needsReview, observedValue: observedValue)
         }
-        if observedValue == intended {
+        if property.comparisonValue(observedValue) == property.comparisonValue(intended) {
             return ObservedWorkOutcome(outcome: .written, observedValue: observedValue)
         }
-        if observedValue == (change.oldValue ?? "") {
+        if property.comparisonValue(observedValue) == property.comparisonValue(change.oldValue ?? "") {
             return ObservedWorkOutcome(outcome: .failed, observedValue: observedValue)
         }
         return ObservedWorkOutcome(outcome: .needsReview, observedValue: observedValue)

@@ -1,13 +1,19 @@
 import Core
 import Foundation
 
-/// Retry contract: prepared may dispatch; dispatchedUnknown blocks;
-/// changed and noChange may only finalize their already-observed outcome.
+/// Retry contract: prepared may dispatch; dispatchedUnknown blocks; changed
+/// and noChange still require mirror finalization; completed may only clean up.
 enum BackupRestorePhase: String, Codable {
     case prepared
     case dispatchedUnknown
     case changed
     case noChange
+    case completed
+}
+
+enum YearCheckpointPurpose {
+    case backupRestore
+    case historyUndo
 }
 
 enum UndoCoordinatorError: Error, LocalizedError {
@@ -17,6 +23,10 @@ enum UndoCoordinatorError: Error, LocalizedError {
     case invalidBackupCSV(reason: String)
     case missingAppleScriptID(trackID: String)
     case historyStoreUnavailable
+    case undoOutcomeUnknown(trackID: String)
+    case undoWriteNotApplied(trackID: String)
+    case undoRecoveryConflict(trackID: String)
+    case recoveryStorageFailed(trackID: String)
 
     var errorDescription: String? {
         switch self {
@@ -36,6 +46,28 @@ enum UndoCoordinatorError: Error, LocalizedError {
             "Missing AppleScript ID mapping for a track"
         case .historyStoreUnavailable:
             "Durable change history is unavailable"
+        case let .undoOutcomeUnknown(trackID):
+            "Could not verify whether undo updated track \(trackID). Try again after Music.app is available"
+        case let .undoWriteNotApplied(trackID):
+            "Undo did not update track \(trackID); no metadata was changed. Try again"
+        case let .undoRecoveryConflict(trackID):
+            "Undo recovery for track \(trackID) conflicts with current Music.app state"
+        case let .recoveryStorageFailed(trackID):
+            "GenreUpdater could not access undo recovery state for track \(trackID). Retry before making more changes"
+        }
+    }
+
+    var blocksBatchRevert: Bool {
+        switch self {
+        case .undoOutcomeUnknown, .undoWriteNotApplied, .undoRecoveryConflict, .recoveryStorageFailed:
+            true
+        case .revertFailed,
+             .noChangesToRevert,
+             .partialRevertFailure,
+             .invalidBackupCSV,
+             .missingAppleScriptID,
+             .historyStoreUnavailable:
+            false
         }
     }
 

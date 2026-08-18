@@ -315,6 +315,49 @@ struct WritePreflightTests {
         #expect(written.map(\.value) == ["1970"])
     }
 
+    @Test("Reviewed year clear accepts an already-empty Music.app value")
+    func acceptsYearClear() async throws {
+        let proposalTrack = Track(
+            id: "MK1",
+            name: "Come Together",
+            artist: "Beatles",
+            album: "Abbey Road",
+            year: 2019
+        )
+        let currentTrack = Track(
+            id: proposalTrack.id,
+            name: proposalTrack.name,
+            artist: proposalTrack.artist,
+            album: proposalTrack.album,
+            year: nil,
+            trackStatus: TrackKind.subscription.rawValue,
+            appleScriptID: "AS1"
+        )
+        let mapper = ProcessedIDMapper(
+            musicKitID: proposalTrack.id,
+            appleScriptID: "AS1",
+            enrichedTrack: currentTrack
+        )
+        let fixture = await makeCoordinator(idMapper: mapper)
+        await fixture.bridge.setSingleWriteResult(.noChange)
+        let change = ProposedChange(
+            track: proposalTrack,
+            changeType: .yearRevert,
+            oldValue: "2019",
+            newValue: String(MusicAppYear.missingValue),
+            confidence: 100,
+            source: "undo"
+        )
+
+        let outcome = try await fixture.coordinator.applyChangeOutcome(change)
+
+        #expect(outcome.entry == nil)
+        #expect(outcome.noOpEntry?.newYear == MusicAppYear.missingValue)
+        #expect(await fixture.bridge.writtenProperties == [
+            TrackPropertyUpdate(trackID: "AS1", property: "year", value: "0"),
+        ])
+    }
+
     @Test(
         "Generated write rejects unknown authoritative status before AppleScript dispatch",
         arguments: [String?.none, "unknown"]

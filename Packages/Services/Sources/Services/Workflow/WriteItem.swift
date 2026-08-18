@@ -320,10 +320,10 @@ extension UpdateCoordinator {
     }
 
     private static func valueMatches(_ expectedValue: String?, in track: Track, property: String) -> Bool {
-        normalizedReviewedValue(expectedValue) == normalizedReviewedValue(value(
-            forAppleScriptProperty: property,
-            in: track
-        ))
+        guard let property = AppleScriptTrackProperty(rawValue: property) else { return false }
+        let expected = property.comparisonValue(normalizedReviewedValue(expectedValue))
+        let current = property.comparisonValue(normalizedReviewedValue(property.currentValue(in: track)))
+        return expected == current
     }
 
     private static func normalizedReviewedValue(_ value: String?) -> String? {

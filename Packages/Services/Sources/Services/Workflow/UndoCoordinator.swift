@@ -13,16 +13,16 @@ import OSLog
 /// Undo is a FREE feature — no tier gating required.
 public actor UndoCoordinator {
     private let scriptBridge: any AppleScriptClient
-    private let idMapper: (any TrackIDMapping)?
-    private let changeLogStore: (any ChangeLogStore)?
-    private let trackStore: (any TrackStateStore)?
+    let idMapper: (any TrackIDMapping)?
+    let changeLogStore: (any ChangeLogStore)?
+    let trackStore: (any TrackStateStore)?
     private let cache: (any CacheService)?
     private var librarySnapshotService: (any LibrarySnapshotService)?
     private var cleaning: CleaningConfig?
-    private var history: [ChangeLogEntry]
-    private let legacyHistoryURL: URL
-    private let backupCheckpointURL: URL
-    private let fileManager: FileManager
+    var history: [ChangeLogEntry]
+    let legacyHistoryURL: URL
+    let backupCheckpointURL: URL
+    let fileManager: FileManager
     private let log = Logger(subsystem: "com.genreupdater", category: "UndoCoordinator")
     private var hasLoadedHistory = false
 
@@ -125,11 +125,15 @@ public actor UndoCoordinator {
         await loadHistoryIfNeeded()
 
         let context = revertContext(for: entry)
+        if entry.changeType == .yearUpdate || entry.changeType == .yearRevert {
+            try await revertYearChange(entry, context: context)
+            return
+        }
         let oldValue: (property: String, value: String, recoveryOrigin: String?)? = switch entry.changeType {
         case .genreUpdate:
             entry.oldGenre.map { ("genre", $0, nil) }
         case .yearUpdate, .yearRevert:
-            entry.oldYear.map { ("year", String($0), context.oldestEntry?.oldYear.map(String.init)) }
+            nil
         case .trackCleaning:
             entry.oldTrackName.map { ("name", $0, nil) }
         case .albumCleaning:
@@ -160,6 +164,189 @@ public actor UndoCoordinator {
             )
     }
 
+    private func revertYearChange(
+        _ historyEntry: ChangeLogEntry,
+        context: (change: ProposedChange, oldestEntry: ChangeLogEntry?)
+    ) async throws {
+        let targetYear = historyEntry.oldYear ?? MusicAppYear.missingValue
+        let change = yearRevertChange(for: historyEntry, context: context, targetYear: targetYear)
+        let pending = try backupCheckpoint(
+            for: historyEntry.trackID,
+            purpose: .historyUndo,
+            effect: "undo recovery checkpoint"
+        )
+        let recoveryOriginYear = context.oldestEntry.map {
+            $0.oldYear ?? MusicAppYear.missingValue
+        } ?? targetYear
+        if let pending, try await resumePendingYearUndo(
+            pending,
+            historyEntry: historyEntry,
+            targetYear: targetYear,
+            change: change
+        ) {
+            return
+        }
+        let checkpointEntry = pending?.entry ?? UpdateCoordinator.changeToLogEntry(change)
+        let saveCheckpoint: (BackupRestorePhase) throws -> Void = { [self] phase in
+            _ = try backupCheckpoint(
+                for: historyEntry.trackID,
+                writing: (checkpointEntry, (phase, historyEntry.id, recoveryOriginYear)),
+                purpose: .historyUndo,
+                effect: "undo recovery checkpoint"
+            )
+        }
+        _ = try await performRevertWrite(
+            change: change,
+            property: AppleScriptTrackProperty.year.rawValue,
+            value: String(targetYear),
+            recoveryOrigin: String(recoveryOriginYear),
+            prepareWrite: { _ in
+                guard pending == nil else { return }
+                try saveCheckpoint(.prepared)
+            },
+            prepareDispatch: { _ in
+                try saveCheckpoint(.dispatchedUnknown)
+            },
+            restorePreparedWrite: { _ in
+                try saveCheckpoint(.prepared)
+            },
+            prepareMirror: { _, result in
+                let phase: BackupRestorePhase = result == .changed ? .changed : .noChange
+                try saveCheckpoint(phase)
+            }
+        )
+        try await finishYearUndo(
+            checkpointEntry,
+            historyEntryID: historyEntry.id,
+            recoveryOriginYear: recoveryOriginYear,
+            change: change,
+            repairsMirror: false
+        )
+    }
+
+    private func resumePendingYearUndo(
+        _ checkpoint: (
+            entry: ChangeLogEntry,
+            metadata: (phase: BackupRestorePhase, historyEntryID: UUID?, originYear: Int?)
+        ),
+        historyEntry: ChangeLogEntry,
+        targetYear: Int,
+        change: ProposedChange
+    ) async throws -> Bool {
+        guard checkpoint.metadata.historyEntryID == historyEntry.id,
+              checkpoint.entry.trackID == historyEntry.trackID,
+              checkpoint.entry.newYear == targetYear
+        else {
+            throw UndoCoordinatorError.undoRecoveryConflict(trackID: historyEntry.trackID)
+        }
+        guard checkpoint.metadata.phase == .completed else {
+            return try await resumeYearUndo(checkpoint, change: change)
+        }
+        try await finishYearUndo(
+            checkpoint.entry,
+            historyEntryID: historyEntry.id,
+            recoveryOriginYear: checkpoint.metadata.originYear,
+            change: change,
+            repairsMirror: false
+        )
+        return true
+    }
+
+    private func resumeYearUndo(
+        _ checkpoint: (
+            entry: ChangeLogEntry,
+            metadata: (phase: BackupRestorePhase, historyEntryID: UUID?, originYear: Int?)
+        ),
+        change: ProposedChange
+    ) async throws -> Bool {
+        let writeID = try await recoveryWriteID(for: change.track.id)
+        let tracks: [Track]
+        do {
+            tracks = try await scriptBridge.fetchTracksByIDs([writeID], batchSize: 1, timeout: nil)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            log.error(
+                "Failed to observe undo outcome for track \(change.track.id, privacy: .private): \(error.localizedDescription, privacy: .private)"
+            )
+            throw UndoCoordinatorError.undoOutcomeUnknown(trackID: change.track.id)
+        }
+        guard let observed = tracks.first else {
+            throw UndoCoordinatorError.undoOutcomeUnknown(trackID: change.track.id)
+        }
+        let property = AppleScriptTrackProperty.year
+        let observedValue = property.comparisonValue(property.currentValue(in: observed))
+        if observedValue == property.comparisonValue(checkpoint.entry.newYear.map(String.init)) {
+            try await finishYearUndo(
+                checkpoint.entry,
+                historyEntryID: checkpoint.metadata.historyEntryID,
+                recoveryOriginYear: checkpoint.metadata.originYear,
+                change: change,
+                repairsMirror: true
+            )
+            return true
+        }
+        let sourceValue = property.comparisonValue(checkpoint.entry.oldYear.map(String.init))
+        if observedValue == sourceValue, checkpoint.metadata.phase == .prepared {
+            return false
+        }
+        if observedValue == sourceValue, checkpoint.metadata.phase == .dispatchedUnknown {
+            _ = try backupCheckpoint(
+                for: change.track.id,
+                shouldRemove: true,
+                purpose: .historyUndo,
+                effect: "undo recovery checkpoint"
+            )
+            throw UndoCoordinatorError.undoWriteNotApplied(trackID: change.track.id)
+        }
+        throw UndoCoordinatorError.undoRecoveryConflict(trackID: change.track.id)
+    }
+
+    private func finishYearUndo(
+        _ checkpointEntry: ChangeLogEntry,
+        historyEntryID: UUID?,
+        recoveryOriginYear: Int?,
+        change: ProposedChange,
+        repairsMirror: Bool
+    ) async throws {
+        if repairsMirror {
+            do {
+                var mirrorEntry = checkpointEntry
+                mirrorEntry.oldYear = recoveryOriginYear ?? mirrorEntry.newYear
+                try await trackStore?.persistAppliedChange(mirrorEntry)
+            } catch {
+                await invalidateCaches(for: change)
+                throw UpdateCoordinatorError.writeFinalizationFailed(
+                    trackID: change.track.id,
+                    effects: ["track mirror"]
+                )
+            }
+            await invalidateCaches(for: change)
+        }
+        _ = try backupCheckpoint(
+            for: change.track.id,
+            writing: (checkpointEntry, (.completed, historyEntryID, recoveryOriginYear)),
+            purpose: .historyUndo,
+            effect: "undo recovery checkpoint"
+        )
+        do {
+            try await changeLogStore?.delete(entryID: historyEntryID ?? checkpointEntry.id)
+        } catch {
+            throw UpdateCoordinatorError.writeFinalizationFailed(
+                trackID: change.track.id,
+                effects: ["change history"]
+            )
+        }
+        _ = try backupCheckpoint(
+            for: change.track.id,
+            shouldRemove: true,
+            purpose: .historyUndo,
+            effect: "undo recovery checkpoint"
+        )
+        history.removeAll { $0.id == historyEntryID }
+        log.info("Reverted year metadata for track \(change.track.id, privacy: .private)")
+    }
+
     // MARK: Revert Batch
 
     /// Revert all provided changes in reverse chronological order.
@@ -181,6 +368,8 @@ public actor UndoCoordinator {
             } catch let error as AppleScriptOutcomeError {
                 throw error
             } catch let error as UpdateCoordinatorError {
+                throw error
+            } catch let error as UndoCoordinatorError where error.blocksBatchRevert {
                 throw error
             } catch {
                 let failureDescription = Self.publicFailureDescription(for: error)
@@ -264,45 +453,6 @@ public actor UndoCoordinator {
         log.info("Cleared \(count, privacy: .public) history entries")
     }
 
-    // MARK: ID Resolution
-
-    private func resolveWriteID(for trackID: String) async throws -> String {
-        guard let idMapper else { return trackID }
-        guard let appleScriptID = await idMapper.appleScriptID(forMusicKitID: trackID) else {
-            throw UndoCoordinatorError.missingAppleScriptID(trackID: trackID)
-        }
-        return appleScriptID
-    }
-
-    private func mutationContext(for track: Track) async throws -> (track: Track, writeID: String) {
-        let mutationTrack: Track
-        if let idMapper {
-            guard let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track) else {
-                throw UndoCoordinatorError.missingAppleScriptID(trackID: track.id)
-            }
-            mutationTrack = enrichedTrack
-        } else {
-            mutationTrack = track
-        }
-        try validateWriteEligibility(for: mutationTrack)
-        let writeID = try await resolveWriteID(for: mutationTrack.id)
-        return (mutationTrack, writeID)
-    }
-
-    private func validateWriteEligibility(for track: Track) throws {
-        do {
-            try UpdateCoordinator.validateMutationEligibility(
-                for: track,
-                requiresKnownStatus: idMapper != nil
-            )
-        } catch let error as UpdateCoordinatorError {
-            throw UndoCoordinatorError.revertFailed(
-                trackID: track.id,
-                reason: error.localizedDescription
-            )
-        }
-    }
-
     private func performRevertWrite(
         change: ProposedChange,
         property: String,
@@ -384,58 +534,6 @@ public actor UndoCoordinator {
         await librarySnapshotService?.clearSnapshot()
     }
 
-    private func revertContext(for entry: ChangeLogEntry) -> (change: ProposedChange, oldestEntry: ChangeLogEntry?) {
-        let track = Track(
-            id: entry.trackID,
-            name: entry.newTrackName ?? entry.trackName,
-            artist: entry.newArtist ?? entry.artist,
-            album: entry.newAlbumName ?? entry.albumName,
-            genre: entry.newGenre,
-            year: entry.newYear,
-            albumArtist: entry.albumArtistChange?.newValue
-        )
-        let values: (oldValue: String?, newValue: String?) = switch entry.changeType {
-        case .genreUpdate:
-            (entry.oldGenre, entry.newGenre)
-        case .yearUpdate, .yearRevert:
-            (entry.oldYear.map(String.init), entry.newYear.map(String.init))
-        case .trackCleaning:
-            (entry.oldTrackName, entry.newTrackName)
-        case .albumCleaning:
-            (entry.oldAlbumName, entry.newAlbumName)
-        case .artistRename:
-            (entry.oldArtist, entry.newArtist)
-        }
-        let change = ProposedChange(
-            track: track,
-            changeType: entry.changeType,
-            oldValue: values.newValue,
-            newValue: values.oldValue,
-            confidence: 100,
-            source: "undo",
-            albumArtistChange: entry.albumArtistChange.map {
-                AlbumArtistChange(oldValue: $0.newValue, newValue: $0.oldValue)
-            }
-        )
-        let oldestEntry = history
-            .filter { candidate in
-                guard candidate.trackID == entry.trackID else { return false }
-                return switch entry.changeType {
-                case .yearUpdate, .yearRevert:
-                    candidate.changeType == .yearUpdate || candidate.changeType == .yearRevert
-                case .albumCleaning:
-                    candidate.changeType == .albumCleaning
-                case .artistRename:
-                    candidate.changeType == .artistRename
-                case .genreUpdate, .trackCleaning:
-                    false
-                }
-            }
-            .min { $0.timestamp < $1.timestamp }
-
-        return (change, oldestEntry)
-    }
-
     // MARK: Backup CSV Revert
 
     private func revertYearBackupTargets(
@@ -513,15 +611,15 @@ public actor UndoCoordinator {
             source: "backup_csv"
         )
         if let pendingCheckpoint {
-            switch pendingCheckpoint.phase {
+            switch pendingCheckpoint.metadata.phase {
             case .prepared: break
             case .dispatchedUnknown:
                 throw UpdateCoordinatorError.writeFinalizationFailed(
                     trackID: change.track.id,
                     effects: ["ambiguous backup write outcome"]
                 )
-            case .changed, .noChange:
-                let result: AppleScriptWriteResult = pendingCheckpoint.phase == .changed ? .changed : .noChange
+            case .changed, .noChange, .completed:
+                let result: AppleScriptWriteResult = pendingCheckpoint.metadata.phase == .changed ? .changed : .noChange
                 try await finalizeBackupCheckpoint(
                     pendingCheckpoint,
                     change: change,
@@ -539,17 +637,17 @@ public actor UndoCoordinator {
             prepareWrite: { [self] change in
                 guard pendingCheckpoint == nil else { return }
                 let entry = UpdateCoordinator.changeToLogEntry(change)
-                _ = try backupCheckpoint(for: entry.trackID, writing: (entry, .prepared))
+                _ = try backupCheckpoint(for: entry.trackID, writing: (entry, (.prepared, nil, nil)))
             },
             prepareDispatch: { [self] change in
-                guard pendingCheckpoint == nil || pendingCheckpoint?.phase == .prepared else { return }
+                guard pendingCheckpoint == nil || pendingCheckpoint?.metadata.phase == .prepared else { return }
                 let entry = pendingCheckpoint?.entry ?? UpdateCoordinator.changeToLogEntry(change)
-                _ = try backupCheckpoint(for: entry.trackID, writing: (entry, .dispatchedUnknown))
+                _ = try backupCheckpoint(for: entry.trackID, writing: (entry, (.dispatchedUnknown, nil, nil)))
             },
             restorePreparedWrite: { [self] change in
-                guard pendingCheckpoint == nil || pendingCheckpoint?.phase == .prepared else { return }
+                guard pendingCheckpoint == nil || pendingCheckpoint?.metadata.phase == .prepared else { return }
                 let entry = pendingCheckpoint?.entry ?? UpdateCoordinator.changeToLogEntry(change)
-                _ = try backupCheckpoint(for: entry.trackID, writing: (entry, .prepared))
+                _ = try backupCheckpoint(for: entry.trackID, writing: (entry, (.prepared, nil, nil)))
             },
             prepareMirror: { [self] change, result in
                 try await finalizeBackupCheckpoint(pendingCheckpoint, change: change, result: result)
@@ -559,78 +657,11 @@ public actor UndoCoordinator {
         return result
     }
 
-    private func backupCheckpoint(
-        for trackID: String,
-        targetYear: Int? = nil,
-        observedYear: Int? = nil,
-        writing checkpoint: (entry: ChangeLogEntry, phase: BackupRestorePhase)? = nil,
-        shouldRemove: Bool = false
-    ) throws -> (entry: ChangeLogEntry, phase: BackupRestorePhase)? {
-        struct Payload: Codable {
-            let entry: ChangeLogEntry
-            let phase: BackupRestorePhase
-        }
-
-        if !shouldRemove, checkpoint == nil, !fileManager.fileExists(atPath: backupCheckpointURL.path) {
-            return nil
-        }
-        do {
-            if shouldRemove {
-                try fileManager.removeItem(at: backupCheckpointURL)
-                return nil
-            }
-            if let checkpoint {
-                try fileManager.createDirectory(
-                    at: backupCheckpointURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .iso8601
-                try encoder.encode(Payload(entry: checkpoint.entry, phase: checkpoint.phase))
-                    .write(to: backupCheckpointURL, options: .atomic)
-                return checkpoint
-            }
-            let data = try Data(contentsOf: backupCheckpointURL)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let payload = try decoder.decode(Payload.self, from: data)
-            if let targetYear {
-                guard payload.entry.changeType == .yearRevert,
-                      payload.entry.trackID == trackID,
-                      payload.entry.newYear == targetYear
-                else {
-                    throw UpdateCoordinatorError.writeFinalizationFailed(
-                        trackID: payload.entry.trackID,
-                        effects: ["prior backup recovery checkpoint"]
-                    )
-                }
-                guard payload.phase != .dispatchedUnknown else {
-                    throw UpdateCoordinatorError.writeFinalizationFailed(
-                        trackID: trackID,
-                        effects: ["ambiguous backup write outcome"]
-                    )
-                }
-                let expectedYear = payload.phase == .prepared ? payload.entry.oldYear : targetYear
-                guard observedYear == expectedYear else {
-                    throw UpdateCoordinatorError.writeFinalizationFailed(
-                        trackID: trackID,
-                        effects: ["stale backup recovery checkpoint"]
-                    )
-                }
-            }
-            return (payload.entry, payload.phase)
-        } catch let error as UpdateCoordinatorError {
-            throw error
-        } catch {
-            throw UpdateCoordinatorError.writeFinalizationFailed(
-                trackID: trackID,
-                effects: ["backup recovery checkpoint"]
-            )
-        }
-    }
-
     private func finalizeBackupCheckpoint(
-        _ pendingCheckpoint: (entry: ChangeLogEntry, phase: BackupRestorePhase)?,
+        _ pendingCheckpoint: (
+            entry: ChangeLogEntry,
+            metadata: (phase: BackupRestorePhase, historyEntryID: UUID?, originYear: Int?)
+        )?,
         change: ProposedChange,
         result: AppleScriptWriteResult,
         completesRecovery: Bool = false
@@ -641,14 +672,15 @@ public actor UndoCoordinator {
                 effects: ["backup recovery checkpoint"]
             )
         }
-        checkpoint.phase = switch pendingCheckpoint?.phase {
+        checkpoint.metadata.phase = switch pendingCheckpoint?.metadata.phase {
         case .changed: .changed
         case .noChange: .noChange
+        case .completed: .completed
         case .prepared, .dispatchedUnknown, nil:
             result == .changed ? .changed : .noChange
         }
         _ = try backupCheckpoint(for: checkpoint.entry.trackID, writing: checkpoint)
-        if checkpoint.phase == .changed {
+        if checkpoint.metadata.phase == .changed {
             do {
                 await loadHistoryIfNeeded()
                 if pendingCheckpoint == nil || !history.contains(where: { $0.id == checkpoint.entry.id }) {
@@ -682,43 +714,6 @@ public actor UndoCoordinator {
         _ = try backupCheckpoint(for: change.track.id, shouldRemove: true)
     }
 
-    private static func publicFailureDescription(for error: Error) -> String {
-        if let undoError = error as? UndoCoordinatorError {
-            switch undoError {
-            case let .revertFailed(_, reason):
-                return reason == "AppleScript write failed" ? reason : "Failed to revert track"
-            case .noChangesToRevert, .invalidBackupCSV, .missingAppleScriptID, .historyStoreUnavailable:
-                return undoError.errorDescription ?? "Undo operation failed"
-            case let .partialRevertFailure(succeeded, failed, _):
-                return "Partial revert: \(succeeded) succeeded, \(failed) failed"
-            }
-        }
-        if let appleScriptError = error as? AppleScriptBridgeError {
-            return publicAppleScriptFailureDescription(for: appleScriptError)
-        }
-        if let outcomeError = error as? AppleScriptOutcomeError {
-            return outcomeError.localizedDescription
-        }
-        return "AppleScript write failed"
-    }
-
-    private static func publicAppleScriptFailureDescription(for error: AppleScriptBridgeError) -> String {
-        switch error {
-        case .dispatchDeadline,
-             .invalidLibraryPath,
-             .libraryChanged,
-             .scriptNotFound,
-             .scriptsNotInstalled,
-             .musicAppNotRunning,
-             .timeout:
-            error.errorDescription ?? "AppleScript write failed"
-        case .executionFailed:
-            "AppleScript write failed"
-        case .parseError:
-            "AppleScript output could not be parsed"
-        }
-    }
-
     // MARK: Persistence
 
     private func removeFromHistory(_ entry: ChangeLogEntry) async {
@@ -731,47 +726,71 @@ public actor UndoCoordinator {
     private func loadHistoryIfNeeded() async {
         guard !hasLoadedHistory else { return }
 
+        let didLoadHistory: Bool
         do {
             history = try await loadHistoryFromStoreOrLegacy()
+            didLoadHistory = true
+        } catch is CancellationError {
+            return
         } catch {
             history = Self.loadPersistedHistory(from: legacyHistoryURL)
+            didLoadHistory = false
             log.warning("Failed to load SwiftData undo history: \(error.localizedDescription, privacy: .public)")
+        }
+        if didLoadHistory {
+            do {
+                try await reconcileOrphanCheckpoint()
+            } catch is CancellationError {
+                return
+            } catch {
+                log.warning(
+                    "Failed to clean completed undo recovery checkpoint: \(error.localizedDescription, privacy: .private)"
+                )
+            }
         }
         hasLoadedHistory = true
     }
 
-    private func loadHistoryFromStoreOrLegacy() async throws -> [ChangeLogEntry] {
-        guard let changeLogStore else {
-            return Self.loadPersistedHistory(from: legacyHistoryURL)
+    private func reconcileOrphanCheckpoint() async throws {
+        guard let checkpoint = try backupCheckpoint(
+            for: "pending-year-revert",
+            purpose: .historyUndo,
+            effect: "undo recovery checkpoint"
+        ),
+            let historyEntryID = checkpoint.metadata.historyEntryID,
+            !history.contains(where: { $0.id == historyEntryID })
+        else {
+            return
         }
-
-        let storedHistory = try await changeLogStore.loadAll()
-        guard storedHistory.isEmpty else {
-            return storedHistory
+        switch checkpoint.metadata.phase {
+        case .prepared, .dispatchedUnknown:
+            return
+        case .changed, .noChange:
+            let entry = checkpoint.entry
+            let track = Track(
+                id: entry.trackID,
+                name: entry.trackName,
+                artist: entry.artist,
+                album: entry.albumName,
+                year: entry.oldYear
+            )
+            let change = ProposedChange(
+                id: entry.id,
+                track: track,
+                changeType: .yearRevert,
+                oldValue: entry.oldYear.map(String.init),
+                newValue: entry.newYear.map(String.init),
+                confidence: 100,
+                source: "undo recovery"
+            )
+            _ = try await resumeYearUndo(checkpoint, change: change)
+        case .completed:
+            _ = try backupCheckpoint(
+                for: checkpoint.entry.trackID,
+                shouldRemove: true,
+                purpose: .historyUndo,
+                effect: "undo recovery checkpoint"
+            )
         }
-
-        let legacyHistory = Self.loadPersistedHistory(from: legacyHistoryURL)
-        if !legacyHistory.isEmpty {
-            try await changeLogStore.saveEntries(legacyHistory)
-        }
-        return legacyHistory
-    }
-
-    private static func loadPersistedHistory(from url: URL) -> [ChangeLogEntry] {
-        guard let data = try? Data(contentsOf: url) else { return [] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([ChangeLogEntry].self, from: data)) ?? []
-    }
-
-    private static func defaultDirectory() -> URL {
-        let directories = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )
-        guard let appSupport = directories.first else {
-            return URL(fileURLWithPath: NSTemporaryDirectory())
-        }
-        return appSupport.appendingPathComponent("GenreUpdater", isDirectory: true)
     }
 }

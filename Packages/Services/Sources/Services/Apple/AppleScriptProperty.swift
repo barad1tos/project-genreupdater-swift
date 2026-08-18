@@ -36,4 +36,12 @@ enum AppleScriptTrackProperty: String, CaseIterable {
             track.albumArtist ?? ""
         }
     }
+
+    func comparisonValue(_ value: String?) -> String? {
+        guard self == .year else { return value }
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return nil }
+        guard let year = Int(trimmed) else { return trimmed }
+        return MusicAppYear.normalized(year).map(String.init)
+    }
 }

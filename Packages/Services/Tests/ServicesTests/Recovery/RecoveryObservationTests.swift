@@ -56,6 +56,59 @@ struct RecoveryObservationTests {
         #expect(observed.outcome == .failed)
     }
 
+    @Test("missing Music.app year verifies a clear write")
+    func classifiesYearClear() {
+        let item = makeWorkItem(
+            state: .attempted,
+            changeType: .yearRevert,
+            oldValue: "2019",
+            newValue: String(MusicAppYear.missingValue)
+        )
+
+        let observed = RecoveryObservation.outcome(
+            for: item,
+            observedTrack: observedTrack(id: "persistent-1", year: nil)
+        )
+
+        #expect(observed.outcome == .written)
+        #expect(observed.observedValue?.isEmpty == true)
+    }
+
+    @Test("unchanged year proves a clear write did not land")
+    func classifiesMissedClear() {
+        let item = makeWorkItem(
+            state: .attempted,
+            changeType: .yearRevert,
+            oldValue: "2019",
+            newValue: String(MusicAppYear.missingValue)
+        )
+
+        let observed = RecoveryObservation.outcome(
+            for: item,
+            observedTrack: observedTrack(id: "persistent-1", year: 2019)
+        )
+
+        #expect(observed.outcome == .failed)
+    }
+
+    @Test("external year after a clear attempt requires review")
+    func classifiesConflictingYear() {
+        let item = makeWorkItem(
+            state: .attempted,
+            changeType: .yearRevert,
+            oldValue: "2019",
+            newValue: String(MusicAppYear.missingValue)
+        )
+
+        let observed = RecoveryObservation.outcome(
+            for: item,
+            observedTrack: observedTrack(id: "persistent-1", year: 2020)
+        )
+
+        #expect(observed.outcome == .needsReview)
+        #expect(observed.observedValue == "2020")
+    }
+
     @Test("every change type observes its own AppleScript property")
     func mapsChangeTypesToProperties() {
         let expectations: [(ChangeType, AppleScriptTrackProperty)] = [

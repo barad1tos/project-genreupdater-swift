@@ -49,6 +49,7 @@ struct AppliedTrackUpdate {
 actor MockTrackStore: TrackStateStore {
     var tracks: [Track] = []
     private(set) var appliedUpdates: [AppliedTrackUpdate] = []
+    private var shouldCancelReads = false
     private var shouldFailMirror = false
     private var appliedUpdateHook: (@Sendable () throws -> Void)?
 
@@ -58,6 +59,10 @@ actor MockTrackStore: TrackStateStore {
 
     func resumeAppliedUpdates() {
         shouldFailMirror = false
+    }
+
+    func setReadCancellation(_ isEnabled: Bool) {
+        shouldCancelReads = isEnabled
     }
 
     func setAppliedUpdateHook(_ hook: (@Sendable () throws -> Void)?) {
@@ -82,7 +87,10 @@ actor MockTrackStore: TrackStateStore {
     }
 
     func getTrack(byID id: String) async throws -> Track? {
-        tracks.first { $0.id == id }
+        if shouldCancelReads {
+            throw CancellationError()
+        }
+        return tracks.first { $0.id == id }
     }
 
     func persistAppliedChange(_ change: ChangeLogEntry) async throws {
@@ -113,7 +121,26 @@ actor MockTrackStore: TrackStateStore {
 
 actor MockChangeLogStore: ChangeLogStore {
     private(set) var entries: [ChangeLogEntry] = []
+    private var shouldCancelNextLoad = false
+    private var shouldFailDeletes = false
+    private var shouldFailLoads = false
     private var shouldFailSaves = false
+
+    func failDeletes() {
+        shouldFailDeletes = true
+    }
+
+    func resumeDeletes() {
+        shouldFailDeletes = false
+    }
+
+    func failLoads() {
+        shouldFailLoads = true
+    }
+
+    func cancelNextLoad() {
+        shouldCancelNextLoad = true
+    }
 
     func failSaves() {
         shouldFailSaves = true
@@ -145,10 +172,20 @@ actor MockChangeLogStore: ChangeLogStore {
     }
 
     func loadAll() async throws -> [ChangeLogEntry] {
-        entries
+        if shouldCancelNextLoad {
+            shouldCancelNextLoad = false
+            throw CancellationError()
+        }
+        if shouldFailLoads {
+            throw MockScriptError.intentional
+        }
+        return entries
     }
 
     func delete(entryID: UUID) async throws {
+        if shouldFailDeletes {
+            throw MockScriptError.intentional
+        }
         entries.removeAll { $0.id == entryID }
     }
 

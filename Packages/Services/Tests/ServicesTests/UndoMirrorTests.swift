@@ -234,6 +234,54 @@ struct UndoMirrorTests {
         #expect(persistedTrack.yearSetByMGU == entry.oldYear)
     }
 
+    @Test("Empty-year undo survives relaunch with one physical clear and no history")
+    func emptyUndoRelaunch() async throws {
+        let storeURL = try makeStoreURL()
+        defer { removeStore(at: storeURL) }
+        let bridge = MockAppleScriptClient()
+        let checkpointDirectory = makeDirectory()
+        var entry = yearEntry()
+        entry.oldYear = nil
+
+        do {
+            let container = try makeContainer(at: storeURL)
+            let trackStore = TrackDataStore(modelContainer: container)
+            let changeLogStore = ChangeLogDataStore(modelContainer: container)
+            let current = Track(
+                id: entry.trackID,
+                name: entry.trackName,
+                artist: entry.artist,
+                album: entry.albumName,
+                year: entry.newYear
+            )
+            try await trackStore.saveTracks([current])
+            await bridge.setFetchedTracks([current])
+            let coordinator = UndoCoordinator(
+                scriptBridge: bridge,
+                stores: .init(changeLog: changeLogStore, tracks: trackStore),
+                directory: checkpointDirectory
+            )
+
+            try await coordinator.recordChange(entry)
+            try await coordinator.revertChange(entry)
+        }
+
+        let relaunchedContainer = try makeContainer(at: storeURL)
+        let relaunchedStore = TrackDataStore(modelContainer: relaunchedContainer)
+        let relaunchedLog = ChangeLogDataStore(modelContainer: relaunchedContainer)
+        let persistedTrack = try #require(try await relaunchedStore.getTrack(byID: entry.trackID))
+        #expect(persistedTrack.year == nil)
+        #expect(persistedTrack.yearBeforeMGU == MusicAppYear.missingValue)
+        #expect(persistedTrack.yearSetByMGU == MusicAppYear.missingValue)
+        #expect(try await relaunchedLog.loadAll().isEmpty)
+        #expect(await bridge.writtenProperties == [
+            TrackPropertyUpdate(trackID: entry.trackID, property: "year", value: "0"),
+        ])
+        #expect(!FileManager.default.fileExists(
+            atPath: checkpointDirectory.appendingPathComponent("pending-year-revert.json").path
+        ))
+    }
+
     private func currentTrack(genre: String = "Pop") -> Track {
         Track(
             id: "T1",

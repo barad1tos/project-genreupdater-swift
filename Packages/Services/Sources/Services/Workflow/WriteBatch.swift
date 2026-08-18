@@ -381,7 +381,9 @@ extension UpdateCoordinator {
                 continue
             }
             let hasExpectedValues = preparedWrite.updates.allSatisfy { update in
-                Self.value(forAppleScriptProperty: update.property, in: refreshedTrack) == update.value
+                guard let property = AppleScriptTrackProperty(rawValue: update.property) else { return false }
+                return property.comparisonValue(property.currentValue(in: refreshedTrack))
+                    == property.comparisonValue(update.value)
             }
             if hasExpectedValues {
                 appliedIndexes.insert(index)

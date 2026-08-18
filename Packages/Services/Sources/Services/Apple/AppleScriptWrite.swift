@@ -94,7 +94,7 @@ extension AppleScriptBridge {
             else {
                 return true
             }
-            return currentValue != update.value
+            return property.comparisonValue(currentValue) != property.comparisonValue(update.value)
         }
 
         guard failedUpdates.isEmpty else {
