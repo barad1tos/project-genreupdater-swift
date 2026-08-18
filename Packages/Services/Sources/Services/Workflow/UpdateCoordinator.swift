@@ -399,13 +399,27 @@ public actor UpdateCoordinator {
         track: Track,
         metadata: [String: String]
     ) async {
+        await markPendingAlbum(
+            track: track,
+            reason: "prerelease",
+            metadata: metadata,
+            recheckDays: runtimeConfiguration.prereleaseRecheckDays
+        )
+    }
+
+    func markPendingAlbum(
+        track: Track,
+        reason: String,
+        metadata: [String: String],
+        recheckDays: Int?
+    ) async {
         let identity = track.albumIdentity
         await pendingVerificationService?.markForVerification(
             artist: identity.artist,
             album: identity.album,
-            reason: "prerelease",
+            reason: reason,
             metadata: metadata,
-            recheckDays: runtimeConfiguration.prereleaseRecheckDays
+            recheckDays: recheckDays
         )
     }
 

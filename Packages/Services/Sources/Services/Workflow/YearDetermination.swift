@@ -111,11 +111,53 @@ extension UpdateCoordinator {
         albumTracks: [Track],
         forceYearLookup: Bool
     ) async -> Bool {
+        if let issue = yearDeterminator.yearSafetyIssue(
+            track: track,
+            albumTracks: albumTracks
+        ) {
+            await markYearSafetyIssue(issue, track: track, albumTracks: albumTracks)
+            return true
+        }
+
         guard !forceYearLookup else { return false }
         if isAlbumAlreadyProcessedByMGU(track: track, albumTracks: albumTracks) {
             return true
         }
         return await shouldSkipRecentFallbackRejection(track: track)
+    }
+
+    private func markYearSafetyIssue(
+        _ issue: YearSafetyIssue,
+        track: Track,
+        albumTracks: [Track]
+    ) async {
+        let reason: String
+        let metadata: [String: String]
+        let recheckDays: Int?
+
+        switch issue {
+        case let .suspiciousAlbum(uniqueYearCount, albumNameLength):
+            reason = "suspicious_album_name"
+            metadata = [
+                "album_name_length": String(albumNameLength),
+                "unique_years": String(uniqueYearCount),
+            ]
+            recheckDays = nil
+        case let .farFutureYear(year):
+            reason = "prerelease"
+            metadata = [
+                "expected_year": String(year),
+                "track_count": String(albumContextTracks(track: track, albumTracks: albumTracks).count),
+            ]
+            recheckDays = runtimeConfiguration.prereleaseRecheckDays
+        }
+
+        await markPendingAlbum(
+            track: track,
+            reason: reason,
+            metadata: metadata,
+            recheckDays: recheckDays
+        )
     }
 
     private func yearShortcutDecision(

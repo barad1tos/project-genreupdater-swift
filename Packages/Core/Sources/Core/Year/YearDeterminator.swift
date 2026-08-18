@@ -9,6 +9,12 @@ import OSLog
 
 // MARK: - YearDeterminator
 
+/// Album-level integrity risk that must stop automatic year lookup.
+public enum YearSafetyIssue: Equatable, Sendable {
+    case suspiciousAlbum(uniqueYearCount: Int, albumNameLength: Int)
+    case farFutureYear(year: Int)
+}
+
 /// Orchestrates year determination by composing scorer, validator,
 /// and fallback strategy with external services.
 ///
@@ -126,111 +132,62 @@ public struct YearDeterminator: Sendable {
         )
     }
 
-    // MARK: - Pre-flight Checks
-
-    // suspiciousAlbumMinLen and suspiciousManyYears are in ProcessingConfig
-
-    /// Check if a track should be skipped before processing.
-    ///
-    /// - Parameters:
-    ///   - track: The track to check
-    ///   - albumTracks: Other tracks on the album
-    ///   - futureYearThreshold: Max allowed years beyond current
-    ///     (default 1, from ProcessingConfig)
-    /// - Returns: Skip reason, or nil if processing should continue
-    public func preFlightCheck(
-        track: Track,
-        albumTracks: [Track],
-        futureYearThreshold: Int = 1
-    ) -> String? {
-        // Skip if already processed by MGU
-        if track.hasBeenProcessed {
-            return "Already processed by Genre Updater"
-        }
-
-        // Skip prerelease tracks
-        if track.kind == .prerelease {
-            return "Prerelease track"
-        }
-
-        // Skip if track can't be edited
-        if !track.canEdit {
-            return "Track is not editable"
-        }
-
-        // Skip suspicious albums (short name + many unique years)
-        if let reason = checkSuspiciousAlbum(
-            track: track, albumTracks: albumTracks
-        ) {
-            return reason
-        }
-
-        // Skip albums with far-future years
-        if let reason = checkFutureYears(
-            albumTracks: albumTracks,
-            futureYearThreshold: futureYearThreshold
-        ) {
-            return reason
-        }
-
-        return nil
-    }
-
-    /// Check if the album is suspicious and should be skipped.
-    ///
-    /// A short album name (≤ 3 chars) combined with many unique
-    /// years (≥ 3) suggests a self-titled or single-letter album
-    /// that aggregates unrelated tracks. Ported from
-    /// `check_suspicious_album` in year_determination.py.
-    public func checkSuspiciousAlbum(
+    /// Returns a configured integrity risk before local, cache, or API year lookup.
+    public func yearSafetyIssue(
         track: Track,
         albumTracks: [Track]
-    ) -> String? {
-        let albumName = track.album
-        guard albumName.count <= processingConfig.suspiciousAlbumMinLen else {
+    ) -> YearSafetyIssue? {
+        let contextTracks = albumTracks.contains { $0.id == track.id }
+            ? albumTracks
+            : albumTracks + [track]
+        if let issue = suspiciousAlbumIssue(track: track, albumTracks: contextTracks) {
+            return issue
+        }
+        guard processingConfig.skipPrerelease else {
             return nil
         }
-
-        let uniqueYears = Set(
-            albumTracks.compactMap(\.year)
+        return futureYearIssue(
+            albumTracks: contextTracks,
+            futureYearThreshold: processingConfig.futureYearThreshold
         )
-        guard uniqueYears.count >= processingConfig.suspiciousManyYears else {
-            return nil
-        }
-
-        return "Suspicious album '\(albumName)': "
-            + "\(uniqueYears.count) unique years, "
-            + "name length=\(albumName.count)"
     }
 
-    /// Check if album tracks contain far-future years.
-    ///
-    /// If the max year exceeds currentYear + threshold, the album
-    /// is likely a prerelease and should be skipped. Years within
-    /// the threshold (default 1 year ahead) are tolerated.
-    /// Ported from `handle_future_years` in year_determination.py.
-    public func checkFutureYears(
-        albumTracks: [Track],
-        futureYearThreshold: Int = 1
-    ) -> String? {
-        let currentYear = Calendar.current.component(
-            .year, from: Date()
-        )
-        let futureYears = albumTracks
-            .compactMap(\.year)
-            .filter { $0 > currentYear }
+    private func suspiciousAlbumIssue(
+        track: Track,
+        albumTracks: [Track]
+    ) -> YearSafetyIssue? {
+        let albumNameLength = track.album.count
+        guard albumNameLength <= processingConfig.suspiciousAlbumMinLen else {
+            return nil
+        }
 
+        let uniqueYearCount = Set(albumTracks.compactMap(\.year)).count
+        guard uniqueYearCount >= processingConfig.suspiciousManyYears else {
+            return nil
+        }
+
+        return .suspiciousAlbum(
+            uniqueYearCount: uniqueYearCount,
+            albumNameLength: albumNameLength
+        )
+    }
+
+    private func futureYearIssue(
+        albumTracks: [Track],
+        futureYearThreshold: Int
+    ) -> YearSafetyIssue? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let currentYear = calendar.component(.year, from: Date())
+        let futureYears = albumTracks.compactMap(\.year).filter { $0 > currentYear }
         guard let maxFutureYear = futureYears.max() else {
             return nil
         }
-
-        // Within threshold — tolerate (e.g. album releasing next year)
-        if maxFutureYear - currentYear <= futureYearThreshold {
+        guard maxFutureYear - currentYear > futureYearThreshold else {
             return nil
         }
 
-        return "Future year \(maxFutureYear) exceeds threshold "
-            + "(\(futureYearThreshold) year(s) beyond \(currentYear))"
+        return .farFutureYear(year: maxFutureYear)
     }
 
     // MARK: - Helpers

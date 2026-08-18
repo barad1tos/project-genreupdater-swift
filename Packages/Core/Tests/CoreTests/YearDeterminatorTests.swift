@@ -267,30 +267,7 @@ struct YearDeterminatorTests {
         }
     }
 
-    // MARK: - Pre-flight Checks
-
-    @Test("Already processed track skipped")
-    func alreadyProcessedSkipped() {
-        let track = makeTrack(yearSetByMGU: 2000)
-        let reason = determinator.preFlightCheck(
-            track: track,
-            albumTracks: []
-        )
-        #expect(reason != nil)
-        #expect(reason?.contains("processed") == true)
-    }
-
-    @Test("Normal track passes pre-flight")
-    func normalTrackPasses() {
-        let track = makeTrack()
-        let reason = determinator.preFlightCheck(
-            track: track,
-            albumTracks: []
-        )
-        #expect(reason == nil)
-    }
-
-    // MARK: - Suspicious Album Pre-flight
+    // MARK: - Year safety
 
     @Test("Short album name + many unique years is suspicious")
     func suspiciousAlbumDetected() {
@@ -318,12 +295,11 @@ struct YearDeterminatorTests {
                 year: 2010
             ),
         ]
-        let reason = determinator.preFlightCheck(
+        let issue = determinator.yearSafetyIssue(
             track: track,
             albumTracks: albumTracks
         )
-        #expect(reason != nil)
-        #expect(reason?.contains("Suspicious") == true)
+        #expect(issue == .suspiciousAlbum(uniqueYearCount: 3, albumNameLength: 2))
     }
 
     @Test("Long album name not suspicious")
@@ -352,11 +328,11 @@ struct YearDeterminatorTests {
                 year: 2010
             ),
         ]
-        let reason = determinator.checkSuspiciousAlbum(
+        let issue = determinator.yearSafetyIssue(
             track: track,
             albumTracks: albumTracks
         )
-        #expect(reason == nil)
+        #expect(issue == nil)
     }
 
     @Test("Short album name + few unique years not suspicious")
@@ -378,11 +354,11 @@ struct YearDeterminatorTests {
                 year: 2000
             ),
         ]
-        let reason = determinator.checkSuspiciousAlbum(
+        let issue = determinator.yearSafetyIssue(
             track: track,
             albumTracks: albumTracks
         )
-        #expect(reason == nil)
+        #expect(issue == nil)
     }
 
     @Test("Exactly 3-char album at boundary is suspicious")
@@ -412,20 +388,16 @@ struct YearDeterminatorTests {
                 year: 2002
             ),
         ]
-        let reason = determinator.checkSuspiciousAlbum(
+        let issue = determinator.yearSafetyIssue(
             track: track,
             albumTracks: albumTracks
         )
-        #expect(reason != nil)
+        #expect(issue == .suspiciousAlbum(uniqueYearCount: 3, albumNameLength: 3))
     }
-
-    // MARK: - Future Year Pre-flight
 
     @Test("Far-future year triggers skip")
     func farFutureYearSkips() {
-        let currentYear = Calendar.current.component(
-            .year, from: Date()
-        )
+        let currentYear = currentUTCYear()
         let albumTracks = [
             Track(
                 id: "1",
@@ -435,19 +407,15 @@ struct YearDeterminatorTests {
                 year: currentYear + 5
             ),
         ]
-        let reason = determinator.checkFutureYears(
-            albumTracks: albumTracks,
-            futureYearThreshold: 1
-        )
-        #expect(reason != nil)
-        #expect(reason?.contains("Future year") == true)
+        #expect(determinator.yearSafetyIssue(
+            track: albumTracks[0],
+            albumTracks: albumTracks
+        ) == .farFutureYear(year: currentYear + 5))
     }
 
     @Test("Near-future year within threshold passes")
     func nearFutureYearPasses() {
-        let currentYear = Calendar.current.component(
-            .year, from: Date()
-        )
+        let currentYear = currentUTCYear()
         let albumTracks = [
             Track(
                 id: "1",
@@ -457,11 +425,10 @@ struct YearDeterminatorTests {
                 year: currentYear + 1
             ),
         ]
-        let reason = determinator.checkFutureYears(
-            albumTracks: albumTracks,
-            futureYearThreshold: 1
-        )
-        #expect(reason == nil)
+        #expect(determinator.yearSafetyIssue(
+            track: albumTracks[0],
+            albumTracks: albumTracks
+        ) == nil)
     }
 
     @Test("No future years passes")
@@ -475,17 +442,15 @@ struct YearDeterminatorTests {
                 year: 2020
             ),
         ]
-        let reason = determinator.checkFutureYears(
+        #expect(determinator.yearSafetyIssue(
+            track: albumTracks[0],
             albumTracks: albumTracks
-        )
-        #expect(reason == nil)
+        ) == nil)
     }
 
     @Test("Custom future year threshold respected")
     func customFutureThreshold() {
-        let currentYear = Calendar.current.component(
-            .year, from: Date()
-        )
+        let currentYear = currentUTCYear()
         let albumTracks = [
             Track(
                 id: "1",
@@ -495,35 +460,24 @@ struct YearDeterminatorTests {
                 year: currentYear + 3
             ),
         ]
-        // threshold=5 → year+3 is within threshold
-        let reason = determinator.checkFutureYears(
-            albumTracks: albumTracks,
-            futureYearThreshold: 5
-        )
-        #expect(reason == nil)
+        var processing = ProcessingConfig()
+        processing.futureYearThreshold = 5
+        let customDeterminator = YearDeterminator(processingConfig: processing)
+        #expect(customDeterminator.yearSafetyIssue(
+            track: albumTracks[0],
+            albumTracks: albumTracks
+        ) == nil)
     }
 
-    @Test("Future year integrated in preFlightCheck")
-    func futureYearInPreFlight() {
-        let currentYear = Calendar.current.component(
-            .year, from: Date()
-        )
-        let track = makeTrack(album: "Future Album")
-        let albumTracks = [
-            Track(
-                id: "1",
-                name: "A",
-                artist: "X",
-                album: "Future Album",
-                year: currentYear + 10
-            ),
-        ]
-        let reason = determinator.preFlightCheck(
+    @Test("Target is included in future-year safety context")
+    func targetIncludedInSafetyContext() {
+        let currentYear = currentUTCYear()
+        let track = makeTrack(year: currentYear + 10, album: "Future Album")
+        let issue = determinator.yearSafetyIssue(
             track: track,
-            albumTracks: albumTracks
+            albumTracks: []
         )
-        #expect(reason != nil)
-        #expect(reason?.contains("Future year") == true)
+        #expect(issue == .farFutureYear(year: currentYear + 10))
     }
 
     @Test("Track uses existing year when no currentYear passed")
@@ -648,5 +602,11 @@ struct YearDeterminatorTests {
         // Higher base score → higher confidence
         #expect(result.yearResult.confidence > 0)
         #expect(result.yearResult.year == 2000)
+    }
+
+    private func currentUTCYear() -> Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        return calendar.component(.year, from: Date())
     }
 }
