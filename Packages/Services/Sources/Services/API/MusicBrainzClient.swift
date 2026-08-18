@@ -26,6 +26,29 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     private let baseURL: URL
     private let rawRequestCache: RawAPIRequestCache?
     private let log = AppLogger.api
+    #if DEBUG
+    private var testHooks: TestHooks?
+    #endif
+
+    private struct ReleaseGroupFetch {
+        let groups: [MBReleaseGroup]
+        let failure: (any Error)?
+    }
+
+    private struct ArtistNameFetch {
+        let name: String?
+        let failure: (any Error)?
+    }
+
+    #if DEBUG
+    struct TestHooks: Sendable {
+        let beforeSearchTransition: (@Sendable () async -> Void)?
+
+        init(beforeSearchTransition: (@Sendable () async -> Void)? = nil) {
+            self.beforeSearchTransition = beforeSearchTransition
+        }
+    }
+    #endif
 
     /// Creates a MusicBrainz API client.
     ///
@@ -57,6 +80,14 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             refillInterval: .seconds(1)
         )
     }
+
+    #if DEBUG
+    func withTestHooks(_ hooks: TestHooks) -> Self {
+        var client = self
+        client.testHooks = hooks
+        return client
+    }
+    #endif
 
     // MARK: - ExternalAPIService
 
@@ -99,7 +130,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         var candidates: [ReleaseCandidate] = []
 
         for (index, group) in releaseGroups.enumerated() {
-            let releases = index < 3 ? await fetchReleaseDetailsIfAvailable(for: group.id) : []
+            let releases = index < 3 ? try await fetchReleaseDetailsIfAvailable(for: group.id) : []
             candidates.append(contentsOf: Self.releaseCandidates(
                 from: group,
                 releases: releases,
@@ -249,30 +280,72 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         album: String,
         limit: Int
     ) async throws -> [MBReleaseGroup] {
-        let releaseGroups = try await fetchReleaseGroups(artist: artist, album: album, limit: limit)
-        guard releaseGroups.isEmpty else { return releaseGroups }
+        let precise = try await fetchGroupOutcome(artist: artist, album: album, limit: limit)
+        try await checkSearchCancellation()
+        guard precise.groups.isEmpty else { return precise.groups }
 
-        if Self.shouldRetryWithCanonicalArtist(for: artist),
-           let canonicalArtist = try await canonicalArtistName(for: artist) {
-            let normalizedArtist = normalizeForMatching(artist)
-            let normalizedCanonicalArtist = normalizeForMatching(canonicalArtist)
-            if !normalizedCanonicalArtist.isEmpty,
-               normalizedCanonicalArtist != normalizedArtist {
-                log.debug(
-                    "MusicBrainz canonical fallback for \(artist, privacy: .private) -> \(normalizedCanonicalArtist, privacy: .private)"
-                )
-                let canonicalGroups = try await fetchReleaseGroups(
-                    artist: normalizedCanonicalArtist,
-                    album: album,
-                    limit: limit
-                )
-                if !canonicalGroups.isEmpty {
-                    return canonicalGroups
+        var firstFailure = precise.failure
+
+        if Self.shouldRetryWithCanonicalArtist(for: artist) {
+            let canonical = try await fetchArtistOutcome(for: artist)
+            try await checkSearchCancellation()
+            firstFailure = firstFailure ?? canonical.failure
+
+            if let canonicalArtist = canonical.name {
+                let normalizedArtist = normalizeForMatching(artist)
+                let normalizedCanonicalArtist = normalizeForMatching(canonicalArtist)
+                if !normalizedCanonicalArtist.isEmpty,
+                   normalizedCanonicalArtist != normalizedArtist {
+                    log.debug(
+                        "MusicBrainz canonical fallback for \(artist, privacy: .private) -> \(normalizedCanonicalArtist, privacy: .private)"
+                    )
+                    try await checkSearchCancellation()
+                    let canonicalGroups = try await fetchGroupOutcome(
+                        artist: normalizedCanonicalArtist,
+                        album: album,
+                        limit: limit
+                    )
+                    try await checkSearchCancellation()
+                    if !canonicalGroups.groups.isEmpty {
+                        return canonicalGroups.groups
+                    }
+                    firstFailure = firstFailure ?? canonicalGroups.failure
                 }
             }
         }
 
-        return try await fallbackReleaseGroups(artist: artist, album: album, limit: limit)
+        try await checkSearchCancellation()
+        let fallback = try await fallbackReleaseGroups(artist: artist, album: album, limit: limit)
+        if !fallback.groups.isEmpty {
+            return fallback.groups
+        }
+        if let failure = firstFailure ?? fallback.failure {
+            throw failure
+        }
+        return []
+    }
+
+    private func fetchGroupOutcome(
+        artist: String,
+        album: String,
+        limit: Int
+    ) async throws -> ReleaseGroupFetch {
+        do {
+            let groups = try await fetchReleaseGroups(artist: artist, album: album, limit: limit)
+            return ReleaseGroupFetch(groups: groups, failure: nil)
+        } catch {
+            try Self.rethrowCancellation(error)
+            return ReleaseGroupFetch(groups: [], failure: error)
+        }
+    }
+
+    private func fetchArtistOutcome(for artist: String) async throws -> ArtistNameFetch {
+        do {
+            return try await ArtistNameFetch(name: canonicalArtistName(for: artist), failure: nil)
+        } catch {
+            try Self.rethrowCancellation(error)
+            return ArtistNameFetch(name: nil, failure: error)
+        }
     }
 
     private func fetchReleaseGroups(
@@ -301,19 +374,36 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         artist: String,
         album: String,
         limit: Int
-    ) async throws -> [MBReleaseGroup] {
+    ) async throws -> ReleaseGroupFetch {
         guard !artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return []
+            return ReleaseGroupFetch(groups: [], failure: nil)
         }
 
-        let genericGroups = try await fetchReleaseGroups(query: "\(artist) \(album)", limit: limit)
-        let matchingGenericGroups = Self.matchingReleaseGroups(genericGroups, artist: artist)
+        let generic = try await fetchGroupOutcome(query: "\(artist) \(album)", limit: limit)
+        try await checkSearchCancellation()
+        let matchingGenericGroups = Self.matchingReleaseGroups(generic.groups, artist: artist)
         guard matchingGenericGroups.isEmpty else {
-            return matchingGenericGroups
+            return ReleaseGroupFetch(groups: matchingGenericGroups, failure: nil)
         }
 
-        let albumGroups = try await fetchReleaseGroups(query: album, limit: limit)
-        return Self.matchingReleaseGroups(albumGroups, artist: artist)
+        try await checkSearchCancellation()
+        let albumOnly = try await fetchGroupOutcome(query: album, limit: limit)
+        try await checkSearchCancellation()
+        let matchingAlbumGroups = Self.matchingReleaseGroups(albumOnly.groups, artist: artist)
+        return ReleaseGroupFetch(
+            groups: matchingAlbumGroups,
+            failure: generic.failure ?? albumOnly.failure
+        )
+    }
+
+    private func fetchGroupOutcome(query: String, limit: Int) async throws -> ReleaseGroupFetch {
+        do {
+            let groups = try await fetchReleaseGroups(query: query, limit: limit)
+            return ReleaseGroupFetch(groups: groups, failure: nil)
+        } catch {
+            try Self.rethrowCancellation(error)
+            return ReleaseGroupFetch(groups: [], failure: error)
+        }
     }
 
     private func fetchReleaseGroups(query: String, limit: Int) async throws -> [MBReleaseGroup] {
@@ -365,20 +455,31 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         } == true
     }
 
+    private static func rethrowCancellation(_ error: any Error) throws {
+        let bridgedError = error as NSError
+        let cancellationDomain = (CancellationError() as NSError).domain
+        if Task.isCancelled ||
+            error is CancellationError ||
+            (error as? URLError)?.code == .cancelled ||
+            bridgedError.domain == cancellationDomain {
+            throw CancellationError()
+        }
+    }
+
+    private func checkSearchCancellation() async throws {
+        #if DEBUG
+        await testHooks?.beforeSearchTransition?()
+        #endif
+        try Task.checkCancellation()
+    }
+
     private static func normalizedCreditName(_ name: String?) -> String {
         guard let name else { return "" }
         let foldedName = name
             .folding(options: [.caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
             .lowercased()
             .replacingOccurrences(of: "&", with: "and")
-        let allowedCharacters = CharacterSet.alphanumerics
-            .union(.whitespacesAndNewlines)
-            .union(CharacterSet(charactersIn: "_"))
-        var filteredName = ""
-        for scalar in foldedName.unicodeScalars where allowedCharacters.contains(scalar) {
-            filteredName.unicodeScalars.append(scalar)
-        }
-        return filteredName.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return foldedName.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     private func fetchReleases(for releaseGroupID: String) async throws -> [MBRelease] {
@@ -397,10 +498,11 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         ).releases
     }
 
-    private func fetchReleaseDetailsIfAvailable(for releaseGroupID: String) async -> [MBRelease] {
+    private func fetchReleaseDetailsIfAvailable(for releaseGroupID: String) async throws -> [MBRelease] {
         do {
             return try await fetchReleases(for: releaseGroupID)
         } catch {
+            try Self.rethrowCancellation(error)
             log.debug(
                 "MusicBrainz release detail lookup failed for release group \(releaseGroupID, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
@@ -561,7 +663,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     }
 
     private func performRateLimitedFetch(url: URL) async throws -> Data {
-        let waitTime = await rateLimiter.acquire()
+        let waitTime = try await rateLimiter.acquireCancellable()
         if waitTime > .zero {
             log.debug("Rate limited, waited \(waitTime, privacy: .public)")
         }

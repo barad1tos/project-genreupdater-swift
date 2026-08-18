@@ -143,6 +143,14 @@ public actor TokenBucketRateLimiter: RateLimiter {
     /// If this method throws, no token remains held. A token granted during a
     /// deadline or cancellation race is returned automatically.
     func acquire(until deadline: ContinuousClock.Instant) async throws -> Duration {
+        try await acquireToken(deadline: deadline)
+    }
+
+    func acquireCancellable() async throws -> Duration {
+        try await acquireToken(deadline: nil)
+    }
+
+    private func acquireToken(deadline: ContinuousClock.Instant?) async throws -> Duration {
         try Task.checkCancellation()
         totalRequests += 1
 
@@ -153,7 +161,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
             #endif
             do {
                 try Task.checkCancellation()
-                guard currentInstant < deadline else {
+                if let deadline, currentInstant >= deadline {
                     throw RateLimitError.deadlineExceeded
                 }
             } catch {

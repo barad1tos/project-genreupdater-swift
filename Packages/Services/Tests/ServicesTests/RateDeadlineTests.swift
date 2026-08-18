@@ -116,6 +116,33 @@ struct RateDeadlineTests {
         #expect(try await next.value > .zero)
     }
 
+    @Test("Cancellable acquisition returns a token when cancellation wins after grant")
+    func returnsCancelledGrant() async throws {
+        let gate = GrantGate()
+        let limiter = TokenBucketRateLimiter(
+            maxTokens: 1,
+            refillInterval: .seconds(30),
+            hooks: .init(afterGrant: { await gate.enter() })
+        )
+        _ = await limiter.acquire()
+
+        let cancelled = Task { try await limiter.acquireCancellable() }
+        #expect(await limiter.waitForQueue(1))
+        let deadline = ContinuousClock().now.advanced(by: .seconds(2))
+        let next = Task { try await limiter.acquire(until: deadline) }
+        #expect(await limiter.waitForQueue(2))
+
+        await limiter.release()
+        #expect(await gate.waitForEntry())
+        cancelled.cancel()
+        await gate.open()
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await cancelled.value
+        }
+        #expect(try await next.value > .zero)
+    }
+
     @Test("Expiry after grant returns the token")
     func expiryAfterGrant() async throws {
         let gate = GrantGate()

@@ -245,16 +245,16 @@ struct MusicBrainzClientTests {
     func usesInjectedBaseURL() async throws {
         let baseURL = try #require(URL(string: "https://musicbrainz.example.test/custom/ws/2"))
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MusicBrainzRequestURLProtocol.self]
+        configuration.protocolClasses = [RequestURLProtocol.self]
         let session = URLSession(configuration: configuration)
-        MusicBrainzRequestURLProtocol.handler = { request in
+        RequestURLProtocol.handler = { request in
             let url = try #require(request.url)
             #expect(url.host == "musicbrainz.example.test")
             #expect(url.path == "/custom/ws/2/release-group")
             let data = Data(#"{"release-groups":[{"id":"rg-1","title":"Album","first-release-date":"1998"}]}"#.utf8)
             return try (jsonResponse(url: url), data)
         }
-        defer { MusicBrainzRequestURLProtocol.handler = nil }
+        defer { RequestURLProtocol.handler = nil }
 
         let client = MusicBrainzClient(
             session: session,
@@ -270,9 +270,46 @@ struct MusicBrainzClientTests {
 
         #expect(result.year == 1998)
     }
+
+    @Test("Cancellation while rate limited does not start a request")
+    func cancellationWhileRateLimited() async throws {
+        let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(300))
+        _ = await limiter.acquire()
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RejectingURLProtocol.self]
+        let client = MusicBrainzClient(
+            session: URLSession(configuration: configuration),
+            rateLimiter: limiter
+        )
+        let lookup = Task {
+            try await client.getAlbumYear(
+                artist: "Artist",
+                album: "Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+
+        #expect(await limiter.waitForQueue(1))
+        lookup.cancel()
+
+        do {
+            _ = try await taskValue(lookup, timeout: .milliseconds(100))
+            Issue.record("Expected rate-limit cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("Expected prompt CancellationError, got \(error)")
+        }
+
+        await limiter.release()
+        _ = try? await lookup.value
+        #expect(await limiter.waitForQueue(0))
+    }
 }
 
-private final class MusicBrainzRequestURLProtocol: URLProtocol {
+private final class RequestURLProtocol: URLProtocol {
     nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
     override static func canInit(with request: URLRequest) -> Bool {
@@ -297,6 +334,23 @@ private final class MusicBrainzRequestURLProtocol: URLProtocol {
         } catch {
             client?.urlProtocol(self, didFailWithError: error)
         }
+    }
+
+    override func stopLoading() {}
+}
+
+private final class RejectingURLProtocol: URLProtocol {
+    override static func canInit(with _: URLRequest) -> Bool {
+        true
+    }
+
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Issue.record("A cancelled rate-limited lookup started a URL request")
+        client?.urlProtocol(self, didFailWithError: CancellationError())
     }
 
     override func stopLoading() {}
