@@ -2,6 +2,11 @@ import Core
 import Foundation
 import OSLog
 
+enum PendingAlbumReason: String, Sendable {
+    case prerelease
+    case suspiciousAlbum = "suspicious_album_name"
+}
+
 extension AlbumTypeDetectionConfig {
     func classifyAlbum(_ albumName: String) -> AlbumTypeInfo {
         detectAlbumType(
@@ -398,7 +403,7 @@ public actor UpdateCoordinator {
     ) async {
         await markPendingAlbum(
             track: track,
-            reason: "prerelease",
+            reason: .prerelease,
             metadata: metadata,
             recheckDays: runtimeConfiguration.prereleaseRecheckDays
         )
@@ -406,7 +411,7 @@ public actor UpdateCoordinator {
 
     func markPendingAlbum(
         track: Track,
-        reason: String,
+        reason: PendingAlbumReason,
         metadata: [String: String],
         recheckDays: Int?
     ) async {
@@ -414,7 +419,7 @@ public actor UpdateCoordinator {
         await pendingVerificationService?.markForVerification(
             artist: identity.artist,
             album: identity.album,
-            reason: reason,
+            reason: reason.rawValue,
             metadata: metadata,
             recheckDays: recheckDays
         )

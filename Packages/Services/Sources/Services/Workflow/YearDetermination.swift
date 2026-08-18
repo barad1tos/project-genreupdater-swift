@@ -151,20 +151,20 @@ extension UpdateCoordinator {
         track: Track,
         albumTracks: [Track]
     ) async {
-        let reason: String
+        let reason: PendingAlbumReason
         let metadata: [String: String]
         let recheckDays: Int?
 
         switch issue {
         case let .suspiciousAlbum(uniqueYearCount, albumNameLength):
-            reason = "suspicious_album_name"
+            reason = .suspiciousAlbum
             metadata = [
                 "album_name_length": String(albumNameLength),
                 "unique_years": String(uniqueYearCount),
             ]
             recheckDays = nil
         case let .farFutureYear(year):
-            reason = "prerelease"
+            reason = .prerelease
             metadata = [
                 "expected_year": String(year),
                 "track_count": String(albumContextTracks(track: track, albumTracks: albumTracks).count),
