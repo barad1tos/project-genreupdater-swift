@@ -57,6 +57,49 @@ extension DiscogsClientRequestTests {
     }
 }
 
+@Suite("Discogs cache transitions")
+struct DiscogsCacheRevisionTests {
+    @Test("Candidate cache bypasses revision 2 acquisition entries")
+    func candidateCache() async {
+        let cache = MockCacheService()
+        await cache.setRawJSON(
+            key: revision2DiscogsCacheKey,
+            json: revision2DiscogsCacheJSON,
+            ttl: 86400
+        )
+        let callCounter = APICallCounter()
+        let expectedCandidate = ReleaseCandidate(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            year: 1984,
+            source: .discogs
+        )
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(),
+            discogs: CountingReleaseCandidateService(
+                callCounter: callCounter,
+                releaseCandidates: [expectedCandidate]
+            ),
+            appleMusic: MockAPIService(),
+            cache: cache,
+            disabledSources: [.musicBrainz, .itunes]
+        ) {
+            $0.discogsReissueKeywords = []
+            $0.discogsSearchConfiguration = DiscogsSearchConfig(resultLimit: 25, detailLookupLimit: 10)
+        }
+
+        let result = await orchestrator.getReleaseCandidates(
+            artist: expectedCandidate.artist,
+            album: expectedCandidate.album,
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result == [expectedCandidate])
+        #expect(await callCounter.count() == 1)
+    }
+}
+
 private func searchQueryValue(_ name: String, in url: URL) -> String? {
     URLComponents(url: url, resolvingAgainstBaseURL: false)?
         .queryItems?
@@ -94,4 +137,38 @@ private let structuredArtistMismatchJSON = """
 
 private let releaseDetailJSON = """
 {"id":42,"title":"Powerslave","year":1984,"released":null}
+"""
+
+private let revision2DiscogsCacheKey: String = {
+    let components = [
+        "v3",
+        "discogs",
+        "iron maiden",
+        "powerslave",
+        "library_year=nil",
+        "earliest_added_year=nil",
+        "reissue_rules=",
+        "discogs_acquisition=revision=2,result_limit=25,detail_limit=10",
+    ]
+    return "release_candidates:" + components
+        .map { "\($0.utf8.count):\($0)" }
+        .joined(separator: "|")
+}()
+
+private let revision2DiscogsCacheJSON = """
+[
+  {
+    "artist": "Powerwolf",
+    "album": "Iron Maiden Powerslave",
+    "year": 2021,
+    "source": "discogs",
+    "releaseType": "album",
+    "status": "official",
+    "country": null,
+    "isReissue": false,
+    "mbReleaseGroupID": null,
+    "mbReleaseGroupFirstYear": null,
+    "genre": null
+  }
+]
 """

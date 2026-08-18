@@ -642,14 +642,14 @@ private func releaseCandidates(from orchestrator: APIOrchestrator) async -> [Rel
     )
 }
 
-private typealias ReleaseCandidateResolver = @Sendable (
+typealias ReleaseCandidateResolver = @Sendable (
     _ artist: String,
     _ album: String,
     _ currentLibraryYear: Int?,
     _ earliestTrackAddedYear: Int?
 ) -> [ReleaseCandidate]
 
-private struct CountingReleaseCandidateService: ExternalAPIService {
+struct CountingReleaseCandidateService: ExternalAPIService {
     let callCounter: APICallCounter
     let releaseCandidates: ReleaseCandidateResolver
 

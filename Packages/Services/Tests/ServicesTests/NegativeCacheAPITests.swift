@@ -220,6 +220,34 @@ struct NegativeCacheAPITests {
         #expect(await callCounter.count() == 1)
     }
 
+    @Test("Discogs direct-year cache bypasses revision 2 misses")
+    func discogsRevision2Miss() async {
+        let cache = MockCacheService()
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            year: nil,
+            source: "discogs",
+            timestamp: .now,
+            ttl: 3600,
+            metadata: [
+                "cacheKind": "negative",
+                "discogsAcquisition": "revision=2,result_limit=25,detail_limit=10",
+            ]
+        ))
+        let callCounter = APICallCounter()
+
+        let result = await discogsYear(
+            cache: cache,
+            callCounter: callCounter,
+            searchConfiguration: discogsSearch(resultLimit: 25, detailLookupLimit: 10),
+            serviceYear: 1999
+        )
+
+        #expect(result.year == 1999)
+        #expect(await callCounter.count() == 1)
+    }
+
     private func verifyMissRetry(
         negativeTTL: TimeInterval,
         missAge: TimeInterval
