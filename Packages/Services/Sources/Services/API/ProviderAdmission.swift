@@ -122,27 +122,44 @@ private final class ProviderCallRace<Value: Sendable>: @unchecked Sendable {
     ) async throws -> Value {
         let race = ProviderCallRace()
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                race.installContinuation(continuation)
-                Task {
-                    await race.resolve(operationTask.result)
-                }
-                let timeoutTask = Task {
-                    do {
-                        try await Task.sleep(for: timeout)
-                    } catch {
-                        return
-                    }
-                    race.resolve(
-                        .failure(ProviderCallTimeout()),
-                        cancelling: operationTask
-                    )
-                }
-                race.installTimeout(timeoutTask)
-            }
+            try await race.waitForResolution(of: operationTask, timeout: timeout)
         } onCancel: {
             race.resolve(
                 .failure(CancellationError()),
+                cancelling: operationTask
+            )
+        }
+    }
+
+    private func waitForResolution(
+        of operationTask: Task<Value, any Error>,
+        timeout: Duration
+    ) async throws -> Value {
+        try await withCheckedThrowingContinuation { continuation in
+            installContinuation(continuation)
+            observeCompletion(of: operationTask)
+            installTimeout(makeTimeoutTask(after: timeout, cancelling: operationTask))
+        }
+    }
+
+    private func observeCompletion(of operationTask: Task<Value, any Error>) {
+        Task {
+            await resolve(operationTask.result)
+        }
+    }
+
+    private func makeTimeoutTask(
+        after timeout: Duration,
+        cancelling operationTask: Task<Value, any Error>
+    ) -> Task<Void, Never> {
+        Task {
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+            resolve(
+                .failure(ProviderCallTimeout()),
                 cancelling: operationTask
             )
         }
