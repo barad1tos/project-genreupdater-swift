@@ -91,6 +91,7 @@ struct ProviderAdmissionTests {
     func workflowCancellationPropagates(_ boundary: CancellationBoundary) async {
         let probe = CancellationBoundaryProbe(boundary: boundary)
         let service = CancellationProviderService(probe: probe)
+        let pendingVerification = RecordingPendingVerificationService()
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: service,
             discogs: MockAPIService(),
@@ -99,8 +100,12 @@ struct ProviderAdmissionTests {
         ) {
             $0.maxConcurrentSourceCalls = 1
             $0.timeout = .seconds(30)
+            $0.pendingVerificationService = pendingVerification
         }
-        let coordinator = makeCoordinator(apiOrchestrator: orchestrator)
+        let coordinator = makeCoordinator(
+            apiOrchestrator: orchestrator,
+            pendingVerificationService: pendingVerification
+        )
         let track = Track(
             id: "cancelled-year",
             name: "Track",
@@ -123,6 +128,108 @@ struct ProviderAdmissionTests {
             _ = try await taskValue(lookup, timeout: .milliseconds(200))
         }
         #expect(await probe.calls == boundary.expectedCalls)
+        #expect(await pendingVerification.markCount() == 0)
+        #expect(await pendingVerification.removalCount() == 0)
+    }
+
+    @Test("Cancelled pending verification does not update retry state")
+    func pendingVerificationCancellationPropagates() async {
+        let probe = CancellationBoundaryProbe(boundary: .albumYear)
+        let pendingVerification = RecordingPendingVerificationService()
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: CancellationProviderService(probe: probe),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService(),
+            disabledSources: [.discogs, .itunes]
+        ) {
+            $0.maxConcurrentSourceCalls = 1
+            $0.timeout = .seconds(30)
+            $0.pendingVerificationService = pendingVerification
+        }
+        let coordinator = makeCoordinator(
+            apiOrchestrator: orchestrator,
+            pendingVerificationService: pendingVerification
+        )
+        let track = Track(
+            id: "pending-cancellation",
+            name: "Track",
+            artist: "Artist",
+            album: "Album",
+            year: nil,
+            trackStatus: nil
+        )
+        let entry = PendingAlbumEntry(
+            id: "pending-cancellation",
+            artist: "Artist",
+            album: "Album",
+            reason: "no_year_found"
+        )
+        let verification = Task {
+            try await coordinator.verifyPendingAlbum(entry, albumTracks: [track])
+        }
+        #expect(await probe.waitUntilEntered())
+
+        verification.cancel()
+        await #expect(throws: CancellationError.self) {
+            _ = try await taskValue(verification, timeout: .milliseconds(200))
+        }
+        #expect(await pendingVerification.markCount() == 0)
+        #expect(await pendingVerification.removalCount() == 0)
+    }
+
+    @Test("Queued timeout does not update pending verification")
+    func queuedTimeoutKeepsPending() async {
+        let stall = ProviderStall()
+        let pendingVerification = RecordingPendingVerificationService()
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: StalledProviderService(stall: stall),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService(),
+            disabledSources: [.discogs, .itunes]
+        ) {
+            $0.maxConcurrentSourceCalls = 1
+            $0.timeout = .milliseconds(20)
+            $0.pendingVerificationService = pendingVerification
+        }
+        let coordinator = makeCoordinator(
+            apiOrchestrator: orchestrator,
+            pendingVerificationService: pendingVerification
+        )
+        let blocker = providerLookup(orchestrator, lookup: .albumYear, artist: "Blocker")
+        #expect(await stall.waitForCalls(1))
+        let track = Track(
+            id: "queued-timeout",
+            name: "Track",
+            artist: "Queued",
+            album: "Album",
+            year: nil,
+            trackStatus: nil
+        )
+        let entry = PendingAlbumEntry(
+            id: "queued-timeout",
+            artist: "Queued",
+            album: "Album",
+            reason: "no_year_found"
+        )
+        let verification: Task<PendingAlbumVerificationResult, any Error> = Task {
+            try await coordinator.verifyPendingAlbum(entry, albumTracks: [track])
+        }
+
+        do {
+            _ = try await taskValue(verification, timeout: .milliseconds(200))
+        } catch {
+            await stall.release()
+            _ = try? await blocker.value
+            Issue.record("Queued pending lookup did not return at its timeout: \(error)")
+            return
+        }
+        #expect(await stall.callCount == 1)
+        #expect(await pendingVerification.markCount() == 0)
+        #expect(await pendingVerification.removalCount() == 0)
+
+        await stall.release()
+        _ = try? await blocker.value
+        #expect(await stall.waitForCompletions(1))
     }
 
     private func providerLookup(
@@ -150,7 +257,10 @@ struct ProviderAdmissionTests {
         }
     }
 
-    private func makeCoordinator(apiOrchestrator: APIOrchestrator) -> UpdateCoordinator {
+    private func makeCoordinator(
+        apiOrchestrator: APIOrchestrator,
+        pendingVerificationService: (any PendingVerificationService)? = nil
+    ) -> UpdateCoordinator {
         let bridge = MockAppleScriptClient()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProviderAdmissionTests-\(UUID().uuidString)")
@@ -167,7 +277,8 @@ struct ProviderAdmissionTests {
                     directory: directory
                 ),
                 idMapper: nil,
-                librarySnapshotService: nil
+                librarySnapshotService: nil,
+                pendingVerificationService: pendingVerificationService
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator()

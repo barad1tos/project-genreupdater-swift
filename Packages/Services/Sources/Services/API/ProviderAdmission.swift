@@ -3,6 +3,13 @@ import Foundation
 struct ProviderCallTimeout: Error {}
 
 actor ProviderAdmission {
+    #if DEBUG
+    typealias TestHooks = (
+        didEnqueue: (@Sendable () -> Void)?,
+        afterGrant: (@Sendable () async -> Void)?
+    )
+    #endif
+
     private struct Waiter {
         let id: UUID
         let continuation: CheckedContinuation<Void, any Error>
@@ -11,10 +18,20 @@ actor ProviderAdmission {
     private let limit: Int
     private var activeCalls = 0
     private var waiters: [Waiter] = []
+    #if DEBUG
+    private let hooks: TestHooks?
+    #endif
 
+    #if DEBUG
+    init(limit: Int, hooks: TestHooks? = nil) {
+        self.limit = max(1, limit)
+        self.hooks = hooks
+    }
+    #else
     init(limit: Int) {
         self.limit = max(1, limit)
     }
+    #endif
 
     func execute<Value: Sendable>(
         timeout: Duration,
@@ -46,6 +63,9 @@ actor ProviderAdmission {
             try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
                     waiters.append(Waiter(id: id, continuation: continuation))
+                    #if DEBUG
+                    hooks?.didEnqueue?()
+                    #endif
                     if Task.isCancelled {
                         cancel(id)
                     }
@@ -55,6 +75,9 @@ actor ProviderAdmission {
             }
         }
 
+        #if DEBUG
+        await hooks?.afterGrant?()
+        #endif
         do {
             try Task.checkCancellation()
         } catch {

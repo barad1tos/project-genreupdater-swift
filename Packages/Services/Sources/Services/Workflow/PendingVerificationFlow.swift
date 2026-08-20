@@ -19,6 +19,7 @@ extension UpdateCoordinator {
             currentLibraryYear: nil,
             earliestTrackAddedYear: earliestAddedYear(albumTracks)
         )
+        try Task.checkCancellation()
         let yearResult = yearLookup.result
 
         guard let year = yearResult.year else {

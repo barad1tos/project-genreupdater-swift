@@ -7,11 +7,7 @@ import OSLog
 
 // MARK: - APIOrchestrator
 
-/// Coordinates parallel API calls across MusicBrainz, Discogs, and Apple Music.
-///
-/// Each source is queried concurrently with an independent timeout. Results are
-/// aggregated by year score -- the year with the highest combined confidence
-/// across all sources wins. Sources that fail or time out are silently excluded.
+/// Stores the preferred API source and script-specific priority configuration.
 public struct APISourcePriorityConfiguration: Sendable {
     public let preferredSource: APISource
     public let scriptPriorities: [String: ScriptAPIPriority]
@@ -263,8 +259,10 @@ public actor APIOrchestrator {
 
     /// Query configured sources and aggregate results by year score.
     ///
-    /// Each source runs independently with its own timeout. If a source fails
-    /// or exceeds the timeout, the orchestrator continues with remaining results.
+    /// Uncached provider calls share the orchestrator-wide admission limit. One
+    /// caller timeout races permit wait, retries, and provider execution; cache
+    /// hits bypass admission. A timed-out non-cooperative provider retains its
+    /// permit until it exits. Failed or timed-out sources are excluded from aggregation.
     /// The year with the highest combined confidence score wins.
     ///
     /// - Parameters:
@@ -344,7 +342,19 @@ public actor APIOrchestrator {
         )
 
         let results = await fetchSourceResults(sources: sources, query: query)
+        guard !Task.isCancelled else {
+            return PendingAlbumYearLookup(result: YearResult(), didAttemptLookup: false)
+        }
         let apiResult = Self.aggregateResults(results, orderedSources: activeSources)
+        let isConfirmedMiss = !results.isEmpty && results.allSatisfy(\.didCompleteLookup)
+        if apiResult.year == nil, !isConfirmedMiss {
+            let result = Self.applyingCurrentLibraryFallback(
+                to: apiResult,
+                currentLibraryYear: currentLibraryYear,
+                earliestTrackAddedYear: earliestTrackAddedYear
+            )
+            return PendingAlbumYearLookup(result: result, didAttemptLookup: false)
+        }
         if let pendingRemovalAliases {
             await PendingVerificationSync.synchronize(
                 service: pendingVerificationService,
@@ -410,7 +420,7 @@ public actor APIOrchestrator {
         return earliestTrackAddedYear > currentYear || earliestTrackAddedYear < currentYear
     }
 
-    /// Fetches source results concurrently while preserving configured source order.
+    /// Fetches source results concurrently; aggregation applies configured source priority separately.
     private func fetchSourceResults(
         sources: [(source: APISource, service: any ExternalAPIService)],
         query: SourceQuery
@@ -471,7 +481,7 @@ public actor APIOrchestrator {
     ) async -> SourceFetchResult {
         let source = sourceEntry.source
         if let cached = await cachedAPIResult(source: source, query: query, cacheContext: cacheContext) {
-            return SourceFetchResult(source: source, result: cached)
+            return SourceFetchResult(source: source, result: cached, didCompleteLookup: true)
         }
 
         let outcome = await fetchWithTimeout(
@@ -488,7 +498,11 @@ public actor APIOrchestrator {
             cacheContext: cacheContext,
             shouldCacheEmptyResult: outcome.shouldCacheEmptyResult,
         )
-        return SourceFetchResult(source: source, result: outcome.result)
+        return SourceFetchResult(
+            source: source,
+            result: outcome.result,
+            didCompleteLookup: outcome.didCompleteLookup
+        )
     }
 
     private static func cachedAPIResult(
@@ -654,22 +668,38 @@ private func fetchWithTimeout(
                 apiRetryConfiguration: apiRetryConfiguration
             )
         }
-        return SourceServiceOutcome(result: result, shouldCacheEmptyResult: result.year == nil)
+        return SourceServiceOutcome(
+            result: result,
+            shouldCacheEmptyResult: result.year == nil,
+            didCompleteLookup: true
+        )
     } catch is ProviderCallTimeout {
         log
             .warning(
                 "\(sourceEntry.source.rawValue, privacy: .public) timed out after \(query.timeout, privacy: .public)"
             )
-        return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
+        return SourceServiceOutcome(
+            result: YearResult(),
+            shouldCacheEmptyResult: false,
+            didCompleteLookup: false
+        )
     } catch is CancellationError {
         log.debug("\(sourceEntry.source.rawValue, privacy: .public) cancelled")
-        return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
+        return SourceServiceOutcome(
+            result: YearResult(),
+            shouldCacheEmptyResult: false,
+            didCompleteLookup: false
+        )
     } catch {
         log
             .error(
                 "\(sourceEntry.source.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)"
             )
-        return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
+        return SourceServiceOutcome(
+            result: YearResult(),
+            shouldCacheEmptyResult: false,
+            didCompleteLookup: false
+        )
     }
 }
 
@@ -722,11 +752,13 @@ private struct SourceCacheContext {
 private struct SourceFetchResult {
     let source: APISource
     let result: YearResult
+    let didCompleteLookup: Bool
 }
 
 private struct SourceServiceOutcome {
     let result: YearResult
     let shouldCacheEmptyResult: Bool
+    let didCompleteLookup: Bool
 }
 
 private func normalizeAPIQueryName(_ name: String) -> String {
