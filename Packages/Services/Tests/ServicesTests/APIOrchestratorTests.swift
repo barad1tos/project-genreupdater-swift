@@ -117,6 +117,7 @@ struct APIOrchestratorTests {
             appleMusic: MockAPIService(shouldThrow: true)
         ) {
             $0.timeout = .milliseconds(200)
+            $0.maxConcurrentSourceCalls = 3
         }
 
         let result = await orchestrator.getAlbumYear(

@@ -109,7 +109,7 @@ extension UpdateCoordinator {
             return change
         }
 
-        let apiDetermination = await determineYearFromAPI(
+        let apiDetermination = try await determineYearFromAPI(
             track: track,
             albumTracks: albumTracks,
             albumTypeInfo: albumTypeInfo,
@@ -464,7 +464,7 @@ extension UpdateCoordinator {
         albumTypeInfo: AlbumTypeInfo,
         queryAlbum: String,
         ignoreLocalAlbumYears: Bool = false
-    ) async -> (yearResult: YearResult, sourceLabel: String) {
+    ) async throws -> (yearResult: YearResult, sourceLabel: String) {
         let earliestTrackAddedYear = earliestAddedYear(albumTracks)
         let identity = AlbumIdentity(
             artist: AlbumIdentity.groupingArtist(for: track),
@@ -476,6 +476,7 @@ extension UpdateCoordinator {
             currentLibraryYear: track.year,
             earliestTrackAddedYear: earliestTrackAddedYear
         )
+        try Task.checkCancellation()
 
         guard !apiCandidates.isEmpty else {
             let pendingRemovalAliases = (
@@ -491,6 +492,7 @@ extension UpdateCoordinator {
                 earliestTrackAddedYear: earliestTrackAddedYear,
                 pendingRemovalAliases: pendingRemovalAliases
             )
+            try Task.checkCancellation()
             return (yearResult, yearResult.isDefinitive ? "Definitive" : "API")
         }
 
@@ -498,11 +500,13 @@ extension UpdateCoordinator {
         let artistActivityPeriod = await apiOrchestrator.getArtistActivityPeriod(
             normalizedArtist: normalizedArtist
         )
+        try Task.checkCancellation()
         // Python parity (orchestrator.py:1079): the artist's region rides
         // next to the activity period into release-country scoring.
         let artistCountry = await apiOrchestrator.getArtistRegion(
             normalizedArtist: normalizedArtist
         )
+        try Task.checkCancellation()
         let scoringAlbumTracks = ignoreLocalAlbumYears ? [] : albumTracks
         let determination = yearDeterminator.determineYear(
             candidates: apiCandidates,

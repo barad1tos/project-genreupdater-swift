@@ -178,7 +178,7 @@ public actor APIOrchestrator {
     let negativeResultTTL: TimeInterval
     let candidateResultTTL: TimeInterval?
     nonisolated public let disabledSources: Set<APISource>
-    private let maxConcurrentSourceCalls: Int
+    let providerAdmission: ProviderAdmission
     let apiRetryConfiguration: APIRetryConfiguration
     let sourcePriorityConfiguration: APISourcePriorityConfiguration
     let soundtrackPatterns: [String]
@@ -208,7 +208,7 @@ public actor APIOrchestrator {
         negativeResultTTL = max(0, configuration.negativeResultTTL)
         candidateResultTTL = configuration.candidateResultTTL.flatMap { $0 > 0 ? $0 : nil }
         disabledSources = configuration.disabledSources
-        maxConcurrentSourceCalls = max(1, configuration.maxConcurrentSourceCalls)
+        providerAdmission = ProviderAdmission(limit: configuration.maxConcurrentSourceCalls)
         soundtrackPatterns = configuration.soundtrackPatterns
         variousArtistsNames = configuration.variousArtistsNames
         discogsReissueKeywords = configuration.discogsReissueKeywords
@@ -410,7 +410,7 @@ public actor APIOrchestrator {
         return earliestTrackAddedYear > currentYear || earliestTrackAddedYear < currentYear
     }
 
-    /// Fetches source results with bounded concurrency while preserving configured source order.
+    /// Fetches source results concurrently while preserving configured source order.
     private func fetchSourceResults(
         sources: [(source: APISource, service: any ExternalAPIService)],
         query: SourceQuery
@@ -426,32 +426,18 @@ public actor APIOrchestrator {
             of: SourceFetchResult.self,
             returning: [SourceFetchResult].self
         ) { group in
-            var nextSourceIndex = 0
-            let initialSourceCount = min(maxConcurrentSourceCalls, sources.count)
-
-            while nextSourceIndex < initialSourceCount {
+            for sourceEntry in sources {
                 addSourceTask(
                     to: &group,
-                    sourceEntry: sources[nextSourceIndex],
+                    sourceEntry: sourceEntry,
                     query: query,
                     cacheContext: cacheContext
                 )
-                nextSourceIndex += 1
             }
 
             var collected: [SourceFetchResult] = []
             while let result = await group.next() {
                 collected.append(result)
-
-                if nextSourceIndex < sources.count {
-                    addSourceTask(
-                        to: &group,
-                        sourceEntry: sources[nextSourceIndex],
-                        query: query,
-                        cacheContext: cacheContext
-                    )
-                    nextSourceIndex += 1
-                }
             }
             return collected
         }
@@ -463,15 +449,15 @@ public actor APIOrchestrator {
         query: SourceQuery,
         cacheContext: SourceCacheContext
     ) {
-        let log = log
         let apiRetryConfiguration = apiRetryConfiguration
+        let providerAdmission = providerAdmission
         group.addTask {
             await Self.cachedOrFetchedResult(
                 sourceEntry: sourceEntry,
                 query: query,
                 cacheContext: cacheContext,
                 apiRetryConfiguration: apiRetryConfiguration,
-                log: log
+                providerAdmission: providerAdmission
             )
         }
     }
@@ -481,7 +467,7 @@ public actor APIOrchestrator {
         query: SourceQuery,
         cacheContext: SourceCacheContext,
         apiRetryConfiguration: APIRetryConfiguration,
-        log: Logger
+        providerAdmission: ProviderAdmission
     ) async -> SourceFetchResult {
         let source = sourceEntry.source
         if let cached = await cachedAPIResult(source: source, query: query, cacheContext: cacheContext) {
@@ -492,7 +478,7 @@ public actor APIOrchestrator {
             sourceEntry: sourceEntry,
             query: query,
             apiRetryConfiguration: apiRetryConfiguration,
-            log: log
+            providerAdmission: providerAdmission
         )
 
         await cacheAPIResult(
@@ -657,32 +643,19 @@ private func fetchWithTimeout(
     sourceEntry: (source: APISource, service: any ExternalAPIService),
     query: SourceQuery,
     apiRetryConfiguration: APIRetryConfiguration,
-    log: Logger
+    providerAdmission: ProviderAdmission
 ) async -> SourceServiceOutcome {
+    let log = AppLogger.api
     do {
-        let result = try await withThrowingTaskGroup(of: YearResult.self) { group in
-            group.addTask {
-                try await fetchAlbumYearWithRetry(
-                    sourceEntry: sourceEntry,
-                    query: query,
-                    apiRetryConfiguration: apiRetryConfiguration
-                )
-            }
-
-            group.addTask {
-                try await Task.sleep(for: query.timeout)
-                throw OrchestratorTimeoutError()
-            }
-
-            guard let result = try await group.next() else {
-                return YearResult()
-            }
-
-            group.cancelAll()
-            return result
+        let result = try await providerAdmission.execute(timeout: query.timeout) {
+            try await fetchAlbumYearWithRetry(
+                sourceEntry: sourceEntry,
+                query: query,
+                apiRetryConfiguration: apiRetryConfiguration
+            )
         }
         return SourceServiceOutcome(result: result, shouldCacheEmptyResult: result.year == nil)
-    } catch is OrchestratorTimeoutError {
+    } catch is ProviderCallTimeout {
         log
             .warning(
                 "\(sourceEntry.source.rawValue, privacy: .public) timed out after \(query.timeout, privacy: .public)"
@@ -755,8 +728,6 @@ private struct SourceServiceOutcome {
     let result: YearResult
     let shouldCacheEmptyResult: Bool
 }
-
-private struct OrchestratorTimeoutError: Error {}
 
 private func normalizeAPIQueryName(_ name: String) -> String {
     guard !name.isEmpty else { return name }
