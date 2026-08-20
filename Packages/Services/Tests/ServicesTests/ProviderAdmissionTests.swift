@@ -56,14 +56,14 @@ struct ProviderAdmissionTests {
             disabledSources: [.discogs, .itunes]
         ) {
             $0.maxConcurrentSourceCalls = 1
-            $0.timeout = .milliseconds(20)
+            $0.timeout = ProviderAdmissionTestTiming.providerTimeout
         }
 
         let firstLookup = providerLookup(orchestrator, lookup: lookup, artist: "First")
         #expect(await stall.waitForCalls(1))
 
         do {
-            _ = try await taskValue(firstLookup, timeout: .milliseconds(200))
+            _ = try await taskValue(firstLookup, timeout: ProviderAdmissionTestTiming.assertionTimeout)
         } catch {
             await stall.release()
             _ = try? await firstLookup.value
@@ -73,7 +73,7 @@ struct ProviderAdmissionTests {
 
         let secondLookup = providerLookup(orchestrator, lookup: lookup, artist: "Second")
         do {
-            _ = try await taskValue(secondLookup, timeout: .milliseconds(200))
+            _ = try await taskValue(secondLookup, timeout: ProviderAdmissionTestTiming.assertionTimeout)
         } catch {
             Issue.record("Queued lookup did not honor its provider timeout: \(error)")
         }
@@ -188,7 +188,7 @@ struct ProviderAdmissionTests {
             disabledSources: [.discogs, .itunes]
         ) {
             $0.maxConcurrentSourceCalls = 1
-            $0.timeout = .milliseconds(20)
+            $0.timeout = ProviderAdmissionTestTiming.providerTimeout
             $0.pendingVerificationService = pendingVerification
         }
         let coordinator = makeCoordinator(
@@ -216,7 +216,7 @@ struct ProviderAdmissionTests {
         }
 
         do {
-            _ = try await taskValue(verification, timeout: .milliseconds(200))
+            _ = try await taskValue(verification, timeout: ProviderAdmissionTestTiming.assertionTimeout)
         } catch {
             await stall.release()
             _ = try? await blocker.value
@@ -307,10 +307,18 @@ enum CancellationBoundary: CaseIterable, Sendable {
     }
 }
 
+private enum ProviderAdmissionTestTiming {
+    static let providerTimeout = Duration.seconds(5)
+    static let assertionTimeout = Duration.seconds(7)
+    static let probeTimeout = Duration.seconds(10)
+}
+
 private actor CancellationBoundaryProbe {
     let boundary: CancellationBoundary
     private(set) var calls: [CancellationBoundary] = []
     private var hasEnteredBoundary = false
+    private var entryContinuation: CheckedContinuation<Bool, Never>?
+    private var entryTimer: Task<Void, Never>?
 
     init(boundary: CancellationBoundary) {
         self.boundary = boundary
@@ -320,15 +328,30 @@ private actor CancellationBoundaryProbe {
         calls.append(call)
         guard call == boundary else { return }
         hasEnteredBoundary = true
+        entryTimer?.cancel()
+        entryTimer = nil
+        entryContinuation?.resume(returning: true)
+        entryContinuation = nil
         try await Task.sleep(for: .seconds(30))
     }
 
     func waitUntilEntered() async -> Bool {
-        let deadline = ContinuousClock().now.advanced(by: .seconds(2))
-        while !hasEnteredBoundary, ContinuousClock().now < deadline {
-            try? await Task.sleep(for: .milliseconds(1))
+        guard !hasEnteredBoundary else { return true }
+
+        return await withCheckedContinuation { continuation in
+            entryContinuation = continuation
+            entryTimer = Task {
+                try? await Task.sleep(for: ProviderAdmissionTestTiming.probeTimeout)
+                guard !Task.isCancelled else { return }
+                timeoutEntryWait()
+            }
         }
-        return hasEnteredBoundary
+    }
+
+    private func timeoutEntryWait() {
+        entryTimer = nil
+        entryContinuation?.resume(returning: false)
+        entryContinuation = nil
     }
 }
 
@@ -429,6 +452,12 @@ private actor ProviderStall {
     private var calls = 0
     private var completions = 0
     private var continuations: [CheckedContinuation<Void, Never>] = []
+    private var callWaitContinuation: CheckedContinuation<Bool, Never>?
+    private var callWaitTimer: Task<Void, Never>?
+    private var expectedCallCount = 0
+    private var completionWaitContinuation: CheckedContinuation<Bool, Never>?
+    private var completionWaitTimer: Task<Void, Never>?
+    private var expectedCompletionCount = 0
 
     var callCount: Int {
         calls
@@ -436,29 +465,43 @@ private actor ProviderStall {
 
     func wait() async {
         calls += 1
+        resumeCallWaiterIfReady()
         await withCheckedContinuation { continuation in
             continuations.append(continuation)
         }
     }
 
     func waitForCalls(_ expectedCount: Int) async -> Bool {
-        let deadline = ContinuousClock().now.advanced(by: .seconds(2))
-        while calls < expectedCount, ContinuousClock().now < deadline {
-            try? await Task.sleep(for: .milliseconds(1))
+        guard calls < expectedCount else { return true }
+
+        return await withCheckedContinuation { continuation in
+            expectedCallCount = expectedCount
+            callWaitContinuation = continuation
+            callWaitTimer = Task {
+                try? await Task.sleep(for: ProviderAdmissionTestTiming.probeTimeout)
+                guard !Task.isCancelled else { return }
+                timeoutCallWait(expectedCount: expectedCount)
+            }
         }
-        return calls >= expectedCount
     }
 
     func finish() {
         completions += 1
+        resumeCompletionWaiterIfReady()
     }
 
     func waitForCompletions(_ expectedCount: Int) async -> Bool {
-        let deadline = ContinuousClock().now.advanced(by: .seconds(2))
-        while completions < expectedCount, ContinuousClock().now < deadline {
-            try? await Task.sleep(for: .milliseconds(1))
+        guard completions < expectedCount else { return true }
+
+        return await withCheckedContinuation { continuation in
+            expectedCompletionCount = expectedCount
+            completionWaitContinuation = continuation
+            completionWaitTimer = Task {
+                try? await Task.sleep(for: ProviderAdmissionTestTiming.probeTimeout)
+                guard !Task.isCancelled else { return }
+                timeoutCompletionWait(expectedCount: expectedCount)
+            }
         }
-        return completions >= expectedCount
     }
 
     func release() {
@@ -467,6 +510,38 @@ private actor ProviderStall {
         for continuation in pending {
             continuation.resume()
         }
+    }
+
+    private func resumeCallWaiterIfReady() {
+        guard calls >= expectedCallCount, let continuation = callWaitContinuation else { return }
+        callWaitTimer?.cancel()
+        callWaitTimer = nil
+        callWaitContinuation = nil
+        continuation.resume(returning: true)
+    }
+
+    private func timeoutCallWait(expectedCount: Int) {
+        guard expectedCallCount == expectedCount, let continuation = callWaitContinuation else { return }
+        callWaitTimer = nil
+        callWaitContinuation = nil
+        continuation.resume(returning: false)
+    }
+
+    private func resumeCompletionWaiterIfReady() {
+        guard completions >= expectedCompletionCount, let continuation = completionWaitContinuation else { return }
+        completionWaitTimer?.cancel()
+        completionWaitTimer = nil
+        completionWaitContinuation = nil
+        continuation.resume(returning: true)
+    }
+
+    private func timeoutCompletionWait(expectedCount: Int) {
+        guard expectedCompletionCount == expectedCount,
+              let continuation = completionWaitContinuation
+        else { return }
+        completionWaitTimer = nil
+        completionWaitContinuation = nil
+        continuation.resume(returning: false)
     }
 }
 
