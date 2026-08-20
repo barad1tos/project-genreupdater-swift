@@ -227,6 +227,57 @@ struct APIClientsTests {
         #expect(candidates.first?.isReissue == true)
     }
 
+    @Test("Configured Discogs search limits reach the composed client")
+    func wiresDiscogsSearch() async throws {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.preferredAPI = .discogs
+        configuration.yearRetrieval.apiAuth.discogsTokenReference = "configured-token"
+        configuration.yearRetrieval.discogsSearch.resultLimit = 17
+        configuration.yearRetrieval.discogsSearch.detailLookupLimit = 1
+        let requestProbe = DiscogsRequestProbe()
+        CapturedAuthURLProtocol.requestHandler = { request in
+            try makeDiscogsLimitResponse(for: request, probe: requestProbe)
+        }
+        defer { CapturedAuthURLProtocol.requestHandler = nil }
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [CapturedAuthURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let factoryOverrides = APIClientFactoryOverrides(
+            configuredDiscogsClientFactory: { token, contactEmail, rateLimiter, baseURL in
+                DiscogsClient(
+                    token: token,
+                    contactEmail: contactEmail,
+                    session: session,
+                    rateLimiter: rateLimiter,
+                    baseURL: baseURL
+                )
+            },
+            musicBrainz: DashboardStateAPIService(),
+            appleMusic: DashboardStateAPIService()
+        )
+
+        let orchestrator = AppDependencies.makeAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            factoryOverrides: factoryOverrides
+        )
+        let candidates = await orchestrator.getReleaseCandidates(
+            artist: "Test Artist",
+            album: "Test Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+        let requests = requestProbe.requests
+        let searchURL = try #require(requests.first?.url)
+
+        #expect(requestQueryValue("per_page", in: searchURL) == "17")
+        #expect(requests.compactMap(\.url).filter(isDiscogsRelease).count == 1)
+        #expect(candidates.map(\.year) == [2020])
+    }
+
     @Test("MusicBrainz factory receives the current cleaning snapshot without an instance override")
     func wiresMusicBrainzRules() {
         var configuration = AppConfiguration()
@@ -598,6 +649,19 @@ private final class AuthHeaderProbe: @unchecked Sendable {
     }
 }
 
+private final class DiscogsRequestProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [URLRequest] = []
+
+    var requests: [URLRequest] {
+        lock.withLock { values }
+    }
+
+    func append(_ request: URLRequest) {
+        lock.withLock { values.append(request) }
+    }
+}
+
 private final class RawRequestProbe: @unchecked Sendable {
     static let emptyPayload = Data(#"{"resultCount":0,"results":[]}"#.utf8)
 
@@ -650,6 +714,47 @@ private func legacyRawKey(api: String, url: URL) -> String {
     let canonical = "\(api)|\(base)?\(sortedQuery)"
     let digest = SHA256.hash(data: Data(canonical.utf8))
     return "raw_request:\(api):" + digest.map { String(format: "%02x", $0) }.joined()
+}
+
+private func requestQueryValue(_ name: String, in url: URL) -> String? {
+    URLComponents(url: url, resolvingAgainstBaseURL: false)?
+        .queryItems?
+        .first { $0.name == name }?
+        .value
+}
+
+private func makeDiscogsLimitResponse(
+    for request: URLRequest,
+    probe: DiscogsRequestProbe
+) throws -> (HTTPURLResponse, Data) {
+    probe.append(request)
+    let url = try #require(request.url)
+    let response = try #require(HTTPURLResponse(
+        url: url,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+    ))
+    let payload = if isDiscogsSearch(url) {
+        """
+        {"results":[
+          {"id":7,"title":"Test Artist - Test Album","year":null,"type":"release"},
+          {"id":8,"title":"Test Artist - Test Album","year":null,"type":"release"}
+        ]}
+        """
+    } else {
+        #"{"id":7,"title":"Test Album","year":2020}"#
+    }
+    return (response, Data(payload.utf8))
+}
+
+private func isDiscogsSearch(_ url: URL) -> Bool {
+    url.lastPathComponent == "search"
+        && url.deletingLastPathComponent().lastPathComponent == "database"
+}
+
+private func isDiscogsRelease(_ url: URL) -> Bool {
+    url.deletingLastPathComponent().lastPathComponent == "releases"
 }
 
 private final class CapturedAuthURLProtocol: URLProtocol {

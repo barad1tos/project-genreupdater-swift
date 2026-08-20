@@ -244,7 +244,7 @@ struct DiscogsURLTests {
         #expect(typeParam?.value == "master")
 
         let perPageParam = queryItems.first { $0.name == "per_page" }
-        #expect(perPageParam?.value == "5")
+        #expect(perPageParam?.value == "25")
     }
 
     @Test("buildSearchURL uses custom base URL")

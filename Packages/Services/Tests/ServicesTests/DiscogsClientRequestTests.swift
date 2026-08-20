@@ -318,6 +318,7 @@ struct DiscogsClientRequestTests {
     }
 
     func getAlbumYear(
+        configuration: DiscogsSearchConfig = DiscogsSearchConfig(),
         response: @escaping (URL) throws -> (HTTPURLResponse, Data)
     ) async throws -> (result: YearResult, requests: [URLRequest]) {
         let recorder = DiscogsRequestRecorder()
@@ -337,6 +338,7 @@ struct DiscogsClientRequestTests {
             session: session,
             baseURL: baseURL
         )
+        .withSearchConfiguration(configuration)
         let result = try await client.getAlbumYear(
             artist: "Iron Maiden",
             album: "Powerslave",
@@ -358,6 +360,7 @@ struct DiscogsClientRequestTests {
     }
 
     func getReleaseCandidates(
+        configuration: DiscogsSearchConfig = DiscogsSearchConfig(),
         response: @escaping (URL) throws -> (HTTPURLResponse, Data)
     ) async throws -> (candidates: [ReleaseCandidate], requests: [URLRequest]) {
         let recorder = DiscogsRequestRecorder()
@@ -377,6 +380,7 @@ struct DiscogsClientRequestTests {
             session: session,
             baseURL: baseURL
         )
+        .withSearchConfiguration(configuration)
         let candidates = try await client.getReleaseCandidates(
             artist: "Iron Maiden",
             album: "Powerslave",
@@ -419,6 +423,11 @@ func makeDiscogsMockSession(
     requestHandler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
 ) -> URLSession {
     makeDiscogsMockSessionWithRawResponse(requestHandler: requestHandler)
+}
+
+func resetDiscogsMockSession() {
+    DiscogsRequestMockURLProtocol.requestHandler = nil
+    DiscogsRequestMockURLProtocol.didFinishLoading = nil
 }
 
 private func makeDiscogsMockSessionWithRawResponse(
@@ -488,7 +497,7 @@ func makeDiscogsTestPath(_ components: String...) -> String {
     return pathSeparator + components.joined(separator: pathSeparator)
 }
 
-private func makeAlbumYearReleaseFallbackResponse(
+func makeAlbumYearReleaseFallbackResponse(
     url: URL,
     releaseSearchJSON: String = discogsMissingSearchYearResponseJSON,
     releaseDetailJSON: String = discogsReleaseDetailYearResponseJSON,
@@ -518,6 +527,7 @@ private let discogsReleaseDetailPath = makeDiscogsTestPath("releases", "42")
 final class DiscogsRequestMockURLProtocol: URLProtocol {
     // Safety: each test installs this handler before constructing its isolated URLSession.
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (URLResponse, Data))?
+    nonisolated(unsafe) static var didFinishLoading: (@Sendable () -> Void)?
 
     override static func canInit(with request: URLRequest) -> Bool {
         request.url?.host?.hasSuffix(".discogs.com") == true
@@ -538,6 +548,7 @@ final class DiscogsRequestMockURLProtocol: URLProtocol {
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
+            Self.didFinishLoading?()
         } catch {
             client?.urlProtocol(self, didFailWithError: error)
         }

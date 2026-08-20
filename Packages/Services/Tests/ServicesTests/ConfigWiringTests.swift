@@ -138,6 +138,8 @@ struct ConfigWiringTests {
         configuration.processing.cacheTTLDays = 3
         configuration.yearRetrieval.preferredAPI = .discogs
         configuration.yearRetrieval.reissueDetection.reissueKeywords = ["anniversary"]
+        configuration.yearRetrieval.discogsSearch.resultLimit = 17
+        configuration.yearRetrieval.discogsSearch.detailLookupLimit = 3
 
         let orchestrator = APIOrchestratorConfiguration(configuration: configuration)
 
@@ -148,6 +150,8 @@ struct ConfigWiringTests {
         #expect(orchestrator.maxAPIRetries == 4)
         #expect(orchestrator.apiRetryDelaySeconds == 2.5)
         #expect(orchestrator.discogsReissueKeywords == ["anniversary"])
+        #expect(orchestrator.discogsSearchConfiguration.resultLimit == 17)
+        #expect(orchestrator.discogsSearchConfiguration.detailLookupLimit == 3)
         #expect(
             orchestrator.sourcePriorityConfiguration
                 .orderedSources(artist: "Clutch", album: "Pure Rock Fury").first == .discogs

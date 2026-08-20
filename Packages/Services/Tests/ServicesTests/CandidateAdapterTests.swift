@@ -300,8 +300,8 @@ struct CandidateAdapterTests {
             }
 
             #expect(Array(url.pathComponents.dropFirst()) == ["database", "search"])
-            #expect(components.queryItems?.contains(where: { $0.name == "type" }) == false)
-            #expect(components.queryItems?.contains(where: { $0.name == "per_page" && $0.value == "10" }) == true)
+            #expect(components.queryItems?.contains(where: { $0.name == "type" && $0.value == "release" }) == true)
+            #expect(components.queryItems?.contains(where: { $0.name == "per_page" && $0.value == "25" }) == true)
 
             let json = """
             {
@@ -310,7 +310,7 @@ struct CandidateAdapterTests {
                   "id": 1,
                   "title": "Test Artist - Test Album",
                   "year": 1998,
-                  "type": "master",
+                  "type": "release",
                   "country": "US",
                   "format": ["Album"]
                 },

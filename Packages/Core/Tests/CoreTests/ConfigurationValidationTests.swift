@@ -216,6 +216,8 @@ struct ConfigurationValidationTests {
         configuration.yearRetrieval.fallback.yearDifferenceThreshold = 0
         configuration.yearRetrieval.fallback.trustAPIScoreThreshold = 100
         configuration.yearRetrieval.fallback.maxVerificationAttempts = 0
+        configuration.yearRetrieval.discogsSearch.resultLimit = 1
+        configuration.yearRetrieval.discogsSearch.detailLookupLimit = 0
         configuration.yearRetrieval.itunesSearch.limit = 1
         configuration.yearRetrieval.scoring.artistExactMatchBonus = -1000
     }
@@ -621,6 +623,12 @@ struct ConfigurationValidationTests {
             minimumZero("yearRetrieval.fallback.maxVerificationAttempts", "-1") {
                 $0.yearRetrieval.fallback.maxVerificationAttempts = -1
             },
+            oneToHundred("yearRetrieval.discogsSearch.resultLimit", "101") {
+                $0.yearRetrieval.discogsSearch.resultLimit = 101
+            },
+            zeroToHundred("yearRetrieval.discogsSearch.detailLookupLimit", "101") {
+                $0.yearRetrieval.discogsSearch.detailLookupLimit = 101
+            },
             oneToTwoHundred("yearRetrieval.itunesSearch.limit", "201") {
                 $0.yearRetrieval.itunesSearch.limit = 201
             },
@@ -657,6 +665,12 @@ struct ConfigurationValidationTests {
             },
             zeroToHundred("yearRetrieval.fallback.trustAPIScoreThreshold", "-0.01") {
                 $0.yearRetrieval.fallback.trustAPIScoreThreshold = -0.01
+            },
+            oneToHundred("yearRetrieval.discogsSearch.resultLimit", "0") {
+                $0.yearRetrieval.discogsSearch.resultLimit = 0
+            },
+            zeroToHundred("yearRetrieval.discogsSearch.detailLookupLimit", "-1") {
+                $0.yearRetrieval.discogsSearch.detailLookupLimit = -1
             },
             oneToTwoHundred("yearRetrieval.itunesSearch.limit", "0") {
                 $0.yearRetrieval.itunesSearch.limit = 0
@@ -718,6 +732,14 @@ struct ConfigurationValidationTests {
         mutate: @escaping @Sendable (inout AppConfiguration) -> Void
     ) -> InvalidNumericProbe {
         probe(path, receivedValue, "must be between 1 and 200", mutate: mutate)
+    }
+
+    private func oneToHundred(
+        _ path: String,
+        _ receivedValue: String,
+        mutate: @escaping @Sendable (inout AppConfiguration) -> Void
+    ) -> InvalidNumericProbe {
+        probe(path, receivedValue, "must be between 1 and 100", mutate: mutate)
     }
 
     private func tokenCapacity(

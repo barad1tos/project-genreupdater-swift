@@ -108,6 +108,146 @@ struct NegativeCacheAPITests {
         try await verifyMissRetry(negativeTTL: 1, missAge: 2)
     }
 
+    @Test("Discogs direct-year cache follows result-limit changes")
+    func discogsResultLimitTransition() async {
+        let cache = MockCacheService()
+        let callCounter = APICallCounter()
+        let initialConfiguration = discogsSearch(resultLimit: 1, detailLookupLimit: 0)
+
+        let initialResult = await discogsYear(
+            cache: cache,
+            callCounter: callCounter,
+            searchConfiguration: initialConfiguration,
+            serviceYear: 1984
+        )
+        let matchingResult = await discogsYear(
+            cache: cache,
+            callCounter: callCounter,
+            searchConfiguration: initialConfiguration,
+            serviceYear: 1990
+        )
+        let updatedResult = await discogsYear(
+            cache: cache,
+            callCounter: callCounter,
+            searchConfiguration: discogsSearch(resultLimit: 2, detailLookupLimit: 0),
+            serviceYear: 1999
+        )
+
+        #expect(initialResult.year == 1984)
+        #expect(matchingResult.year == 1984)
+        #expect(updatedResult.year == 1999)
+        #expect(await callCounter.count() == 2)
+    }
+
+    @Test("Discogs direct-year misses follow detail-limit changes")
+    func discogsDetailLimitTransition() async {
+        let cache = MockCacheService()
+        let callCounter = APICallCounter()
+        let initialConfiguration = discogsSearch(resultLimit: 1, detailLookupLimit: 0)
+
+        let initialResult = await discogsYear(
+            cache: cache,
+            callCounter: callCounter,
+            searchConfiguration: initialConfiguration,
+            serviceYear: nil
+        )
+        let matchingResult = await discogsYear(
+            cache: cache,
+            callCounter: callCounter,
+            searchConfiguration: initialConfiguration,
+            serviceYear: 1990
+        )
+        let updatedResult = await discogsYear(
+            cache: cache,
+            callCounter: callCounter,
+            searchConfiguration: discogsSearch(resultLimit: 1, detailLookupLimit: 1),
+            serviceYear: 1999
+        )
+
+        #expect(initialResult.year == nil)
+        #expect(matchingResult.year == nil)
+        #expect(updatedResult.year == 1999)
+        #expect(await callCounter.count() == 2)
+    }
+
+    @Test("Discogs direct-year cache bypasses legacy acquisition entries")
+    func discogsLegacyAcquisition() async {
+        let cache = MockCacheService()
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            year: 1984,
+            source: "discogs",
+            timestamp: .now,
+            ttl: 3600,
+            metadata: ["confidence": "60"]
+        ))
+        let callCounter = APICallCounter()
+
+        let result = await discogsYear(
+            cache: cache,
+            callCounter: callCounter,
+            searchConfiguration: discogsSearch(resultLimit: 25, detailLookupLimit: 10),
+            serviceYear: 1999
+        )
+
+        #expect(result.year == 1999)
+        #expect(await callCounter.count() == 1)
+    }
+
+    @Test("Discogs direct-year cache bypasses legacy acquisition misses")
+    func discogsLegacyAcquisitionMiss() async {
+        let cache = MockCacheService()
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            year: nil,
+            source: "discogs",
+            timestamp: .now,
+            ttl: 3600,
+            metadata: ["cacheKind": "negative"]
+        ))
+        let callCounter = APICallCounter()
+
+        let result = await discogsYear(
+            cache: cache,
+            callCounter: callCounter,
+            searchConfiguration: discogsSearch(resultLimit: 25, detailLookupLimit: 10),
+            serviceYear: 1999
+        )
+
+        #expect(result.year == 1999)
+        #expect(await callCounter.count() == 1)
+    }
+
+    @Test("Discogs direct-year cache bypasses revision 2 misses")
+    func discogsRevision2Miss() async {
+        let cache = MockCacheService()
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            year: nil,
+            source: "discogs",
+            timestamp: .now,
+            ttl: 3600,
+            metadata: [
+                "cacheKind": "negative",
+                "discogsAcquisition": "revision=2,result_limit=25,detail_limit=10",
+            ]
+        ))
+        let callCounter = APICallCounter()
+
+        let result = await discogsYear(
+            cache: cache,
+            callCounter: callCounter,
+            searchConfiguration: discogsSearch(resultLimit: 25, detailLookupLimit: 10),
+            serviceYear: 1999
+        )
+
+        #expect(result.year == 1999)
+        #expect(await callCounter.count() == 1)
+    }
+
     private func verifyMissRetry(
         negativeTTL: TimeInterval,
         missAge: TimeInterval
@@ -157,5 +297,44 @@ struct NegativeCacheAPITests {
 
         #expect(result.year == 1999)
         #expect(await callCounter.count() == 1)
+    }
+
+    private func discogsYear(
+        cache: any CacheService,
+        callCounter: APICallCounter,
+        searchConfiguration: DiscogsSearchConfig,
+        serviceYear: Int?
+    ) async -> YearResult {
+        let yearResult = serviceYear.map {
+            YearResult(year: $0, confidence: 60, yearScores: [$0: 60])
+        } ?? YearResult()
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(shouldThrow: true),
+            discogs: CountingAPIService(callCounter: callCounter, yearResult: yearResult),
+            appleMusic: MockAPIService(shouldThrow: true),
+            cache: cache,
+            disabledSources: [.musicBrainz, .itunes]
+        ) {
+            $0.negativeResultTTL = 3600
+            $0.sourcePriorityConfiguration = APISourcePriorityConfiguration(preferredAPI: .discogs)
+            $0.discogsSearchConfiguration = searchConfiguration
+        }
+
+        return await orchestrator.getAlbumYear(
+            artist: "Iron Maiden",
+            album: "Powerslave",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+    }
+
+    private func discogsSearch(
+        resultLimit: Int,
+        detailLookupLimit: Int
+    ) -> DiscogsSearchConfig {
+        var configuration = DiscogsSearchConfig()
+        configuration.resultLimit = resultLimit
+        configuration.detailLookupLimit = detailLookupLimit
+        return configuration
     }
 }

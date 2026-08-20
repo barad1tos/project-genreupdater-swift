@@ -4,6 +4,57 @@ import Testing
 
 @Suite("Year configuration persistence")
 struct YearConfigurationTests {
+    @Test("Pre-Discogs-search settings use the Python acquisition defaults")
+    func preDiscogsSearchSettingsUseDefaults() throws {
+        let data = Data(
+            #"""
+            {
+              "yearRetrieval": {
+                "preferredAPI": "discogs"
+              }
+            }
+            """#.utf8
+        )
+
+        let decoded = try AppConfiguration.configurationDecoder().decode(
+            AppConfiguration.self,
+            from: data
+        )
+
+        #expect(decoded.yearRetrieval.discogsSearch.resultLimit == 25)
+        #expect(decoded.yearRetrieval.discogsSearch.detailLookupLimit == 10)
+    }
+
+    @Test("Persisted Discogs search settings preserve explicit and missing values")
+    func discogsSearchSettingsRoundTrip() throws {
+        let data = Data(
+            #"""
+            {
+              "yearRetrieval": {
+                "discogsSearch": {
+                  "resultLimit": 17
+                }
+              }
+            }
+            """#.utf8
+        )
+
+        var decoded = try AppConfiguration.configurationDecoder().decode(
+            AppConfiguration.self,
+            from: data
+        )
+        #expect(decoded.yearRetrieval.discogsSearch.resultLimit == 17)
+        #expect(decoded.yearRetrieval.discogsSearch.detailLookupLimit == 10)
+
+        decoded.yearRetrieval.discogsSearch.detailLookupLimit = 3
+        let roundTrip = try AppConfiguration.configurationDecoder().decode(
+            AppConfiguration.self,
+            from: JSONEncoder().encode(decoded)
+        )
+        #expect(roundTrip.yearRetrieval.discogsSearch.resultLimit == 17)
+        #expect(roundTrip.yearRetrieval.discogsSearch.detailLookupLimit == 3)
+    }
+
     @Test("Pre-G2 year logic keeps its values and defaults local-source policy")
     func preG2LogicDefaultsLocalSourcePolicy() throws {
         let data = Data(

@@ -301,6 +301,7 @@ extension AppDependencies {
                 // The credential factories predate the raw cache, so the
                 // composition root attaches it to the built client.
                 discogs: discogsContext.client
+                    .withSearchConfiguration(configuration.yearRetrieval.discogsSearch)
                     .withReissueKeywords(configuration.yearRetrieval.reissueDetection.reissueKeywords)
                     .withRawRequestCache(rawRequestCache),
                 appleMusic: appleMusic
