@@ -118,6 +118,37 @@ struct YearConfigurationTests {
         #expect(decoded.yearRetrieval.logic.dominantYearMinConfidence == 0.8)
     }
 
+    @Test("Fallback re-recording age preserves missing-key defaults and explicit tuning")
+    func rerecordingAgeRoundTrips() throws {
+        let historicalData = Data(
+            #"""
+            {
+              "yearRetrieval": {
+                "fallback": {
+                  "enabled": true,
+                  "yearDifferenceThreshold": 5,
+                  "trustAPIScoreThreshold": 70,
+                  "maxVerificationAttempts": 3
+                }
+              }
+            }
+            """#.utf8
+        )
+
+        var decoded = try AppConfiguration.configurationDecoder().decode(
+            AppConfiguration.self,
+            from: historicalData
+        )
+        #expect(decoded.yearRetrieval.fallback.rerecordingAgeYears == 10)
+
+        decoded.yearRetrieval.fallback.rerecordingAgeYears = 7
+        let roundTrip = try AppConfiguration.configurationDecoder().decode(
+            AppConfiguration.self,
+            from: JSONEncoder().encode(decoded)
+        )
+        #expect(roundTrip.yearRetrieval.fallback.rerecordingAgeYears == 7)
+    }
+
     @Test("Persisted dominance threshold controls local year decisions")
     func persistedThresholdApplies() throws {
         var configuration = AppConfiguration()

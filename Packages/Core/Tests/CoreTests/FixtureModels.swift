@@ -179,28 +179,6 @@ struct ValidationExpected: Codable {
     let consensusReleaseYear: Int?
 }
 
-// MARK: - Fallback Fixtures
-
-struct FallbackFixtureCase: Codable {
-    let id: String
-    let description: String
-    let context: FallbackContextFixture
-    let expected: FallbackExpected
-}
-
-struct FallbackContextFixture: Codable {
-    let bestYear: Int?
-    let bestScore: Int
-    let isDefinitive: Bool
-    let existingYear: Int?
-    let albumType: String
-    let verificationAttempts: Int
-}
-
-struct FallbackExpected: Codable {
-    let decision: String
-}
-
 // MARK: - Helpers
 
 enum FixtureHelpers {
@@ -221,21 +199,5 @@ enum FixtureHelpers {
         }
         guard let maxCount = counts.values.max() else { return nil }
         return years.first { counts[$0] == maxCount }
-    }
-
-    /// Extract the decision type string from a FallbackDecision enum.
-    static func decisionType(_ decision: FallbackDecision) -> String {
-        switch decision {
-        case .useAPIYear:
-            "useAPIYear"
-        case .keepExisting:
-            "keepExisting"
-        case .escalateToVerification:
-            "escalateToVerification"
-        case .markAndSkip:
-            "markAndSkip"
-        case .noAction:
-            "noAction"
-        }
     }
 }

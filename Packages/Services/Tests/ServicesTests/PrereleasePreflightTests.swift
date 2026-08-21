@@ -275,7 +275,7 @@ struct PrereleasePreflightTests {
                             artistTracks: $2,
                             options: $3,
                             dryRun: true,
-                            yearSafetyScope: $4
+                            yearRunScope: $4
                         )
                     }
                 )

@@ -616,8 +616,8 @@ struct CandidateScoringTests {
         #expect(written.isEmpty)
     }
 
-    @Test("Does not write when API conflicts with release year signal")
-    func doesNotWriteWhenAPIConflictsWithReleaseYearSignal() async throws {
+    @Test("Accepts definitive API year near the release year signal")
+    func acceptsDefinitiveAPIYearNearReleaseYearSignal() async throws {
         let track = subRosaTrack()
         let albumTracks = subRosaAlbumTracks()
         let bridge = MockAppleScriptClient()
@@ -632,7 +632,8 @@ struct CandidateScoringTests {
             dryRun: true
         )
 
-        #expect(!changes.contains { $0.changeType == ChangeType.yearUpdate })
+        let yearChange = try #require(changes.first { $0.changeType == ChangeType.yearUpdate })
+        #expect(yearChange.newValue == "2010")
     }
 
     @Test("Uses API confirmation when album release years disagree")

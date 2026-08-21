@@ -451,9 +451,29 @@ public struct FallbackConfig: Sendable, Codable {
     public var yearDifferenceThreshold: Int = 5
     public var trustAPIScoreThreshold: Double = 70
     public var maxVerificationAttempts: Int = 3
+    public var rerecordingAgeYears: Int = 10
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, yearDifferenceThreshold, trustAPIScoreThreshold, maxVerificationAttempts
+        case rerecordingAgeYears
+    }
 
     public init() {
         // Defaults keep fallback verification enabled with conservative thresholds.
+    }
+
+    public init(from decoder: any Decoder) throws {
+        self.init()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? enabled
+        yearDifferenceThreshold = try container.decodeIfPresent(Int.self, forKey: .yearDifferenceThreshold)
+            ?? yearDifferenceThreshold
+        trustAPIScoreThreshold = try container.decodeIfPresent(Double.self, forKey: .trustAPIScoreThreshold)
+            ?? trustAPIScoreThreshold
+        maxVerificationAttempts = try container.decodeIfPresent(Int.self, forKey: .maxVerificationAttempts)
+            ?? maxVerificationAttempts
+        rerecordingAgeYears = try container.decodeIfPresent(Int.self, forKey: .rerecordingAgeYears)
+            ?? rerecordingAgeYears
     }
 }
 

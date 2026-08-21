@@ -174,7 +174,7 @@ struct PreviewProducerTests {
             [target, peer],
             [],
             configuration.determinationOptions,
-            YearSafetyScope()
+            YearRunScope()
         )
 
         let yearChange = try #require(changes.first { $0.changeType == .yearUpdate })
@@ -313,7 +313,7 @@ struct PreviewProducerTests {
                     refreshIdentity: previewRuntime.refreshIdentity,
                     albumContext: previewRuntime.albumContext,
                     artistContext: previewRuntime.artistContext,
-                    determineChanges: { track, albumTracks, artistTracks, options, yearSafetyScope in
+                    determineChanges: { track, albumTracks, artistTracks, options, yearRunScope in
                         if track.id == "target" {
                             #expect(artistTracks.map(\.id) == ["target"])
                         }
@@ -322,7 +322,7 @@ struct PreviewProducerTests {
                             albumTracks,
                             artistTracks,
                             options,
-                            yearSafetyScope
+                            yearRunScope
                         )
                     }
                 )

@@ -12,7 +12,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = Path(
     os.environ.get(
@@ -137,10 +136,9 @@ class ManifestCLITests(unittest.TestCase):
         generated = self.root / "services-generated"
         shutil.copytree(SERVICES_FIXTURES, fixtures)
         generated.mkdir()
-        shutil.copy(
-            fixtures / "provider_acquisition_reference.json",
-            generated / "provider_acquisition_reference.json",
-        )
+        for fixture in fixtures.glob("*.json"):
+            if fixture.name != "fixtures_manifest.json":
+                shutil.copy(fixture, generated / fixture.name)
         manifest = fixtures / "fixtures_manifest.json"
         expected = manifest.read_bytes()
 

@@ -340,7 +340,7 @@ struct YearDeterminatorTests {
             track: track
         )
 
-        #expect(result.yearResult.year == 1950)
+        #expect(result.scoredYearResult?.year == 1950)
         #expect(result.yearResult.yearScores[1949] == nil)
         #expect(result.yearResult.yearScores[1950] != nil)
         #expect(result.candidateCount == 2)
@@ -418,7 +418,7 @@ struct YearDeterminatorTests {
             albumTypeInfo: albumInfo
         )
         if case .markAndSkip = result.fallbackDecision {
-            #expect(result.yearResult.year == nil)
+            #expect(result.yearResult.year == 2000)
         } else {
             // May also hit other rules first; verify no crash
             #expect(result.yearResult.year != nil

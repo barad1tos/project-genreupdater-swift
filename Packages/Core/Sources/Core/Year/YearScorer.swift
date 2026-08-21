@@ -68,7 +68,8 @@ public struct YearScorer: Sendable {
         queryAlbum: String,
         currentYear: Int? = nil,
         artistActivityPeriod: (start: Int?, end: Int?)? = nil,
-        artistCountry: String? = nil
+        artistCountry: String? = nil,
+        decisionDate: Date = Date()
     ) -> ScoredRelease {
         // Python parity: reject invalid years early (year=0 or < minValidYear)
         if candidate.year < yearLogic.minValidYear {
@@ -139,7 +140,7 @@ public struct YearScorer: Sendable {
         breakdown.sourceReliability = scoreSourceReliability(candidate.source)
 
         // 13. Future year penalty
-        let calendarYear = Calendar.current.component(.year, from: Date())
+        let calendarYear = currentUTCYear(at: decisionDate)
         breakdown.futureYearPenalty = candidate.year > calendarYear
             ? config.futureYearPenalty : 0
 
@@ -171,7 +172,8 @@ public struct YearScorer: Sendable {
     /// - Returns: Final year determination result
     public func resolveScores(
         _ scored: [ScoredRelease],
-        existingYear: Int? = nil
+        existingYear: Int? = nil,
+        decisionDate: Date = Date()
     ) -> YearResult {
         guard !scored.isEmpty else {
             return YearResult()
@@ -184,9 +186,7 @@ public struct YearScorer: Sendable {
             return YearResult()
         }
 
-        let calendarYear = Calendar.current.component(
-            Calendar.Component.year, from: Date()
-        )
+        let calendarYear = currentUTCYear(at: decisionDate)
 
         // Step 3: Prefer a supported existing library year before other adjustments.
         if let existingYearResult = applyExistingYearBoost(
@@ -448,6 +448,12 @@ public struct YearScorer: Sendable {
             && finalYear <= calendarYear
             && !hasSuspiciousSingleResult
             && (finalScore >= veryHighScoreThreshold || !hasScoreConflict)
+    }
+
+    private func currentUTCYear(at date: Date) -> Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        return calendar.component(.year, from: date)
     }
 }
 

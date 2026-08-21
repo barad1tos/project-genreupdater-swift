@@ -35,7 +35,7 @@ public enum ReleaseStatus: String, Sendable, Codable, CaseIterable {
 }
 
 /// Source that determined a year value.
-public enum YearSource: String, Sendable, Codable {
+public enum YearSource: String, Sendable, Codable, Equatable {
     case api
     case library
     case dominant
@@ -59,6 +59,26 @@ public enum FallbackDecision: Sendable, Equatable {
     case escalateToVerification(reason: String)
     case markAndSkip(reason: String)
     case noAction(reason: String)
+}
+
+/// Persisted verification reasons emitted by year determination.
+public enum YearVerificationReason: String, Sendable, Codable, Equatable {
+    case absurdYearWithoutExisting = "absurd_year_no_existing"
+    case implausibleExistingYear = "implausible_existing_year"
+    case implausibleMatchingYear = "implausible_matching_year"
+    case implausibleProposedYear = "implausible_proposed_year"
+    case noYearFound = "no_year_found"
+    case specialCompilation = "special_album_compilation"
+    case specialReissue = "special_album_reissue"
+    case specialAlbum = "special_album_special"
+    case suspiciousYearChange = "suspicious_year_change"
+    case veryLowConfidenceWithoutExisting = "very_low_confidence_no_existing"
+}
+
+/// A pending-verification state change produced by year determination.
+public enum YearVerificationMutation: Sendable, Equatable {
+    case mark(reason: YearVerificationReason, metadata: [String: String])
+    case remove
 }
 
 // MARK: - Release Candidate
@@ -181,6 +201,10 @@ public struct FallbackContext: Sendable {
     public let bestYear: Int?
     public let albumTypeInfo: AlbumTypeInfo?
     public let verificationAttempts: Int
+    public let releaseYear: Int?
+    public let artistStartYear: Int?
+    public let decisionYear: Int
+    public let yearScores: [Int: Int]
 
     public init(
         scoredReleases: [ScoredRelease],
@@ -191,7 +215,11 @@ public struct FallbackContext: Sendable {
         bestScore: Int,
         bestYear: Int?,
         albumTypeInfo: AlbumTypeInfo? = nil,
-        verificationAttempts: Int = 0
+        verificationAttempts: Int = 0,
+        releaseYear: Int? = nil,
+        artistStartYear: Int? = nil,
+        decisionYear: Int = Calendar.current.component(.year, from: Date()),
+        yearScores: [Int: Int] = [:]
     ) {
         self.scoredReleases = scoredReleases
         self.existingYear = existingYear
@@ -202,6 +230,30 @@ public struct FallbackContext: Sendable {
         self.bestYear = bestYear
         self.albumTypeInfo = albumTypeInfo
         self.verificationAttempts = verificationAttempts
+        self.releaseYear = releaseYear
+        self.artistStartYear = artistStartYear
+        self.decisionYear = decisionYear
+        self.yearScores = yearScores
+    }
+}
+
+/// Final fallback projection before Services applies persistence side effects.
+public struct YearFallbackOutcome: Sendable, Equatable {
+    public let decision: FallbackDecision
+    public let year: Int?
+    public let source: YearSource
+    public let verification: YearVerificationMutation?
+
+    public init(
+        decision: FallbackDecision,
+        year: Int?,
+        source: YearSource,
+        verification: YearVerificationMutation? = nil
+    ) {
+        self.decision = decision
+        self.year = year
+        self.source = source
+        self.verification = verification
     }
 }
 
@@ -210,22 +262,34 @@ public struct FallbackContext: Sendable {
 /// Extended result from year determination including scoring details.
 public struct YearDeterminationResult: Sendable {
     public let yearResult: YearResult
+    public let scoredYearResult: YearResult?
     public let source: YearSource
     public let breakdown: ScoreBreakdown?
     public let fallbackDecision: FallbackDecision?
     public let candidateCount: Int
+    public let acceptedCandidateYears: [Int]
+    public let rejectedCandidateYears: [Int]
+    public let verificationMutations: [YearVerificationMutation]
 
     public init(
         yearResult: YearResult,
+        scoredYearResult: YearResult? = nil,
         source: YearSource,
         breakdown: ScoreBreakdown? = nil,
         fallbackDecision: FallbackDecision? = nil,
-        candidateCount: Int = 0
+        candidateCount: Int = 0,
+        acceptedCandidateYears: [Int] = [],
+        rejectedCandidateYears: [Int] = [],
+        verificationMutations: [YearVerificationMutation] = []
     ) {
         self.yearResult = yearResult
+        self.scoredYearResult = scoredYearResult
         self.source = source
         self.breakdown = breakdown
         self.fallbackDecision = fallbackDecision
         self.candidateCount = candidateCount
+        self.acceptedCandidateYears = acceptedCandidateYears
+        self.rejectedCandidateYears = rejectedCandidateYears
+        self.verificationMutations = verificationMutations
     }
 }
