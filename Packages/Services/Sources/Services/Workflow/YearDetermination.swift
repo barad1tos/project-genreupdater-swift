@@ -501,7 +501,7 @@ extension UpdateCoordinator {
         guard lookup.didAttemptLookup else {
             return APIYearDecision(
                 determination: YearDeterminationResult(yearResult: lookup.result, source: .api),
-                sourceLabel: lookup.result.isDefinitive ? "Definitive" : "API",
+                sourceLabel: apiSourceLabel(for: lookup.result),
                 usesLegacyResult: true
             )
         }
@@ -523,7 +523,7 @@ extension UpdateCoordinator {
             yearScores: result.yearScores
         ))
         let resolvedSource = determination.source == .api
-            ? (result.isDefinitive ? "Definitive" : "API")
+            ? apiSourceLabel(for: result)
             : sourceLabel(for: determination)
         return APIYearDecision(
             determination: determination,
@@ -717,6 +717,10 @@ extension UpdateCoordinator {
         case .library: "Library"
         case .manual: "Manual"
         }
+    }
+
+    private func apiSourceLabel(for result: YearResult) -> String {
+        result.isDefinitive ? "Definitive" : "API"
     }
 
     private func yearChangeFromCached(
