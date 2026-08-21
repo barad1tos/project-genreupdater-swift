@@ -11,7 +11,7 @@ enum RateLimitError: Error {
 /// Tokens are consumed by `acquire()` and refilled one-per-interval automatically.
 /// Typical configurations:
 /// - MusicBrainz: `maxTokens: 1, refillInterval: .seconds(1)` (1 req/sec)
-/// - Discogs: `maxTokens: 60, refillInterval: .seconds(60)` (60 req/min)
+/// - Discogs: `maxTokens: 1, refillInterval: .milliseconds(1091)` (about 55 evenly paced req/min)
 public actor TokenBucketRateLimiter: RateLimiter {
     private enum WaitResult {
         case granted(Duration)

@@ -64,7 +64,7 @@ struct APICacheTab: View {
 
             Stepper(
                 value: configBinding(dependencies, \.yearRetrieval.rateLimits.discogsRequestsPerMinute),
-                in: 1 ... 120
+                in: APIRateLimits.discogsSettingsRange
             ) {
                 LabeledContent(
                     "Discogs requests per minute",
@@ -74,7 +74,7 @@ struct APICacheTab: View {
 
             Stepper(
                 value: configBinding(dependencies, \.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond),
-                in: 0.1 ... 5,
+                in: APIRateLimits.musicBrainzSettingsRange,
                 step: 0.1
             ) {
                 LabeledContent(
@@ -84,7 +84,34 @@ struct APICacheTab: View {
                 )
             }
 
-            Stepper(value: configBinding(dependencies, \.yearRetrieval.rateLimits.concurrentAPICalls), in: 1 ... 10) {
+            Stepper(
+                value: configBinding(dependencies, \.yearRetrieval.rateLimits.itunesRequestsPerSecond),
+                in: APIRateLimits.itunesSettingsRange,
+                step: 0.1
+            ) {
+                LabeledContent(
+                    "iTunes requests per second",
+                    value: dependencies.config.yearRetrieval.rateLimits.itunesRequestsPerSecond
+                        .formatted(.number.precision(.fractionLength(1)))
+                )
+            }
+
+            Stepper(
+                value: configBinding(dependencies, \.yearRetrieval.providerTimeoutSeconds),
+                in: YearRetrievalConfig.timeoutSettingsRange,
+                step: 1
+            ) {
+                LabeledContent(
+                    "Provider timeout",
+                    value: dependencies.config.yearRetrieval.providerTimeoutSeconds
+                        .formatted(.number.precision(.fractionLength(0))) + "s"
+                )
+            }
+
+            Stepper(
+                value: configBinding(dependencies, \.yearRetrieval.rateLimits.concurrentAPICalls),
+                in: APIRateLimits.concurrencySettingsRange
+            ) {
                 LabeledContent(
                     "Concurrent API calls",
                     value: "\(dependencies.config.yearRetrieval.rateLimits.concurrentAPICalls)"

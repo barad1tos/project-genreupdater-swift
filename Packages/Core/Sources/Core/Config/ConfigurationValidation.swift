@@ -349,18 +349,39 @@ extension AppConfiguration {
             minimum: 1,
             path: "yearRetrieval.rateLimits.discogsRequestsPerMinute"
         )
-        validation.requireTokenCapacity(
-            yearRetrieval.rateLimits.discogsRequestsPerMinute,
+        validation.requireRateIntervalCapacity(
+            requests: Double(yearRetrieval.rateLimits.discogsRequestsPerMinute),
+            windowSeconds: 60,
             path: "yearRetrieval.rateLimits.discogsRequestsPerMinute"
         )
-        validation.requireAtLeast(
+        validation.requireGreaterThan(
             yearRetrieval.rateLimits.musicbrainzRequestsPerSecond,
             minimum: 0,
             path: "yearRetrieval.rateLimits.musicbrainzRequestsPerSecond"
         )
-        validation.requireTokenCapacity(
-            yearRetrieval.rateLimits.musicbrainzRequestsPerSecond,
+        validation.requireRateIntervalCapacity(
+            requests: yearRetrieval.rateLimits.musicbrainzRequestsPerSecond,
+            windowSeconds: 1,
             path: "yearRetrieval.rateLimits.musicbrainzRequestsPerSecond"
+        )
+        validation.requireGreaterThan(
+            yearRetrieval.rateLimits.itunesRequestsPerSecond,
+            minimum: 0,
+            path: "yearRetrieval.rateLimits.itunesRequestsPerSecond"
+        )
+        validation.requireRateIntervalCapacity(
+            requests: yearRetrieval.rateLimits.itunesRequestsPerSecond,
+            windowSeconds: 1,
+            path: "yearRetrieval.rateLimits.itunesRequestsPerSecond"
+        )
+        validation.requireAtLeast(
+            yearRetrieval.providerTimeoutSeconds,
+            minimum: 1,
+            path: "yearRetrieval.providerTimeoutSeconds"
+        )
+        validation.requireMillisecondCapacity(
+            yearRetrieval.providerTimeoutSeconds,
+            path: "yearRetrieval.providerTimeoutSeconds"
         )
         validation.requireAtLeast(
             yearRetrieval.rateLimits.concurrentAPICalls,
@@ -486,18 +507,12 @@ private struct ValidationCollector {
         append(path: path, value: String(value), requirement: "must be greater than \(bound(minimum))")
     }
 
-    mutating func requireTokenCapacity(_ value: Int, path: String) {
-        guard Int(exactly: Double(value).rounded(.up)) == nil else { return }
-        append(path: path, value: String(value), requirement: "must fit the rate limiter token capacity")
-    }
-
-    mutating func requireTokenCapacity(_ value: Double, path: String) {
-        guard value.isFinite else {
-            append(path: path, value: String(value), requirement: "must be finite")
+    mutating func requireRateIntervalCapacity(requests: Double, windowSeconds: Double, path: String) {
+        guard requests.isFinite, requests > 0 else { return }
+        guard APIRateLimits.refillMilliseconds(requests: requests, perSeconds: windowSeconds) != nil else {
+            append(path: path, value: String(requests), requirement: "must fit the pacing interval capacity")
             return
         }
-        guard Int(exactly: value.rounded(.up)) == nil else { return }
-        append(path: path, value: String(value), requirement: "must fit the rate limiter token capacity")
     }
 
     mutating func requireMillisecondCapacity(_ value: Double, path: String) {

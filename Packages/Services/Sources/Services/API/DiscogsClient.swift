@@ -56,7 +56,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     ///   - token: Personal Access Token for Discogs API authentication.
     ///   - contactEmail: Contact email included in User-Agent header.
     ///   - session: URL session for network requests. Defaults to `.shared`.
-    ///   - rateLimiter: Rate limiter for throttling. Defaults to 60 req/min.
+    ///   - rateLimiter: Rate limiter for throttling. Defaults to 55 evenly paced requests per minute.
     ///   - baseURL: Base Discogs API URL. Defaults to the public Discogs API endpoint.
     ///   - rawRequestCache: Optional cache for raw API responses.
     ///   - reissueKeywords: Release text treated as reissue evidence.
@@ -82,10 +82,17 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         self.searchConfiguration = searchConfiguration
         self.session = session
         self.baseURL = baseURL
-        self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
-            maxTokens: 60,
-            refillInterval: .seconds(1)
-        )
+        self.rateLimiter = rateLimiter ?? Self.defaultLimiter()
+    }
+
+    private static func defaultLimiter() -> TokenBucketRateLimiter {
+        guard let refillMilliseconds = APIRateLimits.refillMilliseconds(
+            requests: Double(APIRateLimits.defaultDiscogsPerMinute),
+            perSeconds: 60
+        ) else {
+            preconditionFailure("Default Discogs rate limit must be valid")
+        }
+        return TokenBucketRateLimiter(maxTokens: 1, refillInterval: .milliseconds(refillMilliseconds))
     }
 
     /// Creates a Discogs client by loading the token from the Keychain.
@@ -93,7 +100,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     /// - Parameters:
     ///   - contactEmail: Contact email included in User-Agent header.
     ///   - session: URL session for network requests. Defaults to `.shared`.
-    ///   - rateLimiter: Rate limiter for throttling. Defaults to 60 req/min.
+    ///   - rateLimiter: Rate limiter for throttling. Defaults to 55 evenly paced requests per minute.
     ///   - baseURL: Base Discogs API URL. Defaults to the public Discogs API endpoint.
     /// - Returns: A configured `DiscogsClient`.
     /// - Throws: `KeychainError` if the Keychain read fails.

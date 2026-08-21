@@ -84,10 +84,17 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         self.editionMarkers = cleaningConfiguration.editionMarkers
         self.albumSuffixes = cleaningConfiguration.albumSuffixes
         self.rawRequestCache = rawRequestCache
-        self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
-            maxTokens: 1,
-            refillInterval: .seconds(1)
-        )
+        self.rateLimiter = rateLimiter ?? Self.defaultLimiter()
+    }
+
+    private static func defaultLimiter() -> TokenBucketRateLimiter {
+        guard let refillMilliseconds = APIRateLimits.refillMilliseconds(
+            requests: APIRateLimits.defaultMusicBrainzPerSecond,
+            perSeconds: 1
+        ) else {
+            preconditionFailure("Default MusicBrainz rate limit must be valid")
+        }
+        return TokenBucketRateLimiter(maxTokens: 1, refillInterval: .milliseconds(refillMilliseconds))
     }
 
     #if DEBUG

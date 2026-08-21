@@ -55,10 +55,16 @@ struct APIClientFactoryOverrides {
         _ cleaningConfiguration: CleaningConfig,
         _ rawRequestCache: RawAPIRequestCache?
     ) -> any ExternalAPIService
+    typealias CatalogFactory = @MainActor (
+        _ configuration: AppConfiguration,
+        _ rateLimiter: TokenBucketRateLimiter?,
+        _ rawRequestCache: RawAPIRequestCache?
+    ) -> any ExternalAPIService
 
     var keychainDiscogsClientFactory: KeychainDiscogsClientFactory
     var configuredDiscogsClientFactory: ConfiguredDiscogsClientFactory
     var musicBrainzFactory: MusicBrainzFactory
+    var catalogFactory: CatalogFactory
     var keychainErrorHandler: (any Error) -> Void
     var discogsCredentialIssueHandler: DiscogsIssueHandler
     var musicBrainz: (any ExternalAPIService)?
@@ -68,6 +74,7 @@ struct APIClientFactoryOverrides {
         keychainDiscogsClientFactory: @escaping KeychainDiscogsClientFactory = Self.makeKeychainDiscogsClient,
         configuredDiscogsClientFactory: @escaping ConfiguredDiscogsClientFactory = Self.makeConfiguredDiscogsClient,
         musicBrainzFactory: @escaping MusicBrainzFactory = Self.makeMusicBrainz,
+        catalogFactory: @escaping CatalogFactory = AppDependencies.makeCatalogClient,
         keychainErrorHandler: @escaping (any Error) -> Void = { error in
             apiClientLog.error(
                 "Failed to load Discogs token from Keychain: \(error.localizedDescription, privacy: .public)"
@@ -82,6 +89,7 @@ struct APIClientFactoryOverrides {
         self.keychainDiscogsClientFactory = keychainDiscogsClientFactory
         self.configuredDiscogsClientFactory = configuredDiscogsClientFactory
         self.musicBrainzFactory = musicBrainzFactory
+        self.catalogFactory = catalogFactory
         self.keychainErrorHandler = keychainErrorHandler
         self.discogsCredentialIssueHandler = discogsCredentialIssueHandler
         self.musicBrainz = musicBrainz
@@ -201,7 +209,7 @@ extension AppDependencies {
         let discogsContext = makeDiscogsClientContext(
             apiAuth: apiAuth,
             contactEmail: contactEmail,
-            rateLimiter: makeDiscogsRateLimiter(configuration: configuration),
+            rateLimiter: discogsLimiter(configuration: configuration),
             factoryOverrides: factoryOverrides
         )
         let serviceContext = makeAPIServiceContext(
@@ -287,13 +295,14 @@ extension AppDependencies {
         let musicBrainz = factoryOverrides.musicBrainz ?? factoryOverrides.musicBrainzFactory(
             apiAuth.musicBrainzAppName,
             contactEmail,
-            makeMusicBrainzRateLimiter(configuration: configuration),
+            musicBrainzLimiter(configuration: configuration),
             configuration.cleaning,
             rawRequestCache
         )
-        let appleMusic = factoryOverrides.appleMusic ?? makeCatalogClient(
-            configuration: configuration,
-            rawRequestCache: rawRequestCache
+        let appleMusic = factoryOverrides.appleMusic ?? factoryOverrides.catalogFactory(
+            configuration,
+            itunesLimiter(configuration: configuration),
+            rawRequestCache
         )
         return APIServiceContext(
             services: APIOrchestratorServices(
@@ -322,7 +331,7 @@ extension AppDependencies {
         let context = makeDiscogsClientContext(
             apiAuth: apiAuth,
             contactEmail: contactEmail,
-            rateLimiter: makeDiscogsRateLimiter(configuration: configuration),
+            rateLimiter: discogsLimiter(configuration: configuration),
             factoryOverrides: factoryOverrides
         )
         return context.disabledSources.contains(.discogs) ? .disabled : .enabled(context.client)
@@ -431,6 +440,7 @@ extension AppDependencies {
 
     static func makeCatalogClient(
         configuration: AppConfiguration,
+        rateLimiter: TokenBucketRateLimiter?,
         rawRequestCache: RawAPIRequestCache? = nil
     ) -> CatalogSearchClient {
         let itunesSearch = configuration.yearRetrieval.itunesSearch
@@ -439,18 +449,26 @@ extension AppDependencies {
             entity: itunesSearch.entity,
             limit: itunesSearch.clampedLimit,
             lookupFallbackEnabled: itunesSearch.lookupFallbackEnabled,
-            rawRequestCache: rawRequestCache
+            rawRequestCache: rawRequestCache,
+            rateLimiter: rateLimiter
         )
     }
 
-    private static func makeMusicBrainzRateLimiter(configuration: AppConfiguration) -> TokenBucketRateLimiter {
+    private static func itunesLimiter(configuration: AppConfiguration) -> TokenBucketRateLimiter {
+        makeRateLimiter(
+            requests: configuration.yearRetrieval.rateLimits.itunesRequestsPerSecond,
+            perSeconds: 1
+        )
+    }
+
+    private static func musicBrainzLimiter(configuration: AppConfiguration) -> TokenBucketRateLimiter {
         makeRateLimiter(
             requests: configuration.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond,
             perSeconds: 1
         )
     }
 
-    private static func makeDiscogsRateLimiter(configuration: AppConfiguration) -> TokenBucketRateLimiter {
+    private static func discogsLimiter(configuration: AppConfiguration) -> TokenBucketRateLimiter {
         makeRateLimiter(
             requests: Double(configuration.yearRetrieval.rateLimits.discogsRequestsPerMinute),
             perSeconds: 60
@@ -461,12 +479,16 @@ extension AppDependencies {
         requests: Double,
         perSeconds windowSizeSeconds: Double
     ) -> TokenBucketRateLimiter {
-        let sanitizedRequests = max(1, requests)
-        let refillMilliseconds = max(1, Int((windowSizeSeconds / sanitizedRequests) * 1000))
+        guard let refillMilliseconds = APIRateLimits.refillMilliseconds(
+            requests: requests,
+            perSeconds: windowSizeSeconds
+        ) else {
+            preconditionFailure("API rate limits must be validated before composing clients")
+        }
 
         return TokenBucketRateLimiter(
-            maxTokens: Int(sanitizedRequests.rounded(.up)),
-            refillInterval: .milliseconds(refillMilliseconds)
+            maxTokens: 1,
+            refillInterval: .milliseconds(max(1, refillMilliseconds))
         )
     }
 }

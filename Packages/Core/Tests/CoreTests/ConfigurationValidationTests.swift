@@ -204,7 +204,9 @@ struct ConfigurationValidationTests {
 
     private func applyYearBoundaries(to configuration: inout AppConfiguration) {
         configuration.yearRetrieval.rateLimits.discogsRequestsPerMinute = 1
-        configuration.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 0
+        configuration.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 0.1
+        configuration.yearRetrieval.rateLimits.itunesRequestsPerSecond = 0.1
+        configuration.yearRetrieval.providerTimeoutSeconds = 1
         configuration.yearRetrieval.rateLimits.concurrentAPICalls = 1
         configuration.yearRetrieval.logic.minValidYear = 3000
         configuration.yearRetrieval.logic.absurdYearThreshold = 1000
@@ -569,14 +571,11 @@ struct ConfigurationValidationTests {
             minimumOne("yearRetrieval.rateLimits.discogsRequestsPerMinute", "0") {
                 $0.yearRetrieval.rateLimits.discogsRequestsPerMinute = 0
             },
-            tokenCapacity("yearRetrieval.rateLimits.discogsRequestsPerMinute", String(Int.max)) {
-                $0.yearRetrieval.rateLimits.discogsRequestsPerMinute = .max
+            greaterThanZero("yearRetrieval.rateLimits.musicbrainzRequestsPerSecond", "0.0") {
+                $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 0
             },
-            minimumZero("yearRetrieval.rateLimits.musicbrainzRequestsPerSecond", "-1.0") {
-                $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = -1
-            },
-            tokenCapacity("yearRetrieval.rateLimits.musicbrainzRequestsPerSecond", "1e+308") {
-                $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 1e308
+            pacingCapacity("yearRetrieval.rateLimits.musicbrainzRequestsPerSecond", "1e-308") {
+                $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 1e-308
             },
             minimumOne("yearRetrieval.rateLimits.concurrentAPICalls", "0") {
                 $0.yearRetrieval.rateLimits.concurrentAPICalls = 0
@@ -742,12 +741,12 @@ struct ConfigurationValidationTests {
         probe(path, receivedValue, "must be between 1 and 100", mutate: mutate)
     }
 
-    private func tokenCapacity(
+    private func pacingCapacity(
         _ path: String,
         _ receivedValue: String,
         mutate: @escaping @Sendable (inout AppConfiguration) -> Void
     ) -> InvalidNumericProbe {
-        probe(path, receivedValue, "must fit the rate limiter token capacity", mutate: mutate)
+        probe(path, receivedValue, "must fit the pacing interval capacity", mutate: mutate)
     }
 
     private func millisecondCapacity(

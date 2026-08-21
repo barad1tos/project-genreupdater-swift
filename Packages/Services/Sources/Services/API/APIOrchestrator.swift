@@ -105,7 +105,7 @@ public struct APIOrchestratorConfiguration: Sendable {
         cache = nil
         pendingVerificationService = nil
         maxVerificationAttempts = FallbackConfig().maxVerificationAttempts
-        timeout = .seconds(15)
+        timeout = .seconds(YearRetrievalConfig.defaultProviderTimeoutSeconds)
         negativeResultTTL = CachingConfig().negativeResultTTL
         candidateResultTTL = nil
         dateProvider = { Date() }
@@ -130,6 +130,7 @@ public struct APIOrchestratorConfiguration: Sendable {
         maxVerificationAttempts = configuration.yearRetrieval.fallback.maxVerificationAttempts
         negativeResultTTL = configuration.caching.negativeResultTTL
         candidateResultTTL = GRDBCacheService.resolvedAPIResultTTL(configuration: configuration)
+        timeout = .seconds(configuration.yearRetrieval.providerTimeoutSeconds)
         maxConcurrentSourceCalls = configuration.yearRetrieval.rateLimits.concurrentAPICalls
         maxAPIRetries = configuration.runtime.maxRetries
         apiRetryDelaySeconds = configuration.runtime.retryDelaySeconds
@@ -241,7 +242,7 @@ public actor APIOrchestrator {
         appleMusic: any ExternalAPIService,
         reachability: NetworkReachabilityMonitor? = nil,
         cache: (any CacheService)? = nil,
-        timeout: Duration = .seconds(15),
+        timeout: Duration = .seconds(YearRetrievalConfig.defaultProviderTimeoutSeconds),
         disabledSources: Set<APISource> = []
     ) {
         var configuration = APIOrchestratorConfiguration()

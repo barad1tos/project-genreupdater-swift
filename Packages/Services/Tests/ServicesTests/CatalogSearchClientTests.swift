@@ -304,6 +304,89 @@ struct CatalogSearchClientTests {
         #expect(result.yearScores == [currentYear: 50])
     }
 
+    @Test("iTunes network requests wait for admission")
+    func requestsWaitForAdmission() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ITunesMockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let requestStarted = EventCounter()
+        defer {
+            ITunesMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+        ITunesMockURLProtocol.requestHandler = { request in
+            requestStarted.record()
+            let url = try #require(request.url)
+            let response = try #require(HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, Self.matchingITunesPayload)
+        }
+        let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(60))
+        _ = await limiter.acquire()
+        let client = CatalogSearchClient(
+            session: session,
+            lookupFallbackEnabled: false,
+            rateLimiter: limiter
+        )
+
+        let lookup = Task {
+            try await client.getReleaseCandidates(
+                artist: "Test Artist",
+                album: "Test Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+        let startedBeforeAdmission = await requestStarted.wait(for: 1, timeout: .milliseconds(50))
+        #expect(!startedBeforeAdmission)
+
+        await limiter.release()
+        let candidates = try await taskValue(lookup, timeout: .seconds(1))
+
+        #expect(candidates.map(\.year) == [1998])
+        let startedAfterAdmission = await requestStarted.wait(for: 1)
+        #expect(startedAfterAdmission)
+    }
+
+    @Test("iTunes cache hits do not consume request admission")
+    func cacheHitsBypassAdmission() async throws {
+        let cache = MockCacheService()
+        let rawCache = RawAPIRequestCache(cache: cache, ttl: 3600)
+        let url = try #require(CatalogSearchClient.buildITunesSearchURL(
+            term: "Test Artist Test Album",
+            countryCode: "US",
+            entity: "album",
+            limit: 200
+        ))
+        _ = try await rawCache.data(api: "itunes", url: url) {
+            Self.matchingITunesPayload
+        }
+        let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(60))
+        _ = await limiter.acquire()
+        let client = CatalogSearchClient(
+            lookupFallbackEnabled: false,
+            rawRequestCache: rawCache,
+            rateLimiter: limiter
+        )
+
+        let lookup = Task {
+            try await client.getReleaseCandidates(
+                artist: "Test Artist",
+                album: "Test Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+        let candidates = try await taskValue(lookup, timeout: .milliseconds(200))
+
+        #expect(candidates.map(\.year) == [1998])
+        #expect(await limiter.getStats().totalRequests == 1)
+    }
+
     @Test("getReleaseCandidates throws for unsuccessful iTunes HTTP status")
     func releaseCandidatesThrowForUnsuccessfulITunesStatus() async throws {
         let configuration = URLSessionConfiguration.ephemeral
@@ -416,6 +499,20 @@ struct CatalogSearchClientTests {
     private func requireExternalAPIService(_ service: any ExternalAPIService) {
         _ = service
     }
+
+    private static let matchingITunesPayload = Data(
+        """
+        {
+          "resultCount": 1,
+          "results": [{
+            "artistName": "Test Artist",
+            "collectionName": "Test Album",
+            "releaseDate": "1998-01-01T08:00:00Z",
+            "country": "US"
+          }]
+        }
+        """.utf8
+    )
 }
 
 private func utcYear(at date: Date) throws -> Int {

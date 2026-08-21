@@ -19,8 +19,8 @@ extension CatalogSearchError: LocalizedError {
 
 /// Apple Music catalog search client for album year and genre data.
 ///
-/// Uses MusicKit's `MusicCatalogSearchRequest` for native catalog access.
-/// No rate limiting needed — Apple manages request throttling internally.
+/// Uses MusicKit's `MusicCatalogSearchRequest` for native catalog access and
+/// paced admission for HTTP requests to the iTunes Search API.
 /// Requires MusicKit entitlement in the app target. Authorization and request
 /// failures are reported to callers so they cannot be cached as catalog misses.
 ///
@@ -32,6 +32,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
 
     private let session: URLSession
     private let rawRequestCache: RawAPIRequestCache?
+    private let rateLimiter: TokenBucketRateLimiter
     private let countryCode: String
     private let entity: String
     private let limit: Int
@@ -49,7 +50,8 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         limit: Int = 200,
         iTunesConfiguration: ITunesSearchConfiguration = ITunesSearchConfiguration(),
         lookupFallbackEnabled: Bool = true,
-        rawRequestCache: RawAPIRequestCache? = nil
+        rawRequestCache: RawAPIRequestCache? = nil,
+        rateLimiter: TokenBucketRateLimiter? = nil
     ) {
         self.init(
             session: session,
@@ -59,6 +61,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
             iTunesConfiguration: iTunesConfiguration,
             lookupFallbackEnabled: lookupFallbackEnabled,
             rawRequestCache: rawRequestCache,
+            rateLimiter: rateLimiter,
             dateProvider: { Date() },
             authorizeMusic: { await MusicAuthorization.request() },
             findReleaseDate: Self.findReleaseDate
@@ -73,6 +76,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         iTunesConfiguration: ITunesSearchConfiguration = ITunesSearchConfiguration(),
         lookupFallbackEnabled: Bool = true,
         rawRequestCache: RawAPIRequestCache? = nil,
+        rateLimiter: TokenBucketRateLimiter? = nil,
         dateProvider: @escaping @Sendable () -> Date,
         authorizeMusic: @escaping @Sendable () async -> MusicAuthorization.Status = {
             await MusicAuthorization.request()
@@ -81,6 +85,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     ) {
         self.session = session
         self.rawRequestCache = rawRequestCache
+        self.rateLimiter = rateLimiter ?? Self.defaultLimiter()
         self.countryCode = countryCode
         self.entity = entity
         self.limit = min(max(limit, 1), 200)
@@ -234,6 +239,16 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         return try await request.response().albums.first?.releaseDate
     }
 
+    private static func defaultLimiter() -> TokenBucketRateLimiter {
+        guard let refillMilliseconds = APIRateLimits.refillMilliseconds(
+            requests: APIRateLimits.defaultITunesPerSecond,
+            perSeconds: 1
+        ) else {
+            preconditionFailure("Default iTunes rate limit must be valid")
+        }
+        return TokenBucketRateLimiter(maxTokens: 1, refillInterval: .milliseconds(refillMilliseconds))
+    }
+
     static func buildArtistAlbumsSearchURL(
         artist: String,
         countryCode: String,
@@ -290,6 +305,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     }
 
     private func performITunesFetch(from url: URL) async throws -> Data {
+        _ = try await rateLimiter.acquireCancellable()
         let (data, response) = try await session.data(from: url)
         guard let httpResponse = response as? HTTPURLResponse else {
             log.warning("iTunes request returned a non-HTTP response")
