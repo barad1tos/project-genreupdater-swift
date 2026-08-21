@@ -62,6 +62,43 @@ struct FreshYearTests {
         #expect(await fixture.pendingVerification.markedAlbums.isEmpty)
     }
 
+    @Test("Confirmed API miss marks an album for verification")
+    func confirmedMissMarksPending() async throws {
+        for existingYear in [nil, 1999] as [Int?] {
+            let fixture = makeMissingYearFixture(
+                year: existingYear,
+                apiService: MockAPIService()
+            )
+
+            let changes = try await fixture.coordinator.updateTrack(
+                fixture.track,
+                albumTracks: fixture.albumTracks,
+                options: UpdateOptions(updateGenre: false, updateYear: true, forceYearLookup: true),
+                dryRun: true
+            )
+
+            #expect(changes.allSatisfy { $0.changeType != .yearUpdate })
+            let markedAlbums = await fixture.pendingVerification.markedAlbums
+            #expect(markedAlbums.count == 1)
+            #expect(markedAlbums.first?.reason == "no_year_found")
+        }
+    }
+
+    @Test("Failed API lookup does not mark a missing-year album for verification")
+    func failedLookupSkipsMark() async throws {
+        let fixture = makeMissingYearFixture(apiService: MockAPIService(shouldThrow: true))
+
+        let changes = try await fixture.coordinator.updateTrack(
+            fixture.track,
+            albumTracks: fixture.albumTracks,
+            options: UpdateOptions(updateGenre: false, updateYear: true, forceYearLookup: true),
+            dryRun: true
+        )
+
+        #expect(changes.allSatisfy { $0.changeType != .yearUpdate })
+        #expect(await fixture.pendingVerification.markedAlbums.isEmpty)
+    }
+
     private func makeFixture(
         currentYear: Int,
         staleAPIYear: Int,
@@ -87,6 +124,36 @@ struct FreshYearTests {
         return FreshYearFixture(
             track: track,
             albumTracks: albumTracks,
+            pendingVerification: pendingVerification,
+            coordinator: coordinator
+        )
+    }
+
+    private func makeMissingYearFixture(
+        year: Int? = nil,
+        apiService: any ExternalAPIService
+    ) -> FreshYearFixture {
+        let track = Track(
+            id: "missing-year-1",
+            name: "Missing Year",
+            artist: "Artist",
+            album: "Album",
+            year: year
+        )
+        let pendingVerification = PendingVerificationProbe(entry: nil, isVerificationNeeded: true)
+        let coordinator = makeCoordinator(
+            api: makeAPIOrchestrator(
+                musicBrainz: apiService,
+                discogs: apiService,
+                appleMusic: apiService
+            ),
+            bridge: MockAppleScriptClient(),
+            cache: MockCacheService(),
+            pendingVerificationService: pendingVerification
+        )
+        return FreshYearFixture(
+            track: track,
+            albumTracks: [track],
             pendingVerification: pendingVerification,
             coordinator: coordinator
         )

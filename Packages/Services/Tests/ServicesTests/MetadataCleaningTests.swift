@@ -253,6 +253,58 @@ struct MetadataCleaningTests {
         #expect(queriedAlbums.allSatisfy { $0 == "Album" })
     }
 
+    @Test("Mixed metadata passes share one decision under the raw album identity")
+    func sharesRawIdentity() async throws {
+        let lookupRecorder = AlbumYearLookupRecorder()
+        let apiService = RecordingAlbumYearAPIService(
+            lookupRecorder: lookupRecorder,
+            yearResult: YearResult(
+                year: 1968,
+                isDefinitive: true,
+                confidence: 100,
+                yearScores: [1968: 100]
+            )
+        )
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: UpdateRuntimeConfiguration.Policies(isYearLookupEnabled: true)
+        )
+        let coordinator = await makeCoordinator(
+            runtimeConfiguration: runtimeConfiguration,
+            apiService: apiService,
+            disabledSources: [.discogs, .itunes]
+        )
+        let tracks = [
+            makeTrack(id: "standard", name: "First", album: "Album Remastered"),
+            makeTrack(id: "year-only", name: "Second", album: "Album Remastered"),
+        ]
+        let options = UpdateOptions(
+            updateGenre: false,
+            updateYear: true,
+            forceYearLookup: true,
+            cleanAlbumNames: true,
+            minConfidence: 0
+        )
+        let runScope = YearRunScope()
+
+        _ = try await coordinator.updateTrack(
+            tracks[0],
+            albumTracks: tracks,
+            options: options,
+            dryRun: true,
+            yearRunScope: runScope
+        )
+        _ = try await coordinator.updateTrack(
+            tracks[1],
+            albumTracks: tracks,
+            options: options,
+            pass: .yearOnly,
+            dryRun: true,
+            yearRunScope: runScope
+        )
+
+        #expect(await lookupRecorder.queriedAlbums() == ["Album", "Album"])
+    }
+
     @Test("Soundtrack lookup keeps raw markers after cleaning")
     func soundtrackLookupKeepsRawMarkers() async throws {
         let lookupRecorder = AlbumYearLookupRecorder()

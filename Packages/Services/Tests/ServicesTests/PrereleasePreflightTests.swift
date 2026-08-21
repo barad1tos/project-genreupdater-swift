@@ -476,10 +476,16 @@ struct PrereleasePreflightTests {
     }
 
     private func makeAPI(probe: APIRequestProbe) -> APIOrchestrator {
-        makeAPIOrchestrator(
-            musicBrainz: UpdateAPIDouble(probe: probe),
-            discogs: UpdateAPIDouble(probe: probe),
-            appleMusic: UpdateAPIDouble(probe: probe)
+        let result = YearResult(
+            year: 2000,
+            isDefinitive: true,
+            confidence: 100,
+            yearScores: [2000: 100]
+        )
+        return makeAPIOrchestrator(
+            musicBrainz: UpdateAPIDouble(probe: probe, yearResult: result),
+            discogs: UpdateAPIDouble(probe: probe, yearResult: result),
+            appleMusic: UpdateAPIDouble(probe: probe, yearResult: result)
         )
     }
 

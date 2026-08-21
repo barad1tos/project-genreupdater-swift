@@ -150,9 +150,20 @@ struct APISearchQuery {
     let album: String
 }
 
-struct PendingAlbumYearLookup {
+struct AlbumYearLookup {
     let result: YearResult
+    let providerResult: YearResult
     let didAttemptLookup: Bool
+
+    init(
+        result: YearResult,
+        providerResult: YearResult? = nil,
+        didAttemptLookup: Bool
+    ) {
+        self.result = result
+        self.providerResult = providerResult ?? result
+        self.didAttemptLookup = didAttemptLookup
+    }
 }
 
 func makeAPISearchQuery(artist: String, album: String) -> APISearchQuery {
@@ -295,12 +306,12 @@ public actor APIOrchestrator {
         return lookup.result
     }
 
-    func getAlbumYearForPendingVerification(
+    func getAlbumYearLookup(
         artist: String,
         album: String,
         currentLibraryYear: Int?,
         earliestTrackAddedYear: Int?
-    ) async -> PendingAlbumYearLookup {
+    ) async -> AlbumYearLookup {
         await getAlbumYearInternal(
             artist: artist,
             album: album,
@@ -316,28 +327,21 @@ public actor APIOrchestrator {
         currentLibraryYear: Int?,
         earliestTrackAddedYear: Int?,
         pendingRemovalAliases: [(artist: String, album: String)]?
-    ) async -> PendingAlbumYearLookup {
+    ) async -> AlbumYearLookup {
         if let reachability, await !reachability.isConnected {
             log.info("Skipping API calls: network offline")
-            return PendingAlbumYearLookup(result: YearResult(), didAttemptLookup: false)
+            return AlbumYearLookup(result: YearResult(), didAttemptLookup: false)
         }
 
         let signpostState = AppSignpost.apiCall.beginInterval("orchestrateAlbumYear")
         defer { AppSignpost.apiCall.endInterval("orchestrateAlbumYear", signpostState) }
 
-        let serviceBySource: [APISource: any ExternalAPIService] = [
-            .musicBrainz: musicBrainz, .discogs: discogs, .itunes: appleMusic,
-        ]
         let searchQuery = makeAPISearchQuery(artist: artist, album: album)
         let orderedSources = sourcePriorityConfiguration.orderedSources(
-            artist: searchQuery.artist,
-            album: searchQuery.album
+            artist: searchQuery.artist, album: searchQuery.album
         )
         let activeSources = orderedSources.filter { !disabledSources.contains($0) }
-        let sources = activeSources.compactMap { source -> (source: APISource, service: any ExternalAPIService)? in
-            guard let service = serviceBySource[source] else { return nil }
-            return (source, service)
-        }
+        let sources = activeSourceServices(activeSources)
         let query = SourceQuery(
             artist: searchQuery.artist,
             album: searchQuery.album,
@@ -348,7 +352,7 @@ public actor APIOrchestrator {
 
         let results = await fetchSourceResults(sources: sources, query: query)
         guard !Task.isCancelled else {
-            return PendingAlbumYearLookup(result: YearResult(), didAttemptLookup: false)
+            return AlbumYearLookup(result: YearResult(), didAttemptLookup: false)
         }
         let decisionDate = dateProvider()
         let apiResult = aggregateResults(results, orderedSources: activeSources, at: decisionDate)
@@ -360,7 +364,11 @@ public actor APIOrchestrator {
                 earliestTrackAddedYear: earliestTrackAddedYear,
                 at: decisionDate
             )
-            return PendingAlbumYearLookup(result: result, didAttemptLookup: false)
+            return AlbumYearLookup(
+                result: result,
+                providerResult: apiResult,
+                didAttemptLookup: false
+            )
         }
         if let pendingRemovalAliases {
             await PendingVerificationSync.synchronize(
@@ -378,7 +386,22 @@ public actor APIOrchestrator {
             earliestTrackAddedYear: earliestTrackAddedYear,
             at: decisionDate
         )
-        return PendingAlbumYearLookup(result: result, didAttemptLookup: true)
+        return AlbumYearLookup(
+            result: result,
+            providerResult: apiResult,
+            didAttemptLookup: true
+        )
+    }
+
+    private func activeSourceServices(
+        _ sources: [APISource]
+    ) -> [(source: APISource, service: any ExternalAPIService)] {
+        let serviceBySource: [APISource: any ExternalAPIService] = [
+            .musicBrainz: musicBrainz, .discogs: discogs, .itunes: appleMusic,
+        ]
+        return sources.compactMap { source in
+            serviceBySource[source].map { (source, $0) }
+        }
     }
 
     // MARK: - Private

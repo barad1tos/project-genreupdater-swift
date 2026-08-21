@@ -108,7 +108,7 @@ extension UpdateCoordinator {
             return nil
         }
         let context = decisionContext(for: input)
-        if let runDecision = await input.runScope?.decision(for: input.track) {
+        if let runDecision = await input.runScope?.decision(for: input.safetyTrack) {
             return await yearChange(
                 from:
                 YearEffectInput(
@@ -135,7 +135,7 @@ extension UpdateCoordinator {
             return change
         }
         let apiDetermination = try await apiYearDecision(apiRequest(for: input, context: context))
-        let resolved = await resolveRunDecision(apiDetermination, for: input.track, in: input.runScope)
+        let resolved = await resolveRunDecision(apiDetermination, for: input.safetyTrack, in: input.runScope)
         return await yearChange(
             from:
             YearEffectInput(
@@ -491,21 +491,21 @@ extension UpdateCoordinator {
         identity: AlbumIdentity,
         earliestTrackAddedYear: Int?
     ) async throws -> APIYearDecision {
-        let result = await apiOrchestrator.getAlbumYear(
+        let lookup = await apiOrchestrator.getAlbumYearLookup(
             artist: identity.artist,
             album: identity.album,
             currentLibraryYear: request.referenceYear,
-            earliestTrackAddedYear: earliestTrackAddedYear,
-            pendingRemovalAliases: nil
+            earliestTrackAddedYear: earliestTrackAddedYear
         )
         try Task.checkCancellation()
-        guard result.year != nil else {
+        guard lookup.didAttemptLookup else {
             return APIYearDecision(
-                determination: YearDeterminationResult(yearResult: result, source: .api),
-                sourceLabel: result.isDefinitive ? "Definitive" : "API",
+                determination: YearDeterminationResult(yearResult: lookup.result, source: .api),
+                sourceLabel: lookup.result.isDefinitive ? "Definitive" : "API",
                 usesLegacyResult: true
             )
         }
+        let result = lookup.providerResult
         let normalizedArtist = normalizeForMatching(identity.artist)
         let evidence = try await artistYearEvidence(normalizedArtist: normalizedArtist, track: request.track)
         let determination = yearDeterminator.applyFallback(FallbackContext(
