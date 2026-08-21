@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 @testable import Core
 @testable import Services
 
@@ -115,7 +116,9 @@ actor PendingRecorder: PendingVerificationService {
         false
     }
 
-    func updateVerificationTimestamp() async throws {}
+    func updateVerificationTimestamp() async throws {
+        Issue.record("PendingRecorder must not update auto-verification state")
+    }
 
     func markCount() -> Int {
         marks.count
