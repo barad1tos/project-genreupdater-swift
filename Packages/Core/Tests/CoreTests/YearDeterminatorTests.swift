@@ -187,6 +187,165 @@ struct YearDeterminatorTests {
         #expect(result.candidateCount == 2)
     }
 
+    @Test("A future-only candidate produces no year")
+    func futureCandidateFiltered() {
+        let currentYear = currentUTCYear()
+        let track = makeTrack(artist: "Test Artist", album: "Test Album")
+
+        let result = determinator.determineYear(
+            candidates: [makeCandidate(year: currentYear + 1)],
+            track: track
+        )
+
+        #expect(result.yearResult.year == nil)
+        #expect(result.yearResult.confidence == 0)
+        #expect(result.yearResult.yearScores.isEmpty)
+        #expect(result.source == .fallback)
+        #expect(result.candidateCount == 1)
+    }
+
+    @Test("An existing year survives a future-only candidate set")
+    func existingYearPreserved() {
+        let currentYear = currentUTCYear()
+        let existingYear = currentYear - 6
+        let track = makeTrack(
+            year: existingYear,
+            artist: "Test Artist",
+            album: "Test Album"
+        )
+
+        let result = determinator.determineYear(
+            candidates: [makeCandidate(year: currentYear + 1)],
+            track: track
+        )
+
+        #expect(result.yearResult.year == existingYear)
+        #expect(result.yearResult.confidence == 0)
+        #expect(result.yearResult.yearScores.isEmpty)
+        #expect(result.source == .library)
+        #expect(result.candidateCount == 1)
+    }
+
+    @Test("An existing year below the configured minimum is ignored")
+    func invalidExistingYearIgnored() {
+        var logic = YearLogicConfig()
+        logic.minValidYear = 1950
+        let configured = YearDeterminator(
+            scorer: YearScorer(yearLogic: logic),
+            validator: YearValidator(config: logic)
+        )
+        let track = makeTrack(year: 1949)
+
+        let result = configured.determineYear(
+            candidates: [],
+            track: track
+        )
+
+        #expect(result.yearResult.year == nil)
+        #expect(result.yearResult.confidence == 0)
+        #expect(result.source == .fallback)
+    }
+
+    @Test("An invalid existing year cannot influence a valid API candidate")
+    func invalidExistingYearDoesNotAffectCandidate() {
+        var logic = YearLogicConfig()
+        logic.minValidYear = 1950
+        let configured = YearDeterminator(
+            scorer: YearScorer(yearLogic: logic),
+            validator: YearValidator(config: logic)
+        )
+        let candidate = makeCandidate(year: 2000, source: .discogs)
+
+        let baseline = configured.determineYear(
+            candidates: [candidate],
+            track: makeTrack()
+        )
+        let result = configured.determineYear(
+            candidates: [candidate],
+            track: makeTrack(year: 1949),
+            currentYear: 1949
+        )
+
+        #expect(result.yearResult == baseline.yearResult)
+        #expect(result.source == baseline.source)
+        #expect(result.breakdown == baseline.breakdown)
+        #expect(result.fallbackDecision == baseline.fallbackDecision)
+        #expect(result.candidateCount == baseline.candidateCount)
+    }
+
+    @Test("An existing future year is ignored")
+    func futureExistingYearIgnored() {
+        let track = makeTrack(year: currentUTCYear() + 1)
+
+        let result = determinator.determineYear(
+            candidates: [],
+            track: track
+        )
+
+        #expect(result.yearResult.year == nil)
+        #expect(result.yearResult.confidence == 0)
+        #expect(result.source == .fallback)
+    }
+
+    @Test("A valid past candidate survives a stronger future candidate")
+    func pastCandidateSelected() {
+        let currentYear = currentUTCYear()
+        let pastYear = currentYear - 6
+        let track = makeTrack(artist: "Test Artist", album: "Test Album")
+        let candidates = [
+            makeCandidate(year: currentYear + 1),
+            makeCandidate(
+                year: pastYear,
+                releaseType: .single,
+                status: .promotional,
+                country: nil,
+                mbReleaseGroupID: nil
+            ),
+        ]
+
+        let result = determinator.determineYear(
+            candidates: candidates,
+            track: track
+        )
+
+        #expect(result.yearResult.year == pastYear)
+        #expect(result.yearResult.confidence > 0)
+        #expect(result.yearResult.yearScores[currentYear + 1] == nil)
+        #expect(result.yearResult.yearScores[pastYear] != nil)
+        #expect(result.candidateCount == 2)
+    }
+
+    @Test("Candidate filtering uses the configured minimum year")
+    func configuredMinimumApplied() {
+        var logic = YearLogicConfig()
+        logic.minValidYear = 1950
+        let configured = YearDeterminator(
+            scorer: YearScorer(yearLogic: logic),
+            validator: YearValidator(config: logic)
+        )
+        let track = makeTrack(artist: "Test Artist", album: "Test Album")
+        let candidates = [
+            makeCandidate(year: 1949),
+            makeCandidate(
+                year: 1950,
+                releaseType: .single,
+                status: .promotional,
+                country: nil,
+                mbReleaseGroupID: nil
+            ),
+        ]
+
+        let result = configured.determineYear(
+            candidates: candidates,
+            track: track
+        )
+
+        #expect(result.yearResult.year == 1950)
+        #expect(result.yearResult.yearScores[1949] == nil)
+        #expect(result.yearResult.yearScores[1950] != nil)
+        #expect(result.candidateCount == 2)
+    }
+
     @Test("Fallback escalation reflected in result")
     func fallbackEscalation() {
         // Low score → fallback escalates

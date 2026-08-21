@@ -11,6 +11,9 @@ private struct YearDecisionContext {
     let releaseYearConflict: ReleaseYearConflict?
     let hasAmbiguousReleaseYearSignal: Bool
     let missingYearThreshold: Double
+    let cacheTrustThreshold: Int
+    let candidateYearValidator: YearValidator
+    let decisionDate: Date
 }
 
 private enum YearShortcutDecision {
@@ -92,7 +95,10 @@ extension UpdateCoordinator {
         let context = YearDecisionContext(
             releaseYearConflict: releaseYearConflict,
             hasAmbiguousReleaseYearSignal: hasAmbiguousReleaseYearSignal,
-            missingYearThreshold: missingYearThreshold
+            missingYearThreshold: missingYearThreshold,
+            cacheTrustThreshold: runtimeConfiguration.cacheTrustThreshold,
+            candidateYearValidator: yearDeterminator.validator,
+            decisionDate: Date()
         )
 
         switch await yearShortcutDecision(
@@ -216,7 +222,7 @@ extension UpdateCoordinator {
             }
         }
 
-        let cachedAlbumYear = await cachedAlbumYear(for: track)
+        let cachedAlbumYear = await cachedAlbumYear(for: track, context: context)
         if let decision = cachedDecision(
             track: track,
             albumTracks: albumTracks,
@@ -241,7 +247,7 @@ extension UpdateCoordinator {
                track: track,
                albumTracks: albumTracks,
                cachedEntry: cachedAlbumYear,
-               missingYearThreshold: context.missingYearThreshold
+               context: context
            ) {
             return decision
         }
@@ -249,13 +255,13 @@ extension UpdateCoordinator {
         return .continueToAPI
     }
 
-    private func cachedAlbumYear(for track: Track) async -> AlbumCacheEntry? {
+    private func cachedAlbumYear(for track: Track, context: YearDecisionContext) async -> AlbumCacheEntry? {
         var firstWeakEntry: AlbumCacheEntry?
         for identity in AlbumIdentity.lookupCandidates(for: track) {
             guard let entry = await cache.getAlbumYear(artist: identity.artist, album: identity.album) else {
                 continue
             }
-            if isTrustedCacheEntry(entry) {
+            if isTrustedCacheEntry(entry, context: context) {
                 return entry
             }
             firstWeakEntry = firstWeakEntry ?? entry
@@ -269,13 +275,14 @@ extension UpdateCoordinator {
         entry: AlbumCacheEntry?,
         context: YearDecisionContext
     ) -> YearShortcutDecision? {
-        let isTrusted = isTrustedCacheEntry(entry)
+        let isTrusted = isTrustedCacheEntry(entry, context: context)
         if context.releaseYearConflict == nil,
            !context.hasAmbiguousReleaseYearSignal || isTrusted,
            shouldSkipYearLookupFromCachedAlbumYear(
                track: track,
                albumTracks: albumTracks,
-               entry: entry
+               entry: entry,
+               context: context
            ) {
             return .skip
         }
@@ -292,16 +299,24 @@ extension UpdateCoordinator {
         return nil
     }
 
-    private func isTrustedCacheEntry(_ entry: AlbumCacheEntry?) -> Bool {
-        guard let entry else { return false }
-        return entry.confidence >= runtimeConfiguration.cacheTrustThreshold
+    private func isTrustedCacheEntry(
+        _ entry: AlbumCacheEntry?,
+        context: YearDecisionContext
+    ) -> Bool {
+        guard let entry,
+              let year = entry.year,
+              context.candidateYearValidator.acceptsCandidateYear(year, at: context.decisionDate)
+        else {
+            return false
+        }
+        return entry.confidence >= context.cacheTrustThreshold
     }
 
     private func consensusDecision(
         track: Track,
         albumTracks: [Track],
         cachedEntry: AlbumCacheEntry?,
-        missingYearThreshold: Double
+        context: YearDecisionContext
     ) async -> YearShortcutDecision? {
         guard let consensus = yearDeterminator.consensusDetermination(
             albumTracks: albumTracks,
@@ -311,7 +326,7 @@ extension UpdateCoordinator {
             return nil
         }
 
-        if !isTrustedCacheEntry(cachedEntry)
+        if !isTrustedCacheEntry(cachedEntry, context: context)
             || consensus.yearResult.confidence >= (cachedEntry?.confidence ?? 0) {
             let identity = track.albumIdentity
             await cache.storeAlbumYear(
@@ -325,7 +340,7 @@ extension UpdateCoordinator {
         if let change = yearChange(
             track: track,
             determination: consensus,
-            missingYearThreshold: missingYearThreshold
+            missingYearThreshold: context.missingYearThreshold
         ) {
             return .change(change)
         }
@@ -368,12 +383,14 @@ extension UpdateCoordinator {
     private func shouldSkipYearLookupFromCachedAlbumYear(
         track: Track,
         albumTracks: [Track],
-        entry: AlbumCacheEntry?
+        entry: AlbumCacheEntry?,
+        context: YearDecisionContext
     ) -> Bool {
         guard let entry,
               let cachedYear = entry.year,
               let libraryYear = dominantValidLibraryYear(
-                  in: albumContextTracks(track: track, albumTracks: albumTracks)
+                  in: albumContextTracks(track: track, albumTracks: albumTracks),
+                  context: context
               )
         else {
             return false
@@ -425,12 +442,15 @@ extension UpdateCoordinator {
         return validReleaseYears(in: tracks).isEmpty
     }
 
-    private func dominantValidLibraryYear(in tracks: [Track]) -> Int? {
+    private func dominantValidLibraryYear(
+        in tracks: [Track],
+        context: YearDecisionContext
+    ) -> Int? {
         var yearCounts: [Int: Int] = [:]
         var orderedYears: [Int] = []
         for track in tracks {
             guard let year = track.year,
-                  isValidLibraryYearForCacheComparison(year)
+                  context.candidateYearValidator.acceptsCandidateYear(year, at: context.decisionDate)
             else {
                 continue
             }
@@ -451,11 +471,6 @@ extension UpdateCoordinator {
             }
         }
         return dominantYear
-    }
-
-    private func isValidLibraryYearForCacheComparison(_ year: Int) -> Bool {
-        let currentYear = Calendar.current.component(.year, from: Date())
-        return year >= yearDeterminator.validator.config.minValidYear && year <= currentYear
     }
 
     private func determineYearFromAPI(

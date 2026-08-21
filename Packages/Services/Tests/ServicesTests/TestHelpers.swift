@@ -200,6 +200,9 @@ actor MockCacheService: CacheService {
     var albumYears: [String: AlbumCacheEntry] = [:]
     var apiResults: [String: CachedAPIResult] = [:]
     private var genericEntries: [String: MockGenericCacheEntry] = [:]
+    private var shouldPauseAlbumRead = false
+    private var albumReadObservers: [CheckedContinuation<Void, Never>] = []
+    private var albumReadContinuation: CheckedContinuation<Void, Never>?
 
     func initialize() async throws {}
     func get<T: Codable & Sendable>(key: String) async -> T? {
@@ -229,7 +232,33 @@ actor MockCacheService: CacheService {
     }
 
     func getAlbumYear(artist: String, album: String) async -> AlbumCacheEntry? {
-        albumYears[albumYearKey(artist: artist, album: album)]
+        if shouldPauseAlbumRead {
+            shouldPauseAlbumRead = false
+            albumReadObservers.forEach { $0.resume() }
+            albumReadObservers.removeAll()
+            await withCheckedContinuation { continuation in
+                albumReadContinuation = continuation
+            }
+        }
+        return albumYears[albumYearKey(artist: artist, album: album)]
+    }
+
+    func pauseNextAlbumRead() {
+        shouldPauseAlbumRead = true
+    }
+
+    func awaitAlbumRead() async {
+        if albumReadContinuation != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            albumReadObservers.append(continuation)
+        }
+    }
+
+    func resumeAlbumRead() {
+        albumReadContinuation?.resume()
+        albumReadContinuation = nil
     }
 
     func storeAlbumYear(artist: String, album: String, year: Int, confidence: Int) async {

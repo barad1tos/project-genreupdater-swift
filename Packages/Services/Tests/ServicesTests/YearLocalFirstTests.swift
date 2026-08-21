@@ -366,6 +366,97 @@ struct YearLocalFirstTests {
         #expect(await apiProbe.requestCount > 0)
     }
 
+    @Test("Invalid persisted years fall through to fresh API acquisition")
+    func invalidCacheRefreshes() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let currentYear = calendar.component(.year, from: Date())
+        var logic = YearLogicConfig()
+        logic.minValidYear = 1950
+
+        for invalidYear in [logic.minValidYear - 1, currentYear + 1] {
+            let target = albumTrack(id: "MK-target", name: "Target", year: invalidYear, releaseYear: nil)
+            let cache = MockCacheService()
+            await cache.storeAlbumYear(
+                artist: target.albumIdentity.artist,
+                album: target.albumIdentity.album,
+                year: invalidYear,
+                confidence: 100
+            )
+            let apiProbe = APIRequestProbe()
+            let coordinator = await makeCoordinator(
+                apiProbe: apiProbe,
+                apiYearResult: YearResult(
+                    year: 2021,
+                    confidence: 100,
+                    yearScores: [2021: 100]
+                ),
+                cache: cache,
+                yearDeterminator: YearDeterminator(
+                    scorer: YearScorer(yearLogic: logic),
+                    validator: YearValidator(config: logic)
+                )
+            )
+
+            let change = try await coordinator.determineYearChange(
+                track: target,
+                albumTracks: [target],
+                forceYearLookup: false
+            )
+
+            let yearChange = try #require(change)
+            #expect(yearChange.newValue == "2021")
+            #expect(yearChange.source == "API")
+            #expect(await apiProbe.requestCount > 0)
+        }
+    }
+
+    @Test("An in-flight cache decision keeps its original trust policy")
+    func cachePolicySnapshot() async throws {
+        let target = albumTrack(id: "MK-target", name: "Target", year: nil, releaseYear: nil)
+        let cache = MockCacheService()
+        await cache.storeAlbumYear(
+            artist: target.albumIdentity.artist,
+            album: target.albumIdentity.album,
+            year: 2019,
+            confidence: 90
+        )
+        await cache.pauseNextAlbumRead()
+        let apiProbe = APIRequestProbe()
+        let originalRuntime = UpdateRuntimeConfiguration(
+            policies: .init(cacheTrustThreshold: 95)
+        )
+        let coordinator = await makeCoordinator(
+            apiProbe: apiProbe,
+            apiYearResult: YearResult(
+                year: 2021,
+                confidence: 100,
+                yearScores: [2021: 100]
+            ),
+            cache: cache,
+            runtimeConfiguration: originalRuntime
+        )
+
+        let decision = Task {
+            try await coordinator.determineYearChange(
+                track: target,
+                albumTracks: [target],
+                forceYearLookup: false
+            )
+        }
+        await cache.awaitAlbumRead()
+        await coordinator.updateRuntimeConfiguration(
+            UpdateRuntimeConfiguration(policies: .init(cacheTrustThreshold: 85)),
+            yearDeterminator: YearDeterminator()
+        )
+        await cache.resumeAlbumRead()
+
+        let change = try #require(try await decision.value)
+        #expect(change.newValue == "2021")
+        #expect(change.source == "API")
+        #expect(await apiProbe.requestCount > 0)
+    }
+
     @Test("Trusted cache disambiguates conflicting live release years")
     func trustedCacheDisambiguatesReleaseYears() async throws {
         let cache = MockCacheService()
