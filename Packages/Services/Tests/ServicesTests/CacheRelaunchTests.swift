@@ -9,9 +9,10 @@ struct CacheRelaunchTests {
     func rawCachePersists() async throws {
         let fixture = try CacheFileFixture()
         defer { fixture.cleanup() }
-        let requestURL = try #require(
-            URL(string: "https://musicbrainz.org/ws/2/release-group?query=releasegroup%3A%22Powerslave%22")
-        )
+        let requestURL = try #require(MusicBrainzClient.buildReleaseGroupSearchURL(
+            artist: "Iron Maiden",
+            album: "Powerslave"
+        ))
         let expectedPayload = Data("{\"release-groups\":[{\"id\":\"powerslave-1984\"}]}".utf8)
         let counter = APICallCounter()
 
