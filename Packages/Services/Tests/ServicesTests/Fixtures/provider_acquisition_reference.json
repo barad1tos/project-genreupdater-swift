@@ -1,0 +1,653 @@
+{
+  "cases": [
+    {
+      "description": "All providers recover through their broad acquisition paths",
+      "divergences": [
+        {
+          "reason": "Swift retains MusicBrainz release-group evidence and Discogs format/genre evidence that Python consumes or drops before return",
+          "scope": "candidate enrichment"
+        },
+        {
+          "reason": "Swift requests 200 direct-search results for higher recall; Python requests 50 for a smaller response payload. Both use 200 for lookup.",
+          "scope": "iTunes direct-search breadth"
+        }
+      ],
+      "expected": {
+        "candidateSourceOrder": [
+          "musicbrainz",
+          "discogs",
+          "itunes"
+        ],
+        "pythonCandidates": [
+          {
+            "album": "Homogenic",
+            "artist": "björk",
+            "country": null,
+            "genre": null,
+            "isReissue": false,
+            "mbReleaseGroupFirstYear": null,
+            "mbReleaseGroupID": null,
+            "releaseType": "album",
+            "source": "musicbrainz",
+            "status": "official",
+            "year": 1997
+          },
+          {
+            "album": "Homogenic",
+            "artist": "Björk",
+            "country": "IS",
+            "genre": null,
+            "isReissue": false,
+            "mbReleaseGroupFirstYear": null,
+            "mbReleaseGroupID": null,
+            "releaseType": "other",
+            "source": "discogs",
+            "status": "official",
+            "year": 1997
+          },
+          {
+            "album": "Homogenic",
+            "artist": "Björk",
+            "country": "US",
+            "genre": null,
+            "isReissue": false,
+            "mbReleaseGroupFirstYear": null,
+            "mbReleaseGroupID": null,
+            "releaseType": "album",
+            "source": "itunes",
+            "status": "official",
+            "year": 1997
+          }
+        ],
+        "pythonRequests": {
+          "discogs": [
+            {
+              "path": "/database/search",
+              "query": [
+                {
+                  "name": "artist",
+                  "value": "björk"
+                },
+                {
+                  "name": "per_page",
+                  "value": "25"
+                },
+                {
+                  "name": "release_title",
+                  "value": "homogenic"
+                },
+                {
+                  "name": "type",
+                  "value": "release"
+                }
+              ]
+            },
+            {
+              "path": "/database/search",
+              "query": [
+                {
+                  "name": "per_page",
+                  "value": "25"
+                },
+                {
+                  "name": "q",
+                  "value": "björk homogenic"
+                },
+                {
+                  "name": "type",
+                  "value": "release"
+                }
+              ]
+            },
+            {
+              "path": "/database/search",
+              "query": [
+                {
+                  "name": "per_page",
+                  "value": "25"
+                },
+                {
+                  "name": "release_title",
+                  "value": "homogenic"
+                },
+                {
+                  "name": "type",
+                  "value": "release"
+                }
+              ]
+            },
+            {
+              "path": "/masters/100",
+              "query": []
+            }
+          ],
+          "itunes": [
+            {
+              "path": "/search",
+              "query": [
+                {
+                  "name": "country",
+                  "value": "US"
+                },
+                {
+                  "name": "entity",
+                  "value": "album"
+                },
+                {
+                  "name": "limit",
+                  "value": "50"
+                },
+                {
+                  "name": "term",
+                  "value": "björk homogenic"
+                }
+              ]
+            },
+            {
+              "path": "/search",
+              "query": [
+                {
+                  "name": "country",
+                  "value": "US"
+                },
+                {
+                  "name": "entity",
+                  "value": "musicArtist"
+                },
+                {
+                  "name": "limit",
+                  "value": "5"
+                },
+                {
+                  "name": "term",
+                  "value": "björk"
+                }
+              ]
+            },
+            {
+              "path": "/lookup",
+              "query": [
+                {
+                  "name": "entity",
+                  "value": "album"
+                },
+                {
+                  "name": "id",
+                  "value": "42"
+                },
+                {
+                  "name": "limit",
+                  "value": "200"
+                }
+              ]
+            }
+          ],
+          "musicbrainz": [
+            {
+              "path": "/ws/2/release-group",
+              "query": [
+                {
+                  "name": "fmt",
+                  "value": "json"
+                },
+                {
+                  "name": "limit",
+                  "value": "10"
+                },
+                {
+                  "name": "query",
+                  "value": "artist:\"björk\" AND releasegroup:\"homogenic\""
+                }
+              ]
+            },
+            {
+              "path": "/ws/2/release-group",
+              "query": [
+                {
+                  "name": "fmt",
+                  "value": "json"
+                },
+                {
+                  "name": "limit",
+                  "value": "10"
+                },
+                {
+                  "name": "query",
+                  "value": "björk homogenic"
+                }
+              ]
+            },
+            {
+              "path": "/ws/2/release",
+              "query": [
+                {
+                  "name": "fmt",
+                  "value": "json"
+                },
+                {
+                  "name": "inc",
+                  "value": "media+artist-credits"
+                },
+                {
+                  "name": "limit",
+                  "value": "100"
+                },
+                {
+                  "name": "release-group",
+                  "value": "mb-homogenic"
+                }
+              ]
+            }
+          ]
+        },
+        "swiftCandidates": [
+          {
+            "album": "Homogenic",
+            "artist": "björk",
+            "country": null,
+            "genre": null,
+            "isReissue": false,
+            "mbReleaseGroupFirstYear": 1997,
+            "mbReleaseGroupID": "mb-homogenic",
+            "releaseType": "album",
+            "source": "musicbrainz",
+            "status": "official",
+            "year": 1997
+          },
+          {
+            "album": "Homogenic",
+            "artist": "björk",
+            "country": "is",
+            "genre": "Electronic",
+            "isReissue": false,
+            "mbReleaseGroupFirstYear": null,
+            "mbReleaseGroupID": null,
+            "releaseType": "album",
+            "source": "discogs",
+            "status": "official",
+            "year": 1997
+          },
+          {
+            "album": "Homogenic",
+            "artist": "Björk",
+            "country": "us",
+            "genre": null,
+            "isReissue": false,
+            "mbReleaseGroupFirstYear": null,
+            "mbReleaseGroupID": null,
+            "releaseType": "album",
+            "source": "itunes",
+            "status": "official",
+            "year": 1997
+          }
+        ],
+        "swiftRequests": {
+          "discogs": [
+            {
+              "path": "/database/search",
+              "query": [
+                {
+                  "name": "artist",
+                  "value": "björk"
+                },
+                {
+                  "name": "per_page",
+                  "value": "25"
+                },
+                {
+                  "name": "release_title",
+                  "value": "homogenic"
+                },
+                {
+                  "name": "type",
+                  "value": "release"
+                }
+              ]
+            },
+            {
+              "path": "/database/search",
+              "query": [
+                {
+                  "name": "per_page",
+                  "value": "25"
+                },
+                {
+                  "name": "q",
+                  "value": "björk homogenic"
+                },
+                {
+                  "name": "type",
+                  "value": "release"
+                }
+              ]
+            },
+            {
+              "path": "/database/search",
+              "query": [
+                {
+                  "name": "per_page",
+                  "value": "25"
+                },
+                {
+                  "name": "release_title",
+                  "value": "homogenic"
+                },
+                {
+                  "name": "type",
+                  "value": "release"
+                }
+              ]
+            },
+            {
+              "path": "/masters/100",
+              "query": []
+            }
+          ],
+          "itunes": [
+            {
+              "path": "/search",
+              "query": [
+                {
+                  "name": "country",
+                  "value": "US"
+                },
+                {
+                  "name": "entity",
+                  "value": "album"
+                },
+                {
+                  "name": "limit",
+                  "value": "200"
+                },
+                {
+                  "name": "term",
+                  "value": "björk homogenic"
+                }
+              ]
+            },
+            {
+              "path": "/search",
+              "query": [
+                {
+                  "name": "country",
+                  "value": "US"
+                },
+                {
+                  "name": "entity",
+                  "value": "musicArtist"
+                },
+                {
+                  "name": "limit",
+                  "value": "5"
+                },
+                {
+                  "name": "term",
+                  "value": "björk"
+                }
+              ]
+            },
+            {
+              "path": "/lookup",
+              "query": [
+                {
+                  "name": "entity",
+                  "value": "album"
+                },
+                {
+                  "name": "id",
+                  "value": "42"
+                },
+                {
+                  "name": "limit",
+                  "value": "200"
+                }
+              ]
+            }
+          ],
+          "musicbrainz": [
+            {
+              "path": "/ws/2/release-group",
+              "query": [
+                {
+                  "name": "fmt",
+                  "value": "json"
+                },
+                {
+                  "name": "limit",
+                  "value": "10"
+                },
+                {
+                  "name": "query",
+                  "value": "artist:\"björk\" AND releasegroup:\"homogenic\""
+                }
+              ]
+            },
+            {
+              "path": "/ws/2/release-group",
+              "query": [
+                {
+                  "name": "fmt",
+                  "value": "json"
+                },
+                {
+                  "name": "limit",
+                  "value": "10"
+                },
+                {
+                  "name": "query",
+                  "value": "björk homogenic"
+                }
+              ]
+            },
+            {
+              "path": "/ws/2/release",
+              "query": [
+                {
+                  "name": "fmt",
+                  "value": "json"
+                },
+                {
+                  "name": "inc",
+                  "value": "media+artist-credits"
+                },
+                {
+                  "name": "limit",
+                  "value": "100"
+                },
+                {
+                  "name": "release-group",
+                  "value": "mb-homogenic"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "id": "all_provider_fallbacks",
+      "input": {
+        "album": "homogenic",
+        "artist": "björk",
+        "artistRegion": "IS"
+      },
+      "scriptedResponses": {
+        "discogs": [
+          {
+            "body": {
+              "pagination": {
+                "items": 0
+              },
+              "results": []
+            },
+            "statusCode": 200
+          },
+          {
+            "body": {
+              "pagination": {
+                "items": 0
+              },
+              "results": []
+            },
+            "statusCode": 200
+          },
+          {
+            "body": {
+              "results": [
+                {
+                  "country": "IS",
+                  "format": [
+                    "Album"
+                  ],
+                  "formats": [
+                    {
+                      "descriptions": [
+                        "Album"
+                      ],
+                      "name": "CD"
+                    }
+                  ],
+                  "genre": [
+                    "Electronic"
+                  ],
+                  "id": 200,
+                  "master_id": 100,
+                  "title": "Björk - Homogenic",
+                  "type": "release",
+                  "year": 2001
+                }
+              ]
+            },
+            "statusCode": 200
+          },
+          {
+            "body": {
+              "genres": [
+                "Electronic"
+              ],
+              "id": 100,
+              "title": "Homogenic",
+              "year": 1997
+            },
+            "statusCode": 200
+          }
+        ],
+        "itunes": [
+          {
+            "body": {
+              "resultCount": 0,
+              "results": []
+            },
+            "statusCode": 200
+          },
+          {
+            "body": {
+              "resultCount": 1,
+              "results": [
+                {
+                  "artistId": 42,
+                  "artistName": "björk",
+                  "wrapperType": "artist"
+                }
+              ]
+            },
+            "statusCode": 200
+          },
+          {
+            "body": {
+              "resultCount": 2,
+              "results": [
+                {
+                  "artistId": 42,
+                  "artistName": "Björk",
+                  "wrapperType": "artist"
+                },
+                {
+                  "artistName": "Björk",
+                  "collectionName": "Homogenic",
+                  "collectionType": "Album",
+                  "country": "US",
+                  "primaryGenreName": "Electronic",
+                  "releaseDate": "1997-09-22T00:00:00Z",
+                  "wrapperType": "collection"
+                }
+              ]
+            },
+            "statusCode": 200
+          }
+        ],
+        "musicbrainz": [
+          {
+            "body": {
+              "count": 0,
+              "release-groups": []
+            },
+            "statusCode": 200
+          },
+          {
+            "body": {
+              "count": 2,
+              "release-groups": [
+                {
+                  "artist-credit": [
+                    {
+                      "artist": {
+                        "name": "Another Artist"
+                      },
+                      "name": "Another Artist"
+                    }
+                  ],
+                  "first-release-date": "1997-01-01",
+                  "id": "mb-unrelated",
+                  "primary-type": "Album",
+                  "title": "Homogenic"
+                },
+                {
+                  "artist-credit": [
+                    {
+                      "artist": {
+                        "name": "Björk"
+                      },
+                      "name": "Björk"
+                    }
+                  ],
+                  "first-release-date": "1997-09-22",
+                  "id": "mb-homogenic",
+                  "primary-type": "Album",
+                  "title": "Homogenic"
+                }
+              ]
+            },
+            "statusCode": 200
+          },
+          {
+            "body": {
+              "releases": [
+                {
+                  "artist-credit": [
+                    {
+                      "artist": {
+                        "name": "Björk"
+                      },
+                      "name": "Björk"
+                    }
+                  ],
+                  "date": "1997-09-22",
+                  "id": "mb-release-homogenic",
+                  "media": [
+                    {
+                      "format": "CD"
+                    }
+                  ],
+                  "status": "Official",
+                  "title": "Homogenic"
+                }
+              ]
+            },
+            "statusCode": 200
+          }
+        ]
+      }
+    }
+  ],
+  "pythonBaseline": "0f6dca1f36eab74a6899a0f770511927b68d3e15",
+  "schemaVersion": 1
+}
