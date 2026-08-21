@@ -46,6 +46,9 @@ jobs:
       - name: Print Swift version
         run: swift --version
 
+      - name: Test fixture manifest tooling
+        run: python3 -B scripts/test-fixture-manifest.py
+
       - name: Build Core
         run: swift build --package-path Packages/Core
 

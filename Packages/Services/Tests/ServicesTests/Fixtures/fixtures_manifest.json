@@ -1,0 +1,13 @@
+{
+  "_comment": "Provenance of the Python parity fixtures. 'generated' cases are emitted by a checked-in generator that executes the real Python implementation. 'verifiedByExecution' cases were hand-authored and later confirmed by feeding their inputs through the same Python entry points. digest covers the canonical (sorted-key, separator-normalized) file contents. Regenerate with scripts/refresh-fixture-manifest.py after any intentional change.",
+  "pythonBaseline": "0f6dca1f36eab74a6899a0f770511927b68d3e15",
+  "requiresGeneratedInput": true,
+  "files": {
+    "provider_acquisition_reference.json": {
+      "digest": "sha256:9cc337498f0ce1cda40eefd019c9f8be4f48553aaf9ffdedff707dfcb927ca99",
+      "caseCount": 1,
+      "generated": 1,
+      "verifiedByExecution": 0
+    }
+  }
+}

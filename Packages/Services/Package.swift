@@ -32,7 +32,8 @@ let package = Package(
         .testTarget(
             name: "ServicesTests",
             dependencies: ["Core", "Services"],
-            path: "Tests/ServicesTests"
+            path: "Tests/ServicesTests",
+            resources: [.copy("Fixtures")]
         ),
     ]
 )
