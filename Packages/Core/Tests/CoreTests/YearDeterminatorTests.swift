@@ -246,6 +246,33 @@ struct YearDeterminatorTests {
         #expect(result.source == .fallback)
     }
 
+    @Test("An invalid existing year cannot influence a valid API candidate")
+    func invalidExistingYearDoesNotAffectCandidate() {
+        var logic = YearLogicConfig()
+        logic.minValidYear = 1950
+        let configured = YearDeterminator(
+            scorer: YearScorer(yearLogic: logic),
+            validator: YearValidator(config: logic)
+        )
+        let candidate = makeCandidate(year: 2000, source: .discogs)
+
+        let baseline = configured.determineYear(
+            candidates: [candidate],
+            track: makeTrack()
+        )
+        let result = configured.determineYear(
+            candidates: [candidate],
+            track: makeTrack(year: 1949),
+            currentYear: 1949
+        )
+
+        #expect(result.yearResult == baseline.yearResult)
+        #expect(result.source == baseline.source)
+        #expect(result.breakdown == baseline.breakdown)
+        #expect(result.fallbackDecision == baseline.fallbackDecision)
+        #expect(result.candidateCount == baseline.candidateCount)
+    }
+
     @Test("An existing future year is ignored")
     func futureExistingYearIgnored() {
         let track = makeTrack(year: currentUTCYear() + 1)
