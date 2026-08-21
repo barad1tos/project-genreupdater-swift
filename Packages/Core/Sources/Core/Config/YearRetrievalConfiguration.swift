@@ -5,11 +5,15 @@ import Foundation
 // MARK: - Year Retrieval Configuration
 
 public struct YearRetrievalConfig: Sendable, Codable {
+    public static let defaultProviderTimeoutSeconds = 15.0
+    public static let timeoutSettingsRange = 1.0 ... 120.0
+
     public var enabled: Bool = true
     public var preferredAPI: PreferredAPI = .musicbrainz
 
     public var apiAuth = APIAuthConfig()
     public var rateLimits = APIRateLimits()
+    public var providerTimeoutSeconds: Double = Self.defaultProviderTimeoutSeconds
     public var logic = YearLogicConfig()
     public var reissueDetection = ReissueDetectionConfig()
     public var scoring = ScoringConfig()
@@ -21,12 +25,14 @@ public struct YearRetrievalConfig: Sendable, Codable {
     public var scriptAPIPriorities: [String: ScriptAPIPriority] = [:]
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, preferredAPI, apiAuth, rateLimits, logic, reissueDetection, scoring, fallback
+        case enabled, preferredAPI, apiAuth, rateLimits, providerTimeoutSeconds
+        case logic, reissueDetection, scoring, fallback
         case discogsSearch, itunesSearch, scriptAPIPriorities
     }
 
     private enum DecodingKeys: String, CodingKey {
-        case enabled, preferredAPI, apiAuth, rateLimits, logic, reissueDetection, scoring, fallback
+        case enabled, preferredAPI, apiAuth, rateLimits, providerTimeoutSeconds
+        case logic, reissueDetection, scoring, fallback
         case discogsSearch, itunesSearch, scriptAPIPriorities
         case preferredApi
         case scriptApiPriorities
@@ -47,6 +53,10 @@ public struct YearRetrievalConfig: Sendable, Codable {
             ?? .musicbrainz
         apiAuth = try container.decodeIfPresent(APIAuthConfig.self, forKey: .apiAuth) ?? APIAuthConfig()
         rateLimits = try container.decodeIfPresent(APIRateLimits.self, forKey: .rateLimits) ?? APIRateLimits()
+        providerTimeoutSeconds = try container.decodeIfPresent(
+            Double.self,
+            forKey: .providerTimeoutSeconds
+        ) ?? Self.defaultProviderTimeoutSeconds
         logic = try container.decodeIfPresent(YearLogicConfig.self, forKey: .logic) ?? YearLogicConfig()
         reissueDetection = try container
             .decodeIfPresent(ReissueDetectionConfig.self, forKey: .reissueDetection) ?? ReissueDetectionConfig()
@@ -76,16 +86,34 @@ public enum PreferredAPI: String, Sendable, Codable, CaseIterable {
 }
 
 public struct APIRateLimits: Sendable, Codable {
-    public var discogsRequestsPerMinute: Int = 55
-    public var musicbrainzRequestsPerSecond: Double = 1.0
-    public var concurrentAPICalls: Int = 2
+    public static let defaultDiscogsPerMinute = 55
+    public static let defaultMusicBrainzPerSecond = 1.0
+    public static let defaultITunesPerSecond = 10.0
+    public static let defaultConcurrentCalls = 2
+
+    public static let discogsSettingsRange = 1 ... 120
+    public static let musicBrainzSettingsRange = 0.1 ... 5.0
+    public static let itunesSettingsRange = 0.1 ... 20.0
+    public static let concurrencySettingsRange = 1 ... 10
+
+    /// Returns the runtime MusicBrainz rate, preserving the historical zero-value fallback.
+    public static func musicBrainzRate(_ configuredRate: Double) -> Double {
+        configuredRate == 0 ? defaultMusicBrainzPerSecond : configuredRate
+    }
+
+    public var discogsRequestsPerMinute: Int = Self.defaultDiscogsPerMinute
+    public var musicbrainzRequestsPerSecond: Double = Self.defaultMusicBrainzPerSecond
+    public var itunesRequestsPerSecond: Double = Self.defaultITunesPerSecond
+    public var concurrentAPICalls: Int = Self.defaultConcurrentCalls
 
     private enum CodingKeys: String, CodingKey {
-        case discogsRequestsPerMinute, musicbrainzRequestsPerSecond, concurrentAPICalls
+        case discogsRequestsPerMinute, musicbrainzRequestsPerSecond, itunesRequestsPerSecond
+        case concurrentAPICalls
     }
 
     private enum DecodingKeys: String, CodingKey {
-        case discogsRequestsPerMinute, musicbrainzRequestsPerSecond, concurrentAPICalls
+        case discogsRequestsPerMinute, musicbrainzRequestsPerSecond, itunesRequestsPerSecond
+        case concurrentAPICalls
         case concurrentApiCalls
     }
 
@@ -98,14 +126,30 @@ public struct APIRateLimits: Sendable, Codable {
         discogsRequestsPerMinute = try container.decodeIfPresent(
             Int.self,
             forKey: .discogsRequestsPerMinute
-        ) ?? 55
+        ) ?? Self.defaultDiscogsPerMinute
         musicbrainzRequestsPerSecond = try container.decodeIfPresent(
             Double.self,
             forKey: .musicbrainzRequestsPerSecond
-        ) ?? 1.0
+        ) ?? Self.defaultMusicBrainzPerSecond
+        itunesRequestsPerSecond = try container.decodeIfPresent(
+            Double.self,
+            forKey: .itunesRequestsPerSecond
+        ) ?? Self.defaultITunesPerSecond
         concurrentAPICalls = try container.decodeIfPresent(Int.self, forKey: .concurrentAPICalls)
             ?? container.decodeIfPresent(Int.self, forKey: .concurrentApiCalls)
-            ?? 2
+            ?? Self.defaultConcurrentCalls
+    }
+
+    /// Converts a positive request quota into the conservative one-token refill interval used by API clients.
+    public static func refillMilliseconds(requests: Double, perSeconds windowSeconds: Double) -> Int? {
+        guard requests.isFinite, requests > 0,
+              windowSeconds.isFinite, windowSeconds > 0
+        else {
+            return nil
+        }
+        let milliseconds = ((windowSeconds / requests) * 1000).rounded(.up)
+        guard milliseconds.isFinite else { return nil }
+        return Int(exactly: milliseconds)
     }
 }
 

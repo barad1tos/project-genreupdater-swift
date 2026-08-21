@@ -16,7 +16,7 @@ func normalizedReissueKeywords(_ keywords: [String]) -> [String] {
 /// Discogs REST API client for album year and genre data.
 ///
 /// Authenticates via Personal Access Token stored in the Keychain.
-/// Rate limited at 60 requests/minute per Discogs policy.
+/// Direct clients default to 55 evenly paced requests per minute; app-composed clients use configured pacing.
 ///
 /// Endpoints used:
 /// - `/database/search` — fielded master and release searches for direct-year lookup;
@@ -48,6 +48,16 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         token?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
+    static let defaultPolicy: TokenBucketRateLimiter.Policy = {
+        guard let refillMilliseconds = APIRateLimits.refillMilliseconds(
+            requests: Double(APIRateLimits.defaultDiscogsPerMinute),
+            perSeconds: 60
+        ) else {
+            preconditionFailure("Default Discogs rate limit must be valid")
+        }
+        return .init(maxTokens: 1, refillInterval: .milliseconds(refillMilliseconds))
+    }()
+
     /// Creates a Discogs client with an explicit token.
     ///
     /// Use this initializer for testing or when the token is already available.
@@ -56,7 +66,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     ///   - token: Personal Access Token for Discogs API authentication.
     ///   - contactEmail: Contact email included in User-Agent header.
     ///   - session: URL session for network requests. Defaults to `.shared`.
-    ///   - rateLimiter: Rate limiter for throttling. Defaults to 60 req/min.
+    ///   - rateLimiter: Rate limiter for throttling. Defaults to 55 evenly paced requests per minute.
     ///   - baseURL: Base Discogs API URL. Defaults to the public Discogs API endpoint.
     ///   - rawRequestCache: Optional cache for raw API responses.
     ///   - reissueKeywords: Release text treated as reissue evidence.
@@ -82,9 +92,13 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         self.searchConfiguration = searchConfiguration
         self.session = session
         self.baseURL = baseURL
-        self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
-            maxTokens: 60,
-            refillInterval: .seconds(1)
+        self.rateLimiter = rateLimiter ?? Self.defaultLimiter()
+    }
+
+    private static func defaultLimiter() -> TokenBucketRateLimiter {
+        TokenBucketRateLimiter(
+            maxTokens: defaultPolicy.maxTokens,
+            refillInterval: defaultPolicy.refillInterval
         )
     }
 
@@ -93,7 +107,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     /// - Parameters:
     ///   - contactEmail: Contact email included in User-Agent header.
     ///   - session: URL session for network requests. Defaults to `.shared`.
-    ///   - rateLimiter: Rate limiter for throttling. Defaults to 60 req/min.
+    ///   - rateLimiter: Rate limiter for throttling. Defaults to 55 evenly paced requests per minute.
     ///   - baseURL: Base Discogs API URL. Defaults to the public Discogs API endpoint.
     /// - Returns: A configured `DiscogsClient`.
     /// - Throws: `KeychainError` if the Keychain read fails.

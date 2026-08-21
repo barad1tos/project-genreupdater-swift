@@ -25,7 +25,7 @@ struct PreviewProducerTests {
     @Test("Recovered rate-limit overflow fails before runtime services")
     func rejectsRateOverflow() async throws {
         try await expectRuntimeRejection(at: .preview) {
-            $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 1e308
+            $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 1e-308
         }
     }
 

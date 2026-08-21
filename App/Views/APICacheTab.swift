@@ -64,7 +64,7 @@ struct APICacheTab: View {
 
             Stepper(
                 value: configBinding(dependencies, \.yearRetrieval.rateLimits.discogsRequestsPerMinute),
-                in: 1 ... 120
+                in: APIRateLimits.discogsSettingsRange
             ) {
                 LabeledContent(
                     "Discogs requests per minute",
@@ -74,17 +74,44 @@ struct APICacheTab: View {
 
             Stepper(
                 value: configBinding(dependencies, \.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond),
-                in: 0.1 ... 5,
+                in: APIRateLimits.musicBrainzSettingsRange,
                 step: 0.1
             ) {
                 LabeledContent(
                     "MusicBrainz requests per second",
-                    value: dependencies.config.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond
+                    value: Self.musicBrainzRateText(
+                        dependencies.config.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond
+                    )
+                )
+            }
+
+            Stepper(
+                value: configBinding(dependencies, \.yearRetrieval.rateLimits.itunesRequestsPerSecond),
+                in: APIRateLimits.itunesSettingsRange,
+                step: 0.1
+            ) {
+                LabeledContent(
+                    "iTunes requests per second",
+                    value: dependencies.config.yearRetrieval.rateLimits.itunesRequestsPerSecond
                         .formatted(.number.precision(.fractionLength(1)))
                 )
             }
 
-            Stepper(value: configBinding(dependencies, \.yearRetrieval.rateLimits.concurrentAPICalls), in: 1 ... 10) {
+            Stepper(
+                value: configBinding(dependencies, \.yearRetrieval.providerTimeoutSeconds),
+                in: YearRetrievalConfig.timeoutSettingsRange,
+                step: 1
+            ) {
+                LabeledContent(
+                    "Provider timeout",
+                    value: Self.providerTimeoutText(dependencies.config.yearRetrieval.providerTimeoutSeconds)
+                )
+            }
+
+            Stepper(
+                value: configBinding(dependencies, \.yearRetrieval.rateLimits.concurrentAPICalls),
+                in: APIRateLimits.concurrencySettingsRange
+            ) {
                 LabeledContent(
                     "Concurrent API calls",
                     value: "\(dependencies.config.yearRetrieval.rateLimits.concurrentAPICalls)"
@@ -103,6 +130,16 @@ struct APICacheTab: View {
                 )
             }
         }
+    }
+
+    static func musicBrainzRateText(_ configuredRate: Double) -> String {
+        let effectiveRate = APIRateLimits.musicBrainzRate(configuredRate)
+            .formatted(.number.precision(.fractionLength(1)))
+        return configuredRate == 0 ? "\(effectiveRate) (legacy setting: 0)" : effectiveRate
+    }
+
+    static func providerTimeoutText(_ seconds: Double) -> String {
+        seconds.formatted(.number.precision(.fractionLength(0 ... 1))) + "s"
     }
 
     private var discogsSection: some View {

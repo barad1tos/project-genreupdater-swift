@@ -28,6 +28,17 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     private let albumSuffixes: [String]
     private let rawRequestCache: RawAPIRequestCache?
     private let log = AppLogger.api
+
+    static let defaultPolicy: TokenBucketRateLimiter.Policy = {
+        guard let refillMilliseconds = APIRateLimits.refillMilliseconds(
+            requests: APIRateLimits.defaultMusicBrainzPerSecond,
+            perSeconds: 1
+        ) else {
+            preconditionFailure("Default MusicBrainz rate limit must be valid")
+        }
+        return .init(maxTokens: 1, refillInterval: .milliseconds(refillMilliseconds))
+    }()
+
     #if DEBUG
     private var testHooks: TestHooks?
     #endif
@@ -84,9 +95,13 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         self.editionMarkers = cleaningConfiguration.editionMarkers
         self.albumSuffixes = cleaningConfiguration.albumSuffixes
         self.rawRequestCache = rawRequestCache
-        self.rateLimiter = rateLimiter ?? TokenBucketRateLimiter(
-            maxTokens: 1,
-            refillInterval: .seconds(1)
+        self.rateLimiter = rateLimiter ?? Self.defaultLimiter()
+    }
+
+    private static func defaultLimiter() -> TokenBucketRateLimiter {
+        TokenBucketRateLimiter(
+            maxTokens: defaultPolicy.maxTokens,
+            refillInterval: defaultPolicy.refillInterval
         )
     }
 

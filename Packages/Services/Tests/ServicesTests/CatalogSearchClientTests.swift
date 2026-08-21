@@ -30,6 +30,21 @@ struct CatalogSearchClientTests {
         requireExternalAPIService(CatalogSearchClient())
     }
 
+    @Test("Public initializer keeps its original function type")
+    func preservesInitializerType() {
+        let initializer: (
+            URLSession,
+            String,
+            String,
+            Int,
+            ITunesSearchConfiguration,
+            Bool,
+            RawAPIRequestCache?
+        ) -> CatalogSearchClient = CatalogSearchClient.init
+
+        _ = initializer
+    }
+
     @Test("Album year lookup reports unavailable MusicKit authorization as a failure")
     func requiresAuthorization() async {
         let client = CatalogSearchClient(
@@ -304,6 +319,149 @@ struct CatalogSearchClientTests {
         #expect(result.yearScores == [currentYear: 50])
     }
 
+    @Test("iTunes network requests wait for admission")
+    func requestsWaitForAdmission() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ITunesMockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let requestStarted = EventCounter()
+        defer {
+            ITunesMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+        ITunesMockURLProtocol.requestHandler = { request in
+            requestStarted.record()
+            let url = try #require(request.url)
+            let response = try #require(HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, Self.matchingITunesPayload)
+        }
+        let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(60))
+        _ = await limiter.acquire()
+        var settings = ITunesSearchConfig()
+        settings.lookupFallbackEnabled = false
+        let client = CatalogSearchClient.paced(
+            settings: settings,
+            rateLimiter: limiter,
+            session: session
+        )
+
+        let lookup = Task {
+            try await client.getReleaseCandidates(
+                artist: "Test Artist",
+                album: "Test Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+        let startedBeforeAdmission = await requestStarted.wait(for: 1, timeout: .milliseconds(50))
+        #expect(!startedBeforeAdmission)
+
+        await limiter.release()
+        let candidates = try await taskValue(lookup, timeout: .seconds(1))
+
+        #expect(candidates.map(\.year) == [1998])
+        let startedAfterAdmission = await requestStarted.wait(for: 1)
+        #expect(startedAfterAdmission)
+    }
+
+    @Test("Cancelled iTunes admission never reaches the network")
+    func cancelledAdmissionStopsRequest() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ITunesMockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let requestStarted = EventCounter()
+        defer {
+            ITunesMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+        ITunesMockURLProtocol.requestHandler = { request in
+            requestStarted.record()
+            let url = try #require(request.url)
+            let response = try #require(HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, Self.matchingITunesPayload)
+        }
+        let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(60))
+        _ = await limiter.acquire()
+        var settings = ITunesSearchConfig()
+        settings.lookupFallbackEnabled = false
+        let client = CatalogSearchClient.paced(
+            settings: settings,
+            rateLimiter: limiter,
+            session: session
+        )
+        let lookup = Task {
+            try await client.getReleaseCandidates(
+                artist: "Test Artist",
+                album: "Test Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+
+        #expect(await limiter.waitForQueue(1, timeout: .seconds(1)))
+        lookup.cancel()
+        do {
+            _ = try await taskValue(lookup, timeout: .milliseconds(100))
+            Issue.record("Expected prompt CancellationError")
+        } catch is CancellationError {
+            // Expected terminal result.
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+        #expect(await limiter.waitForQueue(0, timeout: .milliseconds(100)))
+
+        await limiter.release()
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(await !(requestStarted.wait(for: 1, timeout: .milliseconds(20))))
+    }
+
+    @Test("iTunes cache hits do not consume request admission")
+    func cacheHitsBypassAdmission() async throws {
+        let cache = MockCacheService()
+        let rawCache = RawAPIRequestCache(cache: cache, ttl: 3600)
+        let url = try #require(CatalogSearchClient.buildITunesSearchURL(
+            term: "Test Artist Test Album",
+            countryCode: "US",
+            entity: "album",
+            limit: 200
+        ))
+        _ = try await rawCache.data(api: "itunes", url: url) {
+            Self.matchingITunesPayload
+        }
+        let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(60))
+        _ = await limiter.acquire()
+        var settings = ITunesSearchConfig()
+        settings.lookupFallbackEnabled = false
+        let client = CatalogSearchClient.paced(
+            settings: settings,
+            rateLimiter: limiter,
+            rawRequestCache: rawCache
+        )
+
+        let lookup = Task {
+            try await client.getReleaseCandidates(
+                artist: "Test Artist",
+                album: "Test Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+        let candidates = try await taskValue(lookup, timeout: .milliseconds(200))
+
+        #expect(candidates.map(\.year) == [1998])
+        #expect(await limiter.getStats().totalRequests == 1)
+    }
+
     @Test("getReleaseCandidates throws for unsuccessful iTunes HTTP status")
     func releaseCandidatesThrowForUnsuccessfulITunesStatus() async throws {
         let configuration = URLSessionConfiguration.ephemeral
@@ -416,6 +574,20 @@ struct CatalogSearchClientTests {
     private func requireExternalAPIService(_ service: any ExternalAPIService) {
         _ = service
     }
+
+    private static let matchingITunesPayload = Data(
+        """
+        {
+          "resultCount": 1,
+          "results": [{
+            "artistName": "Test Artist",
+            "collectionName": "Test Album",
+            "releaseDate": "1998-01-01T08:00:00Z",
+            "country": "US"
+          }]
+        }
+        """.utf8
+    )
 }
 
 private func utcYear(at date: Date) throws -> Int {
