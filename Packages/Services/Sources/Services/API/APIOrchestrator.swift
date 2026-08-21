@@ -7,11 +7,7 @@ import OSLog
 
 // MARK: - APIOrchestrator
 
-/// Coordinates parallel API calls across MusicBrainz, Discogs, and Apple Music.
-///
-/// Each source is queried concurrently with an independent timeout. Results are
-/// aggregated by year score -- the year with the highest combined confidence
-/// across all sources wins. Sources that fail or time out are silently excluded.
+/// Stores the preferred API source and script-specific priority configuration.
 public struct APISourcePriorityConfiguration: Sendable {
     public let preferredSource: APISource
     public let scriptPriorities: [String: ScriptAPIPriority]
@@ -178,7 +174,7 @@ public actor APIOrchestrator {
     let negativeResultTTL: TimeInterval
     let candidateResultTTL: TimeInterval?
     nonisolated public let disabledSources: Set<APISource>
-    private let maxConcurrentSourceCalls: Int
+    let providerAdmission: ProviderAdmission
     let apiRetryConfiguration: APIRetryConfiguration
     let sourcePriorityConfiguration: APISourcePriorityConfiguration
     let soundtrackPatterns: [String]
@@ -208,7 +204,7 @@ public actor APIOrchestrator {
         negativeResultTTL = max(0, configuration.negativeResultTTL)
         candidateResultTTL = configuration.candidateResultTTL.flatMap { $0 > 0 ? $0 : nil }
         disabledSources = configuration.disabledSources
-        maxConcurrentSourceCalls = max(1, configuration.maxConcurrentSourceCalls)
+        providerAdmission = ProviderAdmission(limit: configuration.maxConcurrentSourceCalls)
         soundtrackPatterns = configuration.soundtrackPatterns
         variousArtistsNames = configuration.variousArtistsNames
         discogsReissueKeywords = configuration.discogsReissueKeywords
@@ -263,8 +259,10 @@ public actor APIOrchestrator {
 
     /// Query configured sources and aggregate results by year score.
     ///
-    /// Each source runs independently with its own timeout. If a source fails
-    /// or exceeds the timeout, the orchestrator continues with remaining results.
+    /// Uncached provider calls share the orchestrator-wide admission limit. One
+    /// caller timeout races permit wait, retries, and provider execution; cache
+    /// hits bypass admission. A timed-out non-cooperative provider retains its
+    /// permit until it exits. Failed or timed-out sources are excluded from aggregation.
     /// The year with the highest combined confidence score wins.
     ///
     /// - Parameters:
@@ -344,7 +342,19 @@ public actor APIOrchestrator {
         )
 
         let results = await fetchSourceResults(sources: sources, query: query)
+        guard !Task.isCancelled else {
+            return PendingAlbumYearLookup(result: YearResult(), didAttemptLookup: false)
+        }
         let apiResult = Self.aggregateResults(results, orderedSources: activeSources)
+        let isConfirmedMiss = !results.isEmpty && results.allSatisfy(\.didCompleteLookup)
+        if apiResult.year == nil, !isConfirmedMiss {
+            let result = Self.applyingCurrentLibraryFallback(
+                to: apiResult,
+                currentLibraryYear: currentLibraryYear,
+                earliestTrackAddedYear: earliestTrackAddedYear
+            )
+            return PendingAlbumYearLookup(result: result, didAttemptLookup: false)
+        }
         if let pendingRemovalAliases {
             await PendingVerificationSync.synchronize(
                 service: pendingVerificationService,
@@ -410,7 +420,7 @@ public actor APIOrchestrator {
         return earliestTrackAddedYear > currentYear || earliestTrackAddedYear < currentYear
     }
 
-    /// Fetches source results with bounded concurrency while preserving configured source order.
+    /// Fetches source results concurrently; aggregation applies configured source priority separately.
     private func fetchSourceResults(
         sources: [(source: APISource, service: any ExternalAPIService)],
         query: SourceQuery
@@ -426,32 +436,18 @@ public actor APIOrchestrator {
             of: SourceFetchResult.self,
             returning: [SourceFetchResult].self
         ) { group in
-            var nextSourceIndex = 0
-            let initialSourceCount = min(maxConcurrentSourceCalls, sources.count)
-
-            while nextSourceIndex < initialSourceCount {
+            for sourceEntry in sources {
                 addSourceTask(
                     to: &group,
-                    sourceEntry: sources[nextSourceIndex],
+                    sourceEntry: sourceEntry,
                     query: query,
                     cacheContext: cacheContext
                 )
-                nextSourceIndex += 1
             }
 
             var collected: [SourceFetchResult] = []
             while let result = await group.next() {
                 collected.append(result)
-
-                if nextSourceIndex < sources.count {
-                    addSourceTask(
-                        to: &group,
-                        sourceEntry: sources[nextSourceIndex],
-                        query: query,
-                        cacheContext: cacheContext
-                    )
-                    nextSourceIndex += 1
-                }
             }
             return collected
         }
@@ -463,15 +459,15 @@ public actor APIOrchestrator {
         query: SourceQuery,
         cacheContext: SourceCacheContext
     ) {
-        let log = log
         let apiRetryConfiguration = apiRetryConfiguration
+        let providerAdmission = providerAdmission
         group.addTask {
             await Self.cachedOrFetchedResult(
                 sourceEntry: sourceEntry,
                 query: query,
                 cacheContext: cacheContext,
                 apiRetryConfiguration: apiRetryConfiguration,
-                log: log
+                providerAdmission: providerAdmission
             )
         }
     }
@@ -481,18 +477,18 @@ public actor APIOrchestrator {
         query: SourceQuery,
         cacheContext: SourceCacheContext,
         apiRetryConfiguration: APIRetryConfiguration,
-        log: Logger
+        providerAdmission: ProviderAdmission
     ) async -> SourceFetchResult {
         let source = sourceEntry.source
         if let cached = await cachedAPIResult(source: source, query: query, cacheContext: cacheContext) {
-            return SourceFetchResult(source: source, result: cached)
+            return SourceFetchResult(source: source, result: cached, didCompleteLookup: true)
         }
 
         let outcome = await fetchWithTimeout(
             sourceEntry: sourceEntry,
             query: query,
             apiRetryConfiguration: apiRetryConfiguration,
-            log: log
+            providerAdmission: providerAdmission
         )
 
         await cacheAPIResult(
@@ -502,7 +498,11 @@ public actor APIOrchestrator {
             cacheContext: cacheContext,
             shouldCacheEmptyResult: outcome.shouldCacheEmptyResult,
         )
-        return SourceFetchResult(source: source, result: outcome.result)
+        return SourceFetchResult(
+            source: source,
+            result: outcome.result,
+            didCompleteLookup: outcome.didCompleteLookup
+        )
     }
 
     private static func cachedAPIResult(
@@ -657,46 +657,49 @@ private func fetchWithTimeout(
     sourceEntry: (source: APISource, service: any ExternalAPIService),
     query: SourceQuery,
     apiRetryConfiguration: APIRetryConfiguration,
-    log: Logger
+    providerAdmission: ProviderAdmission
 ) async -> SourceServiceOutcome {
+    let log = AppLogger.api
     do {
-        let result = try await withThrowingTaskGroup(of: YearResult.self) { group in
-            group.addTask {
-                try await fetchAlbumYearWithRetry(
-                    sourceEntry: sourceEntry,
-                    query: query,
-                    apiRetryConfiguration: apiRetryConfiguration
-                )
-            }
-
-            group.addTask {
-                try await Task.sleep(for: query.timeout)
-                throw OrchestratorTimeoutError()
-            }
-
-            guard let result = try await group.next() else {
-                return YearResult()
-            }
-
-            group.cancelAll()
-            return result
+        let result = try await providerAdmission.execute(timeout: query.timeout) {
+            try await fetchAlbumYearWithRetry(
+                sourceEntry: sourceEntry,
+                query: query,
+                apiRetryConfiguration: apiRetryConfiguration
+            )
         }
-        return SourceServiceOutcome(result: result, shouldCacheEmptyResult: result.year == nil)
-    } catch is OrchestratorTimeoutError {
+        return SourceServiceOutcome(
+            result: result,
+            shouldCacheEmptyResult: result.year == nil,
+            didCompleteLookup: true
+        )
+    } catch is ProviderCallTimeout {
         log
             .warning(
                 "\(sourceEntry.source.rawValue, privacy: .public) timed out after \(query.timeout, privacy: .public)"
             )
-        return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
+        return SourceServiceOutcome(
+            result: YearResult(),
+            shouldCacheEmptyResult: false,
+            didCompleteLookup: false
+        )
     } catch is CancellationError {
         log.debug("\(sourceEntry.source.rawValue, privacy: .public) cancelled")
-        return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
+        return SourceServiceOutcome(
+            result: YearResult(),
+            shouldCacheEmptyResult: false,
+            didCompleteLookup: false
+        )
     } catch {
         log
             .error(
                 "\(sourceEntry.source.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)"
             )
-        return SourceServiceOutcome(result: YearResult(), shouldCacheEmptyResult: false)
+        return SourceServiceOutcome(
+            result: YearResult(),
+            shouldCacheEmptyResult: false,
+            didCompleteLookup: false
+        )
     }
 }
 
@@ -749,14 +752,14 @@ private struct SourceCacheContext {
 private struct SourceFetchResult {
     let source: APISource
     let result: YearResult
+    let didCompleteLookup: Bool
 }
 
 private struct SourceServiceOutcome {
     let result: YearResult
     let shouldCacheEmptyResult: Bool
+    let didCompleteLookup: Bool
 }
-
-private struct OrchestratorTimeoutError: Error {}
 
 private func normalizeAPIQueryName(_ name: String) -> String {
     guard !name.isEmpty else { return name }

@@ -10,8 +10,8 @@ struct PendingAPITests {
         let pendingVerification = RecordingPendingVerificationService()
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(yearResult: YearResult()),
-            discogs: MockAPIService(shouldThrow: true),
-            appleMusic: MockAPIService(shouldThrow: true)
+            discogs: MockAPIService(yearResult: YearResult()),
+            appleMusic: MockAPIService(yearResult: YearResult())
         ) {
             $0.pendingVerificationService = pendingVerification
         }
@@ -37,8 +37,8 @@ struct PendingAPITests {
         let pendingVerification = RecordingPendingVerificationService()
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(yearResult: YearResult()),
-            discogs: MockAPIService(shouldThrow: true),
-            appleMusic: MockAPIService(shouldThrow: true)
+            discogs: MockAPIService(yearResult: YearResult()),
+            appleMusic: MockAPIService(yearResult: YearResult())
         ) {
             $0.pendingVerificationService = pendingVerification
         }
@@ -66,8 +66,8 @@ struct PendingAPITests {
         let pendingVerification = RecordingPendingVerificationService()
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: MockAPIService(yearResult: YearResult()),
-            discogs: MockAPIService(shouldThrow: true),
-            appleMusic: MockAPIService(shouldThrow: true)
+            discogs: MockAPIService(yearResult: YearResult()),
+            appleMusic: MockAPIService(yearResult: YearResult())
         ) {
             $0.pendingVerificationService = pendingVerification
         }

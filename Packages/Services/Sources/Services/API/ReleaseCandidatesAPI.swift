@@ -89,6 +89,7 @@ extension APIOrchestrator {
         )
         let sourceRank = Dictionary(uniqueKeysWithValues: activeSources.enumerated().map { ($0.element, $0.offset) })
         let apiRetryConfiguration = apiRetryConfiguration
+        let providerAdmission = providerAdmission
         let cacheContext = candidateCacheContext(scoringYear: scoringYear)
 
         let fetched = await withTaskGroup(
@@ -102,7 +103,7 @@ extension APIOrchestrator {
                         query: query,
                         cacheContext: cacheContext,
                         apiRetryConfiguration: apiRetryConfiguration,
-                        log: log
+                        providerAdmission: providerAdmission
                     )
                     return (sourceEntry.source, candidates)
                 }
@@ -137,7 +138,7 @@ private func cachedOrFetchedReleaseCandidates(
     query: ReleaseCandidateQuery,
     cacheContext: ReleaseCandidateCacheContext,
     apiRetryConfiguration: APIRetryConfiguration,
-    log: Logger
+    providerAdmission: ProviderAdmission
 ) async -> [ReleaseCandidate] {
     if let cached = await cachedReleaseCandidates(
         source: sourceEntry.source,
@@ -155,7 +156,7 @@ private func cachedOrFetchedReleaseCandidates(
         sourceEntry: sourceEntry,
         query: query,
         apiRetryConfiguration: apiRetryConfiguration,
-        log: log
+        providerAdmission: providerAdmission
     )
 
     await cacheReleaseCandidates(
@@ -176,35 +177,19 @@ private func fetchReleaseCandidatesWithTimeout(
     sourceEntry: (source: APISource, service: any ExternalAPIService),
     query: ReleaseCandidateQuery,
     apiRetryConfiguration: APIRetryConfiguration,
-    log: Logger
+    providerAdmission: ProviderAdmission
 ) async -> ReleaseCandidateFetchOutcome {
+    let log = AppLogger.api
     do {
-        let candidates = try await withThrowingTaskGroup(
-            of: [ReleaseCandidate].self,
-            returning: [ReleaseCandidate].self
-        ) { group in
-            group.addTask {
-                try await fetchReleaseCandidatesWithRetry(
-                    sourceEntry: sourceEntry,
-                    query: query,
-                    apiRetryConfiguration: apiRetryConfiguration
-                )
-            }
-
-            group.addTask {
-                try await Task.sleep(for: query.timeout)
-                throw ReleaseCandidateTimeoutError()
-            }
-
-            guard let candidates = try await group.next() else {
-                return []
-            }
-
-            group.cancelAll()
-            return candidates
+        let candidates = try await providerAdmission.execute(timeout: query.timeout) {
+            try await fetchReleaseCandidatesWithRetry(
+                sourceEntry: sourceEntry,
+                query: query,
+                apiRetryConfiguration: apiRetryConfiguration
+            )
         }
         return ReleaseCandidateFetchOutcome(candidates: candidates, shouldCacheEmptyResult: true)
-    } catch is ReleaseCandidateTimeoutError {
+    } catch is ProviderCallTimeout {
         log
             .warning(
                 "\(sourceEntry.source.rawValue, privacy: .public) candidate fetch timed out after \(query.timeout, privacy: .public)"
@@ -465,5 +450,3 @@ private struct CandidateCacheEntry: Codable {
         return Date.now.timeIntervalSince(storedAt) < ttl
     }
 }
-
-private struct ReleaseCandidateTimeoutError: Error {}
