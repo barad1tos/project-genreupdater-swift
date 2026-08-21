@@ -12,7 +12,13 @@ struct ProviderFixtureProvenanceTests {
             let verifiedByExecution: Int
         }
 
+        let pythonBaseline: String
+        let requiresGeneratedInput: Bool
         let files: [String: Entry]
+    }
+
+    private struct ProviderReference: Decodable {
+        let pythonBaseline: String
     }
 
     @Test("manifest covers every provider fixture")
@@ -30,6 +36,13 @@ struct ProviderFixtureProvenanceTests {
     @Test("provider fixture matches its generated digest and case count")
     func fixtureMatchesManifest() throws {
         let manifest = try loadManifest()
+        let reference = try JSONDecoder().decode(
+            ProviderReference.self,
+            from: Data(contentsOf: fixtureURL(named: "provider_acquisition_reference.json"))
+        )
+
+        #expect(manifest.requiresGeneratedInput)
+        #expect(reference.pythonBaseline == manifest.pythonBaseline)
 
         for (name, entry) in manifest.files {
             let object = try JSONSerialization.jsonObject(

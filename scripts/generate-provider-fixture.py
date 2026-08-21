@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Generate the Services provider-acquisition parity fixture from Python.
 
-The supplied Python checkout is the executable source of truth. Requests are
-scripted, so generation runs the real provider clients and coordinator without
-network access or provider credentials.
+The supplied Python checkout identifies the source-of-truth Git repository.
+Generation executes an isolated archive of the pinned commit, so local tracked
+or untracked changes cannot affect the fixture. Requests are scripted; no live
+network access or provider credentials are used.
 
 Usage:
     scripts/generate-provider-fixture.py --python-root /path/to/python-repo \
+        --manifest Packages/Services/Tests/ServicesTests/Fixtures/fixtures_manifest.json \
         --output Packages/Services/Tests/ServicesTests/Fixtures/provider_acquisition_reference.json
 """
 
@@ -16,9 +18,12 @@ import argparse
 import asyncio
 import copy
 import importlib
+import io
 import json
 import logging
 import sys
+import tarfile
+import tempfile
 from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any
@@ -192,6 +197,9 @@ class ScriptedRequests:
         ]
         self.requests[api_name].append(
             {
+                "scheme": parsed.scheme,
+                "host": parsed.hostname,
+                "port": parsed.port,
                 "path": parsed.path.rstrip("/") or "/",
                 "query": query,
             }
@@ -249,51 +257,6 @@ def accept_candidate(*args: object, **kwargs: object) -> float:
     return 100.0
 
 
-def swift_candidates() -> list[dict[str, Any]]:
-    """Record reviewed Swift enrichments without rewriting Python evidence."""
-    return [
-        {
-            "artist": ARTIST_QUERY,
-            "album": ALBUM_DISPLAY,
-            "year": 1997,
-            "source": "musicbrainz",
-            "releaseType": "album",
-            "status": "official",
-            "country": None,
-            "isReissue": False,
-            "mbReleaseGroupID": "mb-homogenic",
-            "mbReleaseGroupFirstYear": 1997,
-            "genre": None,
-        },
-        {
-            "artist": ARTIST_QUERY,
-            "album": ALBUM_DISPLAY,
-            "year": 1997,
-            "source": "discogs",
-            "releaseType": "album",
-            "status": "official",
-            "country": "is",
-            "isReissue": False,
-            "mbReleaseGroupID": None,
-            "mbReleaseGroupFirstYear": None,
-            "genre": "Electronic",
-        },
-        {
-            "artist": ARTIST_DISPLAY,
-            "album": ALBUM_DISPLAY,
-            "year": 1997,
-            "source": "itunes",
-            "releaseType": "album",
-            "status": "official",
-            "country": "us",
-            "isReissue": False,
-            "mbReleaseGroupID": None,
-            "mbReleaseGroupFirstYear": None,
-            "genre": None,
-        },
-    ]
-
-
 def canonical_python_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     """Represent Python's empty country as Swift's absent optional value."""
     canonical = dict(candidate)
@@ -302,17 +265,116 @@ def canonical_python_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     return canonical
 
 
-def swift_requests(
-    python_requests: dict[str, list[dict[str, Any]]],
-) -> dict[str, list[dict[str, Any]]]:
-    """Record the reviewed Swift request-policy divergence."""
-    requests = copy.deepcopy(python_requests)
-    direct_search = requests["itunes"][0]["query"]
-    next(item for item in direct_search if item["name"] == "limit")["value"] = "200"
-    return requests
+def reviewed_divergences() -> dict[str, list[dict[str, object]]]:
+    return {
+        "requests": [
+            {
+                "source": "itunes",
+                "requestIndex": 0,
+                "queryName": "limit",
+                "pythonValue": "50",
+                "swiftValue": "200",
+                "reason": "Swift favors direct-search recall over Python's smaller response payload",
+            }
+        ],
+        "candidates": [
+            {
+                "candidateIndex": 0,
+                "field": "mbReleaseGroupID",
+                "pythonValue": None,
+                "swiftValue": "mb-homogenic",
+                "reason": "Swift retains MusicBrainz release-group identity for downstream evidence",
+            },
+            {
+                "candidateIndex": 0,
+                "field": "mbReleaseGroupFirstYear",
+                "pythonValue": None,
+                "swiftValue": 1997,
+                "reason": "Swift retains the MusicBrainz release-group first year",
+            },
+            {
+                "candidateIndex": 1,
+                "field": "artist",
+                "pythonValue": ARTIST_DISPLAY,
+                "swiftValue": ARTIST_QUERY,
+                "reason": "Swift preserves the normalized query artist for Discogs candidates",
+            },
+            {
+                "candidateIndex": 1,
+                "field": "releaseType",
+                "pythonValue": "other",
+                "swiftValue": "album",
+                "reason": "Swift derives the Discogs release type from format evidence",
+            },
+            {
+                "candidateIndex": 1,
+                "field": "country",
+                "pythonValue": "IS",
+                "swiftValue": "is",
+                "reason": "Swift canonicalizes Discogs country codes to lowercase",
+            },
+            {
+                "candidateIndex": 1,
+                "field": "genre",
+                "pythonValue": None,
+                "swiftValue": "Electronic",
+                "reason": "Swift retains Discogs genre evidence",
+            },
+            {
+                "candidateIndex": 2,
+                "field": "country",
+                "pythonValue": "US",
+                "swiftValue": "us",
+                "reason": "Swift canonicalizes iTunes country codes to lowercase",
+            },
+        ],
+    }
 
 
-async def generate(python_root: Path) -> dict[str, object]:
+async def git_bytes(python_root: Path, *arguments: str) -> bytes:
+    process = await asyncio.create_subprocess_exec(
+        "git",
+        "-C",
+        str(python_root),
+        *arguments,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    if process.returncode != 0:
+        raise RuntimeError(f"git {' '.join(arguments)} failed: {stderr.decode().strip()}")
+    return stdout
+
+
+async def git_output(python_root: Path, *arguments: str) -> str:
+    return (await git_bytes(python_root, *arguments)).decode().strip()
+
+
+async def verify_python_checkout(python_root: Path, expected_baseline: str) -> str:
+    baseline = await git_output(python_root, "rev-parse", "HEAD")
+    if baseline != expected_baseline:
+        raise RuntimeError(
+            f"Python baseline mismatch: expected {expected_baseline}, found {baseline}"
+        )
+
+    return baseline
+
+
+async def generate(python_root: Path, expected_baseline: str) -> dict[str, object]:
+    baseline = await verify_python_checkout(python_root, expected_baseline)
+    archive = await git_bytes(python_root, "archive", "--format=tar", expected_baseline)
+    with tempfile.TemporaryDirectory(prefix="genreupdater-python-") as directory:
+        source_root = Path(directory)
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as source_archive:
+            source_archive.extractall(source_root, filter="data")
+        fixture = await build_fixture(source_root, baseline)
+
+    if await verify_python_checkout(python_root, expected_baseline) != baseline:
+        raise RuntimeError("Python HEAD changed during fixture generation")
+    return fixture
+
+
+async def build_fixture(python_root: Path, baseline: str) -> dict[str, object]:
     sys.path.insert(0, str(python_root))
     sys.path.insert(0, str(python_root / "src"))
 
@@ -399,56 +461,25 @@ async def generate(python_root: Path) -> dict[str, object]:
         ALBUM_DISPLAY,
     )
     requests.assert_consumed()
-
-    process = await asyncio.create_subprocess_exec(
-        "git",
-        "-C",
-        str(python_root),
-        "rev-parse",
-        "HEAD",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await process.communicate()
-    if process.returncode != 0:
-        raise RuntimeError(f"failed to read Python baseline: {stderr.decode().strip()}")
-    baseline = stdout.decode().strip()
     python_candidates = [
         canonical_python_candidate(build_release_fixture(release))
         for release in releases
     ]
     python_requests = dict(requests.requests)
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "pythonBaseline": baseline,
         "cases": [
             {
                 **SCENARIO,
                 "expected": {
                     "pythonRequests": python_requests,
-                    "swiftRequests": swift_requests(python_requests),
                     "candidateSourceOrder": [
                         candidate["source"] for candidate in python_candidates
                     ],
                     "pythonCandidates": python_candidates,
-                    "swiftCandidates": swift_candidates(),
                 },
-                "divergences": [
-                    {
-                        "scope": "candidate enrichment",
-                        "reason": (
-                            "Swift retains MusicBrainz release-group evidence and Discogs "
-                            "format/genre evidence that Python consumes or drops before return"
-                        ),
-                    },
-                    {
-                        "scope": "iTunes direct-search breadth",
-                        "reason": (
-                            "Swift requests 200 direct-search results for higher recall; Python "
-                            "requests 50 for a smaller response payload. Both use 200 for lookup."
-                        ),
-                    }
-                ],
+                "divergences": reviewed_divergences(),
             }
         ],
     }
@@ -458,11 +489,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--python-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path, required=True)
     arguments = parser.parse_args()
 
     python_root = arguments.python_root.resolve(strict=True)
     output = arguments.output.resolve()
-    fixture = asyncio.run(generate(python_root))
+    manifest = json.loads(arguments.manifest.resolve(strict=True).read_text(encoding="utf-8"))
+    expected_baseline = str(manifest["pythonBaseline"])
+    fixture = asyncio.run(generate(python_root, expected_baseline))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(fixture, indent=2, ensure_ascii=False, sort_keys=True) + "\n",

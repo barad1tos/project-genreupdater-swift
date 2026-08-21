@@ -2,16 +2,69 @@
   "cases": [
     {
       "description": "All providers recover through their broad acquisition paths",
-      "divergences": [
-        {
-          "reason": "Swift retains MusicBrainz release-group evidence and Discogs format/genre evidence that Python consumes or drops before return",
-          "scope": "candidate enrichment"
-        },
-        {
-          "reason": "Swift requests 200 direct-search results for higher recall; Python requests 50 for a smaller response payload. Both use 200 for lookup.",
-          "scope": "iTunes direct-search breadth"
-        }
-      ],
+      "divergences": {
+        "candidates": [
+          {
+            "candidateIndex": 0,
+            "field": "mbReleaseGroupID",
+            "pythonValue": null,
+            "reason": "Swift retains MusicBrainz release-group identity for downstream evidence",
+            "swiftValue": "mb-homogenic"
+          },
+          {
+            "candidateIndex": 0,
+            "field": "mbReleaseGroupFirstYear",
+            "pythonValue": null,
+            "reason": "Swift retains the MusicBrainz release-group first year",
+            "swiftValue": 1997
+          },
+          {
+            "candidateIndex": 1,
+            "field": "artist",
+            "pythonValue": "Björk",
+            "reason": "Swift preserves the normalized query artist for Discogs candidates",
+            "swiftValue": "björk"
+          },
+          {
+            "candidateIndex": 1,
+            "field": "releaseType",
+            "pythonValue": "other",
+            "reason": "Swift derives the Discogs release type from format evidence",
+            "swiftValue": "album"
+          },
+          {
+            "candidateIndex": 1,
+            "field": "country",
+            "pythonValue": "IS",
+            "reason": "Swift canonicalizes Discogs country codes to lowercase",
+            "swiftValue": "is"
+          },
+          {
+            "candidateIndex": 1,
+            "field": "genre",
+            "pythonValue": null,
+            "reason": "Swift retains Discogs genre evidence",
+            "swiftValue": "Electronic"
+          },
+          {
+            "candidateIndex": 2,
+            "field": "country",
+            "pythonValue": "US",
+            "reason": "Swift canonicalizes iTunes country codes to lowercase",
+            "swiftValue": "us"
+          }
+        ],
+        "requests": [
+          {
+            "pythonValue": "50",
+            "queryName": "limit",
+            "reason": "Swift favors direct-search recall over Python's smaller response payload",
+            "requestIndex": 0,
+            "source": "itunes",
+            "swiftValue": "200"
+          }
+        ]
+      },
       "expected": {
         "candidateSourceOrder": [
           "musicbrainz",
@@ -62,7 +115,9 @@
         "pythonRequests": {
           "discogs": [
             {
+              "host": "api.discogs.com",
               "path": "/database/search",
+              "port": null,
               "query": [
                 {
                   "name": "artist",
@@ -80,10 +135,13 @@
                   "name": "type",
                   "value": "release"
                 }
-              ]
+              ],
+              "scheme": "https"
             },
             {
+              "host": "api.discogs.com",
               "path": "/database/search",
+              "port": null,
               "query": [
                 {
                   "name": "per_page",
@@ -97,10 +155,13 @@
                   "name": "type",
                   "value": "release"
                 }
-              ]
+              ],
+              "scheme": "https"
             },
             {
+              "host": "api.discogs.com",
               "path": "/database/search",
+              "port": null,
               "query": [
                 {
                   "name": "per_page",
@@ -114,16 +175,22 @@
                   "name": "type",
                   "value": "release"
                 }
-              ]
+              ],
+              "scheme": "https"
             },
             {
+              "host": "api.discogs.com",
               "path": "/masters/100",
-              "query": []
+              "port": null,
+              "query": [],
+              "scheme": "https"
             }
           ],
           "itunes": [
             {
+              "host": "itunes.apple.com",
               "path": "/search",
+              "port": null,
               "query": [
                 {
                   "name": "country",
@@ -141,10 +208,13 @@
                   "name": "term",
                   "value": "björk homogenic"
                 }
-              ]
+              ],
+              "scheme": "https"
             },
             {
+              "host": "itunes.apple.com",
               "path": "/search",
+              "port": null,
               "query": [
                 {
                   "name": "country",
@@ -162,10 +232,13 @@
                   "name": "term",
                   "value": "björk"
                 }
-              ]
+              ],
+              "scheme": "https"
             },
             {
+              "host": "itunes.apple.com",
               "path": "/lookup",
+              "port": null,
               "query": [
                 {
                   "name": "entity",
@@ -179,12 +252,15 @@
                   "name": "limit",
                   "value": "200"
                 }
-              ]
+              ],
+              "scheme": "https"
             }
           ],
           "musicbrainz": [
             {
+              "host": "musicbrainz.org",
               "path": "/ws/2/release-group",
+              "port": null,
               "query": [
                 {
                   "name": "fmt",
@@ -198,10 +274,13 @@
                   "name": "query",
                   "value": "artist:\"björk\" AND releasegroup:\"homogenic\""
                 }
-              ]
+              ],
+              "scheme": "https"
             },
             {
+              "host": "musicbrainz.org",
               "path": "/ws/2/release-group",
+              "port": null,
               "query": [
                 {
                   "name": "fmt",
@@ -215,10 +294,13 @@
                   "name": "query",
                   "value": "björk homogenic"
                 }
-              ]
+              ],
+              "scheme": "https"
             },
             {
+              "host": "musicbrainz.org",
               "path": "/ws/2/release",
+              "port": null,
               "query": [
                 {
                   "name": "fmt",
@@ -236,229 +318,8 @@
                   "name": "release-group",
                   "value": "mb-homogenic"
                 }
-              ]
-            }
-          ]
-        },
-        "swiftCandidates": [
-          {
-            "album": "Homogenic",
-            "artist": "björk",
-            "country": null,
-            "genre": null,
-            "isReissue": false,
-            "mbReleaseGroupFirstYear": 1997,
-            "mbReleaseGroupID": "mb-homogenic",
-            "releaseType": "album",
-            "source": "musicbrainz",
-            "status": "official",
-            "year": 1997
-          },
-          {
-            "album": "Homogenic",
-            "artist": "björk",
-            "country": "is",
-            "genre": "Electronic",
-            "isReissue": false,
-            "mbReleaseGroupFirstYear": null,
-            "mbReleaseGroupID": null,
-            "releaseType": "album",
-            "source": "discogs",
-            "status": "official",
-            "year": 1997
-          },
-          {
-            "album": "Homogenic",
-            "artist": "Björk",
-            "country": "us",
-            "genre": null,
-            "isReissue": false,
-            "mbReleaseGroupFirstYear": null,
-            "mbReleaseGroupID": null,
-            "releaseType": "album",
-            "source": "itunes",
-            "status": "official",
-            "year": 1997
-          }
-        ],
-        "swiftRequests": {
-          "discogs": [
-            {
-              "path": "/database/search",
-              "query": [
-                {
-                  "name": "artist",
-                  "value": "björk"
-                },
-                {
-                  "name": "per_page",
-                  "value": "25"
-                },
-                {
-                  "name": "release_title",
-                  "value": "homogenic"
-                },
-                {
-                  "name": "type",
-                  "value": "release"
-                }
-              ]
-            },
-            {
-              "path": "/database/search",
-              "query": [
-                {
-                  "name": "per_page",
-                  "value": "25"
-                },
-                {
-                  "name": "q",
-                  "value": "björk homogenic"
-                },
-                {
-                  "name": "type",
-                  "value": "release"
-                }
-              ]
-            },
-            {
-              "path": "/database/search",
-              "query": [
-                {
-                  "name": "per_page",
-                  "value": "25"
-                },
-                {
-                  "name": "release_title",
-                  "value": "homogenic"
-                },
-                {
-                  "name": "type",
-                  "value": "release"
-                }
-              ]
-            },
-            {
-              "path": "/masters/100",
-              "query": []
-            }
-          ],
-          "itunes": [
-            {
-              "path": "/search",
-              "query": [
-                {
-                  "name": "country",
-                  "value": "US"
-                },
-                {
-                  "name": "entity",
-                  "value": "album"
-                },
-                {
-                  "name": "limit",
-                  "value": "200"
-                },
-                {
-                  "name": "term",
-                  "value": "björk homogenic"
-                }
-              ]
-            },
-            {
-              "path": "/search",
-              "query": [
-                {
-                  "name": "country",
-                  "value": "US"
-                },
-                {
-                  "name": "entity",
-                  "value": "musicArtist"
-                },
-                {
-                  "name": "limit",
-                  "value": "5"
-                },
-                {
-                  "name": "term",
-                  "value": "björk"
-                }
-              ]
-            },
-            {
-              "path": "/lookup",
-              "query": [
-                {
-                  "name": "entity",
-                  "value": "album"
-                },
-                {
-                  "name": "id",
-                  "value": "42"
-                },
-                {
-                  "name": "limit",
-                  "value": "200"
-                }
-              ]
-            }
-          ],
-          "musicbrainz": [
-            {
-              "path": "/ws/2/release-group",
-              "query": [
-                {
-                  "name": "fmt",
-                  "value": "json"
-                },
-                {
-                  "name": "limit",
-                  "value": "10"
-                },
-                {
-                  "name": "query",
-                  "value": "artist:\"björk\" AND releasegroup:\"homogenic\""
-                }
-              ]
-            },
-            {
-              "path": "/ws/2/release-group",
-              "query": [
-                {
-                  "name": "fmt",
-                  "value": "json"
-                },
-                {
-                  "name": "limit",
-                  "value": "10"
-                },
-                {
-                  "name": "query",
-                  "value": "björk homogenic"
-                }
-              ]
-            },
-            {
-              "path": "/ws/2/release",
-              "query": [
-                {
-                  "name": "fmt",
-                  "value": "json"
-                },
-                {
-                  "name": "inc",
-                  "value": "media+artist-credits"
-                },
-                {
-                  "name": "limit",
-                  "value": "100"
-                },
-                {
-                  "name": "release-group",
-                  "value": "mb-homogenic"
-                }
-              ]
+              ],
+              "scheme": "https"
             }
           ]
         }
@@ -649,5 +510,5 @@
     }
   ],
   "pythonBaseline": "0f6dca1f36eab74a6899a0f770511927b68d3e15",
-  "schemaVersion": 1
+  "schemaVersion": 2
 }
