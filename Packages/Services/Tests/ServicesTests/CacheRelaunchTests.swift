@@ -8,7 +8,7 @@ struct CacheRelaunchTests {
     @Test("Raw responses survive relaunch without another network request")
     func rawCachePersists() async throws {
         let fixture = try CacheFileFixture()
-        defer { fixture.remove() }
+        defer { fixture.cleanup() }
         let requestURL = try #require(
             URL(string: "https://musicbrainz.org/ws/2/release-group?query=releasegroup%3A%22Powerslave%22")
         )
@@ -27,21 +27,23 @@ struct CacheRelaunchTests {
             try await cache.syncToDisk()
         }
 
-        let cache = try await fixture.openCache()
-        let rawCache = RawAPIRequestCache(cache: cache, ttl: 3600)
-        let relaunchedResult = try await rawCache.data(api: "musicbrainz", url: requestURL) {
-            await counter.increment()
-            return Data("{\"release-groups\":[]}".utf8)
-        }
+        do {
+            let cache = try await fixture.openCache()
+            let rawCache = RawAPIRequestCache(cache: cache, ttl: 3600)
+            let relaunchedResult = try await rawCache.data(api: "musicbrainz", url: requestURL) {
+                await counter.increment()
+                return Data("{\"release-groups\":[]}".utf8)
+            }
 
-        #expect(relaunchedResult == expectedPayload)
-        #expect(await counter.count() == 1)
+            #expect(relaunchedResult == expectedPayload)
+            #expect(await counter.count() == 1)
+        }
     }
 
     @Test("Release candidates survive relaunch without another provider lookup")
     func candidateCachePersists() async throws {
         let fixture = try CacheFileFixture()
-        defer { fixture.remove() }
+        defer { fixture.cleanup() }
         let expectedCandidate = ReleaseCandidate(
             artist: "Iron Maiden",
             album: "Powerslave",
@@ -76,26 +78,28 @@ struct CacheRelaunchTests {
             try await cache.syncToDisk()
         }
 
-        let cache = try await fixture.openCache()
-        let orchestrator = candidateOrchestrator(
-            cache: cache,
-            counter: counter,
-            candidate: ReleaseCandidate(
+        do {
+            let cache = try await fixture.openCache()
+            let orchestrator = candidateOrchestrator(
+                cache: cache,
+                counter: counter,
+                candidate: ReleaseCandidate(
+                    artist: expectedCandidate.artist,
+                    album: expectedCandidate.album,
+                    year: 2024,
+                    source: .musicBrainz
+                )
+            )
+            let relaunchedResult = await orchestrator.getReleaseCandidates(
                 artist: expectedCandidate.artist,
                 album: expectedCandidate.album,
-                year: 2024,
-                source: .musicBrainz
+                currentLibraryYear: 2000,
+                earliestTrackAddedYear: 2005
             )
-        )
-        let relaunchedResult = await orchestrator.getReleaseCandidates(
-            artist: expectedCandidate.artist,
-            album: expectedCandidate.album,
-            currentLibraryYear: 2000,
-            earliestTrackAddedYear: 2005
-        )
 
-        #expect(relaunchedResult == [expectedCandidate])
-        #expect(await counter.count() == 1)
+            #expect(relaunchedResult == [expectedCandidate])
+            #expect(await counter.count() == 1)
+        }
     }
 
     private func candidateOrchestrator(
@@ -118,55 +122,83 @@ struct CacheRelaunchTests {
     @Test("Album years survive relaunch without another provider lookup")
     func yearCachePersists() async throws {
         let fixture = try CacheFileFixture()
-        defer { fixture.remove() }
+        defer { fixture.cleanup() }
         let counter = APICallCounter()
+        let sourceResult = YearResult(
+            year: 1984,
+            isDefinitive: true,
+            confidence: 93,
+            rawScore: 117,
+            yearScores: [1984: 93]
+        )
+        let expectedResult = YearResult(
+            year: 1984,
+            isDefinitive: false,
+            confidence: 93,
+            rawScore: 93,
+            yearScores: [1984: 93]
+        )
 
         do {
             let cache = try await fixture.openCache()
             let orchestrator = yearOrchestrator(
                 cache: cache,
                 counter: counter,
-                year: 1984
+                result: sourceResult
             )
             let result = await albumYear(from: orchestrator)
 
-            #expect(result.year == 1984)
-            #expect(result.confidence == 93)
+            #expect(result == expectedResult)
+            let cachedResult = try #require(await cachedYear(in: cache))
+            #expect(cachedResult.metadata["rawScore"] == "117")
+            #expect(cachedResult.metadata["isDefinitive"] == "true")
             try await cache.syncToDisk()
         }
 
-        let cache = try await fixture.openCache()
-        let orchestrator = yearOrchestrator(
-            cache: cache,
-            counter: counter,
-            year: 2024
-        )
-        let relaunchedResult = await albumYear(from: orchestrator)
+        do {
+            let cache = try await fixture.openCache()
+            let cachedResult = try #require(await cachedYear(in: cache))
+            #expect(cachedResult.metadata["rawScore"] == "117")
+            #expect(cachedResult.metadata["isDefinitive"] == "true")
+            let orchestrator = yearOrchestrator(
+                cache: cache,
+                counter: counter,
+                result: YearResult(
+                    year: 2024,
+                    confidence: 41,
+                    rawScore: 52,
+                    yearScores: [2024: 41]
+                )
+            )
+            let relaunchedResult = await albumYear(from: orchestrator)
 
-        #expect(relaunchedResult.year == 1984)
-        #expect(relaunchedResult.confidence == 93)
-        #expect(await counter.count() == 1)
+            #expect(relaunchedResult == expectedResult)
+            #expect(await counter.count() == 1)
+        }
     }
 
     private func yearOrchestrator(
         cache: any CacheService,
         counter: APICallCounter,
-        year: Int
+        result: YearResult
     ) -> APIOrchestrator {
         makeAPIOrchestrator(
             musicBrainz: CountingAPIService(
                 callCounter: counter,
-                yearResult: YearResult(
-                    year: year,
-                    isDefinitive: true,
-                    confidence: 93,
-                    yearScores: [year: 93]
-                )
+                yearResult: result
             ),
             discogs: MockAPIService(),
             appleMusic: MockAPIService(),
             cache: cache,
             disabledSources: [.discogs, .itunes]
+        )
+    }
+
+    private func cachedYear(in cache: any CacheService) async -> CachedAPIResult? {
+        await cache.getCachedAPIResult(
+            artist: "iron maiden",
+            album: "powerslave",
+            source: APISource.musicBrainz.rawValue
         )
     }
 
@@ -201,7 +233,11 @@ private struct CacheFileFixture {
         return cache
     }
 
-    func remove() {
-        try? FileManager.default.removeItem(at: directory)
+    func cleanup() {
+        do {
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            Issue.record("Failed to remove provider cache fixture: \(error)")
+        }
     }
 }
