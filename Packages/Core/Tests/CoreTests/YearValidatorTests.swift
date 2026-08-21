@@ -61,6 +61,19 @@ struct YearValidatorTests {
         #expect(validator.validate(year: 1970) == .valid)
     }
 
+    @Test("Candidate years stay within the configured minimum and current UTC year")
+    func candidateYearBounds() {
+        var config = YearLogicConfig()
+        config.minValidYear = 1950
+        let configured = YearValidator(config: config)
+        let startOf2026 = Date(timeIntervalSince1970: 1_767_225_600)
+
+        #expect(!configured.acceptsCandidateYear(1949, at: startOf2026))
+        #expect(configured.acceptsCandidateYear(1950, at: startOf2026))
+        #expect(configured.acceptsCandidateYear(2026, at: startOf2026))
+        #expect(!configured.acceptsCandidateYear(2027, at: startOf2026))
+    }
+
     // MARK: - isAbsurd
 
     @Test("isAbsurd correctly identifies years before minValidYear")

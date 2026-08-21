@@ -98,6 +98,7 @@ public struct APIOrchestratorConfiguration: Sendable {
     public var variousArtistsNames: [String]
     public var discogsReissueKeywords: [String]
     public var discogsSearchConfiguration: DiscogsSearchConfig
+    public var yearLogic: YearLogicConfig
     public var dateProvider: @Sendable () -> Date
 
     public init() {
@@ -118,6 +119,7 @@ public struct APIOrchestratorConfiguration: Sendable {
         variousArtistsNames = SearchStrategyDefaults.variousArtistsNames
         discogsReissueKeywords = MetadataRuleDefaults.releaseReissues
         discogsSearchConfiguration = DiscogsSearchConfig()
+        yearLogic = YearLogicConfig()
     }
 
     /// Maps every config-derived field from `AppConfiguration`.
@@ -139,6 +141,7 @@ public struct APIOrchestratorConfiguration: Sendable {
         variousArtistsNames = configuration.albumTypeDetection.variousArtistsNames
         discogsReissueKeywords = configuration.yearRetrieval.reissueDetection.reissueKeywords
         discogsSearchConfiguration = configuration.yearRetrieval.discogsSearch
+        yearLogic = configuration.yearRetrieval.logic
     }
 }
 
@@ -182,6 +185,7 @@ public actor APIOrchestrator {
     let variousArtistsNames: [String]
     let discogsReissueKeywords: [String]
     let discogsSearchConfiguration: DiscogsSearchConfig
+    let yearValidator: YearValidator
     let dateProvider: @Sendable () -> Date
     private let log = AppLogger.api
 
@@ -210,6 +214,7 @@ public actor APIOrchestrator {
         variousArtistsNames = configuration.variousArtistsNames
         discogsReissueKeywords = configuration.discogsReissueKeywords
         discogsSearchConfiguration = configuration.discogsSearchConfiguration
+        yearValidator = YearValidator(config: configuration.yearLogic)
         dateProvider = configuration.dateProvider
         apiRetryConfiguration = APIRetryConfiguration(
             maxRetries: configuration.maxAPIRetries,
@@ -320,9 +325,7 @@ public actor APIOrchestrator {
         defer { AppSignpost.apiCall.endInterval("orchestrateAlbumYear", signpostState) }
 
         let serviceBySource: [APISource: any ExternalAPIService] = [
-            .musicBrainz: musicBrainz,
-            .discogs: discogs,
-            .itunes: appleMusic,
+            .musicBrainz: musicBrainz, .discogs: discogs, .itunes: appleMusic,
         ]
         let searchQuery = makeAPISearchQuery(artist: artist, album: album)
         let orderedSources = sourcePriorityConfiguration.orderedSources(
@@ -346,13 +349,15 @@ public actor APIOrchestrator {
         guard !Task.isCancelled else {
             return PendingAlbumYearLookup(result: YearResult(), didAttemptLookup: false)
         }
-        let apiResult = Self.aggregateResults(results, orderedSources: activeSources)
+        let decisionDate = dateProvider()
+        let apiResult = aggregateResults(results, orderedSources: activeSources, at: decisionDate)
         let isConfirmedMiss = !results.isEmpty && results.allSatisfy(\.didCompleteLookup)
         if apiResult.year == nil, !isConfirmedMiss {
-            let result = Self.applyingCurrentLibraryFallback(
+            let result = applyingCurrentLibraryFallback(
                 to: apiResult,
                 currentLibraryYear: currentLibraryYear,
-                earliestTrackAddedYear: earliestTrackAddedYear
+                earliestTrackAddedYear: earliestTrackAddedYear,
+                at: decisionDate
             )
             return PendingAlbumYearLookup(result: result, didAttemptLookup: false)
         }
@@ -366,20 +371,22 @@ public actor APIOrchestrator {
                 result: apiResult
             )
         }
-        let result = Self.applyingCurrentLibraryFallback(
+        let result = applyingCurrentLibraryFallback(
             to: apiResult,
             currentLibraryYear: currentLibraryYear,
-            earliestTrackAddedYear: earliestTrackAddedYear
+            earliestTrackAddedYear: earliestTrackAddedYear,
+            at: decisionDate
         )
         return PendingAlbumYearLookup(result: result, didAttemptLookup: true)
     }
 
     // MARK: - Private
 
-    private static func applyingCurrentLibraryFallback(
+    private func applyingCurrentLibraryFallback(
         to result: YearResult,
         currentLibraryYear: Int?,
-        earliestTrackAddedYear: Int?
+        earliestTrackAddedYear: Int?,
+        at date: Date
     ) -> YearResult {
         guard result.year == nil,
               let fallbackYear = currentLibraryYear
@@ -387,9 +394,9 @@ public actor APIOrchestrator {
             return result
         }
 
-        let currentYear = Calendar.current.component(.year, from: Date())
-        guard isValidCurrentLibraryFallbackYear(fallbackYear, currentYear: currentYear),
-              !isCurrentYearContamination(
+        let currentYear = Self.currentUTCYear(at: date)
+        guard yearValidator.acceptsCandidateYear(fallbackYear, at: date),
+              !Self.isCurrentYearContamination(
                   currentLibraryYear: fallbackYear,
                   earliestTrackAddedYear: earliestTrackAddedYear,
                   currentYear: currentYear
@@ -401,8 +408,10 @@ public actor APIOrchestrator {
         return YearResult(year: fallbackYear)
     }
 
-    private static func isValidCurrentLibraryFallbackYear(_ year: Int, currentYear: Int) -> Bool {
-        year >= YearLogicConfig().minValidYear && year <= currentYear
+    private static func currentUTCYear(at date: Date) -> Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        return calendar.component(.year, from: date)
     }
 
     private static func isCurrentYearContamination(
@@ -594,64 +603,6 @@ public actor APIOrchestrator {
         metadata[DiscogsAcquisition.metadataKey] = cacheContext.discogsAcquisitionSignature
         return metadata
     }
-
-    /// Combines source year scores and selects the best year.
-    /// Merges score dictionaries additively. The year with the highest combined score wins.
-    /// `isDefinitive` is true when 2+ sources agree on the same year. Final confidence is capped at 100.
-    private static func aggregateResults(
-        _ results: [SourceFetchResult],
-        orderedSources: [APISource]
-    ) -> YearResult {
-        var combinedScores: [Int: Int] = [:]
-
-        for result in results.map(\.result) {
-            for (year, score) in result.yearScores {
-                combinedScores[year, default: 0] += score
-            }
-        }
-
-        guard let bestScore = combinedScores.values.max() else {
-            return YearResult()
-        }
-
-        let sourceRank = Dictionary(uniqueKeysWithValues: orderedSources.enumerated().map { ($0.element, $0.offset) })
-        let bestYear = combinedScores
-            .filter { $0.value == bestScore }
-            .keys
-            .min { lhs, rhs in
-                let lhsRank = bestSourceRank(for: lhs, in: results, sourceRank: sourceRank)
-                let rhsRank = bestSourceRank(for: rhs, in: results, sourceRank: sourceRank)
-                if lhsRank != rhsRank {
-                    return lhsRank < rhsRank
-                }
-                return lhs < rhs
-            }
-
-        guard let bestYear else {
-            return YearResult()
-        }
-
-        let agreeingSourceCount = results.count(where: { $0.result.year == bestYear })
-        let isDefinitive = agreeingSourceCount >= 2
-
-        return YearResult(
-            year: bestYear,
-            isDefinitive: isDefinitive,
-            confidence: min(bestScore, 100),
-            yearScores: combinedScores
-        )
-    }
-
-    private static func bestSourceRank(
-        for year: Int,
-        in results: [SourceFetchResult],
-        sourceRank: [APISource: Int]
-    ) -> Int {
-        results
-            .filter { $0.result.year == year || $0.result.yearScores[year] != nil }
-            .compactMap { sourceRank[$0.source] }
-            .min() ?? Int.max
-    }
 }
 
 private func fetchWithTimeout(
@@ -750,7 +701,7 @@ private struct SourceCacheContext {
     let discogsAcquisitionSignature: String
 }
 
-private struct SourceFetchResult {
+struct SourceFetchResult {
     let source: APISource
     let result: YearResult
     let didCompleteLookup: Bool

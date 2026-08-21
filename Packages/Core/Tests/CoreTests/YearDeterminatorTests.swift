@@ -226,6 +226,40 @@ struct YearDeterminatorTests {
         #expect(result.candidateCount == 1)
     }
 
+    @Test("An existing year below the configured minimum is ignored")
+    func invalidExistingYearIgnored() {
+        var logic = YearLogicConfig()
+        logic.minValidYear = 1950
+        let configured = YearDeterminator(
+            scorer: YearScorer(yearLogic: logic),
+            validator: YearValidator(config: logic)
+        )
+        let track = makeTrack(year: 1949)
+
+        let result = configured.determineYear(
+            candidates: [],
+            track: track
+        )
+
+        #expect(result.yearResult.year == nil)
+        #expect(result.yearResult.confidence == 0)
+        #expect(result.source == .fallback)
+    }
+
+    @Test("An existing future year is ignored")
+    func futureExistingYearIgnored() {
+        let track = makeTrack(year: currentUTCYear() + 1)
+
+        let result = determinator.determineYear(
+            candidates: [],
+            track: track
+        )
+
+        #expect(result.yearResult.year == nil)
+        #expect(result.yearResult.confidence == 0)
+        #expect(result.source == .fallback)
+    }
+
     @Test("A valid past candidate survives a stronger future candidate")
     func pastCandidateSelected() {
         let currentYear = currentUTCYear()

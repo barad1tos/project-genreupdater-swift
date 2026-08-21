@@ -42,6 +42,17 @@ public struct YearValidator: Sendable {
         return .valid
     }
 
+    /// Whether an external release candidate is within the configured acquisition bounds.
+    ///
+    /// Candidate resolution excludes every future calendar year, while `validate(year:)`
+    /// intentionally reserves its future classification for years beyond the next year.
+    public func acceptsCandidateYear(_ year: Int, at date: Date = Date()) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let currentYear = calendar.component(.year, from: date)
+        return year >= config.minValidYear && year <= currentYear
+    }
+
     /// Whether a year is absurdly old (before recorded music era).
     public func isAbsurd(_ year: Int) -> Bool {
         year < config.minValidYear

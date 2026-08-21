@@ -71,7 +71,11 @@ public struct YearDeterminator: Sendable {
         let signpostState = AppSignpost.yearDetermination.beginInterval("determineYear")
         defer { AppSignpost.yearDetermination.endInterval("determineYear", signpostState) }
 
-        let effectiveCurrentYear = currentYear ?? track.year
+        let decisionDate = Date()
+        let storedYear = currentYear ?? track.year
+        let effectiveCurrentYear = storedYear.flatMap { year in
+            validator.acceptsCandidateYear(year, at: decisionDate) ? year : nil
+        }
 
         // Steps 1-2: Cross-track year (dominant, consensus)
         if let result = checkCrossTrackYear(
@@ -89,10 +93,8 @@ public struct YearDeterminator: Sendable {
             )
         }
 
-        let currentCalendarYear = currentUTCYear()
-        let validCandidates = candidates.filter { candidate in
-            candidate.year >= validator.config.minValidYear
-                && candidate.year <= currentCalendarYear
+        let validCandidates = candidates.filter {
+            validator.acceptsCandidateYear($0.year, at: decisionDate)
         }
         guard !validCandidates.isEmpty else {
             return noResultDetermination(

@@ -1,9 +1,12 @@
+import Foundation
 import Testing
 @testable import Core
 @testable import Services
 
 @Suite("APIOrchestrator — parallel multi-source year aggregation")
 struct APIOrchestratorTests {
+    private let startOf2026 = Date(timeIntervalSince1970: 1_767_225_600)
+
     @Test("Aggregates results from multiple sources with combined confidence > 80")
     func aggregateResultsFromMultipleSources() async {
         let musicBrainz = MockAPIService(
@@ -275,6 +278,114 @@ struct APIOrchestratorTests {
         // yearScores preserves both years
         #expect(result.yearScores[1984] == 150)
         #expect(result.yearScores[1985] == 60)
+    }
+
+    @Test("A future-only source result is excluded from aggregation")
+    func futureYearExcluded() async {
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(
+                yearResult: YearResult(year: 2027, confidence: 100, yearScores: [2027: 100])
+            ),
+            discogs: MockAPIService(),
+            appleMusic: MockAPIService()
+        ) {
+            $0.dateProvider = { startOf2026 }
+        }
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Test",
+            album: "Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == nil)
+        #expect(result.confidence == 0)
+        #expect(result.yearScores.isEmpty)
+    }
+
+    @Test("A valid year survives a stronger future source result")
+    func validYearBeatsFuture() async {
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: MockAPIService(
+                yearResult: YearResult(year: 2027, confidence: 100, yearScores: [2027: 100])
+            ),
+            discogs: MockAPIService(
+                yearResult: YearResult(year: 2020, confidence: 70, yearScores: [2020: 70])
+            ),
+            appleMusic: MockAPIService()
+        ) {
+            $0.dateProvider = { startOf2026 }
+        }
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Test",
+            album: "Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == 2020)
+        #expect(result.confidence == 70)
+        #expect(result.yearScores == [2020: 70])
+    }
+
+    @Test("Configured minimum excludes older provider results")
+    func minimumFiltersProviderYear() async {
+        var applicationConfiguration = AppConfiguration()
+        applicationConfiguration.yearRetrieval.logic.minValidYear = 1950
+        var configuration = APIOrchestratorConfiguration(configuration: applicationConfiguration)
+        configuration.dateProvider = { startOf2026 }
+        let orchestrator = APIOrchestrator(
+            services: APIOrchestratorServices(
+                musicBrainz: MockAPIService(
+                    yearResult: YearResult(year: 1949, confidence: 100, yearScores: [1949: 100])
+                ),
+                discogs: MockAPIService(
+                    yearResult: YearResult(year: 1950, confidence: 70, yearScores: [1950: 70])
+                ),
+                appleMusic: MockAPIService()
+            ),
+            configuration: configuration
+        )
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Test",
+            album: "Album",
+            currentLibraryYear: nil,
+            earliestTrackAddedYear: nil
+        )
+
+        #expect(result.year == 1950)
+        #expect(result.confidence == 70)
+        #expect(result.yearScores == [1950: 70])
+    }
+
+    @Test("Configured minimum also applies to the current library fallback")
+    func minimumFiltersLibraryYear() async {
+        var applicationConfiguration = AppConfiguration()
+        applicationConfiguration.yearRetrieval.logic.minValidYear = 1950
+        var configuration = APIOrchestratorConfiguration(configuration: applicationConfiguration)
+        configuration.dateProvider = { startOf2026 }
+        let orchestrator = APIOrchestrator(
+            services: APIOrchestratorServices(
+                musicBrainz: MockAPIService(shouldThrow: true),
+                discogs: MockAPIService(shouldThrow: true),
+                appleMusic: MockAPIService(shouldThrow: true)
+            ),
+            configuration: configuration
+        )
+
+        let result = await orchestrator.getAlbumYear(
+            artist: "Test",
+            album: "Album",
+            currentLibraryYear: 1949,
+            earliestTrackAddedYear: 2020
+        )
+
+        #expect(result.year == nil)
+        #expect(result.confidence == 0)
+        #expect(result.yearScores.isEmpty)
     }
 
     @Test("Cache hit skips matching source request")
