@@ -182,7 +182,7 @@ struct FixPlanIdentityTests {
             loadTracks: { tracks },
             makeRuntime: { _, _ in
                 FixPlanProducer.Runtime(
-                    refreshIdentity: { _, _ in },
+                    refreshIdentity: { tracks, _ in #expect(tracks.count == 2) },
                     albumContext: {
                         await coordinator.albumContextTracksByTrackID(for: $0, requiresMutationMetadata: false)
                     },
