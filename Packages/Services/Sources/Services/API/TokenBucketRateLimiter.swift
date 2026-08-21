@@ -13,6 +13,11 @@ enum RateLimitError: Error {
 /// - MusicBrainz: `maxTokens: 1, refillInterval: .seconds(1)` (1 req/sec)
 /// - Discogs: `maxTokens: 1, refillInterval: .milliseconds(1091)` (about 55 evenly paced req/min)
 public actor TokenBucketRateLimiter: RateLimiter {
+    struct Policy: Sendable, Equatable {
+        let maxTokens: Int
+        let refillInterval: Duration
+    }
+
     private enum WaitResult {
         case granted(Duration)
         case cancelled
@@ -58,8 +63,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
 
     // MARK: - Properties
 
-    private let maxTokens: Int
-    private let refillInterval: Duration
+    nonisolated let policy: Policy
     private let clock: ContinuousClock
     #if DEBUG
     private let hooks: TestHooks?
@@ -89,14 +93,13 @@ public actor TokenBucketRateLimiter: RateLimiter {
         refillInterval: Duration,
         clock: ContinuousClock = ContinuousClock()
     ) {
-        let settings = Self.normalizedSettings(maxTokens, refillInterval)
-        self.maxTokens = settings.maxTokens
-        self.refillInterval = settings.refillInterval
+        let policy = Self.normalizedPolicy(maxTokens, refillInterval)
+        self.policy = policy
         self.clock = clock
         #if DEBUG
         self.hooks = nil
         #endif
-        self.currentTokens = settings.maxTokens
+        self.currentTokens = policy.maxTokens
         self.lastRefillInstant = clock.now
     }
 
@@ -108,12 +111,11 @@ public actor TokenBucketRateLimiter: RateLimiter {
         clock: ContinuousClock = ContinuousClock(),
         hooks: TestHooks
     ) {
-        let settings = Self.normalizedSettings(maxTokens, refillInterval)
-        self.maxTokens = settings.maxTokens
-        self.refillInterval = settings.refillInterval
+        let policy = Self.normalizedPolicy(maxTokens, refillInterval)
+        self.policy = policy
         self.clock = clock
         self.hooks = hooks
-        self.currentTokens = settings.maxTokens
+        self.currentTokens = policy.maxTokens
         self.lastRefillInstant = hooks.now?() ?? clock.now
     }
     #endif
@@ -192,7 +194,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
         refillTokens()
         // Drain refilled capacity first so the cap cannot discard the returned reservation.
         grantTokens()
-        if currentTokens < maxTokens {
+        if currentTokens < policy.maxTokens {
             currentTokens += 1
         }
         grantTokens()
@@ -229,11 +231,11 @@ public actor TokenBucketRateLimiter: RateLimiter {
 
     // MARK: - Private
 
-    private static func normalizedSettings(
+    private static func normalizedPolicy(
         _ maxTokens: Int,
         _ refillInterval: Duration
-    ) -> (maxTokens: Int, refillInterval: Duration) {
-        (
+    ) -> Policy {
+        Policy(
             maxTokens: max(1, maxTokens),
             refillInterval: refillInterval > .zero ? refillInterval : .nanoseconds(1)
         )
@@ -392,7 +394,7 @@ public actor TokenBucketRateLimiter: RateLimiter {
 
         guard !waiters.isEmpty else { return }
 
-        let refillAt = lastRefillInstant.advanced(by: refillInterval)
+        let refillAt = lastRefillInstant.advanced(by: policy.refillInterval)
         let deadline = waiters.compactMap(\.deadline).min()
         let wakeAt = deadline.map { min($0, refillAt) } ?? refillAt
         let id = UUID()
@@ -421,16 +423,16 @@ public actor TokenBucketRateLimiter: RateLimiter {
         let now = currentInstant
         let elapsed = lastRefillInstant.duration(to: now)
 
-        guard elapsed >= refillInterval else { return }
+        guard elapsed >= policy.refillInterval else { return }
 
         let tokensToAdd = tokenCount(for: elapsed)
 
         if tokensToAdd > 0 {
-            currentTokens = min(currentTokens + tokensToAdd, maxTokens)
+            currentTokens = min(currentTokens + tokensToAdd, policy.maxTokens)
             // Advance lastRefillInstant by the number of full intervals consumed
             let intervalsConsumed = tokensToAdd
             lastRefillInstant = lastRefillInstant.advanced(
-                by: refillInterval * intervalsConsumed
+                by: policy.refillInterval * intervalsConsumed
             )
         }
     }
@@ -440,8 +442,8 @@ public actor TokenBucketRateLimiter: RateLimiter {
     /// Nanosecond arithmetic is safe for durations up to ~292 years (Int64 range).
     /// API rate limiters operate on sub-minute intervals, well within bounds.
     private func tokenCount(for elapsed: Duration) -> Int {
-        let intervalNanoseconds = refillInterval.components.seconds * 1_000_000_000
-            + refillInterval.components.attoseconds / 1_000_000_000
+        let intervalNanoseconds = policy.refillInterval.components.seconds * 1_000_000_000
+            + policy.refillInterval.components.attoseconds / 1_000_000_000
         let elapsedNanoseconds = elapsed.components.seconds * 1_000_000_000
             + elapsed.components.attoseconds / 1_000_000_000
 

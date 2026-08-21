@@ -57,7 +57,7 @@ struct APIClientFactoryOverrides {
     ) -> any ExternalAPIService
     typealias CatalogFactory = @MainActor (
         _ configuration: AppConfiguration,
-        _ rateLimiter: TokenBucketRateLimiter?,
+        _ rateLimiter: TokenBucketRateLimiter,
         _ rawRequestCache: RawAPIRequestCache?
     ) -> any ExternalAPIService
 
@@ -440,17 +440,14 @@ extension AppDependencies {
 
     static func makeCatalogClient(
         configuration: AppConfiguration,
-        rateLimiter: TokenBucketRateLimiter?,
+        rateLimiter: TokenBucketRateLimiter,
         rawRequestCache: RawAPIRequestCache? = nil
     ) -> CatalogSearchClient {
         let itunesSearch = configuration.yearRetrieval.itunesSearch
-        return CatalogSearchClient(
-            countryCode: itunesSearch.normalizedCountryCode,
-            entity: itunesSearch.entity,
-            limit: itunesSearch.clampedLimit,
-            lookupFallbackEnabled: itunesSearch.lookupFallbackEnabled,
-            rawRequestCache: rawRequestCache,
-            rateLimiter: rateLimiter
+        return CatalogSearchClient.paced(
+            settings: itunesSearch,
+            rateLimiter: rateLimiter,
+            rawRequestCache: rawRequestCache
         )
     }
 
@@ -462,8 +459,9 @@ extension AppDependencies {
     }
 
     private static func musicBrainzLimiter(configuration: AppConfiguration) -> TokenBucketRateLimiter {
-        makeRateLimiter(
-            requests: configuration.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond,
+        let configuredRate = configuration.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond
+        return makeRateLimiter(
+            requests: APIRateLimits.musicBrainzRate(configuredRate),
             perSeconds: 1
         )
     }

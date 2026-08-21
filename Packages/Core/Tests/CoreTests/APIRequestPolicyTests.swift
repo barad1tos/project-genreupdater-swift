@@ -40,6 +40,28 @@ struct APIRequestPolicyTests {
         #expect(APIRateLimits.refillMilliseconds(requests: 1e-308, perSeconds: 1) == nil)
     }
 
+    @Test("Legacy zero MusicBrainz rate remains a valid persisted boundary")
+    func preservesLegacyZeroRate() throws {
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("genreupdater-zero-musicbrainz-rate-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: configURL) }
+        let legacyJSON = Data(
+            #"{"yearRetrieval":{"rateLimits":{"musicbrainzRequestsPerSecond":0}}}"#.utf8
+        )
+        let historical = try JSONDecoder().decode(AppConfiguration.self, from: legacyJSON)
+        try legacyJSON.write(to: configURL, options: .atomic)
+
+        let loaded = try AppConfiguration.load(from: configURL)
+        try loaded.save(to: configURL)
+        let reloaded = try AppConfiguration.load(from: configURL)
+
+        #expect(historical.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond == 0)
+        #expect(loaded.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond == 0)
+        #expect(reloaded.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond == 0)
+        #expect(APIRateLimits.musicBrainzRate(0) == 1)
+        #expect(APIRateLimits.musicBrainzRate(2.5) == 2.5)
+    }
+
     @Test("New provider policy fields reject unsafe persisted values", arguments: PolicyFault.allCases)
     private func rejectsUnsafeValues(_ fault: PolicyFault) {
         var configuration = AppConfiguration()

@@ -43,6 +43,16 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     private let findReleaseDate: @Sendable (String) async throws -> Date?
     private let log = AppLogger.api
 
+    static let defaultPolicy: TokenBucketRateLimiter.Policy = {
+        guard let refillMilliseconds = APIRateLimits.refillMilliseconds(
+            requests: APIRateLimits.defaultITunesPerSecond,
+            perSeconds: 1
+        ) else {
+            preconditionFailure("Default iTunes rate limit must be valid")
+        }
+        return .init(maxTokens: 1, refillInterval: .milliseconds(refillMilliseconds))
+    }()
+
     public init(
         session: URLSession = .shared,
         countryCode: String = "US",
@@ -50,8 +60,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         limit: Int = 200,
         iTunesConfiguration: ITunesSearchConfiguration = ITunesSearchConfiguration(),
         lookupFallbackEnabled: Bool = true,
-        rawRequestCache: RawAPIRequestCache? = nil,
-        rateLimiter: TokenBucketRateLimiter? = nil
+        rawRequestCache: RawAPIRequestCache? = nil
     ) {
         self.init(
             session: session,
@@ -61,11 +70,29 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
             iTunesConfiguration: iTunesConfiguration,
             lookupFallbackEnabled: lookupFallbackEnabled,
             rawRequestCache: rawRequestCache,
-            rateLimiter: rateLimiter,
+            rateLimiter: nil,
             dateProvider: { Date() },
             authorizeMusic: { await MusicAuthorization.request() },
             findReleaseDate: Self.findReleaseDate
         )
+    }
+
+    /// Creates a catalog client whose iTunes requests use an explicit pacing policy.
+    public static func paced(
+        settings: ITunesSearchConfig,
+        rateLimiter: TokenBucketRateLimiter,
+        session: URLSession = .shared,
+        rawRequestCache: RawAPIRequestCache? = nil
+    ) -> Self {
+        Self(
+            session: session,
+            countryCode: settings.normalizedCountryCode,
+            entity: settings.entity,
+            limit: settings.clampedLimit,
+            lookupFallbackEnabled: settings.lookupFallbackEnabled,
+            rawRequestCache: rawRequestCache
+        )
+        .paced(rateLimiter)
     }
 
     init(
@@ -240,13 +267,26 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     }
 
     private static func defaultLimiter() -> TokenBucketRateLimiter {
-        guard let refillMilliseconds = APIRateLimits.refillMilliseconds(
-            requests: APIRateLimits.defaultITunesPerSecond,
-            perSeconds: 1
-        ) else {
-            preconditionFailure("Default iTunes rate limit must be valid")
-        }
-        return TokenBucketRateLimiter(maxTokens: 1, refillInterval: .milliseconds(refillMilliseconds))
+        TokenBucketRateLimiter(
+            maxTokens: defaultPolicy.maxTokens,
+            refillInterval: defaultPolicy.refillInterval
+        )
+    }
+
+    private func paced(_ rateLimiter: TokenBucketRateLimiter) -> Self {
+        Self(
+            session: session,
+            countryCode: countryCode,
+            entity: entity,
+            limit: limit,
+            iTunesConfiguration: iTunesConfiguration,
+            lookupFallbackEnabled: lookupFallbackEnabled,
+            rawRequestCache: rawRequestCache,
+            rateLimiter: rateLimiter,
+            dateProvider: dateProvider,
+            authorizeMusic: authorizeMusic,
+            findReleaseDate: findReleaseDate
+        )
     }
 
     static func buildArtistAlbumsSearchURL(

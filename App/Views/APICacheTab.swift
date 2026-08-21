@@ -79,8 +79,9 @@ struct APICacheTab: View {
             ) {
                 LabeledContent(
                     "MusicBrainz requests per second",
-                    value: dependencies.config.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond
-                        .formatted(.number.precision(.fractionLength(1)))
+                    value: Self.musicBrainzRateText(
+                        dependencies.config.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond
+                    )
                 )
             }
 
@@ -103,8 +104,7 @@ struct APICacheTab: View {
             ) {
                 LabeledContent(
                     "Provider timeout",
-                    value: dependencies.config.yearRetrieval.providerTimeoutSeconds
-                        .formatted(.number.precision(.fractionLength(0))) + "s"
+                    value: Self.providerTimeoutText(dependencies.config.yearRetrieval.providerTimeoutSeconds)
                 )
             }
 
@@ -130,6 +130,16 @@ struct APICacheTab: View {
                 )
             }
         }
+    }
+
+    static func musicBrainzRateText(_ configuredRate: Double) -> String {
+        let effectiveRate = APIRateLimits.musicBrainzRate(configuredRate)
+            .formatted(.number.precision(.fractionLength(1)))
+        return configuredRate == 0 ? "\(effectiveRate) (legacy setting: 0)" : effectiveRate
+    }
+
+    static func providerTimeoutText(_ seconds: Double) -> String {
+        seconds.formatted(.number.precision(.fractionLength(0 ... 1))) + "s"
     }
 
     private var discogsSection: some View {

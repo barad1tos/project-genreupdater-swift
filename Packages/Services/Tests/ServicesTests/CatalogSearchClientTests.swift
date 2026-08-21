@@ -30,6 +30,21 @@ struct CatalogSearchClientTests {
         requireExternalAPIService(CatalogSearchClient())
     }
 
+    @Test("Public initializer keeps its original function type")
+    func preservesInitializerType() {
+        let initializer: (
+            URLSession,
+            String,
+            String,
+            Int,
+            ITunesSearchConfiguration,
+            Bool,
+            RawAPIRequestCache?
+        ) -> CatalogSearchClient = CatalogSearchClient.init
+
+        _ = initializer
+    }
+
     @Test("Album year lookup reports unavailable MusicKit authorization as a failure")
     func requiresAuthorization() async {
         let client = CatalogSearchClient(
@@ -327,10 +342,12 @@ struct CatalogSearchClientTests {
         }
         let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(60))
         _ = await limiter.acquire()
-        let client = CatalogSearchClient(
-            session: session,
-            lookupFallbackEnabled: false,
-            rateLimiter: limiter
+        var settings = ITunesSearchConfig()
+        settings.lookupFallbackEnabled = false
+        let client = CatalogSearchClient.paced(
+            settings: settings,
+            rateLimiter: limiter,
+            session: session
         )
 
         let lookup = Task {
@@ -352,6 +369,62 @@ struct CatalogSearchClientTests {
         #expect(startedAfterAdmission)
     }
 
+    @Test("Cancelled iTunes admission never reaches the network")
+    func cancelledAdmissionStopsRequest() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ITunesMockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let requestStarted = EventCounter()
+        defer {
+            ITunesMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+        ITunesMockURLProtocol.requestHandler = { request in
+            requestStarted.record()
+            let url = try #require(request.url)
+            let response = try #require(HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, Self.matchingITunesPayload)
+        }
+        let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(60))
+        _ = await limiter.acquire()
+        var settings = ITunesSearchConfig()
+        settings.lookupFallbackEnabled = false
+        let client = CatalogSearchClient.paced(
+            settings: settings,
+            rateLimiter: limiter,
+            session: session
+        )
+        let lookup = Task {
+            try await client.getReleaseCandidates(
+                artist: "Test Artist",
+                album: "Test Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+
+        #expect(await limiter.waitForQueue(1, timeout: .seconds(1)))
+        lookup.cancel()
+        do {
+            _ = try await taskValue(lookup, timeout: .milliseconds(100))
+            Issue.record("Expected prompt CancellationError")
+        } catch is CancellationError {
+            // Expected terminal result.
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+        #expect(await limiter.waitForQueue(0, timeout: .milliseconds(100)))
+
+        await limiter.release()
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(await !(requestStarted.wait(for: 1, timeout: .milliseconds(20))))
+    }
+
     @Test("iTunes cache hits do not consume request admission")
     func cacheHitsBypassAdmission() async throws {
         let cache = MockCacheService()
@@ -367,10 +440,12 @@ struct CatalogSearchClientTests {
         }
         let limiter = TokenBucketRateLimiter(maxTokens: 1, refillInterval: .seconds(60))
         _ = await limiter.acquire()
-        let client = CatalogSearchClient(
-            lookupFallbackEnabled: false,
-            rawRequestCache: rawCache,
-            rateLimiter: limiter
+        var settings = ITunesSearchConfig()
+        settings.lookupFallbackEnabled = false
+        let client = CatalogSearchClient.paced(
+            settings: settings,
+            rateLimiter: limiter,
+            rawRequestCache: rawCache
         )
 
         let lookup = Task {

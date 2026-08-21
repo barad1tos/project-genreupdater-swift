@@ -571,8 +571,8 @@ struct ConfigurationValidationTests {
             minimumOne("yearRetrieval.rateLimits.discogsRequestsPerMinute", "0") {
                 $0.yearRetrieval.rateLimits.discogsRequestsPerMinute = 0
             },
-            greaterThanZero("yearRetrieval.rateLimits.musicbrainzRequestsPerSecond", "0.0") {
-                $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 0
+            minimumZero("yearRetrieval.rateLimits.musicbrainzRequestsPerSecond", "-1.0") {
+                $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = -1
             },
             pacingCapacity("yearRetrieval.rateLimits.musicbrainzRequestsPerSecond", "1e-308") {
                 $0.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 1e-308

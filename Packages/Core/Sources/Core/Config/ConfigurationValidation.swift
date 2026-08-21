@@ -354,7 +354,7 @@ extension AppConfiguration {
             windowSeconds: 60,
             path: "yearRetrieval.rateLimits.discogsRequestsPerMinute"
         )
-        validation.requireGreaterThan(
+        validation.requireAtLeast(
             yearRetrieval.rateLimits.musicbrainzRequestsPerSecond,
             minimum: 0,
             path: "yearRetrieval.rateLimits.musicbrainzRequestsPerSecond"

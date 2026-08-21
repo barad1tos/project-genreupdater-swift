@@ -16,7 +16,7 @@ func normalizedReissueKeywords(_ keywords: [String]) -> [String] {
 /// Discogs REST API client for album year and genre data.
 ///
 /// Authenticates via Personal Access Token stored in the Keychain.
-/// Rate limited at 60 requests/minute per Discogs policy.
+/// Direct clients default to 55 evenly paced requests per minute; app-composed clients use configured pacing.
 ///
 /// Endpoints used:
 /// - `/database/search` — fielded master and release searches for direct-year lookup;
@@ -47,6 +47,16 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     public var isConfigured: Bool {
         token?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
+
+    static let defaultPolicy: TokenBucketRateLimiter.Policy = {
+        guard let refillMilliseconds = APIRateLimits.refillMilliseconds(
+            requests: Double(APIRateLimits.defaultDiscogsPerMinute),
+            perSeconds: 60
+        ) else {
+            preconditionFailure("Default Discogs rate limit must be valid")
+        }
+        return .init(maxTokens: 1, refillInterval: .milliseconds(refillMilliseconds))
+    }()
 
     /// Creates a Discogs client with an explicit token.
     ///
@@ -86,13 +96,10 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     }
 
     private static func defaultLimiter() -> TokenBucketRateLimiter {
-        guard let refillMilliseconds = APIRateLimits.refillMilliseconds(
-            requests: Double(APIRateLimits.defaultDiscogsPerMinute),
-            perSeconds: 60
-        ) else {
-            preconditionFailure("Default Discogs rate limit must be valid")
-        }
-        return TokenBucketRateLimiter(maxTokens: 1, refillInterval: .milliseconds(refillMilliseconds))
+        TokenBucketRateLimiter(
+            maxTokens: defaultPolicy.maxTokens,
+            refillInterval: defaultPolicy.refillInterval
+        )
     }
 
     /// Creates a Discogs client by loading the token from the Keychain.

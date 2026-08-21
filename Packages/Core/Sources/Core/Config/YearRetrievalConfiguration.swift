@@ -96,6 +96,11 @@ public struct APIRateLimits: Sendable, Codable {
     public static let itunesSettingsRange = 0.1 ... 20.0
     public static let concurrencySettingsRange = 1 ... 10
 
+    /// Returns the runtime MusicBrainz rate, preserving the historical zero-value fallback.
+    public static func musicBrainzRate(_ configuredRate: Double) -> Double {
+        configuredRate == 0 ? defaultMusicBrainzPerSecond : configuredRate
+    }
+
     public var discogsRequestsPerMinute: Int = Self.defaultDiscogsPerMinute
     public var musicbrainzRequestsPerSecond: Double = Self.defaultMusicBrainzPerSecond
     public var itunesRequestsPerSecond: Double = Self.defaultITunesPerSecond

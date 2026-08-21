@@ -1,7 +1,8 @@
 import Core
-import Services
+import Foundation
 import Testing
 @testable import Genre_Updater
+@testable import Services
 
 @Suite("API request policy composition")
 @MainActor
@@ -10,9 +11,9 @@ struct APIRequestPolicyTests {
     func wiresProviderPacing() async throws {
         var configuration = AppConfiguration()
         configuration.yearRetrieval.apiAuth.discogsTokenReference = "configured-token"
-        configuration.yearRetrieval.rateLimits.discogsRequestsPerMinute = 12000
-        configuration.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 200
-        configuration.yearRetrieval.rateLimits.itunesRequestsPerSecond = 200
+        configuration.yearRetrieval.rateLimits.discogsRequestsPerMinute = 300
+        configuration.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 10
+        configuration.yearRetrieval.rateLimits.itunesRequestsPerSecond = 20
         let service = DashboardStateAPIService()
         var capturedDiscogs: TokenBucketRateLimiter?
         var capturedMusicBrainz: TokenBucketRateLimiter?
@@ -45,11 +46,48 @@ struct APIRequestPolicyTests {
             factoryOverrides: factories
         )
 
-        for limiter in [capturedDiscogs, capturedMusicBrainz, capturedITunes] {
-            let limiter = try #require(limiter)
-            #expect(await limiter.getStats().currentTokens == 1)
-            _ = await limiter.acquire()
-            #expect(await limiter.acquire() < .milliseconds(80))
-        }
+        let discogs = try #require(capturedDiscogs)
+        let musicBrainz = try #require(capturedMusicBrainz)
+        let itunes = try #require(capturedITunes)
+        #expect(discogs.policy == .init(maxTokens: 1, refillInterval: .milliseconds(200)))
+        #expect(musicBrainz.policy == .init(maxTokens: 1, refillInterval: .milliseconds(100)))
+        #expect(itunes.policy == .init(maxTokens: 1, refillInterval: .milliseconds(50)))
+        #expect(await discogs.getStats().currentTokens == 1)
+        #expect(await musicBrainz.getStats().currentTokens == 1)
+        #expect(await itunes.getStats().currentTokens == 1)
+    }
+
+    @Test("Legacy zero MusicBrainz rate keeps its former effective pacing")
+    func wiresLegacyRate() throws {
+        var configuration = AppConfiguration()
+        configuration.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 0
+        let service = DashboardStateAPIService()
+        var capturedLimiter: TokenBucketRateLimiter?
+        let factories = APIClientFactoryOverrides(
+            musicBrainzFactory: { _, _, rateLimiter, _, _ in
+                capturedLimiter = rateLimiter
+                return service
+            }
+        )
+
+        _ = AppDependencies.makeAPIOrchestrator(
+            configuration: configuration,
+            cache: nil,
+            pendingVerificationService: nil,
+            reachability: nil,
+            factoryOverrides: factories
+        )
+
+        let limiter = try #require(capturedLimiter)
+        #expect(limiter.policy == .init(maxTokens: 1, refillInterval: .seconds(1)))
+    }
+
+    @Test("Displayed provider policy matches effective runtime values")
+    func displaysEffectivePolicy() {
+        let decimalSeparator = Locale.current.decimalSeparator ?? "."
+        #expect(APICacheTab.musicBrainzRateText(0) == "1\(decimalSeparator)0 (legacy setting: 0)")
+        #expect(APICacheTab.musicBrainzRateText(2.5) == "2\(decimalSeparator)5")
+        #expect(APICacheTab.providerTimeoutText(22.5) == "22\(decimalSeparator)5s")
+        #expect(APICacheTab.providerTimeoutText(15) == "15s")
     }
 }
