@@ -48,6 +48,25 @@ struct ProviderReplayTests {
         #expect(encodedJSON.contains(#""offset":-9007199254740993"#))
     }
 
+    @Test("request capture preserves Foundation path identity")
+    func preservesRequestPaths() throws {
+        let scriptedResponse = ScriptedResponse(statusCode: 200, body: [:])
+        let router = ReplayRouter(responses: [
+            .musicBrainz: [scriptedResponse, scriptedResponse],
+        ])
+        let directoryURL = MusicBrainzClient.defaultBaseURL
+            .appendingPathComponent("release", isDirectory: true)
+        let rootURL = MusicBrainzClient.defaultBaseURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        for url in [directoryURL, rootURL] {
+            _ = try router.response(for: URLRequest(url: url))
+        }
+
+        #expect(router.requests(for: .musicBrainz).map(\.path) == [directoryURL.path, rootURL.path])
+    }
+
     private func replay(_ testCase: ReplayCase, at date: Date) async throws {
         let router = ReplayRouter(responses: testCase.scriptedResponses.values)
         ReplayURLProtocol.router = router
@@ -558,14 +577,11 @@ private final class ReplayRouter: @unchecked Sendable {
         else {
             throw ReplayError.invalidURL
         }
-        let path = url.hasDirectoryPath && url.pathComponents.count > 1
-            ? url.deletingLastPathComponent().path
-            : components.path
         return ReplayRequest(
             scheme: components.scheme ?? "",
             host: components.host ?? "",
             port: components.port,
-            path: path,
+            path: url.path,
             query: (components.queryItems ?? [])
                 .map { QueryItem(name: $0.name, value: $0.value ?? "") }
                 .sorted { ($0.name, $0.value) < ($1.name, $1.value) }
