@@ -41,7 +41,6 @@ struct APIRequestPolicyTests {
         _ = AppDependencies.makeAPIOrchestrator(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             factoryOverrides: factories
         )
@@ -73,7 +72,6 @@ struct APIRequestPolicyTests {
         _ = AppDependencies.makeAPIOrchestrator(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             factoryOverrides: factories
         )

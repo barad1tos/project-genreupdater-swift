@@ -66,7 +66,6 @@ struct RunRuntimeFactory {
         let apiOrchestrator = AppDependencies.makeCapturedAPI(
             configuration: cacheConfiguration,
             cache: cache,
-            pendingVerificationService: runServices.pendingVerification,
             reachability: reachability,
             discogsAccess: capturedAccess
         )
@@ -133,7 +132,6 @@ struct RunRuntimeFactory {
                 apiOrchestrator: AppDependencies.makeCapturedAPI(
                     configuration: cacheConfiguration,
                     cache: cache,
-                    pendingVerificationService: runServices.pendingVerification,
                     reachability: reachability,
                     discogsAccess: .disabled
                 ),

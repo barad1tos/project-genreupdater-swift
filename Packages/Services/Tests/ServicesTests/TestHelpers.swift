@@ -28,6 +28,22 @@ func makeAPIOrchestrator(
     )
 }
 
+extension APIOrchestrator {
+    func getAlbumYear(
+        artist: String,
+        album: String,
+        currentLibraryYear: Int?,
+        earliestTrackAddedYear: Int?
+    ) async -> YearResult {
+        await getAlbumYearLookup(
+            artist: artist,
+            album: album,
+            currentLibraryYear: currentLibraryYear,
+            earliestTrackAddedYear: earliestTrackAddedYear
+        ).result
+    }
+}
+
 extension ExternalAPIService {
     func getArtistActivityPeriod(normalizedArtist _: String) async throws -> (start: Int?, end: Int?) {
         (nil, nil)
@@ -35,6 +51,86 @@ extension ExternalAPIService {
 
     func getArtistStartYear(normalizedArtist _: String) async throws -> Int? {
         nil
+    }
+}
+
+actor PendingRecorder: PendingVerificationService {
+    struct PendingMark: Equatable {
+        let artist: String
+        let album: String
+        let reason: String
+        let metadata: [String: String]
+    }
+
+    private var marks: [PendingMark] = []
+    private var removalEvents = 0
+    private let entries: [PendingAlbumEntry]
+    private let attemptCount: Int
+
+    init(attemptCount: Int = 0, entries: [PendingAlbumEntry] = []) {
+        self.attemptCount = attemptCount
+        self.entries = entries
+    }
+
+    func initialize() async throws {}
+
+    func markForVerification(
+        artist: String,
+        album: String,
+        reason: String,
+        metadata: [String: String]?,
+        recheckDays _: Int?
+    ) async {
+        marks.append(PendingMark(
+            artist: artist,
+            album: album,
+            reason: reason,
+            metadata: metadata ?? [:]
+        ))
+    }
+
+    func removeFromPending(artist _: String, album _: String) async {
+        removalEvents += 1
+    }
+
+    func getEntry(artist _: String, album _: String) async -> PendingAlbumEntry? {
+        nil
+    }
+
+    func getAttemptCount(artist: String, album: String) async -> Int {
+        entries.first {
+            AlbumIdentity.key(artist: $0.artist, album: $0.album) == AlbumIdentity.key(artist: artist, album: album)
+        }?.attemptCount ?? attemptCount
+    }
+
+    func isVerificationNeeded(artist _: String, album _: String) async -> Bool {
+        false
+    }
+
+    func getAllPendingAlbums() async -> [PendingAlbumEntry] {
+        entries
+    }
+
+    func shouldAutoVerify() async -> Bool {
+        false
+    }
+
+    func updateVerificationTimestamp() async throws {}
+
+    func markCount() -> Int {
+        marks.count
+    }
+
+    func firstMark() -> PendingMark? {
+        marks.first
+    }
+
+    func allMarks() -> [PendingMark] {
+        marks
+    }
+
+    func removalCount() -> Int {
+        removalEvents
     }
 }
 

@@ -2,9 +2,9 @@ import Core
 import CryptoKit
 import Foundation
 import Security
-import Services
 import Testing
 @testable import Genre_Updater
+@testable import Services
 
 @Suite("AppDependencies API clients", .serialized)
 @MainActor
@@ -31,7 +31,6 @@ struct APIClientsTests {
         _ = AppDependencies.makeAPIOrchestrator(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             factoryOverrides: factoryOverrides
         )
@@ -63,7 +62,6 @@ struct APIClientsTests {
         _ = AppDependencies.makeAPIOrchestrator(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             factoryOverrides: factoryOverrides
         )
@@ -92,7 +90,6 @@ struct APIClientsTests {
         let orchestrator = AppDependencies.makeAPIOrchestrator(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             factoryOverrides: factoryOverrides
         )
@@ -129,7 +126,6 @@ struct APIClientsTests {
         _ = AppDependencies.makeAPIOrchestrator(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             factoryOverrides: factoryOverrides
         )
@@ -159,7 +155,6 @@ struct APIClientsTests {
         _ = AppDependencies.makeAPIOrchestrator(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             factoryOverrides: factoryOverrides
         )
@@ -213,7 +208,6 @@ struct APIClientsTests {
         let orchestrator = AppDependencies.makeAPIOrchestrator(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             factoryOverrides: factoryOverrides
         )
@@ -260,7 +254,6 @@ struct APIClientsTests {
         let orchestrator = AppDependencies.makeAPIOrchestrator(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             factoryOverrides: factoryOverrides
         )
@@ -296,7 +289,6 @@ struct APIClientsTests {
         _ = AppDependencies.makeAPIOrchestrator(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             factoryOverrides: factoryOverrides
         )
@@ -339,7 +331,6 @@ struct APIClientsTests {
         let orchestrator = AppDependencies.makeCapturedAPI(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             discogsAccess: captured,
             factoryOverrides: factoryOverrides
@@ -348,13 +339,13 @@ struct APIClientsTests {
         #expect(captured.isEnabled)
         #expect(keychainReadCount == 1)
         #expect(!orchestrator.disabledSources.contains(.discogs))
-        let result = await orchestrator.getAlbumYear(
+        let lookup = await orchestrator.getAlbumYearLookup(
             artist: "Submitted Artist",
             album: "Submitted Album",
             currentLibraryYear: nil,
             earliestTrackAddedYear: nil
         )
-        #expect(result.year == 2001)
+        #expect(lookup.result.year == 2001)
         #expect(keychainReadCount == 1)
         #expect(!headerProbe.headers.isEmpty)
         #expect(headerProbe.headers.allSatisfy { $0 == "Discogs token=submitted-token" })
@@ -376,7 +367,6 @@ struct APIClientsTests {
         let orchestrator = AppDependencies.makeCapturedAPI(
             configuration: configuration,
             cache: nil,
-            pendingVerificationService: nil,
             reachability: nil,
             discogsAccess: captured
         )

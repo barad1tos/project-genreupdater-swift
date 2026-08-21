@@ -91,7 +91,7 @@ struct ProviderAdmissionTests {
     func workflowCancellationPropagates(_ boundary: CancellationBoundary) async {
         let probe = CancellationBoundaryProbe(boundary: boundary)
         let service = CancellationProviderService(probe: probe)
-        let pendingVerification = RecordingPendingVerificationService()
+        let pendingVerification = PendingRecorder()
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: service,
             discogs: MockAPIService(),
@@ -100,7 +100,6 @@ struct ProviderAdmissionTests {
         ) {
             $0.maxConcurrentSourceCalls = 1
             $0.timeout = .seconds(30)
-            $0.pendingVerificationService = pendingVerification
         }
         let coordinator = makeCoordinator(
             apiOrchestrator: orchestrator,
@@ -135,7 +134,7 @@ struct ProviderAdmissionTests {
     @Test("Cancelled pending verification does not update retry state")
     func pendingVerificationCancellationPropagates() async {
         let probe = CancellationBoundaryProbe(boundary: .albumYear)
-        let pendingVerification = RecordingPendingVerificationService()
+        let pendingVerification = PendingRecorder()
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: CancellationProviderService(probe: probe),
             discogs: MockAPIService(),
@@ -144,7 +143,6 @@ struct ProviderAdmissionTests {
         ) {
             $0.maxConcurrentSourceCalls = 1
             $0.timeout = .seconds(30)
-            $0.pendingVerificationService = pendingVerification
         }
         let coordinator = makeCoordinator(
             apiOrchestrator: orchestrator,
@@ -180,7 +178,7 @@ struct ProviderAdmissionTests {
     @Test("Queued timeout does not update pending verification")
     func queuedTimeoutKeepsPending() async {
         let stall = ProviderStall()
-        let pendingVerification = RecordingPendingVerificationService()
+        let pendingVerification = PendingRecorder()
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: StalledProviderService(stall: stall),
             discogs: MockAPIService(),
@@ -189,7 +187,6 @@ struct ProviderAdmissionTests {
         ) {
             $0.maxConcurrentSourceCalls = 1
             $0.timeout = ProviderAdmissionTestTiming.providerTimeout
-            $0.pendingVerificationService = pendingVerification
         }
         let coordinator = makeCoordinator(
             apiOrchestrator: orchestrator,
