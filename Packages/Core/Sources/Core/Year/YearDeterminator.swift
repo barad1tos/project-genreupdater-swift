@@ -84,14 +84,27 @@ public struct YearDeterminator: Sendable {
         // Step 3: Score candidates
         guard !candidates.isEmpty else {
             return noResultDetermination(
-                currentYear: effectiveCurrentYear
+                currentYear: effectiveCurrentYear,
+                candidateCount: candidates.count
+            )
+        }
+
+        let currentCalendarYear = currentUTCYear()
+        let validCandidates = candidates.filter { candidate in
+            candidate.year >= validator.config.minValidYear
+                && candidate.year <= currentCalendarYear
+        }
+        guard !validCandidates.isEmpty else {
+            return noResultDetermination(
+                currentYear: effectiveCurrentYear,
+                candidateCount: candidates.count
             )
         }
 
         // Score against the canonical album-grouping artist. Feature credits
         // do not become album identities, while soundtrack compensation handles
         // the intentional artist mismatch in rewritten soundtrack searches.
-        let scored = candidates.map { candidate in
+        let scored = validCandidates.map { candidate in
             scorer.scoreRelease(
                 candidate,
                 queryArtist: AlbumIdentity.groupingArtist(for: track),
@@ -180,9 +193,7 @@ public struct YearDeterminator: Sendable {
         albumTracks: [Track],
         futureYearThreshold: Int
     ) -> YearSafetyIssue? {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .gmt
-        let currentYear = calendar.component(.year, from: Date())
+        let currentYear = currentUTCYear()
         let futureYears = albumTracks.compactMap(\.year).filter { $0 > currentYear }
         guard let maxFutureYear = futureYears.max() else {
             return nil
@@ -194,10 +205,17 @@ public struct YearDeterminator: Sendable {
         return .farFutureYear(year: maxFutureYear)
     }
 
+    private func currentUTCYear() -> Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        return calendar.component(.year, from: Date())
+    }
+
     // MARK: - Helpers
 
     private func noResultDetermination(
-        currentYear: Int?
+        currentYear: Int?,
+        candidateCount: Int
     ) -> YearDeterminationResult {
         if let year = currentYear {
             return YearDeterminationResult(
@@ -207,13 +225,13 @@ public struct YearDeterminator: Sendable {
                     confidence: 0
                 ),
                 source: .library,
-                candidateCount: 0
+                candidateCount: candidateCount
             )
         }
         return YearDeterminationResult(
             yearResult: YearResult(),
             source: .fallback,
-            candidateCount: 0
+            candidateCount: candidateCount
         )
     }
 
