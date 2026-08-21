@@ -558,8 +558,8 @@ private final class ReplayRouter: @unchecked Sendable {
         else {
             throw ReplayError.invalidURL
         }
-        let path = components.path.hasSuffix("/") && components.path.count > 1
-            ? String(components.path.dropLast())
+        let path = url.hasDirectoryPath && url.pathComponents.count > 1
+            ? url.deletingLastPathComponent().path
             : components.path
         return ReplayRequest(
             scheme: components.scheme ?? "",
@@ -621,5 +621,7 @@ private final class ReplayURLProtocol: URLProtocol {
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        // Responses are delivered synchronously, so there is no in-flight work to cancel.
+    }
 }
