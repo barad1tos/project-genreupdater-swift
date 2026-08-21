@@ -293,7 +293,12 @@ extension UpdateCoordinator {
     }
 
     private func isTrustedCacheEntry(_ entry: AlbumCacheEntry?) -> Bool {
-        guard let entry else { return false }
+        guard let entry,
+              let year = entry.year,
+              yearDeterminator.validator.acceptsCandidateYear(year)
+        else {
+            return false
+        }
         return entry.confidence >= runtimeConfiguration.cacheTrustThreshold
     }
 

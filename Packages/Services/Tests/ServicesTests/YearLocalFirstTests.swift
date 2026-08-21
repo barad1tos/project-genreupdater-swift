@@ -366,6 +366,55 @@ struct YearLocalFirstTests {
         #expect(await apiProbe.requestCount > 0)
     }
 
+    @Test("Invalid persisted years fall through to fresh API acquisition")
+    func invalidCacheRefreshes() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let currentYear = calendar.component(.year, from: Date())
+        var logic = YearLogicConfig()
+        logic.minValidYear = 1950
+        let target = albumTrack(id: "MK-target", name: "Target", year: nil, releaseYear: nil)
+
+        for invalidYear in [logic.minValidYear - 1, currentYear + 1] {
+            let cache = MockCacheService()
+            await cache.storeAlbumYear(
+                artist: target.albumIdentity.artist,
+                album: target.albumIdentity.album,
+                year: invalidYear,
+                confidence: 100
+            )
+            let apiProbe = APIRequestProbe()
+            let coordinator = await makeCoordinator(
+                apiProbe: apiProbe,
+                apiReleaseCandidates: [
+                    ReleaseCandidate(
+                        artist: target.albumIdentity.artist,
+                        album: target.albumIdentity.album,
+                        year: 2021,
+                        source: .musicBrainz,
+                        mbReleaseGroupFirstYear: 2021
+                    ),
+                ],
+                cache: cache,
+                yearDeterminator: YearDeterminator(
+                    scorer: YearScorer(yearLogic: logic),
+                    validator: YearValidator(config: logic)
+                )
+            )
+
+            let change = try await coordinator.determineYearChange(
+                track: target,
+                albumTracks: [target],
+                forceYearLookup: false
+            )
+
+            let yearChange = try #require(change)
+            #expect(yearChange.newValue == "2021")
+            #expect(yearChange.source == "Api")
+            #expect(await apiProbe.requestCount > 0)
+        }
+    }
+
     @Test("Trusted cache disambiguates conflicting live release years")
     func trustedCacheDisambiguatesReleaseYears() async throws {
         let cache = MockCacheService()
