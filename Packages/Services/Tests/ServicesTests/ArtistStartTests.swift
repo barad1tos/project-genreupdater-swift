@@ -165,8 +165,8 @@ struct ArtistStartTests {
         #expect(secondAttemptCount == 1)
     }
 
-    @Test("Library fallback without API evidence is not marked as matching")
-    func ignoresSyntheticLibraryFallback() async throws {
+    @Test("Confirmed miss marks the album without misclassifying the library fallback")
+    func marksConfirmedMiss() async throws {
         let musicBrainz = MockAPIService(
             artistActivityPeriod: (start: 2000, end: nil)
         )
@@ -203,7 +203,8 @@ struct ArtistStartTests {
         )
 
         #expect(changes.allSatisfy { $0.changeType != .yearUpdate })
-        #expect(pendingEntry == nil)
+        #expect(pendingEntry?.reason == "no_year_found")
+        #expect(pendingEntry?.metadata.isEmpty == true)
     }
 
     private func makeCoordinator(

@@ -4,8 +4,8 @@ import Testing
 @testable import Services
 
 extension UpdateCoordinatorTests {
-    @Test("Configured album type patterns skip year updates")
-    func configuredAlbumTypePatternsSkipYearUpdates() async throws {
+    @Test("Configured album type patterns preserve existing years for uncertain results")
+    func preservesSpecialYear() async throws {
         var albumTypeDetection = AlbumTypeDetectionConfig()
         albumTypeDetection.specialPatterns = ["archive"]
         albumTypeDetection.compilationPatterns = []
@@ -22,6 +22,11 @@ extension UpdateCoordinatorTests {
             confidence: 95,
             runtimeConfiguration: runtimeConfiguration
         )
+        await fixture.coordinator.updateRuntimeConfiguration(
+            runtimeConfiguration,
+            yearDeterminator: YearDeterminator(),
+            apiOrchestrator: uncertainYearAPI(year: 2024, confidence: 95)
+        )
 
         let track = makeEditableTrack(album: "Studio Archive", year: 1999)
         let changes = try await fixture.coordinator.updateTrack(
@@ -34,13 +39,21 @@ extension UpdateCoordinatorTests {
     }
 
     @Test("Runtime album type configuration update applies to subsequent year updates")
-    func runtimeAlbumTypeConfigurationUpdateAppliesToSubsequentYearUpdates() async throws {
+    func updatesAlbumPolicy() async throws {
+        let cache = MockCacheService()
+        let originalRuntime = UpdateRuntimeConfiguration(
+            policies: UpdateRuntimeConfiguration.Policies(missingYearThreshold: 30)
+        )
         let fixture = await makeCoordinator(
             year: 2024,
             confidence: 95,
-            runtimeConfiguration: UpdateRuntimeConfiguration(
-                policies: UpdateRuntimeConfiguration.Policies(missingYearThreshold: 30)
-            )
+            cache: cache,
+            runtimeConfiguration: originalRuntime
+        )
+        await fixture.coordinator.updateRuntimeConfiguration(
+            originalRuntime,
+            yearDeterminator: YearDeterminator(),
+            apiOrchestrator: uncertainYearAPI(year: 2024, confidence: 95)
         )
         let track = makeEditableTrack(album: "Session Archive", year: 1999)
 
@@ -50,6 +63,7 @@ extension UpdateCoordinatorTests {
             dryRun: true
         )
         #expect(beforeUpdate.first { $0.changeType == .yearUpdate }?.newValue == "2024")
+        await cache.invalidateAlbum(artist: track.artist, album: track.album)
 
         var albumTypeDetection = AlbumTypeDetectionConfig()
         albumTypeDetection.specialPatterns = ["archive"]
@@ -71,6 +85,17 @@ extension UpdateCoordinatorTests {
             dryRun: true
         )
         #expect(afterUpdate.allSatisfy { $0.changeType != .yearUpdate })
+    }
+
+    private func uncertainYearAPI(year: Int, confidence: Int) -> APIOrchestrator {
+        let result = YearResult(year: year, confidence: confidence, yearScores: [year: confidence])
+        let service = MockAPIService(yearResult: result)
+        return makeAPIOrchestrator(
+            musicBrainz: service,
+            discogs: service,
+            appleMusic: service,
+            disabledSources: [.discogs, .itunes]
+        )
     }
 
     @Test("Missing-year threshold does not suppress a trusted cache correction")

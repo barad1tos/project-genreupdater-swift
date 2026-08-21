@@ -15,6 +15,50 @@ public enum YearSafetyIssue: Equatable, Sendable {
     case farFutureYear(year: Int)
 }
 
+private struct CandidateDecisionInput {
+    let candidates: [ReleaseCandidate]
+    let track: Track
+    let albumTracks: [Track]
+    let currentYear: Int?
+    let artistActivityPeriod: (start: Int?, end: Int?)?
+    let artistStartYear: Int?
+    let artistCountry: String?
+    let albumTypeInfo: AlbumTypeInfo?
+    let verificationAttempts: Int
+    let queryAlbum: String
+    let decisionDate: Date
+}
+
+private struct CandidatePartition {
+    let accepted: [ReleaseCandidate]
+    let rejected: [ReleaseCandidate]
+}
+
+private struct FallbackDecisionInput {
+    let scoredResult: YearResult
+    let scoredReleases: [ScoredRelease]
+    let candidates: [ReleaseCandidate]
+    let acceptedCandidates: [ReleaseCandidate]
+    let rejectedCandidates: [ReleaseCandidate]
+    let track: Track
+    let albumTracks: [Track]
+    let existingYear: Int?
+    let albumTypeInfo: AlbumTypeInfo?
+    let verificationAttempts: Int
+    let artistStartYear: Int?
+    let decisionYear: Int
+}
+
+private struct DecisionEvidence {
+    let outcome: YearFallbackOutcome
+    let scoredResult: YearResult
+    let scoredReleases: [ScoredRelease]
+    let candidates: [ReleaseCandidate]
+    let acceptedCandidates: [ReleaseCandidate]
+    let rejectedCandidates: [ReleaseCandidate]
+    let verificationMutations: [YearVerificationMutation]
+}
+
 /// Orchestrates year determination by composing scorer, validator,
 /// and fallback strategy with external services.
 ///
@@ -52,10 +96,13 @@ public struct YearDeterminator: Sendable {
     ///   - albumTracks: Other tracks on the same album
     ///   - currentYear: Existing year in the library
     ///   - artistActivityPeriod: Known activity range
+    ///   - artistStartYear: Artist start used by fallback plausibility checks
     ///   - artistCountry: Artist's country code
     ///   - albumTypeInfo: Album classification result
     ///   - verificationAttempts: Previous escalation count
     ///   - queryAlbum: Album text used to score candidates when cleaning removed search evidence
+    ///   - usesLocalEvidence: Whether dominant and consensus album metadata may bypass candidate scoring
+    ///   - decisionDate: Date used for year bounds and current-year rules
     /// - Returns: Year determination result with source and breakdown
     public func determineYear(
         candidates: [ReleaseCandidate],
@@ -63,87 +110,193 @@ public struct YearDeterminator: Sendable {
         albumTracks: [Track] = [],
         currentYear: Int? = nil,
         artistActivityPeriod: (start: Int?, end: Int?)? = nil,
+        artistStartYear: Int? = nil,
         artistCountry: String? = nil,
         albumTypeInfo: AlbumTypeInfo? = nil,
         verificationAttempts: Int = 0,
-        queryAlbum: String? = nil
+        queryAlbum: String? = nil,
+        usesLocalEvidence: Bool = true,
+        decisionDate: Date = Date()
     ) -> YearDeterminationResult {
         let signpostState = AppSignpost.yearDetermination.beginInterval("determineYear")
         defer { AppSignpost.yearDetermination.endInterval("determineYear", signpostState) }
 
-        let decisionDate = Date()
         let storedYear = currentYear ?? track.year
         let effectiveCurrentYear = storedYear.flatMap { year in
             validator.acceptsCandidateYear(year, at: decisionDate) ? year : nil
         }
 
         // Steps 1-2: Cross-track year (dominant, consensus)
-        if let result = checkCrossTrackYear(
+        if usesLocalEvidence, let result = checkCrossTrackYear(
             albumTracks: albumTracks,
             candidateCount: candidates.count
         ) {
             return result
         }
-
-        // Step 3: Score candidates
         guard !candidates.isEmpty else {
             return noResultDetermination(
                 currentYear: effectiveCurrentYear,
-                candidateCount: candidates.count
+                candidateCount: candidates.count,
+                candidates: candidates
             )
         }
 
-        let validCandidates = candidates.filter {
-            validator.acceptsCandidateYear($0.year, at: decisionDate)
-        }
-        guard !validCandidates.isEmpty else {
-            return noResultDetermination(
-                currentYear: effectiveCurrentYear,
-                candidateCount: candidates.count
-            )
-        }
-
-        // Score against the canonical album-grouping artist. Feature credits
-        // do not become album identities, while soundtrack compensation handles
-        // the intentional artist mismatch in rewritten soundtrack searches.
-        let scored = validCandidates.map { candidate in
-            scorer.scoreRelease(
-                candidate,
-                queryArtist: AlbumIdentity.groupingArtist(for: track),
-                queryAlbum: queryAlbum ?? track.album,
+        return determineCandidateYear(
+            CandidateDecisionInput(
+                candidates: candidates,
+                track: track,
+                albumTracks: albumTracks,
                 currentYear: effectiveCurrentYear,
                 artistActivityPeriod: artistActivityPeriod,
-                artistCountry: artistCountry
+                artistStartYear: artistStartYear,
+                artistCountry: artistCountry,
+                albumTypeInfo: albumTypeInfo,
+                verificationAttempts: verificationAttempts,
+                queryAlbum: queryAlbum ?? track.album,
+                decisionDate: decisionDate
+            )
+        )
+    }
+
+    private func determineCandidateYear(_ input: CandidateDecisionInput) -> YearDeterminationResult {
+        let partition = partitionCandidates(input.candidates, at: input.decisionDate)
+        guard !partition.accepted.isEmpty else {
+            return noResultDetermination(
+                currentYear: input.currentYear,
+                candidateCount: input.candidates.count,
+                candidates: input.candidates
             )
         }
-
-        // Step 4: Resolve scores to best year
-        let yearResult = scorer.resolveScores(
+        let scored = partition.accepted.map { candidate in
+            scorer.scoreRelease(
+                candidate,
+                queryArtist: AlbumIdentity.groupingArtist(for: input.track),
+                queryAlbum: input.queryAlbum,
+                currentYear: input.currentYear,
+                artistActivityPeriod: input.artistActivityPeriod,
+                artistCountry: input.artistCountry,
+                decisionDate: input.decisionDate
+            )
+        }
+        let scoredResult = scorer.resolveScores(
             scored,
-            existingYear: effectiveCurrentYear
+            existingYear: input.currentYear,
+            decisionDate: input.decisionDate
         )
-
-        // Step 5: Apply fallback strategy
-        let fallbackContext = FallbackContext(
-            scoredReleases: scored,
-            existingYear: effectiveCurrentYear,
-            track: track,
-            albumTracks: albumTracks,
-            isDefinitive: yearResult.isDefinitive,
-            bestScore: yearResult.confidence,
-            bestYear: yearResult.year,
-            albumTypeInfo: albumTypeInfo,
-            verificationAttempts: verificationAttempts
+        let existingAlbumYear = mostCommonYear(in: input.albumTracks) ?? input.currentYear
+        return fallbackDetermination(
+            FallbackDecisionInput(
+                scoredResult: scoredResult,
+                scoredReleases: scored,
+                candidates: input.candidates,
+                acceptedCandidates: partition.accepted,
+                rejectedCandidates: partition.rejected,
+                track: input.track,
+                albumTracks: input.albumTracks,
+                existingYear: existingAlbumYear,
+                albumTypeInfo: input.albumTypeInfo,
+                verificationAttempts: input.verificationAttempts,
+                artistStartYear: input.artistStartYear ?? input.artistActivityPeriod?.start,
+                decisionYear: currentUTCYear(at: input.decisionDate)
+            )
         )
+    }
 
-        let decision = fallback.decide(fallbackContext)
+    /// Applies the configured fallback policy to a provider result that was scored upstream.
+    ///
+    /// Use this for provider paths that return an aggregate `YearResult` instead of release candidates.
+    public func applyFallback(_ context: FallbackContext) -> YearDeterminationResult {
+        let yearResult = YearResult(
+            year: context.bestYear,
+            isDefinitive: context.isDefinitive,
+            confidence: context.bestScore,
+            yearScores: context.yearScores
+        )
+        return fallbackDetermination(
+            FallbackDecisionInput(
+                scoredResult: yearResult,
+                scoredReleases: context.scoredReleases,
+                candidates: [],
+                acceptedCandidates: [],
+                rejectedCandidates: [],
+                track: context.track,
+                albumTracks: context.albumTracks,
+                existingYear: context.existingYear,
+                albumTypeInfo: context.albumTypeInfo,
+                verificationAttempts: context.verificationAttempts,
+                artistStartYear: context.artistStartYear,
+                decisionYear: context.decisionYear
+            )
+        )
+    }
 
-        // Step 6: Map fallback decision to result
+    private func fallbackDetermination(_ input: FallbackDecisionInput) -> YearDeterminationResult {
+        var mutations = initialVerificationMutations(
+            yearResult: input.scoredResult,
+            existingYear: input.existingYear,
+            verificationAttempts: input.verificationAttempts
+        )
+        let markedCount = mutations.count { mutation in
+            if case .mark = mutation {
+                true
+            } else {
+                false
+            }
+        }
+        let fallbackContext = makeFallbackContext(
+            input,
+            existingYear: input.existingYear,
+            verificationAttempts: input.verificationAttempts + markedCount
+        )
+        let outcome = fallback.evaluate(fallbackContext)
+        if let mutation = outcome.verification {
+            mutations.append(mutation)
+        }
         return mapDecisionToResult(
-            decision: decision,
-            yearResult: yearResult,
-            scored: scored,
-            candidateCount: candidates.count
+            DecisionEvidence(
+                outcome: outcome,
+                scoredResult: input.scoredResult,
+                scoredReleases: input.scoredReleases,
+                candidates: input.candidates,
+                acceptedCandidates: input.acceptedCandidates,
+                rejectedCandidates: input.rejectedCandidates,
+                verificationMutations: mutations
+            )
+        )
+    }
+
+    private func partitionCandidates(
+        _ candidates: [ReleaseCandidate],
+        at decisionDate: Date
+    ) -> CandidatePartition {
+        let accepted = candidates.filter {
+            validator.acceptsCandidateYear($0.year, at: decisionDate)
+        }
+        let rejected = candidates.filter {
+            !validator.acceptsCandidateYear($0.year, at: decisionDate)
+        }
+        return CandidatePartition(accepted: accepted, rejected: rejected)
+    }
+
+    private func makeFallbackContext(
+        _ input: FallbackDecisionInput,
+        existingYear: Int?,
+        verificationAttempts: Int
+    ) -> FallbackContext {
+        FallbackContext(
+            scoredReleases: input.scoredReleases,
+            existingYear: existingYear,
+            track: input.track,
+            albumTracks: input.albumTracks,
+            isDefinitive: input.scoredResult.isDefinitive,
+            bestScore: input.scoredResult.confidence,
+            bestYear: input.scoredResult.year,
+            albumTypeInfo: input.albumTypeInfo,
+            verificationAttempts: verificationAttempts,
+            releaseYear: validator.getConsensusReleaseYear(tracks: input.albumTracks),
+            artistStartYear: input.artistStartYear,
+            decisionYear: input.decisionYear,
+            yearScores: input.scoredResult.yearScores
         )
     }
 
@@ -208,17 +361,26 @@ public struct YearDeterminator: Sendable {
     }
 
     private func currentUTCYear() -> Int {
+        currentUTCYear(at: Date())
+    }
+
+    private func currentUTCYear(at date: Date) -> Int {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .gmt
-        return calendar.component(.year, from: Date())
+        return calendar.component(.year, from: date)
     }
 
     // MARK: - Helpers
 
     private func noResultDetermination(
         currentYear: Int?,
-        candidateCount: Int
+        candidateCount: Int,
+        candidates: [ReleaseCandidate]
     ) -> YearDeterminationResult {
+        let verification = YearVerificationMutation.mark(
+            reason: .noYearFound,
+            metadata: [:]
+        )
         if let year = currentYear {
             return YearDeterminationResult(
                 yearResult: YearResult(
@@ -227,13 +389,17 @@ public struct YearDeterminator: Sendable {
                     confidence: 0
                 ),
                 source: .library,
-                candidateCount: candidateCount
+                candidateCount: candidateCount,
+                rejectedCandidateYears: candidates.map(\.year),
+                verificationMutations: [verification]
             )
         }
         return YearDeterminationResult(
             yearResult: YearResult(),
             source: .fallback,
-            candidateCount: candidateCount
+            candidateCount: candidateCount,
+            rejectedCandidateYears: candidates.map(\.year),
+            verificationMutations: [verification]
         )
     }
 
@@ -295,68 +461,64 @@ public struct YearDeterminator: Sendable {
         )
     }
 
-    private func mapDecisionToResult(
-        decision: FallbackDecision,
-        yearResult: YearResult,
-        scored: [ScoredRelease],
-        candidateCount: Int
-    ) -> YearDeterminationResult {
-        let bestBreakdown = scored
+    private func mapDecisionToResult(_ evidence: DecisionEvidence) -> YearDeterminationResult {
+        let bestBreakdown = evidence.scoredReleases
             .max(by: { $0.totalScore < $1.totalScore })?
             .breakdown
 
-        let (mapped, source) = mapFallbackDecision(
-            decision, yearResult: yearResult
+        let mapped = YearResult(
+            year: evidence.outcome.year,
+            isDefinitive: evidence.scoredResult.isDefinitive,
+            confidence: evidence.scoredResult.confidence,
+            rawScore: evidence.scoredResult.rawScore,
+            yearScores: evidence.scoredResult.yearScores
         )
+        let acceptedYears = evidence.acceptedCandidates.map(\.year)
+        let rejectedYears = evidence.rejectedCandidates.map(\.year)
 
         return YearDeterminationResult(
             yearResult: mapped,
-            source: source,
+            scoredYearResult: evidence.scoredResult,
+            source: evidence.outcome.source,
             breakdown: bestBreakdown,
-            fallbackDecision: decision,
-            candidateCount: candidateCount
+            fallbackDecision: evidence.outcome.decision,
+            candidateCount: evidence.candidates.count,
+            acceptedCandidateYears: acceptedYears,
+            rejectedCandidateYears: rejectedYears,
+            verificationMutations: evidence.verificationMutations
         )
     }
 
-    private func mapFallbackDecision(
-        _ decision: FallbackDecision,
-        yearResult: YearResult
-    ) -> (YearResult, YearSource) {
-        switch decision {
-        case let .useAPIYear(year, confidence):
-            (YearResult(
-                year: year,
-                isDefinitive: yearResult.isDefinitive,
-                confidence: confidence,
-                yearScores: yearResult.yearScores
-            ), .api)
+    private func initialVerificationMutations(
+        yearResult: YearResult,
+        existingYear: Int?,
+        verificationAttempts: Int
+    ) -> [YearVerificationMutation] {
+        if yearResult.isDefinitive {
+            return [.remove]
+        }
+        if let selectedYear = yearResult.year,
+           let existingYear,
+           selectedYear == existingYear {
+            return [.remove]
+        }
+        if verificationAttempts >= fallback.config.maxVerificationAttempts {
+            return [.remove]
+        }
+        return [.mark(reason: .noYearFound, metadata: [:])]
+    }
 
-        case .keepExisting:
-            (YearResult(
-                year: yearResult.year,
-                isDefinitive: false,
-                confidence: yearResult.confidence,
-                yearScores: yearResult.yearScores
-            ), .library)
-
-        case .escalateToVerification:
-            (YearResult(
-                year: yearResult.year,
-                isDefinitive: false,
-                confidence: yearResult.confidence,
-                yearScores: yearResult.yearScores
-            ), .fallback)
-
-        case .markAndSkip:
-            (YearResult(
-                year: nil,
-                isDefinitive: false,
-                confidence: 0,
-                yearScores: yearResult.yearScores
-            ), .fallback)
-
-        case .noAction:
-            (yearResult, .fallback)
+    private func mostCommonYear(in tracks: [Track]) -> Int? {
+        var counts: [Int: Int] = [:]
+        var order: [Int] = []
+        for year in tracks.compactMap(\.year) {
+            if counts[year] == nil {
+                order.append(year)
+            }
+            counts[year, default: 0] += 1
+        }
+        return order.max { lhs, rhs in
+            (counts[lhs] ?? 0) < (counts[rhs] ?? 0)
         }
     }
 }

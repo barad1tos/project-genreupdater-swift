@@ -130,7 +130,6 @@ struct ConfigWiringTests {
     @Test("API orchestrator config maps year-retrieval and runtime settings")
     func apiOrchestratorConfigMapsYearRetrievalAndRuntimeSettings() {
         var configuration = AppConfiguration()
-        configuration.yearRetrieval.fallback.maxVerificationAttempts = 9
         configuration.caching.negativeResultTTL = 12345
         configuration.yearRetrieval.rateLimits.concurrentAPICalls = 7
         configuration.yearRetrieval.providerTimeoutSeconds = 22.5
@@ -144,7 +143,6 @@ struct ConfigWiringTests {
 
         let orchestrator = APIOrchestratorConfiguration(configuration: configuration)
 
-        #expect(orchestrator.maxVerificationAttempts == 9)
         #expect(orchestrator.negativeResultTTL == 12345)
         #expect(orchestrator.candidateResultTTL == TimeInterval(3 * 24 * 60 * 60))
         #expect(orchestrator.maxConcurrentSourceCalls == 7)

@@ -72,7 +72,7 @@ private struct DryRunInputs {
     let albumTracksByTrackID: [String: [Track]]
     let artistTracksByTrackID: [String: [Track]]
     let options: UpdateOptions
-    let yearSafetyScope: YearSafetyScope
+    let yearRunScope: YearRunScope
 }
 
 // MARK: - Workflow View Model
@@ -380,7 +380,7 @@ final class WorkflowViewModel {
             options: inputs.options,
             pass: pass,
             dryRun: true,
-            yearSafetyScope: inputs.yearSafetyScope
+            yearRunScope: inputs.yearRunScope
         )
     }
 
@@ -389,7 +389,7 @@ final class WorkflowViewModel {
             albumTracksByTrackID: dryRunAlbumTracksByTrackID(for: tracks),
             artistTracksByTrackID: updateCoordinator.artistContextTracksByTrackID(for: tracks),
             options: options,
-            yearSafetyScope: YearSafetyScope()
+            yearRunScope: YearRunScope()
         )
     }
 

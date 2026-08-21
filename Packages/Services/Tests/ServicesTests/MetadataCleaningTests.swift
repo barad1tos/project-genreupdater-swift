@@ -203,13 +203,13 @@ struct MetadataCleaningTests {
     }
 
     @Test("Album type detection reads the raw title before cleaning")
-    func albumTypeDetectionReadsRawTitleBeforeCleaning() async throws {
+    func classifiesRawAlbum() async throws {
         let lookupRecorder = AlbumYearLookupRecorder()
         let apiService = RecordingAlbumYearAPIService(
             lookupRecorder: lookupRecorder,
             yearResult: YearResult(
                 year: 1968,
-                isDefinitive: true,
+                isDefinitive: false,
                 confidence: 100,
                 yearScores: [1968: 100]
             )
@@ -226,7 +226,8 @@ struct MetadataCleaningTests {
         )
         let coordinator = await makeCoordinator(
             runtimeConfiguration: runtimeConfiguration,
-            apiService: apiService
+            apiService: apiService,
+            disabledSources: [.discogs, .itunes]
         )
         let track = makeTrack(
             name: "Song",
@@ -247,7 +248,61 @@ struct MetadataCleaningTests {
         )
 
         #expect(changes.map(\.changeType) == [.albumCleaning])
-        #expect(await lookupRecorder.queriedAlbums().isEmpty)
+        let queriedAlbums = await lookupRecorder.queriedAlbums()
+        #expect(!queriedAlbums.isEmpty)
+        #expect(queriedAlbums.allSatisfy { $0 == "Album" })
+    }
+
+    @Test("Mixed metadata passes share one decision under the raw album identity")
+    func sharesRawIdentity() async throws {
+        let lookupRecorder = AlbumYearLookupRecorder()
+        let apiService = RecordingAlbumYearAPIService(
+            lookupRecorder: lookupRecorder,
+            yearResult: YearResult(
+                year: 1968,
+                isDefinitive: true,
+                confidence: 100,
+                yearScores: [1968: 100]
+            )
+        )
+        let runtimeConfiguration = UpdateRuntimeConfiguration(
+            policies: UpdateRuntimeConfiguration.Policies(isYearLookupEnabled: true)
+        )
+        let coordinator = await makeCoordinator(
+            runtimeConfiguration: runtimeConfiguration,
+            apiService: apiService,
+            disabledSources: [.discogs, .itunes]
+        )
+        let tracks = [
+            makeTrack(id: "standard", name: "First", album: "Album Remastered"),
+            makeTrack(id: "year-only", name: "Second", album: "Album Remastered"),
+        ]
+        let options = UpdateOptions(
+            updateGenre: false,
+            updateYear: true,
+            forceYearLookup: true,
+            cleanAlbumNames: true,
+            minConfidence: 0
+        )
+        let runScope = YearRunScope()
+
+        _ = try await coordinator.updateTrack(
+            tracks[0],
+            albumTracks: tracks,
+            options: options,
+            dryRun: true,
+            yearRunScope: runScope
+        )
+        _ = try await coordinator.updateTrack(
+            tracks[1],
+            albumTracks: tracks,
+            options: options,
+            pass: .yearOnly,
+            dryRun: true,
+            yearRunScope: runScope
+        )
+
+        #expect(await lookupRecorder.queriedAlbums() == ["Album", "Album"])
     }
 
     @Test("Soundtrack lookup keeps raw markers after cleaning")
@@ -597,6 +652,7 @@ struct MetadataCleaningTests {
     private func makeCoordinator(
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
         apiService: any ExternalAPIService = MockAPIService(),
+        disabledSources: Set<APISource> = [],
         scriptBridge: MockAppleScriptClient = MockAppleScriptClient()
     ) async -> UpdateCoordinator {
         UpdateCoordinator(
@@ -604,7 +660,8 @@ struct MetadataCleaningTests {
                 apiOrchestrator: makeAPIOrchestrator(
                     musicBrainz: apiService,
                     discogs: apiService,
-                    appleMusic: apiService
+                    appleMusic: apiService,
+                    disabledSources: disabledSources
                 ),
                 scriptBridge: scriptBridge,
                 stores: .init(trackStore: MockTrackStore(), cache: MockCacheService()),

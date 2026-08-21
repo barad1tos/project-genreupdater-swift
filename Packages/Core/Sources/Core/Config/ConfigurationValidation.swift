@@ -454,6 +454,11 @@ extension AppConfiguration {
             minimum: 0,
             path: "yearRetrieval.fallback.maxVerificationAttempts"
         )
+        validation.requireAtLeast(
+            yearRetrieval.fallback.rerecordingAgeYears,
+            minimum: 0,
+            path: "yearRetrieval.fallback.rerecordingAgeYears"
+        )
     }
 
     private func validateProviderSearch(using validation: inout ValidationCollector) {

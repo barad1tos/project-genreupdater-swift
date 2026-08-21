@@ -197,7 +197,6 @@ extension AppDependencies {
     static func makeAPIOrchestrator(
         configuration: AppConfiguration,
         cache: (any CacheService)?,
-        pendingVerificationService: (any PendingVerificationService)?,
         reachability: NetworkReachabilityMonitor?,
         factoryOverrides: APIClientFactoryOverrides = APIClientFactoryOverrides()
     ) -> APIOrchestrator {
@@ -221,7 +220,6 @@ extension AppDependencies {
         return makeAPIOrchestrator(
             configuration: configuration,
             cache: cache,
-            pendingVerificationService: pendingVerificationService,
             reachability: reachability,
             serviceContext: serviceContext
         )
@@ -230,7 +228,6 @@ extension AppDependencies {
     static func makeCapturedAPI(
         configuration: AppConfiguration,
         cache: (any CacheService)?,
-        pendingVerificationService: (any PendingVerificationService)?,
         reachability: NetworkReachabilityMonitor?,
         discogsAccess: DiscogsAccess,
         factoryOverrides: APIClientFactoryOverrides = APIClientFactoryOverrides()
@@ -254,7 +251,6 @@ extension AppDependencies {
         return makeAPIOrchestrator(
             configuration: configuration,
             cache: cache,
-            pendingVerificationService: pendingVerificationService,
             reachability: reachability,
             serviceContext: serviceContext
         )
@@ -263,14 +259,12 @@ extension AppDependencies {
     private static func makeAPIOrchestrator(
         configuration: AppConfiguration,
         cache: (any CacheService)?,
-        pendingVerificationService: (any PendingVerificationService)?,
         reachability: NetworkReachabilityMonitor?,
         serviceContext: APIServiceContext
     ) -> APIOrchestrator {
         let orchestratorConfiguration = makeAPIOrchestratorConfiguration(
             configuration: configuration,
             cache: cache,
-            pendingVerificationService: pendingVerificationService,
             reachability: reachability,
             disabledSources: serviceContext.disabledSources
         )
@@ -418,14 +412,12 @@ extension AppDependencies {
     private static func makeAPIOrchestratorConfiguration(
         configuration: AppConfiguration,
         cache: (any CacheService)?,
-        pendingVerificationService: (any PendingVerificationService)?,
         reachability: NetworkReachabilityMonitor?,
         disabledSources: Set<APISource>
     ) -> APIOrchestratorConfiguration {
         var orchestratorConfiguration = APIOrchestratorConfiguration(configuration: configuration)
         orchestratorConfiguration.reachability = reachability
         orchestratorConfiguration.cache = cache
-        orchestratorConfiguration.pendingVerificationService = pendingVerificationService
         orchestratorConfiguration.disabledSources = disabledSources
         return orchestratorConfiguration
     }

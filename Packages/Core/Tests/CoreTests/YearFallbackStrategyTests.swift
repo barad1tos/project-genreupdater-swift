@@ -55,7 +55,7 @@ struct YearFallbackStrategyTests {
         config.enabled = false
         let customStrategy = YearFallbackStrategy(config: config)
         let context = makeContext(bestScore: 90, bestYear: 2000)
-        let decision = customStrategy.decide(context)
+        let decision = customStrategy.evaluate(context).decision
         guard case .noAction = decision else {
             Issue.record("Expected .noAction, got \(decision)")
             return
@@ -71,7 +71,7 @@ struct YearFallbackStrategyTests {
             bestScore: 95,
             bestYear: 2005
         )
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case let .useAPIYear(year, confidence) = decision else {
             Issue.record("Expected .useAPIYear, got \(decision)")
             return
@@ -85,7 +85,7 @@ struct YearFallbackStrategyTests {
     @Test("No best year returns noAction")
     func noBestYear() {
         let context = makeContext(bestScore: 0, bestYear: nil)
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case .noAction = decision else {
             Issue.record("Expected .noAction, got \(decision)")
             return
@@ -95,7 +95,7 @@ struct YearFallbackStrategyTests {
     @Test("Zero best score returns noAction")
     func zeroBestScore() {
         let context = makeContext(bestScore: 0, bestYear: 2000)
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case .noAction = decision else {
             Issue.record("Expected .noAction, got \(decision)")
             return
@@ -109,7 +109,7 @@ struct YearFallbackStrategyTests {
             bestScore: 0,
             bestYear: nil
         )
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case .keepExisting = decision else {
             Issue.record("Expected .keepExisting, got \(decision)")
             return
@@ -131,33 +131,77 @@ struct YearFallbackStrategyTests {
             bestYear: 2005,
             albumTypeInfo: albumInfo
         )
-        let decision = strategy.decide(context)
-        guard case let .markAndSkip(reason) = decision else {
-            Issue.record("Expected .markAndSkip, got \(decision)")
+        let outcome = strategy.evaluate(context)
+        guard case .markAndSkip = outcome.decision else {
+            Issue.record("Expected .markAndSkip, got \(outcome.decision)")
             return
         }
-        #expect(reason.contains("compilation"))
-        #expect(reason.contains("greatest hits"))
+        #expect(outcome.year == 2000)
+        #expect(outcome.verification == .mark(
+            reason: .specialCompilation,
+            metadata: [
+                "album_type": "compilation",
+                "confidence": "low",
+                "detected_pattern": "greatest hits",
+                "existing_year": "2000",
+                "proposed_year": "2005",
+            ]
+        ))
     }
 
-    @Test("Reissue with markAndUpdate falls through to year rules")
+    @Test("Reissue with markAndUpdate applies API year and marks verification")
     func reissueNotSkipped() {
         let albumInfo = AlbumTypeInfo(
             albumType: .reissue,
             detectedPattern: "remastered",
             strategy: .markAndUpdate
         )
-        // existingYear=2000, bestYear=2002, diff=2 ≤ threshold=5
-        // Not markAndSkip → falls through → Rule 5: close diff → keepExisting
         let context = makeContext(
             existingYear: 2000,
             bestScore: 80,
             bestYear: 2002,
             albumTypeInfo: albumInfo
         )
-        let decision = strategy.decide(context)
-        guard case .keepExisting = decision else {
-            Issue.record("Expected .keepExisting, got \(decision)")
+        let outcome = strategy.evaluate(context)
+        guard case .useAPIYear = outcome.decision else {
+            Issue.record("Expected .useAPIYear, got \(outcome.decision)")
+            return
+        }
+        #expect(outcome.year == 2002)
+        guard case let .mark(reason, _) = outcome.verification else {
+            Issue.record("Expected a verification mark")
+            return
+        }
+        #expect(reason == .specialReissue)
+    }
+
+    @Test("Configured re-recording age controls preservation")
+    func configuredRerecordingAge() {
+        var config = FallbackConfig()
+        config.rerecordingAgeYears = 7
+        let customStrategy = YearFallbackStrategy(config: config)
+        let albumInfo = AlbumTypeInfo(
+            albumType: .reissue,
+            detectedPattern: "re-record",
+            strategy: .markAndUpdate
+        )
+        let context = FallbackContext(
+            scoredReleases: [],
+            existingYear: 2018,
+            track: makeTrack(year: 2018),
+            albumTracks: [],
+            isDefinitive: false,
+            bestScore: 60,
+            bestYear: 2019,
+            albumTypeInfo: albumInfo,
+            decisionYear: 2026
+        )
+
+        let outcome = customStrategy.evaluate(context)
+
+        #expect(outcome.year == 2018)
+        guard case .markAndSkip = outcome.decision else {
+            Issue.record("Expected configured age threshold to preserve the existing year")
             return
         }
     }
@@ -172,7 +216,7 @@ struct YearFallbackStrategyTests {
             bestYear: 2000,
             verificationAttempts: 3
         )
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case let .useAPIYear(year, _) = decision else {
             Issue.record("Expected .useAPIYear, got \(decision)")
             return
@@ -182,17 +226,16 @@ struct YearFallbackStrategyTests {
 
     // MARK: - Rules 5-7: Has Existing Year
 
-    @Test("Close year difference keeps existing (Rule 5)")
-    func closeDiffKeepsExisting() {
-        // existingYear=2000, bestYear=2003, diff=3 ≤ threshold=5
+    @Test("Close year difference applies API year")
+    func closeDiffUsesAPI() {
         let context = makeContext(
             existingYear: 2000,
             bestScore: 80,
             bestYear: 2003
         )
-        let decision = strategy.decide(context)
-        guard case .keepExisting = decision else {
-            Issue.record("Expected .keepExisting, got \(decision)")
+        let decision = strategy.evaluate(context).decision
+        guard case .useAPIYear = decision else {
+            Issue.record("Expected .useAPIYear, got \(decision)")
             return
         }
     }
@@ -204,7 +247,7 @@ struct YearFallbackStrategyTests {
             bestScore: 80,
             bestYear: 2000
         )
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case .keepExisting = decision else {
             Issue.record("Expected .keepExisting, got \(decision)")
             return
@@ -219,7 +262,7 @@ struct YearFallbackStrategyTests {
             bestScore: 50,
             bestYear: 2010
         )
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case .keepExisting = decision else {
             Issue.record("Expected .keepExisting, got \(decision)")
             return
@@ -234,7 +277,7 @@ struct YearFallbackStrategyTests {
             bestScore: 80,
             bestYear: 2020
         )
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case let .useAPIYear(year, confidence) = decision else {
             Issue.record("Expected .useAPIYear, got \(decision)")
             return
@@ -251,7 +294,7 @@ struct YearFallbackStrategyTests {
             bestScore: 80,
             bestYear: 2000
         )
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case let .useAPIYear(year, _) = decision else {
             Issue.record("Expected .useAPIYear, got \(decision)")
             return
@@ -261,17 +304,17 @@ struct YearFallbackStrategyTests {
 
     // MARK: - Rules 8-9: No Existing Year
 
-    @Test("No existing year + low confidence escalates (Rule 8)")
-    func noExistingLowConfidenceEscalates() {
+    @Test("No existing year accepts confidence above new-year floor")
+    func noExistingAcceptsAboveFloor() {
         let context = makeContext(
             existingYear: nil,
             bestScore: 50,
             bestYear: 2000
         )
-        let decision = strategy.decide(context)
-        guard case .escalateToVerification = decision else {
+        let decision = strategy.evaluate(context).decision
+        guard case .useAPIYear = decision else {
             Issue.record(
-                "Expected .escalateToVerification, got \(decision)"
+                "Expected .useAPIYear, got \(decision)"
             )
             return
         }
@@ -284,7 +327,7 @@ struct YearFallbackStrategyTests {
             bestScore: 80,
             bestYear: 1999
         )
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case let .useAPIYear(year, _) = decision else {
             Issue.record("Expected .useAPIYear, got \(decision)")
             return
@@ -296,19 +339,19 @@ struct YearFallbackStrategyTests {
 // MARK: - Custom Config
 
 extension YearFallbackStrategyTests {
-    @Test("Custom trust threshold changes escalation behavior")
-    func customTrustThreshold() {
-        var fallbackConfig = FallbackConfig()
-        fallbackConfig.trustAPIScoreThreshold = 90
-        let customStrategy = YearFallbackStrategy(config: fallbackConfig)
+    @Test("Custom new-year floor changes escalation behavior")
+    func customNewYearFloor() {
+        var yearLogic = YearLogicConfig()
+        yearLogic.minConfidenceForNewYear = 90
+        let customStrategy = YearFallbackStrategy(yearLogic: yearLogic)
 
-        // No existing year, score 80 < threshold 90 → Rule 8: escalate
+        // No existing year, score 80 < new-year floor 90 → escalate.
         let context = makeContext(
             existingYear: nil,
             bestScore: 80,
             bestYear: 2000
         )
-        let decision = customStrategy.decide(context)
+        let decision = customStrategy.evaluate(context).decision
         guard case .escalateToVerification = decision else {
             Issue.record(
                 "Expected .escalateToVerification, got \(decision)"
@@ -329,7 +372,7 @@ extension YearFallbackStrategyTests {
             bestScore: 80,
             bestYear: 2003
         )
-        let decision = customStrategy.decide(context)
+        let decision = customStrategy.evaluate(context).decision
         guard case let .useAPIYear(year, _) = decision else {
             Issue.record(
                 "Expected .useAPIYear, got \(decision)"
@@ -352,7 +395,7 @@ extension YearFallbackStrategyTests {
             bestScore: 50,
             bestYear: 2000
         )
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case .useAPIYear = decision else {
             Issue.record("Expected .useAPIYear, got \(decision)")
             return
@@ -368,7 +411,7 @@ extension YearFallbackStrategyTests {
             bestYear: 2000,
             verificationAttempts: 3
         )
-        let decision = strategy.decide(context)
+        let decision = strategy.evaluate(context).decision
         guard case let .useAPIYear(year, _) = decision else {
             Issue.record("Expected .useAPIYear, got \(decision)")
             return

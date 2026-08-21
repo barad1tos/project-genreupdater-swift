@@ -34,6 +34,7 @@ public actor UpdateCoordinator {
     private let genreDeterminator: GenreDeterminator
     var yearDeterminator: YearDeterminator
     var runtimeConfiguration: UpdateRuntimeConfiguration
+    let decisionDate: @Sendable () -> Date
     /// The run whose change-log entries this coordinator currently produces;
     /// nil outside a run-attributed write (entries then stay unattributed).
     private var runAttributionID: RunID?
@@ -43,7 +44,8 @@ public actor UpdateCoordinator {
         dependencies: UpdateDependencies,
         genreDeterminator: GenreDeterminator,
         yearDeterminator: YearDeterminator = YearDeterminator(),
-        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
+        runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
+        decisionDate: @escaping @Sendable () -> Date = { Date() }
     ) {
         apiOrchestrator = dependencies.apiOrchestrator
         scriptBridge = dependencies.scriptBridge
@@ -56,6 +58,7 @@ public actor UpdateCoordinator {
         self.genreDeterminator = genreDeterminator
         self.yearDeterminator = yearDeterminator
         self.runtimeConfiguration = runtimeConfiguration
+        self.decisionDate = decisionDate
     }
 
     public func setRunAttribution(_ runID: RunID?) {
@@ -99,7 +102,7 @@ public actor UpdateCoordinator {
 
     /// Determines changes for one track and optionally writes them to Music.app.
     ///
-    /// Reuse `yearSafetyScope` across a multi-track run to record at most one pending attempt per unsafe album.
+    /// Reuse `yearRunScope` to share one album-level API decision and apply its cache or pending effects once.
     public func updateTrack(
         _ track: Track,
         albumTracks: [Track] = [],
@@ -107,7 +110,7 @@ public actor UpdateCoordinator {
         options: UpdateOptions,
         pass: UpdatePass = .standard,
         dryRun: Bool = false,
-        yearSafetyScope: YearSafetyScope? = nil
+        yearRunScope: YearRunScope? = nil
     ) async throws -> [ProposedChange] {
         guard runtimeConfiguration.allowsTrack(track) else {
             log
@@ -152,7 +155,7 @@ public actor UpdateCoordinator {
             trackContext: (album: inputAlbumTracks, artist: inputArtistTracks),
             options: options,
             pass: pass,
-            yearSafetyScope: yearSafetyScope
+            yearRunScope: yearRunScope
         )
         let proposedChanges = ChangePreviewPipeline().filter(
             changes: candidateChanges,
@@ -176,7 +179,7 @@ public actor UpdateCoordinator {
         trackContext: (album: [Track], artist: [Track]),
         options: UpdateOptions,
         pass: UpdatePass,
-        yearSafetyScope: YearSafetyScope?
+        yearRunScope: YearRunScope?
     ) async throws -> [ProposedChange] {
         var proposedChanges: [ProposedChange] = []
         let albumTypeInfo = runtimeConfiguration.albumTypeDetection.classifyAlbum(track.album)
@@ -231,7 +234,7 @@ public actor UpdateCoordinator {
                    variousArtistsNames: runtimeConfiguration.albumTypeDetection.variousArtistsNames
                ).strategy == .soundtrack ? proposalTrack.album : decisionTrack.album,
                missingYearThreshold: Double(options.minConfidence),
-               yearSafetyScope: yearSafetyScope
+               yearRunScope: yearRunScope
            ) {
             proposedChanges.append(Self.change(change, usingTrack: proposalTrack))
         }
@@ -475,10 +478,9 @@ public actor UpdateCoordinator {
 
     // MARK: Multi-Track
 
-    /// Update multiple tracks with progress reporting.
+    /// Updates tracks individually, aggregates non-fatal failures, and records change history.
     ///
-    /// Each track is processed individually. Failures are non-fatal and aggregated.
-    /// Change history is recorded in the `UndoCoordinator`.
+    /// Pass a run-owned `yearRunScope` when invoking this method in per-track chunks.
     /// Returns a `BatchUpdateResult` with both successes and failures.
     public func updateTracks(
         _ tracks: [Track],
@@ -486,6 +488,7 @@ public actor UpdateCoordinator {
         pass: UpdatePass = .standard,
         albumTracksProvider: (@Sendable (Track) -> [Track])? = nil,
         artistTracksProvider: (@Sendable (Track) -> [Track])? = nil,
+        yearRunScope: YearRunScope? = nil,
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> BatchUpdateResult {
         let signpostState = AppSignpost.batchProcessing.beginInterval("updateTracks")
@@ -500,14 +503,14 @@ public actor UpdateCoordinator {
             albumTracksProvider: albumTracksProvider,
             artistTracksProvider: artistTracksProvider
         )
-        let yearSafetyScope = YearSafetyScope()
+        let yearRunScope = yearRunScope ?? YearRunScope()
 
         for (index, track) in tracks.enumerated() {
             do {
                 let trackOutcome = try await applyGeneratedAcceptedChanges(
                     for: GeneratedUpdateRequest(track: track, options: options, pass: pass),
                     trackProviders: trackProviders,
-                    yearSafetyScope: yearSafetyScope,
+                    yearRunScope: yearRunScope,
                     failedTrackIDs: &failedTrackIDs,
                     errorDescriptions: &errorDescriptions
                 )

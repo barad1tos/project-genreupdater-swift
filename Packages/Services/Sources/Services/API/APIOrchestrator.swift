@@ -84,8 +84,6 @@ public struct APIOrchestratorServices: Sendable {
 public struct APIOrchestratorConfiguration: Sendable {
     public var reachability: NetworkReachabilityMonitor?
     public var cache: (any CacheService)?
-    public var pendingVerificationService: (any PendingVerificationService)?
-    public var maxVerificationAttempts: Int
     public var timeout: Duration
     public var negativeResultTTL: TimeInterval
     public var candidateResultTTL: TimeInterval?
@@ -104,8 +102,6 @@ public struct APIOrchestratorConfiguration: Sendable {
     public init() {
         reachability = nil
         cache = nil
-        pendingVerificationService = nil
-        maxVerificationAttempts = FallbackConfig().maxVerificationAttempts
         timeout = .seconds(YearRetrievalConfig.defaultProviderTimeoutSeconds)
         negativeResultTTL = CachingConfig().negativeResultTTL
         candidateResultTTL = nil
@@ -124,12 +120,10 @@ public struct APIOrchestratorConfiguration: Sendable {
 
     /// Maps every config-derived field from `AppConfiguration`.
     ///
-    /// Only the runtime service references (`reachability`, `cache`,
-    /// `pendingVerificationService`) and `disabledSources` are left for the
-    /// composition root to inject when available.
+    /// Only the runtime service references (`reachability`, `cache`) and
+    /// `disabledSources` are left for the composition root to inject when available.
     public init(configuration: AppConfiguration) {
         self.init()
-        maxVerificationAttempts = configuration.yearRetrieval.fallback.maxVerificationAttempts
         negativeResultTTL = configuration.caching.negativeResultTTL
         candidateResultTTL = GRDBCacheService.resolvedAPIResultTTL(configuration: configuration)
         timeout = .seconds(configuration.yearRetrieval.providerTimeoutSeconds)
@@ -150,9 +144,20 @@ struct APISearchQuery {
     let album: String
 }
 
-struct PendingAlbumYearLookup {
+struct AlbumYearLookup {
     let result: YearResult
+    let providerResult: YearResult
     let didAttemptLookup: Bool
+
+    init(
+        result: YearResult,
+        providerResult: YearResult? = nil,
+        didAttemptLookup: Bool
+    ) {
+        self.result = result
+        self.providerResult = providerResult ?? result
+        self.didAttemptLookup = didAttemptLookup
+    }
 }
 
 func makeAPISearchQuery(artist: String, album: String) -> APISearchQuery {
@@ -172,8 +177,6 @@ public actor APIOrchestrator {
     let appleMusic: any ExternalAPIService
     let reachability: NetworkReachabilityMonitor?
     let cache: (any CacheService)?
-    private let pendingVerificationService: (any PendingVerificationService)?
-    private let maxVerificationAttempts: Int
     let timeout: Duration
     let negativeResultTTL: TimeInterval
     let candidateResultTTL: TimeInterval?
@@ -203,8 +206,6 @@ public actor APIOrchestrator {
         appleMusic = services.appleMusic
         reachability = configuration.reachability
         cache = configuration.cache
-        pendingVerificationService = configuration.pendingVerificationService
-        maxVerificationAttempts = max(0, configuration.maxVerificationAttempts)
         timeout = configuration.timeout
         negativeResultTTL = max(0, configuration.negativeResultTTL)
         candidateResultTTL = configuration.candidateResultTTL.flatMap { $0 > 0 ? $0 : nil }
@@ -263,49 +264,17 @@ public actor APIOrchestrator {
         )
     }
 
-    /// Query configured sources and aggregate results by year score.
-    ///
-    /// Uncached provider calls share the orchestrator-wide admission limit. One
-    /// caller timeout races permit wait, retries, and provider execution; cache
-    /// hits bypass admission. A timed-out non-cooperative provider retains its
-    /// permit until it exits. Failed or timed-out sources are excluded from aggregation.
-    /// The year with the highest combined confidence score wins.
-    ///
-    /// - Parameters:
-    ///   - artist: Artist name to search for.
-    ///   - album: Album name to search for.
-    ///   - currentLibraryYear: Year currently set in the user's library.
-    ///   - earliestTrackAddedYear: Earliest year any track from this album was added.
-    /// - Returns: Aggregated `YearResult` with combined scores from all responding sources.
-    public func getAlbumYear(
-        artist: String,
-        album: String,
-        currentLibraryYear: Int?,
-        earliestTrackAddedYear: Int?,
-        pendingRemovalAliases: [(artist: String, album: String)] = []
-    ) async -> YearResult {
-        let lookup = await getAlbumYearInternal(
-            artist: artist,
-            album: album,
-            currentLibraryYear: currentLibraryYear,
-            earliestTrackAddedYear: earliestTrackAddedYear,
-            pendingRemovalAliases: pendingRemovalAliases
-        )
-        return lookup.result
-    }
-
-    func getAlbumYearForPendingVerification(
+    func getAlbumYearLookup(
         artist: String,
         album: String,
         currentLibraryYear: Int?,
         earliestTrackAddedYear: Int?
-    ) async -> PendingAlbumYearLookup {
+    ) async -> AlbumYearLookup {
         await getAlbumYearInternal(
             artist: artist,
             album: album,
             currentLibraryYear: currentLibraryYear,
-            earliestTrackAddedYear: earliestTrackAddedYear,
-            pendingRemovalAliases: nil
+            earliestTrackAddedYear: earliestTrackAddedYear
         )
     }
 
@@ -313,30 +282,22 @@ public actor APIOrchestrator {
         artist: String,
         album: String,
         currentLibraryYear: Int?,
-        earliestTrackAddedYear: Int?,
-        pendingRemovalAliases: [(artist: String, album: String)]?
-    ) async -> PendingAlbumYearLookup {
+        earliestTrackAddedYear: Int?
+    ) async -> AlbumYearLookup {
         if let reachability, await !reachability.isConnected {
             log.info("Skipping API calls: network offline")
-            return PendingAlbumYearLookup(result: YearResult(), didAttemptLookup: false)
+            return AlbumYearLookup(result: YearResult(), didAttemptLookup: false)
         }
 
         let signpostState = AppSignpost.apiCall.beginInterval("orchestrateAlbumYear")
         defer { AppSignpost.apiCall.endInterval("orchestrateAlbumYear", signpostState) }
 
-        let serviceBySource: [APISource: any ExternalAPIService] = [
-            .musicBrainz: musicBrainz, .discogs: discogs, .itunes: appleMusic,
-        ]
         let searchQuery = makeAPISearchQuery(artist: artist, album: album)
         let orderedSources = sourcePriorityConfiguration.orderedSources(
-            artist: searchQuery.artist,
-            album: searchQuery.album
+            artist: searchQuery.artist, album: searchQuery.album
         )
         let activeSources = orderedSources.filter { !disabledSources.contains($0) }
-        let sources = activeSources.compactMap { source -> (source: APISource, service: any ExternalAPIService)? in
-            guard let service = serviceBySource[source] else { return nil }
-            return (source, service)
-        }
+        let sources = activeSourceServices(activeSources)
         let query = SourceQuery(
             artist: searchQuery.artist,
             album: searchQuery.album,
@@ -347,7 +308,7 @@ public actor APIOrchestrator {
 
         let results = await fetchSourceResults(sources: sources, query: query)
         guard !Task.isCancelled else {
-            return PendingAlbumYearLookup(result: YearResult(), didAttemptLookup: false)
+            return AlbumYearLookup(result: YearResult(), didAttemptLookup: false)
         }
         let decisionDate = dateProvider()
         let apiResult = aggregateResults(results, orderedSources: activeSources, at: decisionDate)
@@ -359,16 +320,10 @@ public actor APIOrchestrator {
                 earliestTrackAddedYear: earliestTrackAddedYear,
                 at: decisionDate
             )
-            return PendingAlbumYearLookup(result: result, didAttemptLookup: false)
-        }
-        if let pendingRemovalAliases {
-            await PendingVerificationSync.synchronize(
-                service: pendingVerificationService,
-                albumKey: (artist, album),
-                albumAliases: pendingRemovalAliases,
-                currentLibraryYear: currentLibraryYear,
-                maxVerificationAttempts: maxVerificationAttempts,
-                result: apiResult
+            return AlbumYearLookup(
+                result: result,
+                providerResult: apiResult,
+                didAttemptLookup: false
             )
         }
         let result = applyingCurrentLibraryFallback(
@@ -377,7 +332,22 @@ public actor APIOrchestrator {
             earliestTrackAddedYear: earliestTrackAddedYear,
             at: decisionDate
         )
-        return PendingAlbumYearLookup(result: result, didAttemptLookup: true)
+        return AlbumYearLookup(
+            result: result,
+            providerResult: apiResult,
+            didAttemptLookup: true
+        )
+    }
+
+    private func activeSourceServices(
+        _ sources: [APISource]
+    ) -> [(source: APISource, service: any ExternalAPIService)] {
+        let serviceBySource: [APISource: any ExternalAPIService] = [
+            .musicBrainz: musicBrainz, .discogs: discogs, .itunes: appleMusic,
+        ]
+        return sources.compactMap { source in
+            serviceBySource[source].map { (source, $0) }
+        }
     }
 
     // MARK: - Private

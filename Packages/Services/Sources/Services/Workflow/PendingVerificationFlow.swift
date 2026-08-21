@@ -13,7 +13,7 @@ extension UpdateCoordinator {
         guard let identity = Self.pendingVerificationIdentity(for: entry, albumTracks: albumTracks) else {
             return PendingAlbumVerificationResult(entries: [], resolvedYear: nil)
         }
-        let yearLookup = await apiOrchestrator.getAlbumYearForPendingVerification(
+        let yearLookup = await apiOrchestrator.getAlbumYearLookup(
             artist: identity.artist,
             album: identity.album,
             currentLibraryYear: nil,

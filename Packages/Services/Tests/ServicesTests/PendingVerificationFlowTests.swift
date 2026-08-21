@@ -30,7 +30,7 @@ private func makePendingCoordinator(
 private func makePendingCoordinator(
     apiService: any ExternalAPIService,
     runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
-    pendingVerification: RecordingPendingVerificationService? = nil,
+    pendingVerification: PendingRecorder? = nil,
     reachability: NetworkReachabilityMonitor? = nil
 ) async -> PendingCoordinatorFixture {
     await makePendingCoordinator(
@@ -48,7 +48,7 @@ private func makePendingCoordinator(
     discogs: any ExternalAPIService = MockAPIService(shouldThrow: true),
     appleMusic: any ExternalAPIService = MockAPIService(shouldThrow: true),
     runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
-    pendingVerification: RecordingPendingVerificationService? = nil,
+    pendingVerification: PendingRecorder? = nil,
     reachability: NetworkReachabilityMonitor? = nil
 ) async -> PendingCoordinatorFixture {
     let bridge = MockAppleScriptClient()
@@ -62,7 +62,6 @@ private func makePendingCoordinator(
         discogs: discogs,
         appleMusic: appleMusic
     ) { configuration in
-        configuration.pendingVerificationService = pendingVerification
         configuration.reachability = reachability
     }
     let coordinator = UpdateCoordinator(
@@ -306,7 +305,7 @@ struct PendingVerificationFlowTests {
 
     @Test("Pending verification API lookup has no pending-store side effects")
     func pendingVerificationAPILookupHasNoPendingStoreSideEffects() async throws {
-        let pendingVerification = RecordingPendingVerificationService()
+        let pendingVerification = PendingRecorder()
         let fixture = await makePendingCoordinator(
             apiService: MockAPIService(
                 yearResult: YearResult(
@@ -462,7 +461,7 @@ struct PendingVerificationFlowTests {
 
     @Test("Leaves album untouched when API has no year")
     func skipsWhenNoYearResolved() async throws {
-        let pendingVerification = RecordingPendingVerificationService()
+        let pendingVerification = PendingRecorder()
         let fixture = await makePendingCoordinator(
             apiService: MockAPIService(yearResult: YearResult()),
             pendingVerification: pendingVerification
@@ -492,7 +491,7 @@ struct PendingVerificationFlowTests {
     @Test("Offline pending verification does not refresh retry state")
     func offlinePendingVerificationDoesNotRefreshRetryState() async throws {
         let apiProbe = APIRequestProbe()
-        let pendingVerification = RecordingPendingVerificationService()
+        let pendingVerification = PendingRecorder()
         let fixture = await makePendingCoordinator(
             apiService: UpdateAPIDouble(
                 probe: apiProbe,
@@ -526,7 +525,7 @@ struct PendingVerificationFlowTests {
 
     @Test("No-year pending verification refreshes matching legacy aliases")
     func noYearPendingVerificationRefreshesMatchingLegacyAliases() async throws {
-        let pendingVerification = RecordingPendingVerificationService(entries: [
+        let pendingVerification = PendingRecorder(entries: [
             PendingAlbumEntry(
                 id: "legacy-no-year",
                 artist: "Daft Punk feat. Pharrell Williams",

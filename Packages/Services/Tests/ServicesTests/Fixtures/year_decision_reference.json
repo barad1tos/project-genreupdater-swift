@@ -1,0 +1,1022 @@
+{
+  "cases": [
+    {
+      "description": "Invalid, future, and missing years do not enter resolution",
+      "expected": {
+        "acceptedScoreLists": {
+          "2020": [
+            70
+          ]
+        },
+        "cacheStore": {
+          "confidence": 70,
+          "year": 2020
+        },
+        "confidence": 70,
+        "finalYear": 2020,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 1,
+          "metadata": {},
+          "reason": "no_year_found"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          }
+        ],
+        "proposals": [
+          {
+            "newYear": 2020,
+            "oldYear": null,
+            "trackID": "track-1"
+          },
+          {
+            "newYear": 2020,
+            "oldYear": null,
+            "trackID": "track-2"
+          }
+        ],
+        "rejectedMissingYearCount": 1,
+        "rejectedYears": [
+          2028,
+          1800
+        ],
+        "selectedYear": 2020,
+        "yearScores": {
+          "2020": 70
+        }
+      },
+      "id": "candidate_year_boundary",
+      "input": {
+        "album": "Album",
+        "candidates": [
+          {
+            "score": 100,
+            "source": "musicbrainz",
+            "year": 2028
+          },
+          {
+            "score": 70,
+            "source": "discogs",
+            "year": 2020
+          },
+          {
+            "score": 99,
+            "source": "itunes",
+            "year": 1800
+          },
+          {
+            "score": 88,
+            "source": "discogs",
+            "year": null
+          }
+        ],
+        "scoring": {
+          "baseScore": 70,
+          "itunesBonus": 29,
+          "musicBrainzBonus": 30
+        }
+      }
+    },
+    {
+      "description": "A suspicious change preserves an API-supported existing year",
+      "expected": {
+        "acceptedScoreLists": {
+          "1997": [
+            69
+          ],
+          "2005": [
+            60
+          ]
+        },
+        "cacheStore": {
+          "confidence": 69,
+          "year": 2005
+        },
+        "confidence": 69,
+        "finalYear": 2005,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 2,
+          "metadata": {
+            "confidence": "low",
+            "confidence_score": "69",
+            "existing_year": "2005",
+            "proposed_year": "1997",
+            "year_difference": "8"
+          },
+          "reason": "suspicious_year_change"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          },
+          {
+            "kind": "mark",
+            "metadata": {
+              "confidence": "low",
+              "confidence_score": "69",
+              "existing_year": "2005",
+              "proposed_year": "1997",
+              "year_difference": "8"
+            },
+            "reason": "suspicious_year_change"
+          }
+        ],
+        "proposals": [],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 1997,
+        "yearScores": {
+          "1997": 69,
+          "2005": 60
+        }
+      },
+      "id": "supported_existing_year",
+      "input": {
+        "album": "Album",
+        "artistStartYear": 1993,
+        "candidates": [
+          {
+            "score": 69,
+            "source": "musicbrainz",
+            "year": 1997
+          },
+          {
+            "score": 60,
+            "source": "discogs",
+            "year": 2005
+          }
+        ],
+        "existingYear": 2005,
+        "scoring": {
+          "baseScore": 60,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 9
+        }
+      }
+    },
+    {
+      "description": "An unsupported existing year yields to API evidence",
+      "expected": {
+        "acceptedScoreLists": {
+          "1997": [
+            69
+          ]
+        },
+        "cacheStore": {
+          "confidence": 69,
+          "year": 1997
+        },
+        "confidence": 69,
+        "finalYear": 1997,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 1,
+          "metadata": {},
+          "reason": "no_year_found"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          }
+        ],
+        "proposals": [
+          {
+            "newYear": 1997,
+            "oldYear": 2005,
+            "trackID": "track-1"
+          },
+          {
+            "newYear": 1997,
+            "oldYear": 2005,
+            "trackID": "track-2"
+          }
+        ],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 1997,
+        "yearScores": {
+          "1997": 69
+        }
+      },
+      "id": "unsupported_existing_year",
+      "input": {
+        "album": "Album",
+        "artistStartYear": 1993,
+        "candidates": [
+          {
+            "score": 69,
+            "source": "discogs",
+            "year": 1997
+          }
+        ],
+        "existingYear": 2005,
+        "scoring": {
+          "baseScore": 69,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 0
+        }
+      }
+    },
+    {
+      "description": "A new year below the confidence floor remains pending",
+      "expected": {
+        "acceptedScoreLists": {
+          "2019": [
+            20
+          ]
+        },
+        "cacheStore": null,
+        "confidence": 20,
+        "finalYear": null,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 2,
+          "metadata": {
+            "confidence_score": "20",
+            "proposed_year": "2019",
+            "threshold": "30"
+          },
+          "reason": "very_low_confidence_no_existing"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          },
+          {
+            "kind": "mark",
+            "metadata": {
+              "confidence_score": "20",
+              "proposed_year": "2019",
+              "threshold": "30"
+            },
+            "reason": "very_low_confidence_no_existing"
+          }
+        ],
+        "proposals": [],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 2019,
+        "yearScores": {
+          "2019": 20
+        }
+      },
+      "id": "very_low_confidence",
+      "input": {
+        "album": "Album",
+        "candidates": [
+          {
+            "score": 20,
+            "source": "discogs",
+            "year": 2019
+          }
+        ],
+        "scoring": {
+          "baseScore": 20,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 0
+        }
+      }
+    },
+    {
+      "description": "The exact new-year confidence floor is accepted",
+      "expected": {
+        "acceptedScoreLists": {
+          "2019": [
+            30
+          ]
+        },
+        "cacheStore": null,
+        "confidence": 30,
+        "finalYear": 2019,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 1,
+          "metadata": {},
+          "reason": "no_year_found"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          }
+        ],
+        "proposals": [
+          {
+            "newYear": 2019,
+            "oldYear": null,
+            "trackID": "track-1"
+          },
+          {
+            "newYear": 2019,
+            "oldYear": null,
+            "trackID": "track-2"
+          }
+        ],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 2019,
+        "yearScores": {
+          "2019": 30
+        }
+      },
+      "id": "confidence_floor",
+      "input": {
+        "album": "Album",
+        "candidates": [
+          {
+            "score": 30,
+            "source": "discogs",
+            "year": 2019
+          }
+        ],
+        "scoring": {
+          "baseScore": 30,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 0
+        }
+      }
+    },
+    {
+      "description": "The orchestration mark reaches the attempt ceiling before fallback",
+      "expected": {
+        "acceptedScoreLists": {
+          "2019": [
+            20
+          ]
+        },
+        "cacheStore": null,
+        "confidence": 20,
+        "finalYear": 2019,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 3,
+          "metadata": {},
+          "reason": "no_year_found"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          }
+        ],
+        "proposals": [
+          {
+            "newYear": 2019,
+            "oldYear": null,
+            "trackID": "track-1"
+          },
+          {
+            "newYear": 2019,
+            "oldYear": null,
+            "trackID": "track-2"
+          }
+        ],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 2019,
+        "yearScores": {
+          "2019": 20
+        }
+      },
+      "id": "verification_escalation",
+      "input": {
+        "album": "Album",
+        "candidates": [
+          {
+            "score": 20,
+            "source": "discogs",
+            "year": 2019
+          }
+        ],
+        "scoring": {
+          "baseScore": 20,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 0
+        },
+        "startingAttempts": 2
+      }
+    },
+    {
+      "description": "Compilation policy preserves the existing year",
+      "expected": {
+        "acceptedScoreLists": {
+          "1990": [
+            60
+          ]
+        },
+        "cacheStore": {
+          "confidence": 60,
+          "year": 2018
+        },
+        "confidence": 60,
+        "finalYear": 2018,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 2,
+          "metadata": {
+            "album_type": "compilation",
+            "confidence": "low",
+            "detected_pattern": "greatest hits",
+            "existing_year": "2018",
+            "proposed_year": "1990"
+          },
+          "reason": "special_album_compilation"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          },
+          {
+            "kind": "mark",
+            "metadata": {
+              "album_type": "compilation",
+              "confidence": "low",
+              "detected_pattern": "greatest hits",
+              "existing_year": "2018",
+              "proposed_year": "1990"
+            },
+            "reason": "special_album_compilation"
+          }
+        ],
+        "proposals": [],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 1990,
+        "yearScores": {
+          "1990": 60
+        }
+      },
+      "id": "compilation_preserves_existing",
+      "input": {
+        "album": "Greatest Hits",
+        "candidates": [
+          {
+            "score": 60,
+            "source": "discogs",
+            "year": 1990
+          }
+        ],
+        "existingYear": 2018,
+        "scoring": {
+          "baseScore": 60,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 0
+        }
+      }
+    },
+    {
+      "description": "A remaster keeps the API year and records reissue evidence",
+      "expected": {
+        "acceptedScoreLists": {
+          "2020": [
+            60
+          ]
+        },
+        "cacheStore": {
+          "confidence": 60,
+          "year": 2020
+        },
+        "confidence": 60,
+        "finalYear": 2020,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 2,
+          "metadata": {
+            "album_type": "reissue",
+            "confidence": "low",
+            "detected_pattern": "remastered",
+            "existing_year": "2015",
+            "proposed_year": "2020"
+          },
+          "reason": "special_album_reissue"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          },
+          {
+            "kind": "mark",
+            "metadata": {
+              "album_type": "reissue",
+              "confidence": "low",
+              "detected_pattern": "remastered",
+              "existing_year": "2015",
+              "proposed_year": "2020"
+            },
+            "reason": "special_album_reissue"
+          }
+        ],
+        "proposals": [
+          {
+            "newYear": 2020,
+            "oldYear": 2015,
+            "trackID": "track-1"
+          },
+          {
+            "newYear": 2020,
+            "oldYear": 2015,
+            "trackID": "track-2"
+          }
+        ],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 2020,
+        "yearScores": {
+          "2020": 60
+        }
+      },
+      "id": "remaster_applies_api",
+      "input": {
+        "album": "Album (Remastered)",
+        "candidates": [
+          {
+            "score": 60,
+            "source": "discogs",
+            "year": 2020
+          }
+        ],
+        "existingYear": 2015,
+        "scoring": {
+          "baseScore": 60,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 0
+        }
+      }
+    },
+    {
+      "description": "An existing year before artist activity yields to the API year",
+      "expected": {
+        "acceptedScoreLists": {
+          "2000": [
+            50
+          ],
+          "2025": [
+            60
+          ]
+        },
+        "cacheStore": {
+          "confidence": 60,
+          "year": 2025
+        },
+        "confidence": 60,
+        "finalYear": 2025,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 2,
+          "metadata": {
+            "confidence_score": "60",
+            "existing_year": "2000",
+            "plausibility": "existing_year_impossible",
+            "proposed_year": "2025"
+          },
+          "reason": "implausible_existing_year"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          },
+          {
+            "kind": "mark",
+            "metadata": {
+              "confidence_score": "60",
+              "existing_year": "2000",
+              "plausibility": "existing_year_impossible",
+              "proposed_year": "2025"
+            },
+            "reason": "implausible_existing_year"
+          }
+        ],
+        "proposals": [
+          {
+            "newYear": 2025,
+            "oldYear": 2000,
+            "trackID": "track-1"
+          },
+          {
+            "newYear": 2025,
+            "oldYear": 2000,
+            "trackID": "track-2"
+          }
+        ],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 2025,
+        "yearScores": {
+          "2000": 50,
+          "2025": 60
+        }
+      },
+      "id": "implausible_existing_year",
+      "input": {
+        "album": "Album",
+        "artistStartYear": 2015,
+        "candidates": [
+          {
+            "score": 60,
+            "source": "musicbrainz",
+            "year": 2025
+          },
+          {
+            "score": 50,
+            "source": "discogs",
+            "year": 2000
+          }
+        ],
+        "existingYear": 2000,
+        "scoring": {
+          "baseScore": 50,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 10
+        }
+      }
+    },
+    {
+      "description": "A proposed year before artist activity is rejected",
+      "expected": {
+        "acceptedScoreLists": {
+          "1965": [
+            60
+          ],
+          "2005": [
+            50
+          ]
+        },
+        "cacheStore": {
+          "confidence": 60,
+          "year": 2005
+        },
+        "confidence": 60,
+        "finalYear": 2005,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 2,
+          "metadata": {
+            "confidence_score": "60",
+            "existing_year": "2005",
+            "plausibility": "proposed_year_before_artist_start",
+            "proposed_year": "1965"
+          },
+          "reason": "implausible_proposed_year"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          },
+          {
+            "kind": "mark",
+            "metadata": {
+              "confidence_score": "60",
+              "existing_year": "2005",
+              "plausibility": "proposed_year_before_artist_start",
+              "proposed_year": "1965"
+            },
+            "reason": "implausible_proposed_year"
+          }
+        ],
+        "proposals": [],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 1965,
+        "yearScores": {
+          "1965": 60,
+          "2005": 50
+        }
+      },
+      "id": "implausible_proposed_year",
+      "input": {
+        "album": "Album",
+        "artistStartYear": 1993,
+        "candidates": [
+          {
+            "score": 60,
+            "source": "musicbrainz",
+            "year": 1965
+          },
+          {
+            "score": 50,
+            "source": "discogs",
+            "year": 2005
+          }
+        ],
+        "existingYear": 2005,
+        "scoring": {
+          "baseScore": 50,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 10
+        }
+      }
+    },
+    {
+      "description": "A release-year conflict preserves editable metadata",
+      "expected": {
+        "acceptedScoreLists": {
+          "2010": [
+            60
+          ]
+        },
+        "cacheStore": {
+          "confidence": 60,
+          "year": 2018
+        },
+        "confidence": 60,
+        "finalYear": 2018,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 2,
+          "metadata": {
+            "confidence_score": "60",
+            "existing_year": "2018",
+            "note": "Apple Music release_year is read-only and more authoritative",
+            "proposed_year": "2010",
+            "release_year": "2000"
+          },
+          "reason": "no_year_found"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          },
+          {
+            "kind": "mark",
+            "metadata": {
+              "confidence_score": "60",
+              "existing_year": "2018",
+              "note": "Apple Music release_year is read-only and more authoritative",
+              "proposed_year": "2010",
+              "release_year": "2000"
+            },
+            "reason": "no_year_found"
+          }
+        ],
+        "proposals": [],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 2010,
+        "yearScores": {
+          "2010": 60
+        }
+      },
+      "id": "release_year_conflict",
+      "input": {
+        "album": "Album",
+        "candidates": [
+          {
+            "score": 60,
+            "source": "discogs",
+            "year": 2010
+          }
+        ],
+        "existingYear": 2018,
+        "releaseYear": 2000,
+        "scoring": {
+          "baseScore": 60,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 0
+        }
+      }
+    },
+    {
+      "description": "A current release year replaces stale API evidence",
+      "expected": {
+        "acceptedScoreLists": {
+          "2025": [
+            49
+          ]
+        },
+        "cacheStore": null,
+        "confidence": 49,
+        "finalYear": 2026,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 2,
+          "metadata": {
+            "current_year": "2026",
+            "proposed_year": "2025",
+            "release_year": "2026"
+          },
+          "reason": "no_year_found"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          },
+          {
+            "kind": "mark",
+            "metadata": {
+              "current_year": "2026",
+              "proposed_year": "2025",
+              "release_year": "2026"
+            },
+            "reason": "no_year_found"
+          }
+        ],
+        "proposals": [
+          {
+            "newYear": 2026,
+            "oldYear": null,
+            "trackID": "track-1"
+          },
+          {
+            "newYear": 2026,
+            "oldYear": null,
+            "trackID": "track-2"
+          }
+        ],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 2025,
+        "yearScores": {
+          "2025": 49
+        }
+      },
+      "id": "fresh_release_year",
+      "input": {
+        "album": "Album",
+        "candidates": [
+          {
+            "score": 49,
+            "source": "discogs",
+            "year": 2025
+          }
+        ],
+        "releaseYear": 2026,
+        "scoring": {
+          "baseScore": 49,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 0
+        }
+      }
+    },
+    {
+      "description": "Definitive evidence bypasses special-album and plausibility guards",
+      "expected": {
+        "acceptedScoreLists": {
+          "1997": [
+            90
+          ]
+        },
+        "cacheStore": {
+          "confidence": 90,
+          "year": 1997
+        },
+        "confidence": 90,
+        "finalYear": 1997,
+        "isDefinitive": true,
+        "pendingFinal": null,
+        "pendingOperations": [
+          {
+            "kind": "remove"
+          }
+        ],
+        "proposals": [
+          {
+            "newYear": 1997,
+            "oldYear": 2005,
+            "trackID": "track-1"
+          },
+          {
+            "newYear": 1997,
+            "oldYear": 2005,
+            "trackID": "track-2"
+          }
+        ],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 1997,
+        "yearScores": {
+          "1997": 90
+        }
+      },
+      "id": "definitive_bypasses_fallback",
+      "input": {
+        "album": "Greatest Hits",
+        "artistStartYear": 2015,
+        "candidates": [
+          {
+            "score": 90,
+            "source": "discogs",
+            "year": 1997
+          }
+        ],
+        "existingYear": 2005,
+        "releaseYear": 2025,
+        "scoring": {
+          "baseScore": 90,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 0
+        }
+      }
+    },
+    {
+      "description": "Disabled fallback applies API evidence without duplicating Swift verification attempts",
+      "divergences": [
+        {
+          "kind": "single_verification_mark",
+          "reason": "Swift assigns verification-attempt ownership to the workflow and records one attempt per lookup; Python marks once in orchestration and again in disabled fallback"
+        }
+      ],
+      "expected": {
+        "acceptedScoreLists": {
+          "1998": [
+            40
+          ],
+          "2018": [
+            35
+          ]
+        },
+        "cacheStore": null,
+        "confidence": 40,
+        "finalYear": 1998,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 2,
+          "metadata": {},
+          "reason": "no_year_found"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          },
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          }
+        ],
+        "proposals": [
+          {
+            "newYear": 1998,
+            "oldYear": 2018,
+            "trackID": "track-1"
+          },
+          {
+            "newYear": 1998,
+            "oldYear": 2018,
+            "trackID": "track-2"
+          }
+        ],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 1998,
+        "yearScores": {
+          "1998": 40,
+          "2018": 35
+        }
+      },
+      "id": "fallback_disabled_single_mark",
+      "input": {
+        "album": "Scallywag",
+        "candidates": [
+          {
+            "score": 40,
+            "source": "discogs",
+            "year": 1998
+          },
+          {
+            "score": 35,
+            "source": "musicbrainz",
+            "year": 2018
+          }
+        ],
+        "existingYear": 2018,
+        "fallbackEnabled": false,
+        "scoring": {
+          "baseScore": 40,
+          "itunesBonus": 0,
+          "musicBrainzBonus": -5
+        }
+      }
+    }
+  ],
+  "contract": "post_acquisition_scored_release_decision",
+  "decisionYear": 2026,
+  "pythonBaseline": "0f6dca1f36eab74a6899a0f770511927b68d3e15",
+  "schemaVersion": 1
+}

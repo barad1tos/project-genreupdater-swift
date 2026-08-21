@@ -448,7 +448,6 @@ final class AppDependencies {
         apiOrchestrator = Self.makeAPIOrchestrator(
             configuration: cacheConfiguration,
             cache: cacheService,
-            pendingVerificationService: pendingVerification,
             reachability: reachability,
             factoryOverrides: APIClientFactoryOverrides(discogsCredentialIssueHandler: { [weak self] issue in
                 self?.setDiscogsIssue(issue)
@@ -654,7 +653,6 @@ extension AppDependencies {
         let configuredAPIOrchestrator = Self.makeAPIOrchestrator(
             configuration: cacheConfiguration,
             cache: cacheService,
-            pendingVerificationService: pendingVerificationStore,
             reachability: networkReachabilityMonitor,
             factoryOverrides: APIClientFactoryOverrides(discogsCredentialIssueHandler: { [weak self] issue in
                 self?.setDiscogsIssue(issue)

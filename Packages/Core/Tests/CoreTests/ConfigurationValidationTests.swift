@@ -218,6 +218,7 @@ struct ConfigurationValidationTests {
         configuration.yearRetrieval.fallback.yearDifferenceThreshold = 0
         configuration.yearRetrieval.fallback.trustAPIScoreThreshold = 100
         configuration.yearRetrieval.fallback.maxVerificationAttempts = 0
+        configuration.yearRetrieval.fallback.rerecordingAgeYears = 0
         configuration.yearRetrieval.discogsSearch.resultLimit = 1
         configuration.yearRetrieval.discogsSearch.detailLookupLimit = 0
         configuration.yearRetrieval.itunesSearch.limit = 1
@@ -621,6 +622,9 @@ struct ConfigurationValidationTests {
             },
             minimumZero("yearRetrieval.fallback.maxVerificationAttempts", "-1") {
                 $0.yearRetrieval.fallback.maxVerificationAttempts = -1
+            },
+            minimumZero("yearRetrieval.fallback.rerecordingAgeYears", "-1") {
+                $0.yearRetrieval.fallback.rerecordingAgeYears = -1
             },
             oneToHundred("yearRetrieval.discogsSearch.resultLimit", "101") {
                 $0.yearRetrieval.discogsSearch.resultLimit = 101

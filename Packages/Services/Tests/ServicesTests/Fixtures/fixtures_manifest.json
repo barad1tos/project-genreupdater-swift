@@ -8,6 +8,12 @@
       "caseCount": 1,
       "generated": 1,
       "verifiedByExecution": 0
+    },
+    "year_decision_reference.json": {
+      "digest": "sha256:b8d33d6c7169933240094d760b5daa49e60e325be8496b3485f0d4451a7dd600",
+      "caseCount": 14,
+      "generated": 14,
+      "verifiedByExecution": 0
     }
   }
 }
