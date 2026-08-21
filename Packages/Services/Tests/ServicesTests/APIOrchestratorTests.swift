@@ -93,15 +93,22 @@ struct APIOrchestratorTests {
         #expect(result.confidence == 0)
     }
 
-    @Test("Handles timeout for slow sources, returns fast source result")
+    @Test("Preserves a completed source result when another source times out")
     func handlesTimeoutForSlowSources() async {
-        let fastService = MockAPIService(
-            yearResult: YearResult(
-                year: 2000,
-                confidence: 80,
-                yearScores: [2000: 80]
-            )
-        )
+        let cache = MockCacheService()
+        await cache.setCachedAPIResult(CachedAPIResult(
+            artist: "Iron Maiden",
+            album: "Brave New World",
+            year: 2000,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: 3600,
+            metadata: [
+                "confidence": "80",
+                "rawScore": "80",
+                "isDefinitive": "false",
+            ]
+        ))
         let slowService = MockAPIService(
             yearResult: YearResult(
                 year: 2001,
@@ -112,17 +119,18 @@ struct APIOrchestratorTests {
         )
 
         let orchestrator = makeAPIOrchestrator(
-            musicBrainz: fastService,
+            musicBrainz: MockAPIService(shouldThrow: true),
             discogs: slowService,
-            appleMusic: MockAPIService(shouldThrow: true)
+            appleMusic: MockAPIService(shouldThrow: true),
+            cache: cache
         ) {
             $0.timeout = .seconds(1)
             $0.maxConcurrentSourceCalls = 3
         }
 
         let result = await orchestrator.getAlbumYear(
-            artist: "Test",
-            album: "Album",
+            artist: "Iron Maiden",
+            album: "Brave New World",
             currentLibraryYear: nil,
             earliestTrackAddedYear: nil
         )
