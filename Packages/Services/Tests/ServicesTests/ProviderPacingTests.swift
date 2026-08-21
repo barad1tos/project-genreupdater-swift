@@ -10,10 +10,10 @@ struct ProviderPacingTests {
         let timeline = RequestTimeline()
         let session = makePacingSession(timeline: timeline)
         defer { session.invalidateAndCancel() }
-        let client = try DiscogsClient(
+        let client = DiscogsClient(
             token: "test-token",
             session: session,
-            baseURL: #require(URL(string: "https://pacing.discogs.com"))
+            baseURL: DiscogsClient.defaultBaseURL
         )
         #expect(DiscogsClient.defaultPolicy == .init(maxTokens: 1, refillInterval: .milliseconds(1091)))
 
@@ -136,7 +136,9 @@ private final class PacingURLProtocol: URLProtocol {
         client?.urlProtocolDidFinishLoading(self)
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        // Responses are delivered synchronously, so there is no pending load to cancel.
+    }
 
     private func responseJSON(for url: URL) -> String {
         switch url.host {
