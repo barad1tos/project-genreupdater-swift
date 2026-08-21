@@ -266,8 +266,8 @@ struct PendingWorkflowTests {
         #expect(lookupStates.contains(1))
     }
 
-    @Test("skips auto verification when maintenance preflight is not due")
-    func skipsAutoVerificationWhenMaintenancePreflightIsNotDue() async throws {
+    @Test("not-due preflight skips maintenance while the batch resolves processed albums")
+    func notDueSkipsMaintenance() async throws {
         let run = makeRandomAccessLiveBatchRun(preflightState: .notDue)
         let viewModel = run.viewModel
 
@@ -278,14 +278,16 @@ struct PendingWorkflowTests {
         let removals = await run.pendingVerification.removedAlbums()
 
         #expect(Set(writes.map(\.trackID)) == Set(["as-batch-year", "as-ram-1", "as-ram-2"]))
-        #expect(removals.isEmpty)
+        #expect(removals.count == 2)
+        #expect(removals.contains { $0.artist == "Clutch" && $0.album == "Pure Rock Fury" })
+        #expect(removals.contains { $0.artist == "Daft Punk" && $0.album == "Random Access Memories" })
         #expect(Set(viewModel.completedEntries.map(\.trackID)) == Set(["batch-year", "ram-1", "ram-2"]))
         #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 0)
         #expect(await run.timestampUpdates.count() == 1)
     }
 
-    @Test("skips auto verification when maintenance preflight is unavailable")
-    func skipsAutoVerificationWhenMaintenancePreflightIsUnavailable() async throws {
+    @Test("unavailable preflight skips maintenance while the batch resolves processed albums")
+    func unavailableSkipsMaintenance() async throws {
         let run = makeRandomAccessLiveBatchRun(preflightState: .unavailable)
         let viewModel = run.viewModel
 
@@ -296,7 +298,9 @@ struct PendingWorkflowTests {
         let removals = await run.pendingVerification.removedAlbums()
 
         #expect(Set(writes.map(\.trackID)) == Set(["as-batch-year", "as-ram-1", "as-ram-2"]))
-        #expect(removals.isEmpty)
+        #expect(removals.count == 2)
+        #expect(removals.contains { $0.artist == "Clutch" && $0.album == "Pure Rock Fury" })
+        #expect(removals.contains { $0.artist == "Daft Punk" && $0.album == "Random Access Memories" })
         #expect(Set(viewModel.completedEntries.map(\.trackID)) == Set(["batch-year", "ram-1", "ram-2"]))
         #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 0)
         #expect(await run.timestampUpdates.count() == 1)
@@ -364,8 +368,8 @@ struct PendingWorkflowTests {
         #expect(await pendingVerification.verificationTimestampUpdateCount() == 1)
     }
 
-    @Test("does not auto verify pending albums during reviewed dry run")
-    func doesNotAutoVerifyPendingAlbumsDuringReviewedDryRun() async throws {
+    @Test("reviewed dry run skips maintenance while resolving the analyzed pending album")
+    func dryRunSkipsMaintenance() async throws {
         let pendingVerification = WorkflowPendingVerificationService(
             entries: [randomAccessMemoriesPendingEntry()],
             dueEntries: [randomAccessMemoriesPendingEntry()]
@@ -384,7 +388,7 @@ struct PendingWorkflowTests {
         let removals = await pendingVerification.removedAlbums()
 
         #expect(writes.isEmpty)
-        #expect(removals.isEmpty)
+        #expect(removals.map { "\($0.artist)|\($0.album)" } == ["Daft Punk|Random Access Memories"])
         #expect(await pendingVerification.verificationTimestampUpdateCount() == 0)
     }
 

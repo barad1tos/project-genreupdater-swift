@@ -397,7 +397,8 @@ extension WorkflowViewModel {
         albumTracksByTrackID: [String: [Track]],
         artistTracksByTrackID: [String: [Track]]
     ) -> @Sendable (Track) async throws -> [ChangeLogEntry] {
-        { [weak self] track in
+        let yearRunScope = YearRunScope()
+        return { [weak self] track in
             do {
                 let batchResult = try await updateCoordinator.updateTracks(
                     [track],
@@ -405,6 +406,7 @@ extension WorkflowViewModel {
                     pass: scope.pass(for: track),
                     albumTracksProvider: Self.albumTracksProvider(albumTracksByTrackID),
                     artistTracksProvider: Self.artistTracksProvider(artistTracksByTrackID),
+                    yearRunScope: yearRunScope,
                     progressHandler: Self.ignoreNestedTrackProgress
                 )
                 await self?.recordBatchTrackFailures(

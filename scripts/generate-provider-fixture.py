@@ -37,6 +37,7 @@ ARTIST_QUERY = "björk"
 ARTIST_DISPLAY = "Björk"
 ALBUM_QUERY = "homogenic"
 ALBUM_DISPLAY = "Homogenic"
+TRACK_MODELS_MODULE = "core.models.track_models"
 
 CASE_INPUT = {
     "artist": ARTIST_QUERY,
@@ -938,7 +939,7 @@ def load_year_imports() -> YearDecisionImports:
         track=cast(
             TrackFactory,
             imported_attribute(
-                "core.models.track_models",
+                TRACK_MODELS_MODULE,
                 "TrackDict",
             ),
         ),
@@ -1004,7 +1005,7 @@ async def build_year_fixture(
     configuration_parser = cast(
         Callable[[object], object],
         dynamic_attribute(
-            imported_attribute("core.models.track_models", "AppConfig"),
+            imported_attribute(TRACK_MODELS_MODULE, "AppConfig"),
             "model_validate",
         ),
     )
@@ -1075,7 +1076,7 @@ async def build_fixture(python_root: Path, baseline: str) -> dict[str, object]:
     configuration_parser = cast(
         ProviderConfigParser,
         dynamic_attribute(
-            imported_attribute("core.models.track_models", "AppConfig"),
+            imported_attribute(TRACK_MODELS_MODULE, "AppConfig"),
             "model_validate",
         ),
     )

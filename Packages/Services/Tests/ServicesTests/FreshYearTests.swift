@@ -13,7 +13,7 @@ struct FreshYearTests {
     }
 
     @Test("Force lookup trusts fresh release year over stale API")
-    func forceLookupTrustsFreshReleaseYearOverStaleAPI() async throws {
+    func prefersReleaseYear() async throws {
         let currentYear = Calendar.current.component(.year, from: Date())
         let staleAPIYear = currentYear - 2
         let fixture = makeFixture(currentYear: currentYear, staleAPIYear: staleAPIYear)
@@ -31,9 +31,9 @@ struct FreshYearTests {
         #expect(yearChange.source == "Release Year")
 
         let markedAlbums = await fixture.pendingVerification.markedAlbums
-        let markedAlbum = try #require(markedAlbums.first)
-        #expect(markedAlbums.count == 1)
-        #expect(markedAlbum.reason == "stale_api_data_for_fresh_album")
+        let markedAlbum = try #require(markedAlbums.last)
+        #expect(markedAlbums.count == 2)
+        #expect(markedAlbums.allSatisfy { $0.reason == "no_year_found" })
         #expect(markedAlbum.metadata["release_year"] == String(currentYear))
         #expect(markedAlbum.metadata["proposed_year"] == String(staleAPIYear))
     }

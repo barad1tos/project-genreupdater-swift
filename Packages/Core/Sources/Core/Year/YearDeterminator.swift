@@ -34,6 +34,21 @@ private struct CandidatePartition {
     let rejected: [ReleaseCandidate]
 }
 
+private struct FallbackDecisionInput {
+    let scoredResult: YearResult
+    let scoredReleases: [ScoredRelease]
+    let candidates: [ReleaseCandidate]
+    let acceptedCandidates: [ReleaseCandidate]
+    let rejectedCandidates: [ReleaseCandidate]
+    let track: Track
+    let albumTracks: [Track]
+    let existingYear: Int?
+    let albumTypeInfo: AlbumTypeInfo?
+    let verificationAttempts: Int
+    let artistStartYear: Int?
+    let decisionYear: Int
+}
+
 private struct DecisionEvidence {
     let outcome: YearFallbackOutcome
     let scoredResult: YearResult
@@ -169,9 +184,56 @@ public struct YearDeterminator: Sendable {
             decisionDate: input.decisionDate
         )
         let existingAlbumYear = mostCommonYear(in: input.albumTracks) ?? input.currentYear
+        return fallbackDetermination(
+            FallbackDecisionInput(
+                scoredResult: scoredResult,
+                scoredReleases: scored,
+                candidates: input.candidates,
+                acceptedCandidates: partition.accepted,
+                rejectedCandidates: partition.rejected,
+                track: input.track,
+                albumTracks: input.albumTracks,
+                existingYear: existingAlbumYear,
+                albumTypeInfo: input.albumTypeInfo,
+                verificationAttempts: input.verificationAttempts,
+                artistStartYear: input.artistStartYear ?? input.artistActivityPeriod?.start,
+                decisionYear: currentUTCYear(at: input.decisionDate)
+            )
+        )
+    }
+
+    /// Applies the configured fallback policy to a provider result that was scored upstream.
+    ///
+    /// Use this for provider paths that return an aggregate `YearResult` instead of release candidates.
+    public func applyFallback(_ context: FallbackContext) -> YearDeterminationResult {
+        let yearResult = YearResult(
+            year: context.bestYear,
+            isDefinitive: context.isDefinitive,
+            confidence: context.bestScore,
+            yearScores: context.yearScores
+        )
+        return fallbackDetermination(
+            FallbackDecisionInput(
+                scoredResult: yearResult,
+                scoredReleases: context.scoredReleases,
+                candidates: [],
+                acceptedCandidates: [],
+                rejectedCandidates: [],
+                track: context.track,
+                albumTracks: context.albumTracks,
+                existingYear: context.existingYear,
+                albumTypeInfo: context.albumTypeInfo,
+                verificationAttempts: context.verificationAttempts,
+                artistStartYear: context.artistStartYear,
+                decisionYear: context.decisionYear
+            )
+        )
+    }
+
+    private func fallbackDetermination(_ input: FallbackDecisionInput) -> YearDeterminationResult {
         var mutations = initialVerificationMutations(
-            yearResult: scoredResult,
-            existingYear: existingAlbumYear,
+            yearResult: input.scoredResult,
+            existingYear: input.existingYear,
             verificationAttempts: input.verificationAttempts
         )
         let markedCount = mutations.count { mutation in
@@ -183,9 +245,7 @@ public struct YearDeterminator: Sendable {
         }
         let fallbackContext = makeFallbackContext(
             input,
-            scored: scored,
-            scoredResult: scoredResult,
-            existingYear: existingAlbumYear,
+            existingYear: input.existingYear,
             verificationAttempts: input.verificationAttempts + markedCount
         )
         let outcome = fallback.evaluate(fallbackContext)
@@ -195,11 +255,11 @@ public struct YearDeterminator: Sendable {
         return mapDecisionToResult(
             DecisionEvidence(
                 outcome: outcome,
-                scoredResult: scoredResult,
-                scoredReleases: scored,
+                scoredResult: input.scoredResult,
+                scoredReleases: input.scoredReleases,
                 candidates: input.candidates,
-                acceptedCandidates: partition.accepted,
-                rejectedCandidates: partition.rejected,
+                acceptedCandidates: input.acceptedCandidates,
+                rejectedCandidates: input.rejectedCandidates,
                 verificationMutations: mutations
             )
         )
@@ -219,26 +279,24 @@ public struct YearDeterminator: Sendable {
     }
 
     private func makeFallbackContext(
-        _ input: CandidateDecisionInput,
-        scored: [ScoredRelease],
-        scoredResult: YearResult,
+        _ input: FallbackDecisionInput,
         existingYear: Int?,
         verificationAttempts: Int
     ) -> FallbackContext {
         FallbackContext(
-            scoredReleases: scored,
+            scoredReleases: input.scoredReleases,
             existingYear: existingYear,
             track: input.track,
             albumTracks: input.albumTracks,
-            isDefinitive: scoredResult.isDefinitive,
-            bestScore: scoredResult.confidence,
-            bestYear: scoredResult.year,
+            isDefinitive: input.scoredResult.isDefinitive,
+            bestScore: input.scoredResult.confidence,
+            bestYear: input.scoredResult.year,
             albumTypeInfo: input.albumTypeInfo,
             verificationAttempts: verificationAttempts,
             releaseYear: validator.getConsensusReleaseYear(tracks: input.albumTracks),
-            artistStartYear: input.artistStartYear ?? input.artistActivityPeriod?.start,
-            decisionYear: currentUTCYear(at: input.decisionDate),
-            yearScores: scoredResult.yearScores
+            artistStartYear: input.artistStartYear,
+            decisionYear: input.decisionYear,
+            yearScores: input.scoredResult.yearScores
         )
     }
 

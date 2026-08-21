@@ -194,7 +194,7 @@ struct AlbumIdentityFlowTests {
     }
 
     @Test("Fresh album pending mark uses album identity artist")
-    func freshAlbumPendingMarkUsesAlbumIdentityArtist() async throws {
+    func marksFreshIdentity() async throws {
         let currentYear = Calendar.current.component(.year, from: Date())
         let pending = PendingVerificationProbe(entry: nil, isVerificationNeeded: false)
         let apiService = UpdateAPIDouble(
@@ -227,9 +227,10 @@ struct AlbumIdentityFlowTests {
         )
 
         let marked = await pending.markedAlbums
-        #expect(marked.first?.artist == "Daft Punk")
-        #expect(marked.first?.album == "Random Access Memories")
-        #expect(marked.first?.reason == "stale_api_data_for_fresh_album")
+        #expect(marked.count == 2)
+        #expect(marked.allSatisfy { $0.artist == "Daft Punk" })
+        #expect(marked.allSatisfy { $0.album == "Random Access Memories" })
+        #expect(marked.allSatisfy { $0.reason == "no_year_found" })
     }
 
     @Test("Recent fallback rejection lookup uses album identity artist")

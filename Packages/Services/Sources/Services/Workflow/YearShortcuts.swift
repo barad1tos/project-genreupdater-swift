@@ -10,8 +10,9 @@ extension UpdateCoordinator {
     ) -> Bool {
         guard let entry,
               let cachedYear = entry.year,
-              let libraryYear = dominantLibraryYear(
-                  in: albumContextTracks(track: track, albumTracks: albumTracks),
+              let libraryYear = albumReferenceYear(
+                  track: track,
+                  albumTracks: albumTracks,
                   context: context
               )
         else {
@@ -65,10 +66,12 @@ extension UpdateCoordinator {
         return validReleaseYears(in: tracks).isEmpty
     }
 
-    private func dominantLibraryYear(
-        in tracks: [Track],
+    func albumReferenceYear(
+        track: Track,
+        albumTracks: [Track],
         context: YearDecisionContext
     ) -> Int? {
+        let tracks = albumContextTracks(track: track, albumTracks: albumTracks)
         var yearCounts: [Int: Int] = [:]
         var orderedYears: [Int] = []
         for track in tracks {

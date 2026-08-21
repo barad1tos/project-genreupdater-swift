@@ -366,6 +366,59 @@ struct YearLocalFirstTests {
         #expect(await apiProbe.requestCount > 0)
     }
 
+    @Test("Album API decisions use the majority year regardless of track order")
+    func usesDominantYear() async throws {
+        let outlier = albumTrack(id: "MK-outlier", name: "Outlier", year: 1997, releaseYear: nil)
+        let majority = [
+            albumTrack(id: "MK-majority-1", name: "Majority 1", year: 2005, releaseYear: nil),
+            albumTrack(id: "MK-majority-2", name: "Majority 2", year: 2005, releaseYear: nil),
+        ]
+        let candidates = [
+            ReleaseCandidate(
+                artist: outlier.artist,
+                album: outlier.album,
+                year: 1997,
+                source: .musicBrainz
+            ),
+            ReleaseCandidate(
+                artist: outlier.artist,
+                album: outlier.album,
+                year: 2005,
+                source: .musicBrainz
+            ),
+        ]
+
+        func proposals(for tracks: [Track]) async throws -> [String: Int] {
+            let coordinator = await makeCoordinator(
+                apiProbe: APIRequestProbe(),
+                apiReleaseCandidates: candidates
+            )
+            let runScope = YearRunScope()
+            let albumType = AlbumTypeDetectionConfig().classifyAlbum(outlier.album)
+            var proposals: [String: Int] = [:]
+            for track in tracks {
+                let change = try await coordinator.determineYearChange(
+                    track: track,
+                    albumTracks: tracks,
+                    forceYearLookup: true,
+                    albumTypeInfo: albumType,
+                    missingYearThreshold: 0,
+                    yearRunScope: runScope
+                )
+                if let newYear = change?.newValue.flatMap(Int.init) {
+                    proposals[track.id] = newYear
+                }
+            }
+            return proposals
+        }
+
+        let outlierFirst = try await proposals(for: [outlier] + majority)
+        let majorityFirst = try await proposals(for: majority + [outlier])
+
+        #expect(outlierFirst == [outlier.id: 2005])
+        #expect(majorityFirst == outlierFirst)
+    }
+
     @Test("Invalid persisted years fall through to fresh API acquisition")
     func invalidCacheRefreshes() async throws {
         var calendar = Calendar(identifier: .gregorian)

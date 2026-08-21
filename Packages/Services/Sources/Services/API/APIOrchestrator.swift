@@ -276,13 +276,14 @@ public actor APIOrchestrator {
     ///   - album: Album name to search for.
     ///   - currentLibraryYear: Year currently set in the user's library.
     ///   - earliestTrackAddedYear: Earliest year any track from this album was added.
+    ///   - pendingRemovalAliases: Pending aliases to synchronize, or `nil` when the caller owns pending mutations.
     /// - Returns: Aggregated `YearResult` with combined scores from all responding sources.
     public func getAlbumYear(
         artist: String,
         album: String,
         currentLibraryYear: Int?,
         earliestTrackAddedYear: Int?,
-        pendingRemovalAliases: [(artist: String, album: String)] = []
+        pendingRemovalAliases: [(artist: String, album: String)]? = []
     ) async -> YearResult {
         let lookup = await getAlbumYearInternal(
             artist: artist,

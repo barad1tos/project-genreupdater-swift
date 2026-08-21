@@ -19,7 +19,7 @@ public enum AlbumType: String, Sendable, Codable, CaseIterable {
 /// Strategy for handling year updates based on album type.
 public enum YearHandlingStrategy: String, Sendable, Codable {
     case normal // Apply year normally
-    case markAndSkip // Mark for verification, skip update
+    case markAndSkip // Mark and preserve the existing year during fallback
     case markAndUpdate // Mark for verification, still update
 }
 

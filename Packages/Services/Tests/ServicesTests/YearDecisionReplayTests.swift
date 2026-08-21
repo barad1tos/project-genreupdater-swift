@@ -186,22 +186,12 @@ struct YearDecisionReplayTests {
     private func serviceEffects(for replayCase: ReplayCase) -> ServiceEffects {
         let input = replayCase.input
         let python = replayCase.expected
-        let albumType = AlbumTypeDetectionConfig().classifyAlbum(input.album)
-        if albumType.strategy == .markAndSkip {
-            return ServiceEffects(
-                proposals: [],
-                pendingOperations: [],
-                pendingFinal: nil,
-                cacheStore: nil
-            )
-        }
-
         let rejectsReleaseConflict = input.existingYear != nil
             && input.releaseYear != nil
             && input.existingYear != input.releaseYear
             && python.finalYear != input.releaseYear
         return ServiceEffects(
-            proposals: python.proposals,
+            proposals: rejectsReleaseConflict ? [] : python.proposals,
             pendingOperations: python.pendingOperations,
             pendingFinal: python.pendingFinal,
             cacheStore: rejectsReleaseConflict ? nil : python.cacheStore

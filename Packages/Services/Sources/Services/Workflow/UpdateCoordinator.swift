@@ -478,10 +478,9 @@ public actor UpdateCoordinator {
 
     // MARK: Multi-Track
 
-    /// Update multiple tracks with progress reporting.
+    /// Updates tracks individually, aggregates non-fatal failures, and records change history.
     ///
-    /// Each track is processed individually. Failures are non-fatal and aggregated.
-    /// Change history is recorded in the `UndoCoordinator`.
+    /// Pass a run-owned `yearRunScope` when invoking this method in per-track chunks.
     /// Returns a `BatchUpdateResult` with both successes and failures.
     public func updateTracks(
         _ tracks: [Track],
@@ -489,6 +488,7 @@ public actor UpdateCoordinator {
         pass: UpdatePass = .standard,
         albumTracksProvider: (@Sendable (Track) -> [Track])? = nil,
         artistTracksProvider: (@Sendable (Track) -> [Track])? = nil,
+        yearRunScope: YearRunScope? = nil,
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> BatchUpdateResult {
         let signpostState = AppSignpost.batchProcessing.beginInterval("updateTracks")
@@ -503,7 +503,7 @@ public actor UpdateCoordinator {
             albumTracksProvider: albumTracksProvider,
             artistTracksProvider: artistTracksProvider
         )
-        let yearRunScope = YearRunScope()
+        let yearRunScope = yearRunScope ?? YearRunScope()
 
         for (index, track) in tracks.enumerated() {
             do {

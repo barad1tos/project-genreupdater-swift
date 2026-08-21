@@ -28,15 +28,9 @@ private struct YearAPIRequest {
     let albumTracks: [Track]
     let albumType: AlbumTypeInfo
     let queryAlbum: String
+    let referenceYear: Int?
     let ignoresLocalYears: Bool
     let decisionDate: Date
-}
-
-private struct ArtistYearEvidence {
-    let activityPeriod: (start: Int?, end: Int?)?
-    let startYear: Int?
-    let country: String?
-    let verificationAttempts: Int
 }
 
 private struct YearEffectInput {
@@ -113,8 +107,6 @@ extension UpdateCoordinator {
         ) {
             return nil
         }
-        guard input.albumType.strategy != .markAndSkip else { return nil }
-
         let context = decisionContext(for: input)
         if let runDecision = await input.runScope?.decision(for: input.track) {
             return await yearChange(
@@ -142,17 +134,7 @@ extension UpdateCoordinator {
         case let .change(change):
             return change
         }
-        let apiDetermination = try await apiYearDecision(
-            YearAPIRequest(
-                track: input.track,
-                albumTracks: input.albumTracks,
-                albumType: input.albumType,
-                queryAlbum: input.queryAlbum,
-                ignoresLocalYears: input.forceLookup || context.releaseYearConflict != nil
-                    || context.hasAmbiguousReleaseYearSignal,
-                decisionDate: context.decisionDate
-            )
-        )
+        let apiDetermination = try await apiYearDecision(apiRequest(for: input, context: context))
         let resolved = await resolveRunDecision(apiDetermination, for: input.track, in: input.runScope)
         return await yearChange(
             from:
@@ -181,6 +163,23 @@ extension UpdateCoordinator {
             cacheTrustThreshold: runtimeConfiguration.cacheTrustThreshold,
             candidateYearValidator: yearDeterminator.validator,
             decisionDate: decisionDate()
+        )
+    }
+
+    private func apiRequest(for input: YearLookupInput, context: YearDecisionContext) -> YearAPIRequest {
+        YearAPIRequest(
+            track: input.track,
+            albumTracks: input.albumTracks,
+            albumType: input.albumType,
+            queryAlbum: input.queryAlbum,
+            referenceYear: albumReferenceYear(
+                track: input.track,
+                albumTracks: input.albumTracks,
+                context: context
+            ),
+            ignoresLocalYears: input.forceLookup || context.releaseYearConflict != nil
+                || context.hasAmbiguousReleaseYearSignal,
+            decisionDate: context.decisionDate
         )
     }
 
@@ -453,7 +452,7 @@ extension UpdateCoordinator {
         let apiCandidates = await apiOrchestrator.getReleaseCandidates(
             artist: identity.artist,
             album: identity.album,
-            currentLibraryYear: request.track.year,
+            currentLibraryYear: request.referenceYear,
             earliestTrackAddedYear: earliestTrackAddedYear
         )
         try Task.checkCancellation()
@@ -470,7 +469,7 @@ extension UpdateCoordinator {
             candidates: apiCandidates,
             track: request.track,
             albumTracks: request.albumTracks,
-            currentYear: request.track.year,
+            currentYear: request.referenceYear,
             artistActivityPeriod: evidence.activityPeriod,
             artistStartYear: evidence.startYear,
             artistCountry: evidence.country,
@@ -492,48 +491,44 @@ extension UpdateCoordinator {
         identity: AlbumIdentity,
         earliestTrackAddedYear: Int?
     ) async throws -> APIYearDecision {
-        let aliases = (
-            AlbumIdentity.lookupCandidates(for: request.track) +
-                AlbumIdentity.lookupCandidates(artist: identity.artist, album: identity.album)
-        ).map {
-            (artist: $0.artist, album: $0.album)
-        }
         let result = await apiOrchestrator.getAlbumYear(
             artist: identity.artist,
             album: identity.album,
-            currentLibraryYear: request.track.year,
+            currentLibraryYear: request.referenceYear,
             earliestTrackAddedYear: earliestTrackAddedYear,
-            pendingRemovalAliases: aliases
+            pendingRemovalAliases: nil
         )
         try Task.checkCancellation()
+        guard result.year != nil else {
+            return APIYearDecision(
+                determination: YearDeterminationResult(yearResult: result, source: .api),
+                sourceLabel: result.isDefinitive ? "Definitive" : "API",
+                usesLegacyResult: true
+            )
+        }
+        let normalizedArtist = normalizeForMatching(identity.artist)
+        let evidence = try await artistYearEvidence(normalizedArtist: normalizedArtist, track: request.track)
+        let determination = yearDeterminator.applyFallback(FallbackContext(
+            scoredReleases: [],
+            existingYear: request.referenceYear,
+            track: request.track,
+            albumTracks: request.albumTracks,
+            isDefinitive: result.isDefinitive,
+            bestScore: result.confidence,
+            bestYear: result.year,
+            albumTypeInfo: request.albumType,
+            verificationAttempts: evidence.verificationAttempts,
+            artistStartYear: evidence.startYear,
+            decisionYear: Self.utcYear(at: request.decisionDate),
+            yearScores: result.yearScores
+        ))
+        let resolvedSource = determination.source == .api
+            ? (result.isDefinitive ? "Definitive" : "API")
+            : sourceLabel(for: determination)
         return APIYearDecision(
-            determination: YearDeterminationResult(yearResult: result, source: .api),
-            sourceLabel: result.isDefinitive ? "Definitive" : "API",
+            determination: determination,
+            sourceLabel: resolvedSource,
             usesLegacyResult: true
-        )
-    }
-
-    private func artistYearEvidence(
-        normalizedArtist: String,
-        track: Track
-    ) async throws -> ArtistYearEvidence {
-        let activityPeriod = await apiOrchestrator.getArtistActivityPeriod(
-            normalizedArtist: normalizedArtist
-        )
-        try Task.checkCancellation()
-        // Python parity (orchestrator.py:1079): the artist region rides
-        // next to the activity period into release-country scoring.
-        let country = await apiOrchestrator.getArtistRegion(normalizedArtist: normalizedArtist)
-        try Task.checkCancellation()
-        let attempts = await pendingVerificationService?.getAttemptCount(
-            artist: track.albumIdentity.artist,
-            album: track.albumIdentity.album
-        ) ?? 0
-        return ArtistYearEvidence(
-            activityPeriod: activityPeriod,
-            startYear: activityPeriod.start,
-            country: country,
-            verificationAttempts: attempts
         )
     }
 
