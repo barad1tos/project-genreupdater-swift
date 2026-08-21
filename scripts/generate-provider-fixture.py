@@ -342,8 +342,11 @@ YEAR_DECISION_CASES: list[DecisionCase] = [
         "album": "Scallywag",
         "existingYear": 2018,
         "fallbackEnabled": False,
-        "candidates": [{"year": 1998, "score": 40, "source": "discogs"}],
-        "scoring": {"baseScore": 40, "musicBrainzBonus": 0, "itunesBonus": 0},
+        "candidates": [
+            {"year": 1998, "score": 40, "source": "discogs"},
+            {"year": 2018, "score": 35, "source": "musicbrainz"},
+        ],
+        "scoring": {"baseScore": 40, "musicBrainzBonus": -5, "itunesBonus": 0},
         "divergences": [
             {
                 "kind": "single_verification_mark",

@@ -48,7 +48,7 @@ struct YearDecisionReplayTests {
         let input = replayCase.input
         let decisionDate = try fixture.decisionDate()
         let scorer = makeScorer(input.scoring)
-        let determinator = YearDeterminator(scorer: scorer, fallback: YearFallbackStrategy())
+        let determinator = YearDeterminator(scorer: scorer, fallback: makeFallback(input))
         let tracks = makeTracks(input)
         let candidates = input.candidates.compactMap(makeCandidate)
         let scored = candidates

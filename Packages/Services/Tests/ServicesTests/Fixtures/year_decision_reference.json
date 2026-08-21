@@ -944,6 +944,9 @@
         "acceptedScoreLists": {
           "1998": [
             40
+          ],
+          "2018": [
+            35
           ]
         },
         "cacheStore": null,
@@ -983,7 +986,8 @@
         "rejectedYears": [],
         "selectedYear": 1998,
         "yearScores": {
-          "1998": 40
+          "1998": 40,
+          "2018": 35
         }
       },
       "id": "fallback_disabled_single_mark",
@@ -994,6 +998,11 @@
             "score": 40,
             "source": "discogs",
             "year": 1998
+          },
+          {
+            "score": 35,
+            "source": "musicbrainz",
+            "year": 2018
           }
         ],
         "existingYear": 2018,
@@ -1001,7 +1010,7 @@
         "scoring": {
           "baseScore": 40,
           "itunesBonus": 0,
-          "musicBrainzBonus": 0
+          "musicBrainzBonus": -5
         }
       }
     }
