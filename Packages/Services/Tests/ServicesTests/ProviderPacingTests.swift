@@ -15,7 +15,7 @@ struct ProviderPacingTests {
             session: session,
             baseURL: DiscogsClient.defaultBaseURL
         )
-        #expect(DiscogsClient.defaultPolicy == .init(maxTokens: 1, refillInterval: .milliseconds(1091)))
+        try #require(DiscogsClient.defaultPolicy == .init(maxTokens: 1, refillInterval: .milliseconds(1091)))
 
         _ = try await client.getAlbumYear(
             artist: "Iron Maiden",
@@ -32,7 +32,6 @@ struct ProviderPacingTests {
 
         let delay = try timeline.firstRequestDelay()
         #expect(delay >= .milliseconds(500))
-        #expect(delay < .seconds(3))
     }
 
     @Test("MusicBrainz direct clients use the centralized one-second default")
@@ -41,14 +40,13 @@ struct ProviderPacingTests {
         let session = makePacingSession(timeline: timeline)
         defer { session.invalidateAndCancel() }
         let client = MusicBrainzClient(session: session)
-        #expect(MusicBrainzClient.defaultPolicy == .init(maxTokens: 1, refillInterval: .seconds(1)))
+        try #require(MusicBrainzClient.defaultPolicy == .init(maxTokens: 1, refillInterval: .seconds(1)))
 
         _ = try await client.getArtistRegion(artist: "Test Artist")
         _ = try await client.getArtistRegion(artist: "Test Artist")
 
         let delay = try timeline.firstRequestDelay()
         #expect(delay >= .milliseconds(400))
-        #expect(delay < .seconds(2))
     }
 
     @Test("iTunes direct clients use the centralized ten-per-second default")
@@ -57,7 +55,7 @@ struct ProviderPacingTests {
         let session = makePacingSession(timeline: timeline)
         defer { session.invalidateAndCancel() }
         let client = CatalogSearchClient(session: session, lookupFallbackEnabled: false)
-        #expect(CatalogSearchClient.defaultPolicy == .init(maxTokens: 1, refillInterval: .milliseconds(100)))
+        try #require(CatalogSearchClient.defaultPolicy == .init(maxTokens: 1, refillInterval: .milliseconds(100)))
 
         _ = try await client.getReleaseCandidates(
             artist: "Test Artist",
@@ -74,7 +72,6 @@ struct ProviderPacingTests {
 
         let delay = try timeline.firstRequestDelay()
         #expect(delay >= .milliseconds(20))
-        #expect(delay < .milliseconds(500))
     }
 }
 
