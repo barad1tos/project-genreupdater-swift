@@ -931,6 +931,79 @@
           "musicBrainzBonus": 0
         }
       }
+    },
+    {
+      "description": "Disabled fallback applies API evidence without duplicating Swift verification attempts",
+      "divergences": [
+        {
+          "kind": "single_verification_mark",
+          "reason": "Swift assigns verification-attempt ownership to the workflow and records one attempt per lookup; Python marks once in orchestration and again in disabled fallback"
+        }
+      ],
+      "expected": {
+        "acceptedScoreLists": {
+          "1998": [
+            40
+          ]
+        },
+        "cacheStore": null,
+        "confidence": 40,
+        "finalYear": 1998,
+        "isDefinitive": false,
+        "pendingFinal": {
+          "attemptCount": 2,
+          "metadata": {},
+          "reason": "no_year_found"
+        },
+        "pendingOperations": [
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          },
+          {
+            "kind": "mark",
+            "metadata": {},
+            "reason": "no_year_found"
+          }
+        ],
+        "proposals": [
+          {
+            "newYear": 1998,
+            "oldYear": 2018,
+            "trackID": "track-1"
+          },
+          {
+            "newYear": 1998,
+            "oldYear": 2018,
+            "trackID": "track-2"
+          }
+        ],
+        "rejectedMissingYearCount": 0,
+        "rejectedYears": [],
+        "selectedYear": 1998,
+        "yearScores": {
+          "1998": 40
+        }
+      },
+      "id": "fallback_disabled_single_mark",
+      "input": {
+        "album": "Scallywag",
+        "candidates": [
+          {
+            "score": 40,
+            "source": "discogs",
+            "year": 1998
+          }
+        ],
+        "existingYear": 2018,
+        "fallbackEnabled": false,
+        "scoring": {
+          "baseScore": 40,
+          "itunesBonus": 0,
+          "musicBrainzBonus": 0
+        }
+      }
     }
   ],
   "contract": "post_acquisition_scored_release_decision",

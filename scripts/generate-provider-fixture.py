@@ -194,6 +194,11 @@ class DecisionScoring(TypedDict):
     itunesBonus: int
 
 
+class DecisionDivergence(TypedDict):
+    kind: str
+    reason: str
+
+
 class DecisionCase(TypedDict):
     id: str
     description: str
@@ -204,6 +209,8 @@ class DecisionCase(TypedDict):
     releaseYear: NotRequired[int]
     artistStartYear: NotRequired[int]
     startingAttempts: NotRequired[int]
+    fallbackEnabled: NotRequired[bool]
+    divergences: NotRequired[list[DecisionDivergence]]
 
 
 YEAR_DECISION_CASES: list[DecisionCase] = [
@@ -328,6 +335,21 @@ YEAR_DECISION_CASES: list[DecisionCase] = [
         "artistStartYear": 2015,
         "candidates": [{"year": 1997, "score": 90, "source": "discogs"}],
         "scoring": {"baseScore": 90, "musicBrainzBonus": 0, "itunesBonus": 0},
+    },
+    {
+        "id": "fallback_disabled_single_mark",
+        "description": "Disabled fallback applies API evidence without duplicating Swift verification attempts",
+        "album": "Scallywag",
+        "existingYear": 2018,
+        "fallbackEnabled": False,
+        "candidates": [{"year": 1998, "score": 40, "source": "discogs"}],
+        "scoring": {"baseScore": 40, "musicBrainzBonus": 0, "itunesBonus": 0},
+        "divergences": [
+            {
+                "kind": "single_verification_mark",
+                "reason": "Swift assigns verification-attempt ownership to the workflow and records one attempt per lookup; Python marks once in orchestration and again in disabled fallback",
+            }
+        ],
     },
 ]
 
@@ -469,7 +491,6 @@ class PendingProbe:
 
     def mark_for_verification(
         self,
-        *,
         artist: str,
         album: str,
         reason: str = "no_year_found",
@@ -834,7 +855,7 @@ async def execute_year_decision(
     fallback = imported.fallback(
         console_logger=logger,
         pending_verification=pending,
-        fallback_enabled=True,
+        fallback_enabled=case.get("fallbackEnabled", True),
         absurd_year_threshold=1970,
         year_difference_threshold=5,
         trust_api_score_threshold=70,
@@ -988,6 +1009,8 @@ def decision_case_input(case: DecisionCase) -> dict[str, object]:
         result["artistStartYear"] = case["artistStartYear"]
     if "startingAttempts" in case:
         result["startingAttempts"] = case["startingAttempts"]
+    if "fallbackEnabled" in case:
+        result["fallbackEnabled"] = case["fallbackEnabled"]
     return result
 
 
@@ -1035,6 +1058,11 @@ async def build_year_fixture(
                 "description": case["description"],
                 "input": decision_case_input(case),
                 "expected": await execute_year_decision(case, imported, logger),
+                **(
+                    {"divergences": case["divergences"]}
+                    if "divergences" in case
+                    else {}
+                ),
             }
             for case in YEAR_DECISION_CASES
         ]
