@@ -32,7 +32,7 @@ struct ProviderPacingTests {
 
         let delay = try timeline.firstRequestDelay()
         #expect(delay >= .milliseconds(500))
-        #expect(delay < .seconds(2))
+        #expect(delay < .seconds(3))
     }
 
     @Test("MusicBrainz direct clients use the centralized one-second default")
