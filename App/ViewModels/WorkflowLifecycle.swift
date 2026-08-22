@@ -59,7 +59,6 @@ extension WorkflowViewModel {
         proposedChanges = []
         result = nil
         completedEntries = []
-        dryRunReport = nil
         maintenancePreflightResult = nil
         processedCount = 0
         totalCount = 0
@@ -80,7 +79,6 @@ extension WorkflowViewModel {
     func enableWritesForReviewedChanges() {
         guard case .review = phase else { return }
         previewOnly = false
-        dryRunReport = nil
     }
 
     func configureFullLibraryScope(tracks: [Core.Track]) {

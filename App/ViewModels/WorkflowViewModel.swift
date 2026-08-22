@@ -123,7 +123,6 @@ final class WorkflowViewModel {
     var batchNoOpEntries: [ChangeLogEntry] = []
     var batchFailedTrackIDs: [String] = []
     var batchFailureDescriptions: [String] = []
-    var dryRunReport: DryRunReport?
     var failedCount: Int = 0
     var maintenancePreflightResult: MaintenancePreflightResult?
 
@@ -336,10 +335,6 @@ final class WorkflowViewModel {
                     minConfidence: confidencePercentage
                 )
                 proposedChanges = filtered
-
-                if previewOnly {
-                    dryRunReport = DryRunReport(proposedChanges: filtered)
-                }
 
                 currentTrackID = nil
                 phase = .review
@@ -665,7 +660,6 @@ final class WorkflowViewModel {
         )
         completedEntries = preflightOutcome.completed
         proposedChanges = []
-        dryRunReport = previewOnly ? DryRunReport(proposedChanges: []) : nil
         processedCount = preflightOutcome.processedCount
         failedCount = preflightOutcome.failedTrackIDs.count
         if preflightOutcome.isEmpty {

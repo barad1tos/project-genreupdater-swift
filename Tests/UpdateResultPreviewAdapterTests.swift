@@ -13,32 +13,32 @@ struct UpdateResultPreviewAdapterTests {
 
         let snapshot = UpdateResultPreviewAdapter.makeSnapshot(
             from: projection,
-            hasCleaningAccess: true
+            hasCleaningAccess: true,
+            noticeMessage: nil,
+            noticeTone: .info
         )
 
         #expect(snapshot.mode == .preview)
         #expect(snapshot.status == .ready)
         #expect(snapshot.scope == "Test Artists: 2")
         #expect(snapshot.albums.map(\.title) == ["Björk — Homogenic", "Björk — Post"])
-        #expect(snapshot.affectedTrackCount == projection.affectedTrackCount)
-
         let metrics = Dictionary(uniqueKeysWithValues: snapshot.metrics.map { ($0.id, $0.value) })
         #expect(metrics == [
-            "changes": "5",
-            "accepted": "4",
+            "changes": "6",
+            "accepted": "5",
             "rejected": "1",
             "genre": "1",
-            "year": "1",
+            "year": "2",
             "track-cleaning": "1",
             "album-cleaning": "1",
             "artist-rename": "1",
-            "affected-tracks": "3",
+            "affected-tracks": "4",
             "affected-albums": "2",
             "average-confidence": "91%",
         ])
 
         let tracks = snapshot.albums.flatMap(\.tracks)
-        #expect(tracks.map(\.id) == ["t3", "t1", "t2"])
+        #expect(tracks.map(\.id) == ["t3", "t4", "t1", "t2"])
         #expect(tracks.first?.changes.count == 2)
         #expect(tracks.allSatisfy { $0.state == .ready })
 
@@ -47,7 +47,7 @@ struct UpdateResultPreviewAdapterTests {
         #expect(changes.first?.state == .proposed(.accepted))
         #expect(changes.first?.source == "MusicBrainz")
         #expect(changes.first?.confidence == 0.91)
-        #expect(changes.map(\.type) == [.album, .artist, .genre, .revert, .track])
+        #expect(changes.map(\.type) == [.album, .artist, .year, .genre, .revert, .track])
         #expect(snapshot.notices.contains { $0.id == "fix-plan-write-identity" })
         #expect(snapshot.notices
             .contains { $0.message == "Write identity required: Accepted items without AppleScript ID: 1" })
@@ -65,18 +65,29 @@ struct UpdateResultPreviewAdapterTests {
     func mapsStatuses() throws {
         let ready = try makeProjection(status: .ready)
 
-        #expect(UpdateResultPreviewAdapter.makeSnapshot(from: ready, hasCleaningAccess: true).status == .ready)
+        #expect(UpdateResultPreviewAdapter.makeSnapshot(
+            from: ready,
+            hasCleaningAccess: true,
+            noticeMessage: nil,
+            noticeTone: .info
+        ).status == .ready)
         #expect(UpdateResultPreviewAdapter.makeSnapshot(
             from: ready.withStatus(.stale),
-            hasCleaningAccess: true
+            hasCleaningAccess: true,
+            noticeMessage: nil,
+            noticeTone: .info
         ).status == .stale)
         #expect(UpdateResultPreviewAdapter.makeSnapshot(
             from: ready.withStatus(.unavailable),
-            hasCleaningAccess: true
+            hasCleaningAccess: true,
+            noticeMessage: nil,
+            noticeTone: .info
         ).status == .unavailable)
         #expect(UpdateResultPreviewAdapter.makeSnapshot(
             from: .empty(),
-            hasCleaningAccess: true
+            hasCleaningAccess: true,
+            noticeMessage: nil,
+            noticeTone: .info
         ).status == .empty)
     }
 
@@ -86,7 +97,9 @@ struct UpdateResultPreviewAdapterTests {
 
         let snapshot = UpdateResultPreviewAdapter.makeSnapshot(
             from: projection,
-            hasCleaningAccess: false
+            hasCleaningAccess: false,
+            noticeMessage: nil,
+            noticeTone: .info
         )
 
         #expect(snapshot.contentAccess == .locked(message: UpgradeCopy.cleaningWrite))
@@ -98,7 +111,9 @@ struct UpdateResultPreviewAdapterTests {
 
         let snapshot = UpdateResultPreviewAdapter.makeSnapshot(
             from: projection,
-            hasCleaningAccess: false
+            hasCleaningAccess: false,
+            noticeMessage: nil,
+            noticeTone: .info
         )
 
         #expect(snapshot.contentAccess == .available)
@@ -157,7 +172,9 @@ struct UpdateResultPreviewAdapterTests {
     func allowsPreviewOnlyTransition() throws {
         let snapshot = try UpdateResultPreviewAdapter.makeSnapshot(
             from: makeCleaningProjection(verdict: .accepted),
-            hasCleaningAccess: false
+            hasCleaningAccess: false,
+            noticeMessage: nil,
+            noticeTone: .info
         )
 
         #expect(UpdateResultActions.canUsePrimary(
@@ -179,6 +196,7 @@ private let proposalIDs = [
     "00000000-0000-0000-0000-000000000003",
     "00000000-0000-0000-0000-000000000004",
     "00000000-0000-0000-0000-000000000005",
+    "00000000-0000-0000-0000-000000000006",
 ].compactMap(UUID.init(uuidString:))
 
 private func makeProjection(
@@ -190,6 +208,7 @@ private func makeProjection(
         makeItem(index: 2, trackID: "t2", album: "Post", type: .trackCleaning),
         makeItem(index: 3, trackID: "t3", album: "Homogenic", type: .albumCleaning),
         makeItem(index: 4, trackID: "t3", album: "Homogenic", type: .artistRename),
+        makeItem(index: 5, trackID: "t4", album: "Homogenic", type: .yearUpdate),
     ]
     return FixPlanProjection(
         revision: ProjectionRevision(2),
@@ -210,15 +229,15 @@ private func makeProjection(
             reason: "unit-test"
         ),
         summary: FixPlanProjection.Summary(
-            itemCount: 5,
-            acceptedCount: 4,
+            itemCount: 6,
+            acceptedCount: 5,
             rejectedCount: 1,
             genreCount: 1,
-            yearCount: 1,
+            yearCount: 2,
             trackCleaningCount: 1,
             albumCleaningCount: 1,
             artistRenameCount: 1,
-            affectedTrackCount: 3,
+            affectedTrackCount: 4,
             affectedAlbumCount: 2,
             averageConfidence: 91,
             canApply: false

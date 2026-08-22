@@ -83,9 +83,6 @@ struct UpdateRunReport: Equatable {
     var hasFailures: Bool {
         !failures.isEmpty
     }
-    var hasOperationalNotes: Bool {
-        !operationalNotes.isEmpty
-    }
     var operationalNotes: [UpdateRunOperationalNote] {
         var notes: [UpdateRunOperationalNote] = []
         if !failures.isEmpty {
@@ -607,9 +604,6 @@ struct UpdateRunAlbumGroup: Identifiable, Equatable {
     var title: String {
         "\(artist) - \(album)"
     }
-    var changedTrackCount: Int {
-        Set(entries.map(\.trackID)).count
-    }
     var changeSummary: String {
         "\(oldValue) -> \(newValue)"
     }
@@ -647,41 +641,6 @@ struct UpdateRunAlbumResult: Identifiable, Equatable {
                 max(1, failureMessage.components(separatedBy: "\n").count)
             } ?? 0)
         }
-    }
-    var trackCount: Int {
-        tracks.count
-    }
-    var needsReview: Bool {
-        failureCount > 0
-    }
-
-    var primaryGenre: String? {
-        mostFrequentValue(tracks.compactMap(\.currentGenre).filter { !$0.isEmpty })
-    }
-
-    var currentYear: Int? {
-        mostFrequentValue(tracks.compactMap(\.currentYear))
-    }
-    var releaseYear: Int? {
-        mostFrequentValue(tracks.compactMap(\.releaseYear))
-    }
-
-    var primaryChangeSummary: String {
-        let summaries = Set(tracks.flatMap(\.changes).map(\.summary))
-        if summaries.count == 1, let summary = summaries.first {
-            return summary
-        }
-        if summaries.isEmpty {
-            return "No metadata changes"
-        }
-        return "\(summaries.count) metadata changes"
-    }
-
-    private func mostFrequentValue<Value: Hashable>(_ values: [Value]) -> Value? {
-        Dictionary(grouping: values, by: { $0 })
-            .mapValues(\.count)
-            .max { left, right in left.value < right.value }?
-            .key
     }
 }
 

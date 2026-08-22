@@ -99,12 +99,6 @@ public enum Ayu {
         dark: hex(0x95E6CB)
     )
 
-    /// Selected item background.
-    public static let selection = Color.adaptive(
-        light: hex(0x036DD6).opacity(0.15),
-        dark: hex(0x3388FF).opacity(0.25)
-    )
-
     // MARK: Confidence
 
     /// Returns the ayu color for a given confidence value (0.0–1.0).

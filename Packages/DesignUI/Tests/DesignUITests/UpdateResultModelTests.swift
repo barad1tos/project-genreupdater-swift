@@ -3,13 +3,11 @@ import Testing
 
 @Suite("Shared update result model")
 struct UpdateResultModelTests {
-    @Test("preview and write snapshots expose the same structural sections")
-    func sharesResultStructure() {
+    @Test("preview and write snapshots expose only their valid review authority")
+    func separatesReviewAuthority() {
         let preview = makeSnapshot(mode: .preview, status: .ready)
         let write = makeSnapshot(mode: .write, status: .completed)
 
-        #expect(preview.sections == [.status, .metrics, .albums, .details, .actions])
-        #expect(write.sections == preview.sections)
         #expect(preview.canReview)
         #expect(!write.canReview)
     }
@@ -18,17 +16,6 @@ struct UpdateResultModelTests {
     func separatesRowState() {
         #expect(UpdateResultChangeState.applied.verdict == nil)
         #expect(UpdateResultChangeState.proposed(.accepted).verdict == .accepted)
-    }
-
-    @Test("album hierarchy derives affected track count")
-    func derivesAffectedTrackCount() {
-        let tracks = [
-            makeTrack(id: "ready", state: .ready),
-            makeTrack(id: "applied", state: .applied),
-        ]
-        let snapshot = makeSnapshot(mode: .write, status: .completed, tracks: tracks)
-
-        #expect(snapshot.affectedTrackCount == 2)
     }
 
     @Test("details and secondary icon have source-compatible defaults")

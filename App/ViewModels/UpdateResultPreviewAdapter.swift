@@ -13,18 +13,6 @@ enum UpgradeCopy {
 enum UpdateResultPreviewAdapter {
     static func makeSnapshot(
         from projection: FixPlanProjection,
-        hasCleaningAccess: Bool
-    ) -> UpdateResultSnapshot {
-        makeSnapshot(
-            from: projection,
-            hasCleaningAccess: hasCleaningAccess,
-            noticeMessage: nil,
-            noticeTone: .info
-        )
-    }
-
-    static func makeSnapshot(
-        from projection: FixPlanProjection,
         hasCleaningAccess: Bool,
         noticeMessage: String?,
         noticeTone: Tone
@@ -46,19 +34,6 @@ enum UpdateResultPreviewAdapter {
                 primaryActionLabel: applyLabel(count: projection.acceptedCount),
                 secondaryActionLabel: nil
             )
-        )
-    }
-
-    static func makeSnapshot(
-        changes: [ProposedChange],
-        scopeTitle: String,
-        hasCleaningAccess: Bool
-    ) -> UpdateResultSnapshot {
-        makeSnapshot(
-            changes: changes,
-            scopeTitle: scopeTitle,
-            hasCleaningAccess: hasCleaningAccess,
-            primaryActionLabel: applyLabel(count: changes.count(where: \.isAccepted))
         )
     }
 

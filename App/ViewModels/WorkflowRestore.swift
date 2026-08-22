@@ -84,7 +84,6 @@ extension WorkflowViewModel {
         proposedChanges = []
         completedEntries = []
         result = nil
-        dryRunReport = nil
         maintenancePreflightResult = nil
         recoveryReportSummary = nil
         trackStatuses = Dictionary(uniqueKeysWithValues: scopedTracks.map { ($0.id, .queued) })

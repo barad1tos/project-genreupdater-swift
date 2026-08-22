@@ -30,15 +30,6 @@ public enum UpdateResultStatus: Equatable, Sendable {
     }
 }
 
-/// Defines the invariant top-level structure shared by preview and write results.
-public enum UpdateResultSection: Equatable, Sendable {
-    case status
-    case metrics
-    case albums
-    case details
-    case actions
-}
-
 /// Captures the user's decision for a proposed preview change.
 public enum UpdateResultVerdict: Equatable, Sendable {
     case accepted
@@ -233,20 +224,8 @@ public struct UpdateResultSnapshot: Equatable, Sendable {
         self.details = details
     }
 
-    /// The invariant section order rendered in both result modes.
-    public var sections: [UpdateResultSection] {
-        [.status, .metrics, .albums, .details, .actions]
-    }
-
     /// Whether preview decision controls may be exposed for this snapshot.
     public var canReview: Bool {
         mode == .preview && status.isReviewable
-    }
-
-    /// The number of track rows represented across all albums.
-    public var affectedTrackCount: Int {
-        albums.reduce(into: 0) { count, album in
-            count += album.tracks.count
-        }
     }
 }

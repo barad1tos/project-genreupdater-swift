@@ -25,7 +25,7 @@ struct PublicAPITests {
             details: [detail]
         )
         let album = UpdateResultAlbum(id: "album", title: "Björk — Homogenic", tracks: [track])
-        let metric = UpdateResultMetric(id: "changes", label: "Changes", value: "1", tone: .accent)
+        let metric = UpdateResultMetric(id: "affected-tracks", label: "Affected tracks", value: "1", tone: .accent)
         let notice = UpdateResultNotice(id: "notice", title: "Ready", message: "One change", tone: .info)
         let snapshot = UpdateResultSnapshot(
             mode: .preview,
@@ -46,7 +46,6 @@ struct PublicAPITests {
         let statuses: [UpdateResultStatus] = [
             .empty, .ready, .stale, .unavailable, .completed, .completedWithFailures,
         ]
-        let sections: [UpdateResultSection] = [.status, .metrics, .albums, .details, .actions]
         let verdicts: [UpdateResultVerdict] = [.accepted, .rejected]
         let changeStates: [UpdateResultChangeState] = [
             .proposed(.rejected), .applied, .noChange, .skipped, .failed(message: "Write failed"),
@@ -60,10 +59,8 @@ struct PublicAPITests {
         #expect(snapshot.notices == [notice])
         #expect(snapshot.details == [detail] && snapshot.secondaryActionIcon == "xmark.circle")
         #expect(snapshot.albums.first?.tracks.first?.details == [detail])
-        #expect(snapshot.affectedTrackCount == 1)
         #expect(modes.count == 2)
         #expect(statuses.count == 6)
-        #expect(sections == snapshot.sections)
         #expect(verdicts.count == 2)
         #expect(changeStates.count == 5)
         #expect(trackStates.count == 5)
