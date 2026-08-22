@@ -82,6 +82,7 @@ public struct UpdateResultView: View {
                 contentAccess: snapshot.contentAccess,
                 onAccessAction: onAccessAction
             )
+            ResultDetails(details: snapshot.details)
 
             HSplitView {
                 ResultAlbumRail(
@@ -130,6 +131,49 @@ public struct UpdateResultView: View {
 
     private func reconcileSelection() {
         selectedAlbumID = UpdateResultSelection.resolve(currentID: selectedAlbumID, albums: snapshot.albums)
+    }
+}
+
+private struct ResultDetails: View {
+    @State private var isExpanded = false
+
+    let details: [UpdateResultDetail]
+
+    var body: some View {
+        if !details.isEmpty {
+            GlassCard {
+                DisclosureGroup(isExpanded: $isExpanded) {
+                    ResultDetailList(details: details)
+                        .padding(.top, 10)
+                } label: {
+                    Label("Run details", systemImage: "wrench.and.screwdriver")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Ayu.fg2)
+                }
+            }
+        }
+    }
+}
+
+private struct ResultDetailList: View {
+    let details: [UpdateResultDetail]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(details) { detail in
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(detail.label)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(Ayu.fg2)
+                        .frame(minWidth: 96, alignment: .leading)
+                    Text(detail.value)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Ayu.fgMuted)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -411,6 +455,10 @@ private struct ResultTrackRow: View {
                     .foregroundStyle(Ayu.error)
             }
 
+            if !track.details.isEmpty {
+                ResultDetailList(details: track.details)
+            }
+
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(track.changes) { change in
                     ResultChangeRow(
@@ -583,7 +631,7 @@ private struct ResultActionBar: View {
         if let secondaryActionLabel = snapshot.secondaryActionLabel {
             BorderedButton(
                 title: secondaryActionLabel,
-                symbol: "arrow.counterclockwise",
+                symbol: snapshot.secondaryActionIcon,
                 action: onSecondaryAction
             )
         }

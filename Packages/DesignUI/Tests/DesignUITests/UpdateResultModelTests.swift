@@ -31,6 +31,16 @@ struct UpdateResultModelTests {
         #expect(snapshot.affectedTrackCount == 2)
     }
 
+    @Test("details and secondary icon have source-compatible defaults")
+    func preservesPresentationDefaults() throws {
+        let snapshot = makeSnapshot(mode: .preview, status: .ready)
+        let track = try #require(snapshot.albums.first?.tracks.first)
+
+        #expect(snapshot.details.isEmpty)
+        #expect(track.details.isEmpty)
+        #expect(snapshot.secondaryActionIcon == "arrow.counterclockwise")
+    }
+
     private func makeSnapshot(mode: UpdateResultMode, status: UpdateResultStatus) -> UpdateResultSnapshot {
         makeSnapshot(
             mode: mode,

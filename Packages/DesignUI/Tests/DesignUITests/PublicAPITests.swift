@@ -15,12 +15,14 @@ struct PublicAPITests {
             confidence: 0.94,
             state: .proposed(.accepted)
         )
+        let detail = UpdateResultDetail(id: "technical-id", label: "Technical ID", value: "track")
         let track = UpdateResultTrack(
             id: "track",
             title: "Jóga",
             artist: "Björk",
             state: .ready,
-            changes: [change]
+            changes: [change],
+            details: [detail]
         )
         let album = UpdateResultAlbum(id: "album", title: "Björk — Homogenic", tracks: [track])
         let metric = UpdateResultMetric(id: "changes", label: "Changes", value: "1", tone: .accent)
@@ -36,7 +38,9 @@ struct PublicAPITests {
             notices: [notice],
             contentAccess: .locked(message: "Week Pass or Pro required"),
             primaryActionLabel: "Apply",
-            secondaryActionLabel: "Reject all"
+            secondaryActionLabel: "Reject all",
+            secondaryActionIcon: "xmark.circle",
+            details: [detail]
         )
         let modes: [UpdateResultMode] = [.preview, .write]
         let statuses: [UpdateResultStatus] = [
@@ -54,6 +58,8 @@ struct PublicAPITests {
         #expect(snapshot.albums == [album])
         #expect(snapshot.metrics == [metric])
         #expect(snapshot.notices == [notice])
+        #expect(snapshot.details == [detail] && snapshot.secondaryActionIcon == "xmark.circle")
+        #expect(snapshot.albums.first?.tracks.first?.details == [detail])
         #expect(snapshot.affectedTrackCount == 1)
         #expect(modes.count == 2)
         #expect(statuses.count == 6)

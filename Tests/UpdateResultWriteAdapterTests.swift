@@ -1,5 +1,6 @@
 import Core
 import DesignUI
+import Foundation
 import Services
 import Testing
 @testable import Genre_Updater
@@ -18,7 +19,10 @@ struct UpdateResultWriteAdapterTests {
         #expect(snapshot.mode == .write)
         #expect(snapshot.status == .completedWithFailures)
         #expect(metricValues["changed-tracks"] == "1")
+        #expect(metricValues["applied-operations"] == "1")
+        #expect(metricValues["no-op-operations"] == "1")
         #expect(metricValues["failed-tracks"] == "1")
+        #expect(snapshot.secondaryActionIcon == "doc.on.doc")
         #expect(changes.contains { $0.state == .applied })
         #expect(changes.contains { $0.state == .noChange })
         #expect(tracks.contains { $0.id == "skipped" && $0.state == .skipped })
@@ -41,6 +45,86 @@ struct UpdateResultWriteAdapterTests {
         #expect(snapshot.notices.map(\.id).contains("recovery"))
     }
 
+    @Test("mixed track changes preserve each verified operation outcome")
+    func preservesMixedChangeOutcomes() throws {
+        let report = makeMixedReport(hasFailure: false)
+
+        let track = try #require(UpdateResultWriteAdapter.makeSnapshot(from: report).albums.first?.tracks.first)
+
+        #expect(track.state == .applied)
+        #expect(track.changes.map(\.state) == [.applied, .noChange])
+    }
+
+    @Test("track failure does not recolor an applied operation")
+    func keepsAppliedChangeTruth() throws {
+        let report = makeMixedReport(hasFailure: true)
+
+        let track = try #require(UpdateResultWriteAdapter.makeSnapshot(from: report).albums.first?.tracks.first)
+
+        #expect(track.state == .failed(message: "Verification failed"))
+        #expect(track.changes.map(\.state) == [.applied, .noChange])
+    }
+
+    @Test("missing-track changes and failure share one stable result row")
+    func groupsMissingTrackEvidence() throws {
+        let firstEntry = makeGenreEntry(trackID: "missing", newGenre: "Stoner Rock")
+        var secondEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "missing",
+            artist: "Clutch",
+            trackName: "Missing",
+            albumName: "Pure Rock Fury"
+        )
+        secondEntry.oldYear = 2000
+        secondEntry.newYear = 2001
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [firstEntry, secondEntry],
+                failedTrackIDs: ["missing"],
+                errorDescriptions: ["Write denied"]
+            ),
+            completedEntries: [],
+            trackStatuses: ["missing": .failed("Write denied")],
+            tracks: [],
+            testArtists: ["Clutch"]
+        )
+
+        let rows = try #require(report.albumResults.first?.tracks)
+        let row = try #require(rows.first)
+
+        #expect(rows.count == 1)
+        #expect(row.id == "missing")
+        #expect(row.technicalID == "missing")
+        #expect(row.changes.map(\.changeType) == [.genreUpdate, .yearUpdate])
+        #expect(row.failureMessage == "Write denied")
+        #expect(row.outcome == .failed(message: "Write denied"))
+    }
+
+    @Test("adapter preserves operational and technical details")
+    func preservesResultDetails() throws {
+        let snapshot = UpdateResultWriteAdapter.makeSnapshot(from: makeReport())
+        let track = try #require(snapshot.albums.first?.tracks.first { $0.id == "applied" })
+        let globalDetails = Dictionary(uniqueKeysWithValues: snapshot.details.map { ($0.id, $0.value) })
+        let trackDetails = Dictionary(uniqueKeysWithValues: track.details.map { ($0.id, $0.value) })
+
+        #expect(trackDetails["technical-id"] == "applied")
+        #expect(trackDetails["track-number"] == "1")
+        #expect(trackDetails["music-status"] == "subscription")
+        #expect(trackDetails["processing-status"] == "Done")
+        #expect(trackDetails["current-metadata"] == "Genre Rock")
+        #expect(globalDetails["database-verified"] == "4 tracks")
+        #expect(globalDetails["database-removed-count"] == "1 track")
+        #expect(globalDetails["database-removed-id-0"] == "removed")
+        #expect(globalDetails["pending-pending-album-reason"] == "no_year_found")
+        #expect(globalDetails["pending-pending-album-attempts"] == "4")
+        #expect(globalDetails["pending-pending-album-days"] == "14")
+        #expect(globalDetails["pending-pending-album-status"] == "Needs review")
+        #expect(globalDetails["pending-pending-album-last-failure"] == "No definitive year")
+        #expect(globalDetails.keys.contains("pending-pending-album-first-attempt"))
+        #expect(globalDetails.keys.contains("pending-pending-album-last-attempt"))
+        #expect(globalDetails.keys.contains("pending-pending-album-next-verification"))
+    }
+
     @Test("report keeps applied no-op and unchanged outcomes distinct")
     func keepsReportOutcomesDistinct() throws {
         let report = makeReport()
@@ -54,15 +138,7 @@ struct UpdateResultWriteAdapterTests {
     }
 
     private func makeReport() -> UpdateRunReport {
-        var appliedEntry = ChangeLogEntry(
-            changeType: .genreUpdate,
-            trackID: "applied",
-            artist: "Clutch",
-            trackName: "Applied",
-            albumName: "Pure Rock Fury"
-        )
-        appliedEntry.oldGenre = "Rock"
-        appliedEntry.newGenre = "Stoner Rock"
+        let appliedEntry = makeGenreEntry(trackID: "applied", newGenre: "Stoner Rock")
 
         var noOpEntry = ChangeLogEntry(
             changeType: .yearUpdate,
@@ -98,13 +174,71 @@ struct UpdateResultWriteAdapterTests {
             ],
             testArtists: ["Clutch"],
             operationalContext: UpdateRunOperationalContext(
-                pendingVerification: UpdateRunPendingVerificationSummary(total: 2, due: 1, problematic: 1),
+                pendingVerification: makePendingSummary(),
                 databaseVerification: UpdateRunDatabaseVerificationSummary(
                     verifiedTrackCount: 4,
                     removedTrackIDs: ["removed"]
                 ),
                 recovery: UpdateRunRecoverySummary(restoredCount: 1, skippedCount: 1, failedCount: 1)
             )
+        )
+    }
+
+    private func makeMixedReport(hasFailure: Bool) -> UpdateRunReport {
+        let appliedEntry = makeGenreEntry(trackID: "mixed", newGenre: "Stoner Rock")
+        let noOpEntry = makeGenreEntry(trackID: "mixed", newGenre: "Rock")
+        let failures = hasFailure ? ["mixed"] : []
+        let messages = hasFailure ? ["Verification failed"] : []
+        return UpdateRunReport(
+            result: BatchUpdateResult(
+                entries: [appliedEntry],
+                noOpEntries: [noOpEntry],
+                failedTrackIDs: failures,
+                errorDescriptions: messages
+            ),
+            completedEntries: [],
+            trackStatuses: ["mixed": hasFailure ? .failed("Verification failed") : .done],
+            tracks: [makeTrack(id: "mixed", title: "Mixed", position: 1)],
+            testArtists: ["Clutch"]
+        )
+    }
+
+    private func makeGenreEntry(trackID: String, newGenre: String) -> ChangeLogEntry {
+        var entry = ChangeLogEntry(
+            changeType: .genreUpdate,
+            trackID: trackID,
+            artist: "Clutch",
+            trackName: trackID.capitalized,
+            albumName: "Pure Rock Fury"
+        )
+        entry.oldGenre = "Rock"
+        entry.newGenre = newGenre
+        return entry
+    }
+
+    private func makePendingSummary() -> UpdateRunPendingVerificationSummary {
+        let lastAttempt = Date(timeIntervalSince1970: 1_700_000_000)
+        let entry = PendingAlbumEntry(
+            id: "pending-album",
+            artist: "Clutch",
+            album: "Pure Rock Fury",
+            reason: "no_year_found",
+            retry: .init(attemptCount: 4, lastAttempt: lastAttempt, recheckInterval: 86400),
+            metadata: ["last_failure": "No definitive year"]
+        )
+        let album = ProblematicPendingAlbum(
+            entry: entry,
+            totalAttempts: 4,
+            firstAttempt: lastAttempt.addingTimeInterval(-14 * 86400),
+            lastAttempt: lastAttempt,
+            daysSinceFirstAttempt: 14,
+            status: "Needs review"
+        )
+        return UpdateRunPendingVerificationSummary(
+            total: 2,
+            due: 1,
+            problematic: 1,
+            problematicDetails: [UpdateRunPendingVerificationDetail(album)]
         )
     }
 
@@ -116,6 +250,8 @@ struct UpdateResultWriteAdapterTests {
             album: "Pure Rock Fury",
             genre: "Rock",
             year: 2001,
+            trackStatus: "subscription",
+            releaseYear: 2000,
             originalPosition: position
         )
     }

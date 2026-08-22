@@ -105,19 +105,23 @@ public struct UpdateResultTrack: Identifiable, Equatable, Sendable {
     public let artist: String
     public let state: UpdateResultTrackState
     public let changes: [UpdateResultChange]
+    /// Optional technical and operational facts associated with this track result.
+    public let details: [UpdateResultDetail]
 
     public init(
         id: String,
         title: String,
         artist: String,
         state: UpdateResultTrackState,
-        changes: [UpdateResultChange]
+        changes: [UpdateResultChange],
+        details: [UpdateResultDetail] = []
     ) {
         self.id = id
         self.title = title
         self.artist = artist
         self.state = state
         self.changes = changes
+        self.details = details
     }
 }
 
@@ -164,6 +168,23 @@ public struct UpdateResultNotice: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Carries one preformatted presentation fact without granting workflow authority.
+public struct UpdateResultDetail: Identifiable, Equatable, Sendable {
+    /// Stable presentation identity within its enclosing result.
+    public let id: String
+    /// Human-readable name for the fact.
+    public let label: String
+    /// Preformatted value displayed to the user.
+    public let value: String
+
+    /// Creates one immutable presentation fact.
+    public init(id: String, label: String, value: String) {
+        self.id = id
+        self.label = label
+        self.value = value
+    }
+}
+
 /// Presents preview and verified write authorities through one immutable, action-free hierarchy.
 public struct UpdateResultSnapshot: Equatable, Sendable {
     public let mode: UpdateResultMode
@@ -177,6 +198,10 @@ public struct UpdateResultSnapshot: Equatable, Sendable {
     public let contentAccess: ContentAccess
     public let primaryActionLabel: String
     public let secondaryActionLabel: String?
+    /// SF Symbol name displayed by the optional secondary action.
+    public let secondaryActionIcon: String
+    /// Optional operational facts associated with the complete result.
+    public let details: [UpdateResultDetail]
 
     public init(
         mode: UpdateResultMode,
@@ -189,7 +214,9 @@ public struct UpdateResultSnapshot: Equatable, Sendable {
         notices: [UpdateResultNotice],
         contentAccess: ContentAccess,
         primaryActionLabel: String,
-        secondaryActionLabel: String? = nil
+        secondaryActionLabel: String? = nil,
+        secondaryActionIcon: String = "arrow.counterclockwise",
+        details: [UpdateResultDetail] = []
     ) {
         self.mode = mode
         self.status = status
@@ -202,6 +229,8 @@ public struct UpdateResultSnapshot: Equatable, Sendable {
         self.contentAccess = contentAccess
         self.primaryActionLabel = primaryActionLabel
         self.secondaryActionLabel = secondaryActionLabel
+        self.secondaryActionIcon = secondaryActionIcon
+        self.details = details
     }
 
     /// The invariant section order rendered in both result modes.
