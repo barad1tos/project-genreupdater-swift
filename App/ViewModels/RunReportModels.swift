@@ -150,6 +150,89 @@ struct UpdateRunPendingVerificationSummary: Equatable {
     }
 }
 
+enum UpdateRunTrackOutcome: Equatable {
+    case failed(message: String)
+    case applied
+    case noChange
+    case skipped
+    case unchanged
+}
+
+struct UpdateRunTrackResult: Identifiable, Equatable {
+    let id: String
+    let technicalID: String
+    let title: String
+    let trackNumber: Int?
+    let currentGenre: String?
+    let currentYear: Int?
+    let releaseYear: Int?
+    let trackStatus: String?
+    let changes: [UpdateRunChangeSummary]
+    let noOpChanges: [UpdateRunChangeSummary]
+    let failureMessage: String?
+    let processingStatus: TrackProcessingStatus?
+    let outcome: UpdateRunTrackOutcome
+
+    var hasChanges: Bool {
+        !changes.isEmpty
+    }
+    var hasFailure: Bool {
+        failureMessage != nil
+    }
+
+    var proposedSummary: String {
+        guard !changes.isEmpty else { return "No proposed change" }
+        return changes.map(\.summary).joined(separator: ", ")
+    }
+
+    var currentMetadataSummary: String {
+        if !changes.isEmpty {
+            let changedMetadata = changes.map(\.oldMetadataSummary)
+            if !changedMetadata.isEmpty {
+                return changedMetadata.joined(separator: " | ")
+            }
+        }
+
+        var parts = [String]()
+        if let currentYear {
+            parts.append("Year \(currentYear)")
+        }
+        if let releaseYear, releaseYear != currentYear {
+            parts.append("Release \(releaseYear)")
+        }
+        if let currentGenre, !currentGenre.isEmpty {
+            parts.append(currentGenre)
+        }
+        return parts.isEmpty ? "No metadata" : parts.joined(separator: " | ")
+    }
+}
+
+struct UpdateRunChangeSummary: Equatable, Hashable {
+    let id: String
+    let changeType: ChangeType
+    let oldValue: String
+    let newValue: String
+
+    var summary: String {
+        "\(oldValue) -> \(newValue)"
+    }
+
+    var oldMetadataSummary: String {
+        switch changeType {
+        case .genreUpdate:
+            "Genre \(oldValue)"
+        case .yearUpdate, .yearRevert:
+            "Year \(oldValue)"
+        case .trackCleaning:
+            "Name \(oldValue)"
+        case .albumCleaning:
+            "Album \(oldValue)"
+        case .artistRename:
+            "Artist \(oldValue)"
+        }
+    }
+}
+
 extension Date {
     var updateRunReportDate: String {
         formatted(date: .abbreviated, time: .shortened)

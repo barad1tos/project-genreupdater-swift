@@ -1,5 +1,6 @@
 // UpdateWorkflowView.swift -- Thin router composing Update sub-views by phase.
 
+import AppKit
 import Core
 import DesignUI
 import Foundation
@@ -98,17 +99,41 @@ struct UpdateWorkflowView: View {
                 testArtists: testArtists
             )
         case .done:
-            UpdateDoneSection(
-                viewModel: viewModel,
-                tracks: tracks,
-                testArtists: testArtists,
-                displayMode: reportDisplayMode
+            let report = makeDoneReport()
+            UpdateResultView(
+                snapshot: UpdateResultWriteAdapter.makeSnapshot(from: report),
+                onPrimaryAction: { viewModel.reset() },
+                onSecondaryAction: { copyReport(report) }
             )
         case .paused:
             pausedView
         case let .error(message):
             errorView(message: message)
         }
+    }
+
+    private func makeDoneReport() -> UpdateRunReport {
+        UpdateRunReport(
+            result: viewModel.result,
+            completedEntries: viewModel.completedEntries,
+            trackStatuses: viewModel.trackStatuses,
+            tracks: tracks,
+            testArtists: testArtists,
+            displayMode: reportDisplayMode,
+            operationalContext: UpdateRunOperationalContext(
+                pendingVerification: viewModel.pendingVerificationReportSummary,
+                databaseVerification: UpdateRunDatabaseVerificationSummary(
+                    preflightResult: viewModel.maintenancePreflightResult
+                ),
+                recovery: viewModel.recoveryReportSummary
+            )
+        )
+    }
+
+    private func copyReport(_ report: UpdateRunReport) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(report.plainTextSummary, forType: .string)
     }
 
     private var reviewResults: some View {
