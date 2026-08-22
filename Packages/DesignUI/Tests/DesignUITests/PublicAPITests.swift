@@ -33,14 +33,18 @@ struct PublicAPITests {
             title: "Update results",
             subtitle: "Review metadata changes",
             scope: "Test artists",
-            metrics: [metric],
-            albums: [album],
-            notices: [notice],
-            contentAccess: .locked(message: "Week Pass or Pro required"),
-            primaryActionLabel: "Apply",
-            secondaryActionLabel: "Reject all",
-            secondaryActionIcon: "xmark.circle",
-            details: [detail]
+            content: .init(
+                metrics: [metric],
+                albums: [album],
+                notices: [notice],
+                contentAccess: .locked(message: "Week Pass or Pro required"),
+                details: [detail]
+            ),
+            actions: .init(
+                primaryLabel: "Apply",
+                secondaryLabel: "Reject all",
+                secondaryIcon: "xmark.circle"
+            )
         )
         let modes: [UpdateResultMode] = [.preview, .write]
         let statuses: [UpdateResultStatus] = [
@@ -54,8 +58,7 @@ struct PublicAPITests {
             .ready, .applied, .noChange, .skipped, .failed(message: "Write failed"),
         ]
 
-        #expect(snapshot.albums == [album])
-        #expect(snapshot.metrics == [metric])
+        #expect(snapshot.albums == [album] && snapshot.metrics == [metric])
         #expect(snapshot.notices == [notice])
         #expect(snapshot.details == [detail] && snapshot.secondaryActionIcon == "xmark.circle")
         #expect(snapshot.albums.first?.tracks.first?.details == [detail])

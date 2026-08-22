@@ -47,22 +47,23 @@ struct UpdateResultModelTests {
             title: "Update results",
             subtitle: "Review metadata changes",
             scope: "Test artists",
-            metrics: [
-                UpdateResultMetric(id: "changes", label: "Changes", value: "1", tone: .accent)
-            ],
-            albums: [
-                UpdateResultAlbum(
-                    id: "album",
-                    title: "Björk — Homogenic",
-                    tracks: tracks
-                )
-            ],
-            notices: [
-                UpdateResultNotice(id: "notice", title: "Ready", message: "One change", tone: .info)
-            ],
-            contentAccess: .available,
-            primaryActionLabel: "Apply",
-            secondaryActionLabel: "Reject all"
+            content: .init(
+                metrics: [
+                    UpdateResultMetric(id: "changes", label: "Changes", value: "1", tone: .accent)
+                ],
+                albums: [
+                    UpdateResultAlbum(
+                        id: "album",
+                        title: "Björk — Homogenic",
+                        tracks: tracks
+                    )
+                ],
+                notices: [
+                    UpdateResultNotice(id: "notice", title: "Ready", message: "One change", tone: .info)
+                ],
+                contentAccess: .available
+            ),
+            actions: .init(primaryLabel: "Apply", secondaryLabel: "Reject all")
         )
     }
 

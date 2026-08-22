@@ -68,12 +68,16 @@ enum UpdateResultPreviewAdapter {
             title: title(for: context.status),
             subtitle: subtitle(for: context.status, itemCount: context.summary.itemCount),
             scope: context.scopeTitle,
-            metrics: makeMetrics(context.summary),
-            albums: makeAlbums(items),
-            notices: context.notices,
-            contentAccess: makeContentAccess(items, hasCleaningAccess: context.hasCleaningAccess),
-            primaryActionLabel: context.primaryActionLabel,
-            secondaryActionLabel: context.secondaryActionLabel
+            content: .init(
+                metrics: makeMetrics(context.summary),
+                albums: makeAlbums(items),
+                notices: context.notices,
+                contentAccess: makeContentAccess(items, hasCleaningAccess: context.hasCleaningAccess)
+            ),
+            actions: .init(
+                primaryLabel: context.primaryActionLabel,
+                secondaryLabel: context.secondaryActionLabel
+            )
         )
     }
 

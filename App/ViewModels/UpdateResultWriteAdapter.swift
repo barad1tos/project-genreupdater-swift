@@ -10,14 +10,18 @@ enum UpdateResultWriteAdapter {
             title: report.title,
             subtitle: "\(report.scannedTrackCount.formatted()) tracks scanned",
             scope: report.scopeTitle,
-            metrics: makeMetrics(from: report),
-            albums: report.albumResults.map(makeAlbum),
-            notices: report.operationalNotes.map(makeNotice),
-            contentAccess: .available,
-            primaryActionLabel: "Start New Update",
-            secondaryActionLabel: "Copy Report",
-            secondaryActionIcon: "doc.on.doc",
-            details: makeDetails(from: report)
+            content: .init(
+                metrics: makeMetrics(from: report),
+                albums: report.albumResults.map(makeAlbum),
+                notices: report.operationalNotes.map(makeNotice),
+                contentAccess: .available,
+                details: makeDetails(from: report)
+            ),
+            actions: .init(
+                primaryLabel: "Start New Update",
+                secondaryLabel: "Copy Report",
+                secondaryIcon: "doc.on.doc"
+            )
         )
     }
 

@@ -178,6 +178,48 @@ public struct UpdateResultDetail: Identifiable, Equatable, Sendable {
 
 /// Presents preview and verified write authorities through one immutable, action-free hierarchy.
 public struct UpdateResultSnapshot: Equatable, Sendable {
+    /// Groups result hierarchy and supporting presentation facts without changing the snapshot's flattened read API.
+    public struct Content: Equatable, Sendable {
+        public let metrics: [UpdateResultMetric]
+        public let albums: [UpdateResultAlbum]
+        public let notices: [UpdateResultNotice]
+        public let contentAccess: ContentAccess
+        public let details: [UpdateResultDetail]
+
+        /// Creates the immutable content rendered by one update result snapshot.
+        public init(
+            metrics: [UpdateResultMetric],
+            albums: [UpdateResultAlbum],
+            notices: [UpdateResultNotice],
+            contentAccess: ContentAccess,
+            details: [UpdateResultDetail] = []
+        ) {
+            self.metrics = metrics
+            self.albums = albums
+            self.notices = notices
+            self.contentAccess = contentAccess
+            self.details = details
+        }
+    }
+
+    /// Groups host-supplied action presentation without storing callbacks or granting workflow authority.
+    public struct Actions: Equatable, Sendable {
+        public let primaryLabel: String
+        public let secondaryLabel: String?
+        public let secondaryIcon: String
+
+        /// Creates immutable labels and iconography for the snapshot's host actions.
+        public init(
+            primaryLabel: String,
+            secondaryLabel: String? = nil,
+            secondaryIcon: String = "arrow.counterclockwise"
+        ) {
+            self.primaryLabel = primaryLabel
+            self.secondaryLabel = secondaryLabel
+            self.secondaryIcon = secondaryIcon
+        }
+    }
+
     public let mode: UpdateResultMode
     public let status: UpdateResultStatus
     public let title: String
@@ -194,34 +236,29 @@ public struct UpdateResultSnapshot: Equatable, Sendable {
     /// Optional operational facts associated with the complete result.
     public let details: [UpdateResultDetail]
 
+    /// Creates a snapshot from headline fields and cohesive content/action inputs while preserving flattened reads.
     public init(
         mode: UpdateResultMode,
         status: UpdateResultStatus,
         title: String,
         subtitle: String,
         scope: String,
-        metrics: [UpdateResultMetric],
-        albums: [UpdateResultAlbum],
-        notices: [UpdateResultNotice],
-        contentAccess: ContentAccess,
-        primaryActionLabel: String,
-        secondaryActionLabel: String? = nil,
-        secondaryActionIcon: String = "arrow.counterclockwise",
-        details: [UpdateResultDetail] = []
+        content: Content,
+        actions: Actions
     ) {
         self.mode = mode
         self.status = status
         self.title = title
         self.subtitle = subtitle
         self.scope = scope
-        self.metrics = metrics
-        self.albums = albums
-        self.notices = notices
-        self.contentAccess = contentAccess
-        self.primaryActionLabel = primaryActionLabel
-        self.secondaryActionLabel = secondaryActionLabel
-        self.secondaryActionIcon = secondaryActionIcon
-        self.details = details
+        metrics = content.metrics
+        albums = content.albums
+        notices = content.notices
+        contentAccess = content.contentAccess
+        primaryActionLabel = actions.primaryLabel
+        secondaryActionLabel = actions.secondaryLabel
+        secondaryActionIcon = actions.secondaryIcon
+        details = content.details
     }
 
     /// Whether preview decision controls may be exposed for this snapshot.
