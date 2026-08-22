@@ -250,6 +250,10 @@ extension AnalyticsService {
     /// Measures an async operation while preserving its value and error behavior.
     public func measure<Value: Sendable>(
         _ operation: AnalyticsOperation,
+        isolation _: isolated (any Actor)? = #isolation,
+        errorOutcome: @Sendable (any Error, Bool) -> AnalyticsOutcome = {
+            AnalyticsOutcome(error: $0, isTaskCancelled: $1)
+        },
         body: () async throws -> Value
     ) async rethrows -> Value {
         let clock = ContinuousClock()
@@ -263,7 +267,7 @@ extension AnalyticsService {
             await record(
                 operation,
                 duration: start.duration(to: clock.now),
-                outcome: AnalyticsOutcome(error: error, isTaskCancelled: Task.isCancelled)
+                outcome: errorOutcome(error, Task.isCancelled)
             )
             throw error
         }

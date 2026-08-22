@@ -31,7 +31,8 @@ public actor UpdateCoordinator {
     let idMapper: (any TrackIDMapping)?
     var librarySnapshotService: (any LibrarySnapshotService)?
     let pendingVerificationService: (any PendingVerificationService)?
-    private let genreDeterminator: GenreDeterminator
+    let analytics: (any AnalyticsService)?
+    let genreDeterminator: GenreDeterminator
     var yearDeterminator: YearDeterminator
     var runtimeConfiguration: UpdateRuntimeConfiguration
     let decisionDate: @Sendable () -> Date
@@ -55,6 +56,7 @@ public actor UpdateCoordinator {
         idMapper = dependencies.idMapper
         librarySnapshotService = dependencies.librarySnapshotService
         pendingVerificationService = dependencies.pendingVerificationService
+        analytics = dependencies.analytics
         self.genreDeterminator = genreDeterminator
         self.yearDeterminator = yearDeterminator
         self.runtimeConfiguration = runtimeConfiguration
@@ -211,7 +213,7 @@ public actor UpdateCoordinator {
             albumTracks: trackContext.album
         )
         if pass.includesStandardMetadata,
-           let change = determineGenreChange(
+           let change = await determineGenreChange(
                track: decisionTrack,
                artistTracks: genreContextTracks,
                options: options
@@ -252,55 +254,6 @@ public actor UpdateCoordinator {
             source: change.source,
             isAccepted: change.isAccepted
         )
-    }
-
-    private func determineGenreChange(
-        track: Track,
-        artistTracks: [Track],
-        options: UpdateOptions
-    ) -> ProposedChange? {
-        let canRepairExistingGenre = runtimeConfiguration.shouldOverrideExistingGenres
-            || options.repairExistingGenreMismatches
-        let canUpdateGenre = canRepairExistingGenre
-            || Self.isMissingGenre(track.genre)
-        guard options.updateGenre, canUpdateGenre else {
-            return nil
-        }
-
-        let genreResult = genreDeterminator.determineDominantGenre(
-            artistTracks: Self.genreSourceTracks(artistTracks),
-            genreMappings: runtimeConfiguration.genreMappings
-        )
-        guard let newGenre = genreResult.genre,
-              Self.hasGenreValueChanged(currentGenre: track.genre, newGenre: newGenre)
-        else {
-            return nil
-        }
-
-        return ProposedChange(
-            track: track,
-            changeType: .genreUpdate,
-            oldValue: track.genre,
-            newValue: newGenre,
-            confidence: 80,
-            source: "Library"
-        )
-    }
-
-    private static func isMissingGenre(_ genre: String?) -> Bool {
-        guard let genre else { return true }
-        let normalizedGenre = genre.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalizedGenre.isEmpty || normalizedGenre == "unknown"
-    }
-
-    private static func genreSourceTracks(_ tracks: [Track]) -> [Track] {
-        tracks.filter { !isMissingGenre($0.genre) }
-    }
-
-    private static func hasGenreValueChanged(currentGenre: String?, newGenre: String) -> Bool {
-        let normalizedCurrentGenre = currentGenre?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let normalizedNewGenre = newGenre.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalizedCurrentGenre != normalizedNewGenre
     }
 
     private func shouldSkipPrereleaseProcessing(track: Track, albumTracks: [Track]) async -> Bool {
@@ -631,6 +584,27 @@ public actor UpdateCoordinator {
         _ changes: [ProposedChange],
         progressHandler: @Sendable (ProgressUpdate) -> Void,
         checkpoint: WorkCheckpointSink? = nil
+    ) async throws -> BatchUpdateResult {
+        guard let analytics else {
+            return try await applyAcceptedChangesBody(
+                changes,
+                progressHandler: progressHandler,
+                checkpoint: checkpoint
+            )
+        }
+        return try await analytics.measure(.batchWrite) {
+            try await self.applyAcceptedChangesBody(
+                changes,
+                progressHandler: progressHandler,
+                checkpoint: checkpoint
+            )
+        }
+    }
+
+    private func applyAcceptedChangesBody(
+        _ changes: [ProposedChange],
+        progressHandler: @Sendable (ProgressUpdate) -> Void,
+        checkpoint: WorkCheckpointSink?
     ) async throws -> BatchUpdateResult {
         let accepted = changes.filter(\.isAccepted)
         guard !accepted.isEmpty else {

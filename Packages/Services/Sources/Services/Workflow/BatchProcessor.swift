@@ -136,6 +136,7 @@ public actor BatchProcessor {
     private var isWriteReserved = false
     private var pauseRequested = false
     private var cancelRequested = false
+    private let analytics: (any AnalyticsService)?
     private let log = Logger(
         subsystem: "com.genreupdater",
         category: "BatchProcessor"
@@ -145,12 +146,14 @@ public actor BatchProcessor {
         checkpointManager: CheckpointManager,
         featureGate: FeatureGate,
         checkpointInterval: Int = 50,
-        processingConfiguration: BatchProcessingConfiguration = BatchProcessingConfiguration()
+        processingConfiguration: BatchProcessingConfiguration = BatchProcessingConfiguration(),
+        analytics: (any AnalyticsService)? = nil
     ) {
         self.checkpointManager = checkpointManager
         self.featureGate = featureGate
         self.checkpointInterval = checkpointInterval
         self.processingConfiguration = processingConfiguration
+        self.analytics = analytics
     }
 
     public func updateProcessingConfiguration(_ processingConfiguration: BatchProcessingConfiguration) {
@@ -263,6 +266,40 @@ public actor BatchProcessor {
     public func process(
         tracks: [Track],
         resumeBatchID: UUID? = nil,
+        operation: @Sendable (Track) async throws -> [ChangeLogEntry],
+        progressHandler: @Sendable (ProgressUpdate) -> Void
+    ) async throws -> [ChangeLogEntry] {
+        guard let analytics else {
+            return try await processBody(
+                tracks: tracks,
+                resumeBatchID: resumeBatchID,
+                operation: operation,
+                progressHandler: progressHandler
+            )
+        }
+
+        return try await analytics.measure(
+            .batchProcess,
+            errorOutcome: { error, isTaskCancelled in
+                if case BatchProcessorError.cancelled = error {
+                    return .cancelled
+                }
+                return AnalyticsOutcome(error: error, isTaskCancelled: isTaskCancelled)
+            },
+            body: {
+                try await self.processBody(
+                    tracks: tracks,
+                    resumeBatchID: resumeBatchID,
+                    operation: operation,
+                    progressHandler: progressHandler
+                )
+            }
+        )
+    }
+
+    private func processBody(
+        tracks: [Track],
+        resumeBatchID: UUID?,
         operation: @Sendable (Track) async throws -> [ChangeLogEntry],
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> [ChangeLogEntry] {

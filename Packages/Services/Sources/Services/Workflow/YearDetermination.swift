@@ -84,18 +84,22 @@ extension UpdateCoordinator {
         missingYearThreshold: Double,
         yearRunScope: YearRunScope? = nil
     ) async throws -> ProposedChange? {
-        try await determineYearChange(
-            YearLookupInput(
-                track: track,
-                safetyTrack: safetyTrack ?? track,
-                albumTracks: albumTracks,
-                forceLookup: forceYearLookup,
-                albumType: albumTypeInfo,
-                queryAlbum: queryAlbum ?? track.album,
-                missingYearThreshold: missingYearThreshold,
-                runScope: yearRunScope
-            )
+        let input = YearLookupInput(
+            track: track,
+            safetyTrack: safetyTrack ?? track,
+            albumTracks: albumTracks,
+            forceLookup: forceYearLookup,
+            albumType: albumTypeInfo,
+            queryAlbum: queryAlbum ?? track.album,
+            missingYearThreshold: missingYearThreshold,
+            runScope: yearRunScope
         )
+        guard let analytics else {
+            return try await determineYearChange(input)
+        }
+        return try await analytics.measure(.yearDetermination) {
+            try await self.determineYearChange(input)
+        }
     }
 
     private func determineYearChange(_ input: YearLookupInput) async throws -> ProposedChange? {
@@ -318,7 +322,7 @@ extension UpdateCoordinator {
         return .continueToAPI
     }
 
-    private func cachedAlbumYear(for track: Track, context: YearDecisionContext) async -> AlbumCacheEntry? {
+    func lookupCachedAlbumYear(for track: Track, context: YearDecisionContext) async -> AlbumCacheEntry? {
         var firstWeakEntry: AlbumCacheEntry?
         for identity in AlbumIdentity.lookupCandidates(for: track) {
             guard let entry = await cache.getAlbumYear(artist: identity.artist, album: identity.album) else {

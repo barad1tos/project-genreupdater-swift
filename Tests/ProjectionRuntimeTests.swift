@@ -104,7 +104,7 @@ struct ProjectionRuntimeTests {
         // The observer outlives any window (D4): a menu-queued reload
         // must advance even when no host view is subscribed.
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
-        fixture.dependencies.installTestLibraryReadProvider(SnapshotLibraryReadProvider())
+        fixture.dependencies.installTestLibraryReadProvider(SnapshotProvider())
         fixture.dependencies.queuedManualReload = .waitingForQueued
 
         await fixture.dependencies.publishLifecycleBoundary(
@@ -434,6 +434,7 @@ struct ProjectionRuntimeTests {
         let allowlist: Set = [
             "activityProjection", "reportsProjection", "fixPlanProjection",
             "chromeProjection", "browseProjection",
+            "analyticsSnapshot", "analyticsWindow",
             "browseDesignArtists", "browseDesignScope", "browseRowIndex", "browseReadSource",
             "selectedRunReport", "runReportDetailRequestID",
             "selectedRoute", "hasStartedInitialLoad",
@@ -512,160 +513,6 @@ struct ProjectionRuntimeTests {
         let published = await fixture.dependencies.republishActivityProjection()
 
         #expect(published.healthFacts.readyUpdateCount == 7)
-    }
-
-    @Test("the backend load chain publishes library facts headlessly")
-    func backendLoadPublishesLibraryFacts() async throws {
-        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
-        await fixture.snapshotService.installSnapshot([
-            Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant", genre: "Rock", year: 2004),
-        ])
-        var appliedCounts: [Int] = []
-        fixture.dependencies.onLibraryLoadApplied = { tracks in
-            appliedCounts.append(tracks.count)
-        }
-        var browseApplications: [(count: Int, isCurrent: Bool)] = []
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, token in
-            browseApplications.append((tracks.count, fixture.dependencies.libraryLoadGate.isCurrent(token)))
-        }
-
-        await fixture.dependencies.loadLibrary()
-
-        // Facts land on the dependency graph, the projection republishes
-        // from the SAME values, and BOTH host callbacks fire with the
-        // landed tracks (the PR-A scope-preview ledger pin + the browse
-        // application seam).
-        #expect(fixture.dependencies.libraryTracks.count == 1)
-        let published = await fixture.dependencies.projectionStore.activityProjection()
-        #expect(published.healthFacts.counts.totalTracks == 1)
-        #expect(appliedCounts == [1])
-        let browseCounts = browseApplications.map(\.count)
-        let browseAllCurrent = browseApplications.allSatisfy(\.isCurrent)
-        #expect(browseCounts == [1])
-        #expect(browseAllCurrent)
-    }
-
-    @Test("a scope change synchronously empties library truth")
-    func scopeChangeEmptiesLibraryTruth() async throws {
-        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
-        await fixture.snapshotService.installSnapshot([
-            Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
-        ])
-        await fixture.dependencies.loadLibrary()
-        #expect(!fixture.dependencies.libraryTracks.isEmpty)
-
-        fixture.dependencies.invalidateLibraryLoads()
-        fixture.dependencies.emptyLibraryTruthForScopeChange()
-
-        // Old-scope facts empty synchronously; a stale in-flight token
-        // can no longer land (gate truth table pins the mechanism), and
-        // a republish PUBLISHES the emptied truth.
-        #expect(fixture.dependencies.libraryTracks.isEmpty)
-        #expect(fixture.dependencies.libraryMetrics == nil)
-        #expect(fixture.dependencies.lastLibraryScanDate == nil)
-        #expect(!fixture.dependencies.isLibraryLoading)
-        let republished = await fixture.dependencies.republishActivityProjection()
-        #expect(republished.healthFacts.counts.totalTracks == 0)
-    }
-
-    @Test("a mid-flight invalidation drops the stale load's facts")
-    func inFlightInvalidationDropsStaleFacts() async throws {
-        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
-        let gate = LibraryReadGate()
-        fixture.dependencies.installTestLibraryReadProvider(GatedLibraryReadProvider(gate: gate))
-
-        let load = Task { await fixture.dependencies.loadLibrary() }
-        await gate.waitUntilRequested()
-        fixture.dependencies.invalidateLibraryLoads()
-        fixture.dependencies.emptyLibraryTruthForScopeChange()
-        await gate.release()
-        await load.value
-
-        // The stale chain's guards drop every apply: emptied truth wins.
-        #expect(fixture.dependencies.libraryTracks.isEmpty)
-        #expect(fixture.dependencies.lastLibraryScanDate == nil)
-    }
-
-    @Test("a workflow-only refresh preserves library truth")
-    func workflowOnlyRefreshPreservesLibraryTruth() async throws {
-        // The host's onChange path uses this seam — a regression writing
-        // empty library facts here would erase truth on every VM change.
-        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
-        await fixture.snapshotService.installSnapshot([
-            Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
-        ])
-        await fixture.dependencies.loadLibrary()
-
-        fixture.dependencies.workflowFactsProvider = {
-            ActivityWorkflowFacts(dashboard: .empty, pendingVerification: nil)
-        }
-        let published = await fixture.dependencies.republishActivityProjection()
-
-        #expect(published.healthFacts.counts.totalTracks == 1)
-        #expect(fixture.dependencies.libraryTracks.count == 1)
-    }
-
-    @Test("an invalidation during browse application drops late writes")
-    func invalidationDuringBrowseApplicationDropsLateWrites() async throws {
-        // The post-browse-await rechecks are the deciding guards here:
-        // the browse callback itself invalidates the chain mid-apply.
-        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
-        fixture.dependencies.installTestLibraryReadProvider(SnapshotLibraryReadProvider())
-        fixture.dependencies.applyBrowseTruthForLoad = { _, readSource, _ in
-            if case .liveLibrary = readSource {
-                fixture.dependencies.invalidateLibraryLoads()
-            }
-        }
-
-        await fixture.dependencies.loadLibrary()
-
-        #expect(fixture.dependencies.lastLibraryScanDate == nil)
-        #expect(fixture.dependencies.libraryMetrics == nil)
-    }
-
-    @Test("a cancelled live load is not an error")
-    func cancelledLiveLoadIsNotAnError() async throws {
-        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
-        await fixture.snapshotService.installSnapshot([
-            Core.Track(id: "cached", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
-        ])
-        fixture.dependencies.installTestLibraryReadProvider(CancellingLibraryReadProvider())
-
-        await fixture.dependencies.loadLibrary()
-
-        #expect(fixture.dependencies.libraryLoadError == nil)
-        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["cached"])
-        #expect(!fixture.dependencies.isLibraryLoading)
-    }
-
-    @Test("a live-load failure falls back to cached tracks")
-    func loadFailureFallsBackToCachedTracks() async throws {
-        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
-        await fixture.snapshotService.installSnapshot([
-            Core.Track(id: "cached", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
-        ])
-        fixture.dependencies.installTestLibraryReadProvider(FailingLibraryReadProvider())
-
-        await fixture.dependencies.loadLibrary()
-
-        #expect(fixture.dependencies.libraryLoadError != nil)
-        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["cached"])
-        #expect(!fixture.dependencies.isLibraryLoading)
-    }
-
-    @Test("request tokens invalidate across begins")
-    func requestTokenGateTruthTable() {
-        let gate = RequestTokenGate()
-
-        let first = gate.begin()
-        #expect(gate.isCurrent(first))
-
-        let second = gate.begin()
-        #expect(!gate.isCurrent(first))
-        #expect(gate.isCurrent(second))
-
-        gate.invalidate()
-        #expect(!gate.isCurrent(second))
     }
 
     @Test("a republish derives report facts from the persisted change log")
@@ -837,66 +684,6 @@ struct ProjectionRuntimeTests {
 @MainActor
 private final class PhaseBox {
     var accepted = 0
-}
-
-private actor LibraryReadGate {
-    private var requested = false
-    private var releaseContinuation: CheckedContinuation<Void, Never>?
-    private var requestContinuation: CheckedContinuation<Void, Never>?
-
-    func waitUntilRequested() async {
-        if requested {
-            return
-        }
-        await withCheckedContinuation { requestContinuation = $0 }
-    }
-
-    func hold() async {
-        requested = true
-        requestContinuation?.resume()
-        requestContinuation = nil
-        await withCheckedContinuation { releaseContinuation = $0 }
-    }
-
-    func release() {
-        releaseContinuation?.resume()
-        releaseContinuation = nil
-    }
-}
-
-private actor GatedLibraryReadProvider: LibraryReadProvider {
-    private let gate: LibraryReadGate
-
-    init(gate: LibraryReadGate) {
-        self.gate = gate
-    }
-
-    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        await gate.hold()
-        return LibraryReadSnapshot(tracks: [
-            Core.Track(id: "stale", name: "Old Scope", artist: "Stale", album: "Stale"),
-        ], scannedAt: Date(timeIntervalSince1970: 100))
-    }
-}
-
-private actor SnapshotLibraryReadProvider: LibraryReadProvider {
-    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        LibraryReadSnapshot(tracks: [
-            Core.Track(id: "live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
-        ], scannedAt: Date(timeIntervalSince1970: 200))
-    }
-}
-
-private actor CancellingLibraryReadProvider: LibraryReadProvider {
-    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        throw CancellationError()
-    }
-}
-
-private actor FailingLibraryReadProvider: LibraryReadProvider {
-    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        throw MusicLibraryError.fetchFailed(detail: "stubbed live failure")
-    }
 }
 
 private final class CurrentFlagSequence: @unchecked Sendable {

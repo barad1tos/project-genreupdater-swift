@@ -174,11 +174,12 @@ struct ErrorView: View {
 /// Cmd+1 through Cmd+9 shortcuts for sidebar categories.
 struct NavigationCommands: Commands {
     @FocusedValue(\.selectedCategory) private var selectedCategory
+    @AppStorage(AppStorageKey.experienceLevel) private var experienceLevel: ExperienceLevel = .defaultLevel
 
     var body: some Commands {
         CommandMenu("Navigate") {
             ForEach(
-                Array(NavigationCategory.allInOrder.enumerated()),
+                Array(NavigationCategory.visibleOrder(isAdvancedExperience: experienceLevel != .casual).enumerated()),
                 id: \.element.id
             ) { index, category in
                 Button(category.rawValue) {

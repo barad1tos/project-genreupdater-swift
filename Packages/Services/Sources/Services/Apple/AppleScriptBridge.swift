@@ -32,17 +32,20 @@ public actor AppleScriptBridge: AppleScriptClient {
     private var libraryPath: String?
     private var rateLimiter: TokenBucketRateLimiter?
     private let concurrencyGate: ScriptGate
+    private var analytics: (any AnalyticsService)?
 
     public init(
         installer: ScriptInstaller,
         config: AppleScriptConfig = .init(),
-        libraryPath: String? = nil
+        libraryPath: String? = nil,
+        analytics: (any AnalyticsService)? = nil
     ) {
         self.installer = installer
         self.config = config
         self.libraryPath = libraryPath?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.rateLimiter = Self.makeRateLimiter(configuration: config.rateLimit)
         self.concurrencyGate = ScriptGate(limit: config.concurrency)
+        self.analytics = analytics
     }
 
     public var trackIDBatchSize: Int {
@@ -57,6 +60,11 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     public func updateLibraryPath(_ path: String) {
         libraryPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Replaces the optional performance recorder without rebuilding script dispatch state.
+    public func updateAnalytics(_ analytics: (any AnalyticsService)?) {
+        self.analytics = analytics
     }
 
     func acquirePermit(
@@ -97,6 +105,19 @@ public actor AppleScriptBridge: AppleScriptClient {
         name: String,
         arguments: [String] = [],
         timeout: Duration? = nil
+    ) async throws -> String? {
+        guard let analytics else {
+            return try await runScriptBody(name: name, arguments: arguments, timeout: timeout)
+        }
+        return try await analytics.measure(.appleScriptRun) {
+            try await self.runScriptBody(name: name, arguments: arguments, timeout: timeout)
+        }
+    }
+
+    private func runScriptBody(
+        name: String,
+        arguments: [String],
+        timeout: Duration?
     ) async throws -> String? {
         let scriptURL = await installer.scriptURL(for: name)
 
@@ -147,6 +168,19 @@ public actor AppleScriptBridge: AppleScriptClient {
         batchSize: Int = 1000,
         timeout: Duration? = nil
     ) async throws -> [Core.Track] {
+        guard let analytics else {
+            return try await fetchTracksByIDsBody(trackIDs, batchSize: batchSize, timeout: timeout)
+        }
+        return try await analytics.measure(.appleScriptFetchIDs) {
+            try await self.fetchTracksByIDsBody(trackIDs, batchSize: batchSize, timeout: timeout)
+        }
+    }
+
+    private func fetchTracksByIDsBody(
+        _ trackIDs: [String],
+        batchSize: Int,
+        timeout: Duration?
+    ) async throws -> [Core.Track] {
         let effectiveBatchSize = BatchProcessingConfig.clampIDBatch(batchSize)
         if effectiveBatchSize != batchSize {
             log.info(
@@ -161,7 +195,7 @@ public actor AppleScriptBridge: AppleScriptClient {
             batchSize: effectiveBatchSize,
             timeout: effectiveTimeout
         ) { [self] ids, remaining in
-            try await runScript(
+            try await runScriptBody(
                 name: TrackLookup.scriptName,
                 arguments: [ids.joined(separator: ",")],
                 timeout: remaining
@@ -183,7 +217,7 @@ public actor AppleScriptBridge: AppleScriptClient {
     public func fetchAllTrackIDs(timeout: Duration? = nil) async throws -> [String] {
         let effectiveTimeout = timeout ?? config.timeouts.fullLibraryFetch
         let ids = try await scanTrackIDs(timeout: effectiveTimeout) { [self] offset, limit, remaining in
-            try await runScript(
+            try await runScriptBody(
                 name: "fetch_track_ids",
                 arguments: trackIDArguments(offset: offset, limit: limit),
                 timeout: remaining
@@ -194,11 +228,17 @@ public actor AppleScriptBridge: AppleScriptClient {
     }
 
     func scanTrackIDs(timeout: Duration, fetch: @escaping TrackIDScan.Fetch) async throws -> [String] {
-        try await TrackIDScan(
-            batchSize: config.batchProcessing.batchSize,
-            timeout: timeout,
-            fetch: fetch
-        ).run()
+        let operation = {
+            try await TrackIDScan(
+                batchSize: self.config.batchProcessing.batchSize,
+                timeout: timeout,
+                fetch: fetch
+            ).run()
+        }
+        guard let analytics else {
+            return try await operation()
+        }
+        return try await analytics.measure(.appleScriptFetchIDs, body: operation)
     }
 
     func trackIDArguments(offset: Int, limit: Int) throws -> [String] {
@@ -242,7 +282,7 @@ extension AppleScriptBridge {
     /// Batch update multiple tracks' properties.
     public func batchUpdateTracks(_ updates: [TrackPropertyUpdate]) async throws {
         try await batchUpdateTracks(updates, onAttempt: nil) { [self] batchArgument in
-            try await runScript(
+            try await runScriptBody(
                 name: Self.batchUpdateScriptName,
                 arguments: [batchArgument],
                 timeout: config.timeouts.batchUpdate
@@ -255,7 +295,7 @@ extension AppleScriptBridge {
         onAttempt: @escaping WriteAttemptHook
     ) async throws {
         try await batchUpdateTracks(updates, onAttempt: onAttempt) { [self] batchArgument in
-            try await runScript(
+            try await runScriptBody(
                 name: Self.batchUpdateScriptName,
                 arguments: [batchArgument],
                 timeout: config.timeouts.batchUpdate
@@ -268,13 +308,25 @@ extension AppleScriptBridge {
         onAttempt: WriteAttemptHook?,
         execute: (String) async throws -> String?
     ) async throws {
+        guard !updates.isEmpty else { return }
+        guard let analytics else {
+            return try await batchUpdateTracksBody(updates, onAttempt: onAttempt, execute: execute)
+        }
+        return try await analytics.measure(.appleScriptBatchWrite) {
+            try await self.batchUpdateTracksBody(updates, onAttempt: onAttempt, execute: execute)
+        }
+    }
+
+    private func batchUpdateTracksBody(
+        _ updates: [TrackPropertyUpdate],
+        onAttempt: WriteAttemptHook?,
+        execute: (String) async throws -> String?
+    ) async throws {
         let batchUpdateSignpost = AppSignpost.appleScriptWrite.beginInterval("batchUpdateTracks")
         defer { AppSignpost.appleScriptWrite.endInterval("batchUpdateTracks", batchUpdateSignpost) }
 
         // Format matches batch_update_tracks.applescript:
         // Fields separated by ASCII 30 (Record Separator), commands by ASCII 29 (Group Separator).
-        guard !updates.isEmpty else { return }
-
         try await ensureBatchUpdateScriptExists()
         let batchArg = try Self.makeBatchUpdateArgument(updates)
         _ = try InputSanitizer.validateAppleEventArguments([batchArg])

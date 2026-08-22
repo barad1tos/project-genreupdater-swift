@@ -99,6 +99,7 @@ final class AppDependencies {
     var isLibraryLoading = false
     var isLibraryReadyForUpdates = false
     @ObservationIgnored let libraryLoadGate = RequestTokenGate()
+    @ObservationIgnored let analyticsReportGate = RequestTokenGate()
     /// Host-registered post-load hook (scope preview) until slice 12.
     @ObservationIgnored var onLibraryLoadApplied: (@MainActor ([Track]) -> Void)?
     /// Browse truth application stays host-owned (row-index pairing is
@@ -147,6 +148,7 @@ final class AppDependencies {
     private(set) var fixPlanStore: (any FixPlanStore)?
     private(set) var librarySnapshotService: (any LibrarySnapshotService)?
     private(set) var analyticsService: AnalyticsRecorder?
+    private let analyticsSessionID = UUID()
     private(set) var maintenanceCoordinator: MaintenanceCoordinator?
     var maintenancePreflightResult: MaintenancePreflightResult?
     private(set) var changePreviewPipeline: ChangePreviewPipeline?
@@ -421,10 +423,20 @@ final class AppDependencies {
         librarySnapshotService = Self.makeSnapshotService(cache: cache, configuration: cacheConfiguration)
         let analyticsRecorder = AnalyticsRecorder(
             store: cache,
-            configuration: cacheConfiguration.analytics
+            configuration: cacheConfiguration.analytics,
+            sessionID: analyticsSessionID
         )
         await analyticsRecorder.initialize()
         analyticsService = analyticsRecorder
+        if let applescriptBridge {
+            await applescriptBridge.updateAnalytics(analyticsRecorder)
+        }
+        if let libraryReadProvider {
+            self.libraryReadProvider = MeasuredLibraryProvider(
+                base: libraryReadProvider,
+                analytics: analyticsRecorder
+            )
+        }
     }
 
     /// Steps 6-7: Create core algorithm instances and API orchestrator.
@@ -517,7 +529,8 @@ final class AppDependencies {
                 undoCoordinator: undo,
                 idMapper: mapper,
                 librarySnapshotService: librarySnapshotService,
-                pendingVerificationService: pendingVerificationService
+                pendingVerificationService: pendingVerificationService,
+                analytics: analyticsService
             ),
             genreDeterminator: genreDeterm,
             yearDeterminator: yearDeterm,
@@ -569,7 +582,8 @@ final class AppDependencies {
         BatchProcessor(
             checkpointManager: checkpoint,
             featureGate: gate,
-            processingConfiguration: BatchProcessingConfiguration(configuration: config)
+            processingConfiguration: BatchProcessingConfiguration(configuration: config),
+            analytics: analyticsService
         )
     }
 

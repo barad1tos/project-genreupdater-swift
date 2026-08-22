@@ -14,6 +14,7 @@ struct RunRuntimeFactory {
     let mapper: TrackIDMapper
     let reachability: NetworkReachabilityMonitor?
     let discogsAccessStore: DiscogsAccessStore
+    let analytics: (any AnalyticsService)?
 
     @MainActor
     func makeSync(
@@ -80,7 +81,8 @@ struct RunRuntimeFactory {
                 undoCoordinator: undo,
                 idMapper: mapper,
                 librarySnapshotService: snapshotService,
-                pendingVerificationService: runServices.pendingVerification
+                pendingVerificationService: runServices.pendingVerification,
+                analytics: analytics
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: AppDependencies.makeYearDeterminator(configuration: appConfiguration),
@@ -140,7 +142,8 @@ struct RunRuntimeFactory {
                 undoCoordinator: undo,
                 idMapper: mapper,
                 librarySnapshotService: snapshotService,
-                pendingVerificationService: runServices.pendingVerification
+                pendingVerificationService: runServices.pendingVerification,
+                analytics: analytics
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: AppDependencies.makeYearDeterminator(configuration: appConfiguration),
@@ -241,7 +244,8 @@ extension AppDependencies {
               let gate = featureGate,
               let cache = cacheService,
               let undo = undoCoordinator,
-              let mapper = trackIDMapper
+              let mapper = trackIDMapper,
+              let analytics = analyticsService
         else {
             return nil
         }
@@ -252,7 +256,8 @@ extension AppDependencies {
                     let bridge = AppleScriptBridge(
                         installer: installer,
                         config: configuration.applescript,
-                        libraryPath: configuration.paths.musicLibraryPath
+                        libraryPath: configuration.paths.musicLibraryPath,
+                        analytics: analytics
                     )
                     try await bridge.initialize()
                     return bridge
@@ -266,7 +271,10 @@ extension AppDependencies {
                     return pendingVerification
                 },
                 makeReadProvider: { _ in
-                    MusicKitReadProvider(reader: MusicLibraryReader())
+                    MeasuredLibraryProvider(
+                        base: MusicKitReadProvider(reader: MusicLibraryReader()),
+                        analytics: analytics
+                    )
                 }
             ),
             store: store,
@@ -275,7 +283,8 @@ extension AppDependencies {
             undo: undo,
             mapper: mapper,
             reachability: networkReachabilityMonitor,
-            discogsAccessStore: discogsAccessStore
+            discogsAccessStore: discogsAccessStore,
+            analytics: analytics
         )
     }
 }

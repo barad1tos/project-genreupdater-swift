@@ -8,4 +8,7 @@ enum AppStorageKey {
     /// Display-only experience tier (ADR 0002); deliberately UserDefaults,
     /// never AppConfiguration — it must stay out of the fingerprint.
     static let experienceLevel = "experienceLevel"
+    /// Last selected Settings tab; Analytics uses it only to target the
+    /// existing Advanced settings surface.
+    static let settingsTab = "settingsTab"
 }

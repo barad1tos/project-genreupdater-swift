@@ -50,6 +50,10 @@ public final class AppModel {
     }
 
     public func navigate(to route: Route, browseFilter filter: BrowseFilter? = nil) {
+        let route = SidebarRoutePolicy.fallback(
+            for: route,
+            isAdvancedExperience: data.settings.isAdvancedExperience
+        )
         let nextEntry = NavigationEntry(
             route: route,
             browseFilter: route == .browse ? (filter ?? browseFilter) : browseFilter
@@ -80,6 +84,12 @@ public final class AppModel {
     public func applyData(_ data: DesignDataSnapshot) {
         self.data = data
         dryRun = data.pipelineActivity.safetyMode == .preview
+        if let route {
+            self.route = SidebarRoutePolicy.fallback(
+                for: route,
+                isAdvancedExperience: data.settings.isAdvancedExperience
+            )
+        }
     }
 
     private var currentNavigationEntry: NavigationEntry {

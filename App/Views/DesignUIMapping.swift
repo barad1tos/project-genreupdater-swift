@@ -10,6 +10,8 @@ extension NavigationCategory {
             .browse
         case .reports:
             .reports
+        case .analytics:
+            .analytics
         case .update:
             .update
         }
@@ -23,6 +25,8 @@ extension NavigationCategory {
             self = .browse
         case .reports:
             self = .reports
+        case .analytics:
+            self = .analytics
         case .update:
             self = .update
         case .settings:

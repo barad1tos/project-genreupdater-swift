@@ -140,11 +140,57 @@ struct AdvancedTab: View {
             Toggle("Debug mode", isOn: configBinding(dependencies, \.development.debugMode))
             Toggle("Analytics", isOn: configBinding(dependencies, \.analytics.enabled))
 
+            analyticsIntegerField(
+                "Maximum events",
+                value: configBinding(dependencies, \.analytics.maxEvents),
+                unit: "events"
+            )
+            analyticsIntegerField(
+                "Retention",
+                value: configBinding(dependencies, \.analytics.retentionDays),
+                unit: "days"
+            )
+
+            durationThreshold(
+                "Short maximum",
+                value: configBinding(dependencies, \.analytics.durationThresholds.shortMax)
+            )
+            durationThreshold(
+                "Medium maximum",
+                value: configBinding(dependencies, \.analytics.durationThresholds.mediumMax)
+            )
+            durationThreshold(
+                "Long maximum",
+                value: configBinding(dependencies, \.analytics.durationThresholds.longMax)
+            )
+
             Picker("Change display", selection: configBinding(dependencies, \.reporting.changeDisplayMode)) {
                 ForEach(ChangeDisplayMode.allCases, id: \.self) { mode in
                     Text(mode.displayName).tag(mode)
                 }
             }
+        }
+    }
+
+    private func durationThreshold(_ label: String, value: Binding<Double>) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            TextField("Seconds", value: value, format: .number.precision(.fractionLength(0 ... 2)))
+                .frame(maxWidth: 90)
+            Text("seconds")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func analyticsIntegerField(_ label: String, value: Binding<Int>, unit: String) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            TextField(unit.capitalized, value: value, format: .number)
+                .frame(maxWidth: 90)
+            Text(unit)
+                .foregroundStyle(.secondary)
         }
     }
 

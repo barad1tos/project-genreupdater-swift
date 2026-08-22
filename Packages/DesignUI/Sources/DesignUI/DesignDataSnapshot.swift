@@ -69,6 +69,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
     public let syncStatusText: String
     public let chrome: DesignChromeSnapshot
     public let isPreviewBacked: Bool
+    public let analytics: DesignAnalyticsSnapshot
 
     public init(
         health: HealthSnapshot,
@@ -93,7 +94,8 @@ public struct DesignDataSnapshot: Equatable, Sendable {
         settings: DesignSettingsSnapshot = .preview,
         syncStatusText: String,
         chrome: DesignChromeSnapshot = .preview,
-        isPreviewBacked: Bool
+        isPreviewBacked: Bool,
+        analytics: DesignAnalyticsSnapshot = .empty
     ) {
         self.health = health
         self.pipelineActivity = pipelineActivity
@@ -118,6 +120,7 @@ public struct DesignDataSnapshot: Equatable, Sendable {
         self.syncStatusText = syncStatusText
         self.chrome = chrome
         self.isPreviewBacked = isPreviewBacked
+        self.analytics = analytics
     }
 }
 
