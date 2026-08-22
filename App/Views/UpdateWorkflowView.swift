@@ -1,12 +1,17 @@
 // UpdateWorkflowView.swift -- Thin router composing Update sub-views by phase.
 
 import Core
+import DesignUI
+import Foundation
 import SharedUI
 import SwiftUI
 
 // MARK: - Update Workflow View
 
 struct UpdateWorkflowView: View {
+    @Environment(AppDependencies.self) private var dependencies
+    @Environment(\.openSettings) private var openSettings
+
     @Bindable var viewModel: WorkflowViewModel
     let tracks: [Track]
     let testArtists: [String]
@@ -85,7 +90,7 @@ struct UpdateWorkflowView: View {
                 testArtists: testArtists
             )
         case .review:
-            UpdatePreviewSection(viewModel: viewModel)
+            reviewResults
         case .applying:
             UpdateStreamingSection(
                 viewModel: viewModel,
@@ -104,6 +109,75 @@ struct UpdateWorkflowView: View {
         case let .error(message):
             errorView(message: message)
         }
+    }
+
+    private var reviewResults: some View {
+        UpdateResultView(
+            snapshot: UpdateResultPreviewAdapter.makeSnapshot(
+                changes: viewModel.proposedChanges,
+                scopeTitle: reviewScopeTitle,
+                hasCleaningAccess: hasCleaningAccess,
+                primaryActionLabel: reviewPrimaryLabel
+            ),
+            onPrimaryAction: reviewPrimaryCallback,
+            onSecondaryAction: { viewModel.reset() },
+            onToggleChange: toggleReviewChange,
+            onAcceptAll: { viewModel.acceptAll() },
+            onRejectAll: { viewModel.rejectAll() },
+            onAccessAction: { openSettings() }
+        )
+    }
+
+    private var reviewPrimaryCallback: (() -> Void)? {
+        guard viewModel.acceptedCount > 0 else { return nil }
+        return { reviewPrimaryAction() }
+    }
+
+    private var reviewScopeTitle: String {
+        let normalizedArtists = ArtistAllowList.normalized(testArtists)
+        if normalizedArtists.count == 1, let artist = normalizedArtists.first {
+            return "Test Artist: \(artist)"
+        }
+        if !normalizedArtists.isEmpty {
+            return "Test Artists: \(normalizedArtists.count)"
+        }
+
+        switch viewModel.mode {
+        case .fullLibrary:
+            return "Full Library - effective scope"
+        case .smartFilter:
+            return "Smart Filter - \(viewModel.smartFilterType.rawValue)"
+        case .pendingVerification:
+            return "Pending Verification"
+        case .releaseYearRestore:
+            return "Restore Years"
+        }
+    }
+
+    private var reviewPrimaryLabel: String {
+        guard !viewModel.previewOnly else { return "Enable Writes" }
+        let count = viewModel.acceptedCount
+        return "Apply \(count.formatted()) \(count == 1 ? "Change" : "Changes")"
+    }
+
+    private var hasCleaningAccess: Bool {
+        _ = dependencies.subscriptionService?.currentTier
+        return dependencies.featureGate?.canAccess(.artistAlbumCleaning) == true
+    }
+
+    private func reviewPrimaryAction() {
+        if viewModel.previewOnly {
+            viewModel.enableWritesForReviewedChanges()
+        } else {
+            viewModel.applyAccepted()
+        }
+    }
+
+    private func toggleReviewChange(_ changeID: String) {
+        guard let itemID = UUID(uuidString: changeID),
+              let index = viewModel.proposedChanges.firstIndex(where: { $0.id == itemID })
+        else { return }
+        viewModel.toggleChange(at: index)
     }
 
     // MARK: - Paused View

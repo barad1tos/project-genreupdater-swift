@@ -23,6 +23,7 @@ public struct UpdateResultView: View {
     public let onToggleChange: ((String) -> Void)?
     public let onAcceptAll: (() -> Void)?
     public let onRejectAll: (() -> Void)?
+    public let onAccessAction: (() -> Void)?
 
     /// Creates a shared result surface for a preview or a verified write result.
     ///
@@ -33,13 +34,15 @@ public struct UpdateResultView: View {
     ///   - onToggleChange: Toggles the preview verdict for the supplied change identifier.
     ///   - onAcceptAll: Accepts all reviewable preview changes.
     ///   - onRejectAll: Rejects all reviewable preview changes.
+    ///   - onAccessAction: Opens the caller-owned access destination when locked content is shown.
     public init(
         snapshot: UpdateResultSnapshot,
         onPrimaryAction: (() -> Void)? = nil,
         onSecondaryAction: (() -> Void)? = nil,
         onToggleChange: ((String) -> Void)? = nil,
         onAcceptAll: (() -> Void)? = nil,
-        onRejectAll: (() -> Void)? = nil
+        onRejectAll: (() -> Void)? = nil,
+        onAccessAction: (() -> Void)? = nil
     ) {
         self.snapshot = snapshot
         self.onPrimaryAction = onPrimaryAction
@@ -47,12 +50,17 @@ public struct UpdateResultView: View {
         self.onToggleChange = onToggleChange
         self.onAcceptAll = onAcceptAll
         self.onRejectAll = onRejectAll
+        self.onAccessAction = onAccessAction
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ResultStatusStrip(snapshot: snapshot)
-            ResultNotices(notices: snapshot.notices, contentAccess: snapshot.contentAccess)
+            ResultNotices(
+                notices: snapshot.notices,
+                contentAccess: snapshot.contentAccess,
+                onAccessAction: onAccessAction
+            )
 
             HSplitView {
                 ResultAlbumRail(
@@ -204,14 +212,21 @@ private struct ResultMetric: View {
 private struct ResultNotices: View {
     let notices: [UpdateResultNotice]
     let contentAccess: ContentAccess
+    let onAccessAction: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if case let .locked(message) = contentAccess {
                 SectionCard(symbol: "lock.fill", tone: .warning, title: "Access required") {
-                    Text(message)
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(Ayu.fg2)
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(message)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Ayu.fg2)
+                        Spacer(minLength: 12)
+                        if let onAccessAction {
+                            Button("Open Settings", action: onAccessAction)
+                        }
+                    }
                 }
             }
 

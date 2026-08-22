@@ -11,6 +11,7 @@ import SwiftUI
 struct DesignRootHostView: View {
     @Environment(AppDependencies.self) private var dependencies
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openSettings) private var openSettings
 
     @State private var hasStartedInitialLoad = false
     @State private var workflowViewModel: WorkflowViewModel?
@@ -238,18 +239,18 @@ struct DesignRootHostView: View {
     @ViewBuilder
     private var updateContent: some View {
         if fixPlanProjection.status != .empty {
-            FixPlanView(
-                snapshot: FixPlanAdapter.makeSnapshot(
+            UpdateResultView(
+                snapshot: UpdateResultPreviewAdapter.makeSnapshot(
                     from: fixPlanProjection,
-                    hasCleaningAccess: hasCleaningAccess
+                    hasCleaningAccess: hasCleaningAccess,
+                    noticeMessage: fixPlanNoticeMessage,
+                    noticeTone: fixPlanNoticeTone
                 ),
-                noticeMessage: fixPlanNoticeMessage,
-                noticeTone: fixPlanNoticeTone,
-                isReviewBusy: isReviewBusy,
-                onAccept: acceptFixPlan,
-                onApply: applyFixPlan,
-                onReject: rejectFixPlan,
-                onToggleItem: toggleFixPlanItem
+                onPrimaryAction: fixPlanPrimaryCallback,
+                onToggleChange: fixPlanToggleCallback,
+                onAcceptAll: fixPlanAcceptAllCallback,
+                onRejectAll: fixPlanRejectAllCallback,
+                onAccessAction: { openSettings() }
             )
         } else if let workflowViewModel {
             UpdateWorkflowView(
@@ -272,6 +273,26 @@ struct DesignRootHostView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private var fixPlanPrimaryCallback: (() -> Void)? {
+        guard !isReviewBusy, fixPlanProjection.canApply else { return nil }
+        return { applyFixPlan() }
+    }
+
+    private var fixPlanToggleCallback: ((String) -> Void)? {
+        guard !isReviewBusy else { return nil }
+        return { toggleFixPlanItem($0) }
+    }
+
+    private var fixPlanAcceptAllCallback: (() -> Void)? {
+        guard !isReviewBusy, fixPlanProjection.acceptedCount < fixPlanProjection.itemCount else { return nil }
+        return { acceptFixPlan() }
+    }
+
+    private var fixPlanRejectAllCallback: (() -> Void)? {
+        guard !isReviewBusy, fixPlanProjection.rejectedCount < fixPlanProjection.itemCount else { return nil }
+        return { rejectFixPlan() }
     }
 
     private var hasCleaningAccess: Bool {
