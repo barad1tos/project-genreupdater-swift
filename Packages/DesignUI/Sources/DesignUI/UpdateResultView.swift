@@ -280,6 +280,7 @@ private struct ResultAlbumRail: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .accessibilityAddTraits(album.id == selectedAlbumID ? .isSelected : [])
                         }
                     }
                     .padding(8)
@@ -495,43 +496,63 @@ private struct ResultActionBar: View {
 
     var body: some View {
         GlassCard(padding: 16) {
-            HStack(spacing: 8) {
-                Text(actionSummary)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Ayu.fg2)
-                Spacer(minLength: 12)
-
-                if snapshot.mode == .preview {
-                    BorderedButton(
-                        title: "Reject all",
-                        symbol: "xmark.circle",
-                        enabled: snapshot.canReview,
-                        action: onRejectAll
-                    )
-                    BorderedButton(
-                        title: "Accept all",
-                        symbol: "checkmark.circle",
-                        enabled: snapshot.canReview,
-                        action: onAcceptAll
-                    )
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    actionSummaryText
+                    Spacer(minLength: 12)
+                    HStack(spacing: 8) {
+                        actionButtons
+                    }
                 }
 
-                if let secondaryActionLabel = snapshot.secondaryActionLabel {
-                    BorderedButton(
-                        title: secondaryActionLabel,
-                        symbol: "arrow.counterclockwise",
-                        action: onSecondaryAction
-                    )
-                }
-
-                PrimaryButton(
-                    title: snapshot.primaryActionLabel,
-                    symbol: primarySymbol,
-                    enabled: isPrimaryEnabled
-                ) {
-                    onPrimaryAction?()
+                VStack(alignment: .leading, spacing: 12) {
+                    actionSummaryText
+                    VStack(alignment: .trailing, spacing: 8) {
+                        actionButtons
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
+        }
+    }
+
+    private var actionSummaryText: some View {
+        Text(actionSummary)
+            .font(.system(size: 12.5, weight: .medium))
+            .foregroundStyle(Ayu.fg2)
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        if snapshot.mode == .preview {
+            BorderedButton(
+                title: "Reject all",
+                symbol: "xmark.circle",
+                enabled: snapshot.canReview,
+                action: onRejectAll
+            )
+            BorderedButton(
+                title: "Accept all",
+                symbol: "checkmark.circle",
+                enabled: snapshot.canReview,
+                action: onAcceptAll
+            )
+        }
+
+        if let secondaryActionLabel = snapshot.secondaryActionLabel {
+            BorderedButton(
+                title: secondaryActionLabel,
+                symbol: "arrow.counterclockwise",
+                action: onSecondaryAction
+            )
+        }
+
+        PrimaryButton(
+            title: snapshot.primaryActionLabel,
+            symbol: primarySymbol,
+            enabled: isPrimaryEnabled
+        ) {
+            onPrimaryAction?()
         }
     }
 
