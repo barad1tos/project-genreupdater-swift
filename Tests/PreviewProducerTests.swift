@@ -429,7 +429,8 @@ struct PreviewProducerTests {
             undo: UndoCoordinator(scriptBridge: script),
             mapper: TrackIDMapper(),
             reachability: nil,
-            discogsAccessStore: accessStore
+            discogsAccessStore: accessStore,
+            analytics: nil
         )
     }
 

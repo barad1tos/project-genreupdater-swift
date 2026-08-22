@@ -35,6 +35,11 @@ enum DiscogsCredentialIssue: Equatable {
     }
 }
 
+struct ProviderTransportContext {
+    let rawRequestCache: RawAPIRequestCache?
+    let analytics: (any AnalyticsService)?
+}
+
 struct APIClientFactoryOverrides {
     typealias DiscogsIssueHandler = @MainActor (DiscogsCredentialIssue?) -> Void
     typealias KeychainDiscogsClientFactory = (
@@ -53,12 +58,12 @@ struct APIClientFactoryOverrides {
         _ contactEmail: String,
         _ rateLimiter: TokenBucketRateLimiter?,
         _ cleaningConfiguration: CleaningConfig,
-        _ rawRequestCache: RawAPIRequestCache?
+        _ transport: ProviderTransportContext
     ) -> any ExternalAPIService
     typealias CatalogFactory = @MainActor (
         _ configuration: AppConfiguration,
         _ rateLimiter: TokenBucketRateLimiter,
-        _ rawRequestCache: RawAPIRequestCache?
+        _ transport: ProviderTransportContext
     ) -> any ExternalAPIService
 
     var keychainDiscogsClientFactory: KeychainDiscogsClientFactory
@@ -127,14 +132,15 @@ struct APIClientFactoryOverrides {
         contactEmail: String,
         rateLimiter: TokenBucketRateLimiter?,
         cleaningConfiguration: CleaningConfig,
-        rawRequestCache: RawAPIRequestCache?
+        transport: ProviderTransportContext
     ) -> any ExternalAPIService {
         MusicBrainzClient(
             appName: appName,
             contactEmail: contactEmail,
             rateLimiter: rateLimiter,
             cleaningConfiguration: cleaningConfiguration,
-            rawRequestCache: rawRequestCache
+            rawRequestCache: transport.rawRequestCache,
+            analytics: transport.analytics
         )
     }
 }
@@ -198,6 +204,7 @@ extension AppDependencies {
         configuration: AppConfiguration,
         cache: (any CacheService)?,
         reachability: NetworkReachabilityMonitor?,
+        analytics: (any AnalyticsService)? = nil,
         factoryOverrides: APIClientFactoryOverrides = APIClientFactoryOverrides()
     ) -> APIOrchestrator {
         let apiAuth = configuration.yearRetrieval.apiAuth
@@ -215,12 +222,14 @@ extension AppDependencies {
             configuration: configuration,
             discogsContext: discogsContext,
             factoryOverrides: factoryOverrides,
-            rawRequestCache: makeRawCache(configuration: configuration, cache: cache)
+            rawRequestCache: makeRawCache(configuration: configuration, cache: cache),
+            analytics: analytics
         )
         return makeAPIOrchestrator(
             configuration: configuration,
             cache: cache,
             reachability: reachability,
+            analytics: analytics,
             serviceContext: serviceContext
         )
     }
@@ -230,6 +239,7 @@ extension AppDependencies {
         cache: (any CacheService)?,
         reachability: NetworkReachabilityMonitor?,
         discogsAccess: DiscogsAccess,
+        analytics: (any AnalyticsService)? = nil,
         factoryOverrides: APIClientFactoryOverrides = APIClientFactoryOverrides()
     ) -> APIOrchestrator {
         let apiAuth = configuration.yearRetrieval.apiAuth
@@ -246,12 +256,14 @@ extension AppDependencies {
             configuration: configuration,
             discogsContext: discogsContext,
             factoryOverrides: factoryOverrides,
-            rawRequestCache: makeRawCache(configuration: configuration, cache: cache)
+            rawRequestCache: makeRawCache(configuration: configuration, cache: cache),
+            analytics: analytics
         )
         return makeAPIOrchestrator(
             configuration: configuration,
             cache: cache,
             reachability: reachability,
+            analytics: analytics,
             serviceContext: serviceContext
         )
     }
@@ -260,12 +272,14 @@ extension AppDependencies {
         configuration: AppConfiguration,
         cache: (any CacheService)?,
         reachability: NetworkReachabilityMonitor?,
+        analytics: (any AnalyticsService)?,
         serviceContext: APIServiceContext
     ) -> APIOrchestrator {
-        let orchestratorConfiguration = makeAPIOrchestratorConfiguration(
+        let orchestratorConfiguration = orchestratorConfiguration(
             configuration: configuration,
             cache: cache,
             reachability: reachability,
+            analytics: analytics,
             disabledSources: serviceContext.disabledSources
         )
 
@@ -279,24 +293,29 @@ extension AppDependencies {
         configuration: AppConfiguration,
         discogsContext: DiscogsClientContext,
         factoryOverrides: APIClientFactoryOverrides,
-        rawRequestCache: RawAPIRequestCache? = nil
+        rawRequestCache: RawAPIRequestCache? = nil,
+        analytics: (any AnalyticsService)? = nil
     ) -> APIServiceContext {
         let apiAuth = configuration.yearRetrieval.apiAuth
         let contactEmail = APIAuthReferenceResolver.resolve(
             apiAuth.contactEmailReference,
             fallbackUserDefaultsKey: "contactEmail"
         )
+        let transport = ProviderTransportContext(
+            rawRequestCache: rawRequestCache,
+            analytics: analytics
+        )
         let musicBrainz = factoryOverrides.musicBrainz ?? factoryOverrides.musicBrainzFactory(
             apiAuth.musicBrainzAppName,
             contactEmail,
             musicBrainzLimiter(configuration: configuration),
             configuration.cleaning,
-            rawRequestCache
+            transport
         )
         let appleMusic = factoryOverrides.appleMusic ?? factoryOverrides.catalogFactory(
             configuration,
             itunesLimiter(configuration: configuration),
-            rawRequestCache
+            transport
         )
         return APIServiceContext(
             services: APIOrchestratorServices(
@@ -306,7 +325,8 @@ extension AppDependencies {
                 discogs: discogsContext.client
                     .withSearchConfiguration(configuration.yearRetrieval.discogsSearch)
                     .withReissueKeywords(configuration.yearRetrieval.reissueDetection.reissueKeywords)
-                    .withRawRequestCache(rawRequestCache),
+                    .withRawRequestCache(transport.rawRequestCache)
+                    .withAnalytics(transport.analytics),
                 appleMusic: appleMusic
             ),
             disabledSources: discogsContext.disabledSources
@@ -409,15 +429,17 @@ extension AppDependencies {
         }
     }
 
-    private static func makeAPIOrchestratorConfiguration(
+    static func orchestratorConfiguration(
         configuration: AppConfiguration,
         cache: (any CacheService)?,
         reachability: NetworkReachabilityMonitor?,
+        analytics: (any AnalyticsService)?,
         disabledSources: Set<APISource>
     ) -> APIOrchestratorConfiguration {
         var orchestratorConfiguration = APIOrchestratorConfiguration(configuration: configuration)
         orchestratorConfiguration.reachability = reachability
         orchestratorConfiguration.cache = cache
+        orchestratorConfiguration.analytics = analytics
         orchestratorConfiguration.disabledSources = disabledSources
         return orchestratorConfiguration
     }
@@ -433,13 +455,14 @@ extension AppDependencies {
     static func makeCatalogClient(
         configuration: AppConfiguration,
         rateLimiter: TokenBucketRateLimiter,
-        rawRequestCache: RawAPIRequestCache? = nil
+        transport: ProviderTransportContext
     ) -> CatalogSearchClient {
         let itunesSearch = configuration.yearRetrieval.itunesSearch
         return CatalogSearchClient.paced(
             settings: itunesSearch,
             rateLimiter: rateLimiter,
-            rawRequestCache: rawRequestCache
+            rawRequestCache: transport.rawRequestCache,
+            analytics: transport.analytics
         )
     }
 

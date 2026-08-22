@@ -197,6 +197,7 @@ struct ConfigurationValidationTests {
         configuration.analytics.durationThresholds.mediumMax = 20
         configuration.analytics.durationThresholds.longMax = 5
         configuration.analytics.maxEvents = 0
+        configuration.analytics.retentionDays = 1
         configuration.reporting.minAttemptsForReport = 1
         configuration.reporting.runHistoryLimit = 1
         configuration.logging.maxRuns = 0
@@ -564,6 +565,7 @@ struct ConfigurationValidationTests {
                 $0.analytics.durationThresholds.longMax = -1
             },
             minimumZero("analytics.maxEvents", "-1") { $0.analytics.maxEvents = -1 },
+            minimumOne("analytics.retentionDays", "0") { $0.analytics.retentionDays = 0 },
             minimumOne("reporting.minAttemptsForReport", "0.0") { $0.reporting.minAttemptsForReport = 0 },
             integerCapacity("reporting.minAttemptsForReport", "1e+308") {
                 $0.reporting.minAttemptsForReport = 1e308

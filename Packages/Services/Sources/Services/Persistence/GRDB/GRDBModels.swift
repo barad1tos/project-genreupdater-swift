@@ -111,3 +111,46 @@ struct GenericCacheRow: Codable, FetchableRecord, PersistableRecord {
         return Date.now > timestamp.addingTimeInterval(ttl)
     }
 }
+
+// MARK: - Analytics Event Row
+
+struct AnalyticsEventRow: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "analytics_events"
+
+    var id: String
+    var sessionID: String
+    var operation: String
+    var startedAt: Date
+    var durationSeconds: Double
+    var outcome: String
+
+    init(from event: StoredAnalyticsEvent) {
+        id = event.id.uuidString
+        sessionID = event.sessionID.uuidString
+        operation = event.operationValue
+        startedAt = event.startedAt
+        durationSeconds = event.durationSeconds
+        outcome = event.outcome.rawValue
+    }
+
+    func toStoredEvent() throws -> StoredAnalyticsEvent {
+        guard let id = UUID(uuidString: id) else {
+            throw AnalyticsStoreError.invalidIdentifier(id)
+        }
+        guard let sessionID = UUID(uuidString: sessionID) else {
+            throw AnalyticsStoreError.invalidIdentifier(sessionID)
+        }
+        guard let outcome = AnalyticsOutcome(rawValue: outcome) else {
+            throw AnalyticsStoreError.invalidOutcome(outcome)
+        }
+
+        return StoredAnalyticsEvent(
+            id: id,
+            sessionID: sessionID,
+            operationValue: operation,
+            startedAt: startedAt,
+            durationSeconds: durationSeconds,
+            outcome: outcome
+        )
+    }
+}

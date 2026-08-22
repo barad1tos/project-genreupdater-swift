@@ -67,5 +67,35 @@ enum GRDBMigrations {
                 columns: ["accessOrder"]
             )
         }
+
+        registerAnalyticsMigration(&migrator)
+    }
+
+    private static func registerAnalyticsMigration(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v3_create_analytics_events") { database in
+            try database.create(table: "analytics_events") { table in
+                table.primaryKey("id", .text)
+                table.column("sessionID", .text).notNull()
+                table.column("operation", .text).notNull()
+                table.column("startedAt", .datetime).notNull()
+                table.column("durationSeconds", .double).notNull()
+                table.column("outcome", .text).notNull()
+            }
+            try database.create(
+                index: "analytics_events_on_startedAt",
+                on: "analytics_events",
+                columns: ["startedAt"]
+            )
+            try database.create(
+                index: "analytics_events_on_session_startedAt",
+                on: "analytics_events",
+                columns: ["sessionID", "startedAt"]
+            )
+            try database.create(
+                index: "analytics_events_on_operation",
+                on: "analytics_events",
+                columns: ["operation"]
+            )
+        }
     }
 }

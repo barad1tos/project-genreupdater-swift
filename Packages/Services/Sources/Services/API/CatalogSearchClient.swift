@@ -41,6 +41,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     private let dateProvider: @Sendable () -> Date
     private let authorizeMusic: @Sendable () async -> MusicAuthorization.Status
     private let findReleaseDate: @Sendable (String) async throws -> Date?
+    private var analytics: (any AnalyticsService)?
     private let log = AppLogger.api
 
     static let defaultPolicy: TokenBucketRateLimiter.Policy = {
@@ -84,6 +85,23 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         session: URLSession = .shared,
         rawRequestCache: RawAPIRequestCache? = nil
     ) -> Self {
+        paced(
+            settings: settings,
+            rateLimiter: rateLimiter,
+            session: session,
+            rawRequestCache: rawRequestCache,
+            analytics: nil
+        )
+    }
+
+    /// Creates a paced catalog client that records iTunes transport requests.
+    public static func paced(
+        settings: ITunesSearchConfig,
+        rateLimiter: TokenBucketRateLimiter,
+        session: URLSession = .shared,
+        rawRequestCache: RawAPIRequestCache? = nil,
+        analytics: (any AnalyticsService)?
+    ) -> Self {
         Self(
             session: session,
             countryCode: settings.normalizedCountryCode,
@@ -93,6 +111,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
             rawRequestCache: rawRequestCache
         )
         .paced(rateLimiter)
+        .withAnalytics(analytics)
     }
 
     init(
@@ -121,6 +140,7 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         self.dateProvider = dateProvider
         self.authorizeMusic = authorizeMusic
         self.findReleaseDate = findReleaseDate
+        self.analytics = nil
     }
 
     // MARK: - ExternalAPIService
@@ -345,6 +365,15 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
     }
 
     private func performITunesFetch(from url: URL) async throws -> Data {
+        guard let analytics else {
+            return try await performITunesFetchBody(from: url)
+        }
+        return try await analytics.measure(.iTunesReleaseSearch) {
+            try await performITunesFetchBody(from: url)
+        }
+    }
+
+    private func performITunesFetchBody(from url: URL) async throws -> Data {
         _ = try await rateLimiter.acquireCancellable()
         let (data, response) = try await session.data(from: url)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -358,6 +387,12 @@ public struct CatalogSearchClient: ExternalAPIService, Sendable {
         }
 
         return data
+    }
+
+    private func withAnalytics(_ analytics: (any AnalyticsService)?) -> Self {
+        var copy = self
+        copy.analytics = analytics
+        return copy
     }
 
     private func findArtistID(artist: String) async throws -> Int? {

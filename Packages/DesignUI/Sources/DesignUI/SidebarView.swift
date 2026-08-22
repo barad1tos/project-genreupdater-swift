@@ -38,9 +38,17 @@ struct SidebarView: View {
             }
 
             Section("Library") {
-                navRow(.activity, "Activity", "waveform.path.ecg.rectangle")
-                navRow(.browse, "Browse", "music.note.list")
-                navRow(.reports, "Reports", "chart.bar")
+                ForEach(SidebarRoutePolicy.libraryRoutes(
+                    isAdvancedExperience: model.data.settings.isAdvancedExperience
+                ), id: \.self) { route in
+                    switch route {
+                    case .activity: navRow(.activity, "Activity", "waveform.path.ecg.rectangle")
+                    case .browse: navRow(.browse, "Browse", "music.note.list")
+                    case .reports: navRow(.reports, "Reports", "chart.bar")
+                    case .analytics: navRow(.analytics, "Analytics", "gauge.with.dots.needle.50percent")
+                    case .update, .settings: EmptyView()
+                    }
+                }
             }
             Section("Intervention") {
                 navRow(
@@ -198,6 +206,22 @@ struct SidebarView: View {
             pill
         }
         .font(.system(size: 12))
+    }
+}
+
+enum SidebarRoutePolicy {
+    static func routes(isAdvancedExperience: Bool) -> [Route] {
+        libraryRoutes(isAdvancedExperience: isAdvancedExperience) + [.update]
+    }
+
+    static func libraryRoutes(isAdvancedExperience: Bool) -> [Route] {
+        isAdvancedExperience
+            ? [.activity, .browse, .reports, .analytics]
+            : [.activity, .browse, .reports]
+    }
+
+    static func fallback(for route: Route, isAdvancedExperience: Bool) -> Route {
+        route == .analytics && !isAdvancedExperience ? .reports : route
     }
 }
 

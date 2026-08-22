@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Navigation
 
 public enum Route: Hashable, Sendable {
-    case activity, browse, reports, update, settings
+    case activity, browse, reports, analytics, update, settings
 }
 
 public enum BrowseFilter: String, CaseIterable, Identifiable, Sendable {

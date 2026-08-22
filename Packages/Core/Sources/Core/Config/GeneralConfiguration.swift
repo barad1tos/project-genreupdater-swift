@@ -227,11 +227,16 @@ public struct AnalyticsConfig: Sendable, Codable {
     public var enabled: Bool = false
     public var durationThresholds = DurationThresholdsConfig()
     public var maxEvents: Int = 10000
-    public var compactTime: Bool = true
-    public var timeFormat: String = "%Y-%m-%d %H:%M:%S"
+    public var recentEventLimit: Int = 100
+    public var retentionDays: Int = 7
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, durationThresholds, maxEvents, compactTime, timeFormat
+        case enabled, durationThresholds, maxEvents, recentEventLimit, retentionDays
+    }
+
+    private enum DecodingKeys: String, CodingKey {
+        case enabled, durationThresholds, maxEvents, recentEventLimit, retentionDays
+        case compactTime, timeFormat
     }
 
     public init() {
@@ -239,15 +244,15 @@ public struct AnalyticsConfig: Sendable, Codable {
     }
 
     public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let container = try decoder.container(keyedBy: DecodingKeys.self)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         durationThresholds = try container.decodeIfPresent(
             DurationThresholdsConfig.self,
             forKey: .durationThresholds
         ) ?? DurationThresholdsConfig()
         maxEvents = try container.decodeIfPresent(Int.self, forKey: .maxEvents) ?? 10000
-        compactTime = try container.decodeIfPresent(Bool.self, forKey: .compactTime) ?? true
-        timeFormat = try container.decodeIfPresent(String.self, forKey: .timeFormat) ?? "%Y-%m-%d %H:%M:%S"
+        recentEventLimit = try container.decodeIfPresent(Int.self, forKey: .recentEventLimit) ?? 100
+        retentionDays = try container.decodeIfPresent(Int.self, forKey: .retentionDays) ?? 7
     }
 }
 

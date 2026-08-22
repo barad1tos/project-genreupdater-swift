@@ -242,6 +242,34 @@ public protocol TrackIDMapping: Sendable {
 }
 
 public protocol AnalyticsService: Sendable {
-    func trackEvent(_ eventType: String, duration: Duration, metadata: [String: String]) async
-    func trackError(_ eventType: String, error: any Error) async
+    /// Records one privacy-safe operation result.
+    func record(_ operation: AnalyticsOperation, duration: Duration, outcome: AnalyticsOutcome) async
+}
+
+extension AnalyticsService {
+    /// Measures an async operation while preserving its value and error behavior.
+    public func measure<Value: Sendable>(
+        _ operation: AnalyticsOperation,
+        isolation _: isolated (any Actor)? = #isolation,
+        errorOutcome: @Sendable (any Error, Bool) -> AnalyticsOutcome = {
+            AnalyticsOutcome(error: $0, isTaskCancelled: $1)
+        },
+        body: () async throws -> Value
+    ) async rethrows -> Value {
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        do {
+            let value = try await body()
+            await record(operation, duration: start.duration(to: clock.now), outcome: .succeeded)
+            return value
+        } catch {
+            await record(
+                operation,
+                duration: start.duration(to: clock.now),
+                outcome: errorOutcome(error, Task.isCancelled)
+            )
+            throw error
+        }
+    }
 }

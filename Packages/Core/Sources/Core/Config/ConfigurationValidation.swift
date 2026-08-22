@@ -323,6 +323,8 @@ extension AppConfiguration {
             path: "analytics.durationThresholds.longMax"
         )
         validation.requireAtLeast(analytics.maxEvents, minimum: 0, path: "analytics.maxEvents")
+        validation.requireAtLeast(analytics.recentEventLimit, minimum: 1, path: "analytics.recentEventLimit")
+        validation.requireAtLeast(analytics.retentionDays, minimum: 1, path: "analytics.retentionDays")
         validation.requireAtLeast(
             reporting.minAttemptsForReport,
             minimum: 1,

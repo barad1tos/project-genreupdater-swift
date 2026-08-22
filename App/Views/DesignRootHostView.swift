@@ -27,6 +27,8 @@ struct DesignRootHostView: View {
     @State private var browseRowIndex: [String: [BrowseTrackRow]] = [:]
     @State private var browseReadSource: BrowseReadSource = .cachedMirror(scannedAt: nil)
     @State private var browseNoticeMessage: String?
+    @State private var analyticsSnapshot: DesignAnalyticsSnapshot = .empty
+    @State private var analyticsWindow: DesignAnalyticsWindow = .currentSession
     @State private var selectedRunReport: RunReportDetailSnapshot?
     @State private var runReportDetailRequestID = UUID()
     @State private var activityCommandNoticeMessage: String?
@@ -41,6 +43,7 @@ struct DesignRootHostView: View {
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("fastAnimations") private var fastAnimations = false
     @AppStorage(AppStorageKey.experienceLevel) private var experienceLevel: ExperienceLevel = .defaultLevel
+    @AppStorage(AppStorageKey.settingsTab) private var settingsTab: SettingsTab = .general
 
     var body: some View {
         RootView(
@@ -65,10 +68,12 @@ struct DesignRootHostView: View {
                 dismissPreparedItems: dismissRecoveryItems
             ),
             reportAnalyticsAccess: reportAnalyticsAccess,
-            reportNotice: reportNotice
-        ) {
-            updateContent
-        }
+            selectAnalyticsWindow: selectAnalyticsWindow,
+            retryAnalytics: { Task { await refreshAnalytics() } },
+            openAnalyticsSettings: openAnalyticsSettings,
+            reportNotice: reportNotice,
+            updateContent: { updateContent }
+        )
         .task {
             await startInitialLoadIfNeeded()
             await refreshFixPlanProjection()
@@ -78,6 +83,7 @@ struct DesignRootHostView: View {
         .task { await observeFixPlanUpdates() }
         .task { await observeChromeUpdates() }
         .task { await observeBrowseUpdates() }
+        .task(id: selectedRoute) { await observeAnalyticsUpdates() }
         .onChange(of: dependencies.config.processing.defaultUpdateBehavior) {
             applyWorkflowDefaults()
             scheduleActivityProjectionRefresh()
@@ -124,8 +130,61 @@ struct DesignRootHostView: View {
             browse: ActivitySnapshotAdapter.BrowseSnapshotInput(
                 artists: browseDesignArtists,
                 scope: browseDesignScope
-            )
+            ),
+            analytics: analyticsSnapshot
         )
+    }
+
+    private func selectAnalyticsWindow(_ window: DesignAnalyticsWindow) {
+        analyticsWindow = window
+        Task { await refreshAnalytics() }
+    }
+
+    private func refreshAnalytics() async {
+        let requestToken = dependencies.analyticsReportGate.begin()
+        let requestedWindow = analyticsWindow
+        guard let recorder = dependencies.analyticsService else {
+            guard dependencies.analyticsReportGate.isCurrent(requestToken) else { return }
+            analyticsSnapshot = DesignAnalyticsSnapshot(
+                state: .unavailable,
+                selectedWindow: requestedWindow,
+                summary: .empty,
+                distribution: [],
+                operations: [],
+                recentEvents: []
+            )
+            return
+        }
+        let projection = await recorder.projection(
+            for: AnalyticsSnapshotAdapter.serviceWindow(from: requestedWindow)
+        )
+        guard !Task.isCancelled, dependencies.analyticsReportGate.isCurrent(requestToken) else { return }
+        analyticsSnapshot = AnalyticsSnapshotAdapter.makeSnapshot(from: projection)
+    }
+
+    private func observeAnalyticsUpdates() async {
+        guard selectedRoute == .analytics, let recorder = dependencies.analyticsService else { return }
+        await refreshAnalytics()
+        var refreshTask: Task<Void, Never>?
+        defer { refreshTask?.cancel() }
+        for await _ in await recorder.updates() {
+            guard !Task.isCancelled, selectedRoute == .analytics else { return }
+            refreshTask?.cancel()
+            refreshTask = Task { @MainActor in
+                do {
+                    try await Task.sleep(for: AnalyticsRefreshPolicy.debounce)
+                } catch {
+                    return
+                }
+                guard selectedRoute == .analytics else { return }
+                await refreshAnalytics()
+            }
+        }
+    }
+
+    private func openAnalyticsSettings() {
+        settingsTab = .advanced
+        openSettings()
     }
 
     private func observeChromeUpdates() async {

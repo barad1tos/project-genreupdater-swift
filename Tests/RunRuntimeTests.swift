@@ -114,7 +114,8 @@ struct RunRuntimeTests {
             undo: UndoCoordinator(scriptBridge: script),
             mapper: mapper,
             reachability: nil,
-            discogsAccessStore: DiscogsAccessStore()
+            discogsAccessStore: DiscogsAccessStore(),
+            analytics: nil
         )
     }
 

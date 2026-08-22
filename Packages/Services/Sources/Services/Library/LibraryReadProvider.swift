@@ -42,3 +42,19 @@ public struct LibraryReadSnapshot: Sendable, Equatable {
 public protocol LibraryReadProvider: Actor {
     func loadLibrarySnapshot(request: LibraryReadRequest) async throws -> LibraryReadSnapshot
 }
+
+public actor MeasuredLibraryProvider: LibraryReadProvider {
+    private let base: any LibraryReadProvider
+    private let analytics: any AnalyticsService
+
+    public init(base: any LibraryReadProvider, analytics: any AnalyticsService) {
+        self.base = base
+        self.analytics = analytics
+    }
+
+    public func loadLibrarySnapshot(request: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        try await analytics.measure(.musicAppFetch) {
+            try await base.loadLibrarySnapshot(request: request)
+        }
+    }
+}

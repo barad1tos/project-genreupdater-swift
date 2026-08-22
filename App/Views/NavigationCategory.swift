@@ -6,14 +6,17 @@ enum NavigationCategory: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case browse = "Browse"
     case reports = "Reports"
+    case analytics = "Analytics"
     case update = "Update"
 
     var id: String {
         rawValue
     }
 
-    static var allInOrder: [Self] {
-        [.dashboard, .browse, .reports, .update]
+    static func visibleOrder(isAdvancedExperience: Bool) -> [Self] {
+        isAdvancedExperience
+            ? [.dashboard, .browse, .reports, .analytics, .update]
+            : [.dashboard, .browse, .reports, .update]
     }
 }
 

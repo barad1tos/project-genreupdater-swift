@@ -125,7 +125,8 @@ enum ActivitySnapshotAdapter {
         selectedRunReport: RunReportDetailSnapshot? = nil,
         activityNotice: String? = nil,
         chrome: DesignChromeSnapshot = .preview,
-        browse: BrowseSnapshotInput = .empty
+        browse: BrowseSnapshotInput = .empty,
+        analytics: DesignAnalyticsSnapshot = .empty
     ) -> DesignDataSnapshot {
         let reportFacts = activityProjection.reportFacts
 
@@ -164,7 +165,8 @@ enum ActivitySnapshotAdapter {
             settings: input.settings,
             syncStatusText: activityProjection.syncStatusText,
             chrome: chrome,
-            isPreviewBacked: false
+            isPreviewBacked: false,
+            analytics: analytics
         )
     }
 

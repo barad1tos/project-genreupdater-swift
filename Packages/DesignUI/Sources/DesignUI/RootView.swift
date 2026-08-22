@@ -22,6 +22,9 @@ public struct RootView<UpdateContent: View>: View {
     private let recoveryDetailActions: RecoveryDetailActions?
     private let reportAnalyticsAccess: ContentAccess
     private let reportNotice: ReportNotice?
+    private let selectAnalyticsWindow: ((DesignAnalyticsWindow) -> Void)?
+    private let retryAnalytics: (() -> Void)?
+    private let openAnalyticsSettings: (() -> Void)?
     private let updateContent: () -> UpdateContent
     @State private var model: AppModel
 
@@ -43,6 +46,9 @@ public struct RootView<UpdateContent: View>: View {
         reportRunSelectionAction: ((String?) -> Void)? = nil,
         recoveryDetailActions: RecoveryDetailActions? = nil,
         reportAnalyticsAccess: ContentAccess = .available,
+        selectAnalyticsWindow: ((DesignAnalyticsWindow) -> Void)? = nil,
+        retryAnalytics: (() -> Void)? = nil,
+        openAnalyticsSettings: (() -> Void)? = nil,
         // No default: the host must pass its notice state explicitly —
         // a defaulted nil once let the whole chain die silently.
         reportNotice: ReportNotice?,
@@ -65,6 +71,9 @@ public struct RootView<UpdateContent: View>: View {
         self.reportRunSelectionAction = reportRunSelectionAction
         self.recoveryDetailActions = recoveryDetailActions
         self.reportAnalyticsAccess = reportAnalyticsAccess
+        self.selectAnalyticsWindow = selectAnalyticsWindow
+        self.retryAnalytics = retryAnalytics
+        self.openAnalyticsSettings = openAnalyticsSettings
         self.reportNotice = reportNotice
         self.updateContent = updateContent
         _model = State(initialValue: AppModel(data: data))
@@ -131,6 +140,13 @@ public struct RootView<UpdateContent: View>: View {
                 recoveryActions: recoveryDetailActions,
                 analyticsAccess: reportAnalyticsAccess,
                 reportNotice: reportNotice
+            )
+        case .analytics:
+            AnalyticsView(
+                snapshot: model.data.analytics,
+                selectWindow: { selectAnalyticsWindow?($0) },
+                retry: { retryAnalytics?() },
+                openSettings: { openAnalyticsSettings?() }
             )
         case .update: updateContent()
         case .settings:

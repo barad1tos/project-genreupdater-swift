@@ -22,6 +22,7 @@ public struct UpdateDependencies {
     let idMapper: (any TrackIDMapping)?
     let librarySnapshotService: (any LibrarySnapshotService)?
     let pendingVerificationService: (any PendingVerificationService)?
+    let analytics: (any AnalyticsService)?
 
     public init(
         apiOrchestrator: APIOrchestrator,
@@ -30,7 +31,8 @@ public struct UpdateDependencies {
         undoCoordinator: UndoCoordinator,
         idMapper: (any TrackIDMapping)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
-        pendingVerificationService: (any PendingVerificationService)? = nil
+        pendingVerificationService: (any PendingVerificationService)? = nil,
+        analytics: (any AnalyticsService)? = nil
     ) {
         self.apiOrchestrator = apiOrchestrator
         self.scriptBridge = scriptBridge
@@ -39,6 +41,7 @@ public struct UpdateDependencies {
         self.idMapper = idMapper
         self.librarySnapshotService = librarySnapshotService
         self.pendingVerificationService = pendingVerificationService
+        self.analytics = analytics
     }
 
     public init(
@@ -48,7 +51,8 @@ public struct UpdateDependencies {
         cache: any CacheService,
         undoCoordinator: UndoCoordinator,
         idMapper: (any TrackIDMapping)?,
-        pendingVerificationService: (any PendingVerificationService)?
+        pendingVerificationService: (any PendingVerificationService)?,
+        analytics: (any AnalyticsService)? = nil
     ) {
         self.init(
             apiOrchestrator: apiOrchestrator,
@@ -56,7 +60,8 @@ public struct UpdateDependencies {
             stores: Stores(trackStore: trackStore, cache: cache),
             undoCoordinator: undoCoordinator,
             idMapper: idMapper,
-            pendingVerificationService: pendingVerificationService
+            pendingVerificationService: pendingVerificationService,
+            analytics: analytics
         )
     }
 }

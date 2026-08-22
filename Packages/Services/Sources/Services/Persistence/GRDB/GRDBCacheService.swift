@@ -17,7 +17,7 @@ import OSLog
 /// - API responses: caller-configured, 15 minutes by default
 /// - Expiring generic writes: caller-specified or configured default
 /// - Persistent generic writes: no time-based expiry
-public actor GRDBCacheService: PersistentCacheService {
+public actor GRDBCacheService: PersistentCacheService, AnalyticsEventStore {
     private let dbWriter: any DatabaseWriter
     private let log = AppLogger.cache
     private let albumYearTTL: TimeInterval
@@ -209,6 +209,53 @@ public actor GRDBCacheService: PersistentCacheService {
             log.info("Cache cleared")
         } catch {
             log.error("Cache clear failed: \(error, privacy: .public)")
+        }
+    }
+
+    // MARK: - Analytics Events
+
+    func append(_ event: StoredAnalyticsEvent, retention: AnalyticsRetentionPolicy) async throws {
+        guard event.durationSeconds.isFinite, event.durationSeconds >= 0 else {
+            throw AnalyticsStoreError.invalidDuration
+        }
+
+        try await dbWriter.write { database in
+            try AnalyticsEventRow(from: event).insert(database)
+            try Self.pruneAnalyticsEvents(in: database, retention: retention)
+        }
+    }
+
+    func events(since cutoff: Date?, sessionID: UUID?) async throws -> [StoredAnalyticsEvent] {
+        try await dbWriter.read { database in
+            var request = AnalyticsEventRow.order(Column("startedAt"), Column("id"))
+            if let cutoff {
+                request = request.filter(Column("startedAt") >= cutoff)
+            }
+            if let sessionID {
+                request = request.filter(Column("sessionID") == sessionID.uuidString)
+            }
+            return try request.fetchAll(database).map { try $0.toStoredEvent() }
+        }
+    }
+
+    func migrateLegacyAnalytics(retention: AnalyticsRetentionPolicy) async throws {
+        try await dbWriter.write { database in
+            guard let cacheRow = try GenericCacheRow.fetchOne(
+                database,
+                key: AnalyticsLegacy.eventsCacheKey
+            ) else {
+                return
+            }
+
+            let legacyEvents = try JSONDecoder().decode([LegacyAnalyticsEvent].self, from: cacheRow.value)
+            let storedEvents = try legacyEvents.enumerated().map { index, event in
+                try event.storedEvent(index: index, sessionID: AnalyticsLegacy.sessionID)
+            }
+            for event in storedEvents {
+                try AnalyticsEventRow(from: event).insert(database)
+            }
+            try Self.pruneAnalyticsEvents(in: database, retention: retention)
+            _ = try GenericCacheRow.deleteOne(database, key: AnalyticsLegacy.eventsCacheKey)
         }
     }
 
@@ -664,6 +711,35 @@ extension GRDBCacheService {
           AND (CAST(strftime('%s', timestamp) AS REAL) + ttl)
             < CAST(strftime('%s', 'now') AS REAL)
         """)
+    }
+
+    fileprivate static func enforceAnalyticsLimit(in database: Database, maxEvents: Int) throws {
+        guard maxEvents > 0 else { return }
+        let overflow = try AnalyticsEventRow.fetchCount(database) - maxEvents
+        guard overflow > 0 else { return }
+
+        try database.execute(
+            sql: """
+            DELETE FROM analytics_events
+            WHERE id IN (
+                SELECT id FROM analytics_events
+                ORDER BY startedAt ASC, id ASC
+                LIMIT ?
+            )
+            """,
+            arguments: [overflow]
+        )
+    }
+
+    fileprivate static func pruneAnalyticsEvents(
+        in database: Database,
+        retention: AnalyticsRetentionPolicy
+    ) throws {
+        try database.execute(
+            sql: "DELETE FROM analytics_events WHERE startedAt < ?",
+            arguments: [retention.cutoff]
+        )
+        try enforceAnalyticsLimit(in: database, maxEvents: retention.maxEvents)
     }
 }
 

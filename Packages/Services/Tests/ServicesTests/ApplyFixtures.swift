@@ -30,7 +30,8 @@ struct CheckpointEffects: Sendable {
 
 func makeCoordinator(
     runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
-    idMapper: (any TrackIDMapping)? = nil
+    idMapper: (any TrackIDMapping)? = nil,
+    analytics: (any AnalyticsService)? = nil
 ) async -> AcceptedApplyFixture {
     let bridge = MockAppleScriptClient()
     let apiService = MockAPIService()
@@ -55,7 +56,8 @@ func makeCoordinator(
             ),
             undoCoordinator: undo,
             idMapper: idMapper,
-            librarySnapshotService: snapshot
+            librarySnapshotService: snapshot,
+            analytics: analytics
         ),
         genreDeterminator: GenreDeterminator(),
         yearDeterminator: YearDeterminator(),
