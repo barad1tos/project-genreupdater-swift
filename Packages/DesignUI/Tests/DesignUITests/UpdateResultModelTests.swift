@@ -20,20 +20,15 @@ struct UpdateResultModelTests {
         #expect(UpdateResultChangeState.proposed(.accepted).verdict == .accepted)
     }
 
-    @Test("track outcomes derive shared result counts")
-    func derivesTrackCounts() {
+    @Test("album hierarchy derives affected track count")
+    func derivesAffectedTrackCount() {
         let tracks = [
             makeTrack(id: "ready", state: .ready),
             makeTrack(id: "applied", state: .applied),
-            makeTrack(id: "no-change", state: .noChange),
-            makeTrack(id: "failed", state: .failed(message: "Write failed")),
         ]
-        let snapshot = makeSnapshot(mode: .write, status: .completedWithFailures, tracks: tracks)
+        let snapshot = makeSnapshot(mode: .write, status: .completed, tracks: tracks)
 
-        #expect(snapshot.affectedTrackCount == 4)
-        #expect(snapshot.changedTrackCount == 1)
-        #expect(snapshot.failedCount == 1)
-        #expect(tracks.last?.state.isFailure == true)
+        #expect(snapshot.affectedTrackCount == 2)
     }
 
     private func makeSnapshot(mode: UpdateResultMode, status: UpdateResultStatus) -> UpdateResultSnapshot {

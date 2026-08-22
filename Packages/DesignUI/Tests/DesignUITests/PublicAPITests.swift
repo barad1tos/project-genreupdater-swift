@@ -54,6 +54,7 @@ struct PublicAPITests {
         #expect(snapshot.albums == [album])
         #expect(snapshot.metrics == [metric])
         #expect(snapshot.notices == [notice])
+        #expect(snapshot.affectedTrackCount == 1)
         #expect(modes.count == 2)
         #expect(statuses.count == 6)
         #expect(sections == snapshot.sections)

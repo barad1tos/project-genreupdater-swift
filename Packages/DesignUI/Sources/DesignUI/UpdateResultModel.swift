@@ -9,11 +9,13 @@ public enum ContentAccess: Equatable, Sendable {
     }
 }
 
+/// Identifies the result authority so the shared surface can expose only valid interactions.
 public enum UpdateResultMode: Equatable, Sendable {
     case preview
     case write
 }
 
+/// Describes preview availability or the terminal state of a verified write result.
 public enum UpdateResultStatus: Equatable, Sendable {
     case empty
     case ready
@@ -22,11 +24,13 @@ public enum UpdateResultStatus: Equatable, Sendable {
     case completed
     case completedWithFailures
 
+    /// Whether this status permits changing preview decisions.
     public var isReviewable: Bool {
         self == .ready
     }
 }
 
+/// Defines the invariant top-level structure shared by preview and write results.
 public enum UpdateResultSection: Equatable, Sendable {
     case status
     case metrics
@@ -35,11 +39,13 @@ public enum UpdateResultSection: Equatable, Sendable {
     case actions
 }
 
+/// Captures the user's decision for a proposed preview change.
 public enum UpdateResultVerdict: Equatable, Sendable {
     case accepted
     case rejected
 }
 
+/// Separates preview decisions from verified outcomes for one metadata change.
 public enum UpdateResultChangeState: Equatable, Sendable {
     case proposed(UpdateResultVerdict)
     case applied
@@ -47,27 +53,23 @@ public enum UpdateResultChangeState: Equatable, Sendable {
     case skipped
     case failed(message: String)
 
+    /// The preview decision when this state represents a proposal.
     public var verdict: UpdateResultVerdict? {
         guard case let .proposed(verdict) = self else { return nil }
         return verdict
     }
 }
 
+/// Describes a track's presentation outcome without becoming write authority.
 public enum UpdateResultTrackState: Equatable, Sendable {
     case ready
     case applied
     case noChange
     case skipped
     case failed(message: String)
-
-    public var isFailure: Bool {
-        if case .failed = self {
-            return true
-        }
-        return false
-    }
 }
 
+/// Carries display data for one proposed or verified metadata transition.
 public struct UpdateResultChange: Identifiable, Equatable, Sendable {
     public let id: String
     public let type: ChangeType
@@ -96,6 +98,7 @@ public struct UpdateResultChange: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Groups presentation changes under one stable track identity and outcome.
 public struct UpdateResultTrack: Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
@@ -118,6 +121,7 @@ public struct UpdateResultTrack: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Groups result tracks under one display album for the shared result hierarchy.
 public struct UpdateResultAlbum: Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
@@ -130,6 +134,7 @@ public struct UpdateResultAlbum: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Provides preformatted summary data and semantic tone for the result header.
 public struct UpdateResultMetric: Identifiable, Equatable, Sendable {
     public let id: String
     public let label: String
@@ -144,6 +149,7 @@ public struct UpdateResultMetric: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Preserves operational or access context that must remain visible with results.
 public struct UpdateResultNotice: Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
@@ -158,6 +164,7 @@ public struct UpdateResultNotice: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Presents preview and verified write authorities through one immutable, action-free hierarchy.
 public struct UpdateResultSnapshot: Equatable, Sendable {
     public let mode: UpdateResultMode
     public let status: UpdateResultStatus
@@ -197,29 +204,20 @@ public struct UpdateResultSnapshot: Equatable, Sendable {
         self.secondaryActionLabel = secondaryActionLabel
     }
 
+    /// The invariant section order rendered in both result modes.
     public var sections: [UpdateResultSection] {
         [.status, .metrics, .albums, .details, .actions]
     }
 
+    /// Whether preview decision controls may be exposed for this snapshot.
     public var canReview: Bool {
         mode == .preview && status.isReviewable
     }
 
+    /// The number of track rows represented across all albums.
     public var affectedTrackCount: Int {
         albums.reduce(into: 0) { count, album in
             count += album.tracks.count
-        }
-    }
-
-    public var changedTrackCount: Int {
-        albums.reduce(into: 0) { count, album in
-            count += album.tracks.count { $0.state == .applied }
-        }
-    }
-
-    public var failedCount: Int {
-        albums.reduce(into: 0) { count, album in
-            count += album.tracks.count { $0.state.isFailure }
         }
     }
 }
