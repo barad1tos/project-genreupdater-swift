@@ -88,6 +88,26 @@ struct DependencyConfigTests {
         #expect(dependencies.config.caching.negativeResultTTL == 7200)
     }
 
+    @Test("Runtime configuration preserves the analytics process session")
+    func analyticsSessionContinuity() async throws {
+        let configuration = AppConfiguration()
+        let dependencies = AppDependencies(
+            configurationLoader: { configuration },
+            configurationSaver: { _ in
+                Issue.record("Runtime analytics apply must not persist configuration")
+            }
+        )
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let recorder = AnalyticsRecorder(store: cache, configuration: configuration.analytics)
+        dependencies.configureLibraryPersistenceForTesting(cache: cache)
+        dependencies.installTestAnalyticsRecorder(recorder)
+
+        _ = dependencies.applyRuntimeConfigurationHead()
+
+        #expect(dependencies.analyticsService === recorder)
+    }
+
     @Test("Configuration load failure surfaces app error instead of silently using defaults")
     func configurationLoadFailureSurfacesAppError() async {
         let dependencies = AppDependencies(

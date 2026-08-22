@@ -144,7 +144,7 @@ extension AppDependencies {
         libraryTracks = cachedLoad.tracks
         await applyBrowseTruthForLoad?(cachedLoad.tracks, .cachedMirror(scannedAt: nil), token)
         onLibraryLoadApplied?(cachedLoad.tracks)
-        await recordLibraryLoad(source: "snapshot", count: cachedLoad.tracks.count, startedAt: loadStart)
+        await recordLibraryLoad(startedAt: loadStart)
         return cachedLoad.hasTracks
     }
 
@@ -169,7 +169,7 @@ extension AppDependencies {
         lastLibraryScanDate = liveLoad.scanDate
         libraryMetrics = upsertedMetrics
         onLibraryLoadApplied?(reconciledTracks)
-        await recordLibraryLoad(source: "music", count: reconciledTracks.count, startedAt: loadStart)
+        await recordLibraryLoad(startedAt: loadStart)
     }
 
     private func handleLibraryLoadFailure(
@@ -178,7 +178,7 @@ extension AppDependencies {
         token: UInt64
     ) async {
         guard libraryLoadGate.isCurrent(token) else { return }
-        await analyticsService?.trackError("library.load", error: error)
+        await analyticsService?.record(.libraryLoad, duration: .zero, outcome: .failed)
         libraryLoadError = LibraryLoadError.make(from: error)
         if !hasCachedTracks {
             libraryTracks = []
@@ -191,18 +191,11 @@ extension AppDependencies {
         }
     }
 
-    private func recordLibraryLoad(
-        source: String,
-        count: Int,
-        startedAt loadStart: ContinuousClock.Instant
-    ) async {
-        await analyticsService?.trackEvent(
-            "library.load",
+    private func recordLibraryLoad(startedAt loadStart: ContinuousClock.Instant) async {
+        await analyticsService?.record(
+            .libraryLoad,
             duration: loadStart.duration(to: .now),
-            metadata: [
-                "source": source,
-                "trackCount": "\(count)"
-            ]
+            outcome: .succeeded
         )
     }
 }

@@ -146,7 +146,7 @@ final class AppDependencies {
     private(set) var runRecordStore: (any RunRecordStore)?
     private(set) var fixPlanStore: (any FixPlanStore)?
     private(set) var librarySnapshotService: (any LibrarySnapshotService)?
-    private(set) var analyticsService: CachedAnalyticsService?
+    private(set) var analyticsService: AnalyticsRecorder?
     private(set) var maintenanceCoordinator: MaintenanceCoordinator?
     var maintenancePreflightResult: MaintenancePreflightResult?
     private(set) var changePreviewPipeline: ChangePreviewPipeline?
@@ -419,10 +419,12 @@ final class AppDependencies {
         try await cache.initialize()
         cacheService = cache
         librarySnapshotService = Self.makeSnapshotService(cache: cache, configuration: cacheConfiguration)
-        analyticsService = CachedAnalyticsService(
-            cache: cache,
+        let analyticsRecorder = AnalyticsRecorder(
+            store: cache,
             configuration: cacheConfiguration.analytics
         )
+        await analyticsRecorder.initialize()
+        analyticsService = analyticsRecorder
     }
 
     /// Steps 6-7: Create core algorithm instances and API orchestrator.
@@ -672,7 +674,6 @@ extension AppDependencies {
             let newSnapshotService = Self.makeSnapshotService(cache: cacheService, configuration: cacheConfiguration)
             librarySnapshotService = newSnapshotService
             snapshotService = newSnapshotService
-            analyticsService = CachedAnalyticsService(cache: cacheService, configuration: cacheConfiguration.analytics)
         } else {
             snapshotService = nil
         }
@@ -752,6 +753,10 @@ extension AppDependencies {
 
     func installTestIncrementalRunTracker(_ tracker: IncrementalRunTracker) {
         incrementalRunTracker = tracker
+    }
+
+    func installTestAnalyticsRecorder(_ recorder: AnalyticsRecorder) {
+        analyticsService = recorder
     }
 
     func installTestAgentRegistrar(_ registrar: any AgentRegistrar) {
