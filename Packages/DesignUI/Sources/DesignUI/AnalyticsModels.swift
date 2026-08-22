@@ -50,31 +50,27 @@ public struct DesignAnalyticsSummary: Equatable, Sendable {
     public let p95Duration: String
 
     public init(
-        calls: Int,
         succeeded: Int,
         failed: Int,
         cancelled: Int,
-        successRate: Double,
         totalDuration: String,
         averageDuration: String,
         p95Duration: String
     ) {
-        self.calls = calls
+        calls = succeeded + failed + cancelled
         self.succeeded = succeeded
         self.failed = failed
         self.cancelled = cancelled
-        self.successRate = successRate
+        successRate = calls == 0 ? 0 : Double(succeeded) / Double(calls)
         self.totalDuration = totalDuration
         self.averageDuration = averageDuration
         self.p95Duration = p95Duration
     }
 
     public static let empty = Self(
-        calls: 0,
         succeeded: 0,
         failed: 0,
         cancelled: 0,
-        successRate: 0,
         totalDuration: "0 ms",
         averageDuration: "0 ms",
         p95Duration: "0 ms"
@@ -111,18 +107,16 @@ public struct DesignAnalyticsOperation: Identifiable, Equatable, Sendable {
         category: String,
         calls: Int,
         successRate: String,
-        totalDuration: String,
-        averageDuration: String,
-        p95Duration: String
+        durations: (total: String, average: String, p95: String)
     ) {
         self.id = id
         self.name = name
         self.category = category
         self.calls = calls
         self.successRate = successRate
-        self.totalDuration = totalDuration
-        self.averageDuration = averageDuration
-        self.p95Duration = p95Duration
+        totalDuration = durations.total
+        averageDuration = durations.average
+        p95Duration = durations.p95
     }
 }
 

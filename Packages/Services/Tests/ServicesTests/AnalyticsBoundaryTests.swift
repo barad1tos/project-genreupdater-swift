@@ -157,7 +157,7 @@ struct AnalyticsBoundaryTests {
             try await processor.process(
                 tracks: [instrumentationTrack(id: "T1")],
                 operation: { _ in throw CancellationError() },
-                progressHandler: { _ in }
+                progressHandler: ignoreAcceptedChangeProgress
             )
         }
 

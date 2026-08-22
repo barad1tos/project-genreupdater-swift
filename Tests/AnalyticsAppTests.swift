@@ -11,34 +11,27 @@ struct AnalyticsAppTests {
     @Test("Services projection maps every report fact")
     func projectionMapping() throws {
         let eventID = UUID()
+        let summary = AnalyticsSummary(
+            calls: 4,
+            succeeded: 2,
+            failed: 1,
+            cancelled: 1,
+            totalDurationSeconds: 3,
+            averageDurationSeconds: 0.75,
+            p95DurationSeconds: 2
+        )
         let projection = AnalyticsProjection(
             state: .populated,
             window: .last24Hours,
             isRecordingEnabled: true,
-            summary: .init(
-                calls: 4,
-                succeeded: 2,
-                failed: 1,
-                cancelled: 1,
-                successRate: 0.5,
-                totalDurationSeconds: 3,
-                averageDurationSeconds: 0.75,
-                p95DurationSeconds: 2
-            ),
+            summary: summary,
             durationDistribution: .init(short: 1, medium: 1, long: 1, veryLong: 1),
             operations: [
                 .init(
                     operationValue: AnalyticsOperation.musicAppFetch.rawValue,
                     displayName: "Music.app fetch",
                     category: .library,
-                    calls: 4,
-                    succeeded: 2,
-                    failed: 1,
-                    cancelled: 1,
-                    successRate: 0.5,
-                    totalDurationSeconds: 3,
-                    averageDurationSeconds: 0.75,
-                    p95DurationSeconds: 2
+                    summary: summary
                 ),
             ],
             recentEvents: [

@@ -17,11 +17,9 @@ enum AnalyticsSnapshotAdapter {
             state: designState(from: projection.state),
             selectedWindow: designWindow(from: projection.window),
             summary: DesignAnalyticsSummary(
-                calls: projection.summary.calls,
                 succeeded: projection.summary.succeeded,
                 failed: projection.summary.failed,
                 cancelled: projection.summary.cancelled,
-                successRate: projection.summary.successRate,
                 totalDuration: duration(projection.summary.totalDurationSeconds, locale: locale),
                 averageDuration: duration(projection.summary.averageDurationSeconds, locale: locale),
                 p95Duration: duration(projection.summary.p95DurationSeconds, locale: locale)
@@ -91,9 +89,11 @@ enum AnalyticsSnapshotAdapter {
             category: categoryName(row.category),
             calls: row.calls,
             successRate: row.successRate.formatted(.percent.precision(.fractionLength(0)).locale(locale)),
-            totalDuration: duration(row.totalDurationSeconds, locale: locale),
-            averageDuration: duration(row.averageDurationSeconds, locale: locale),
-            p95Duration: duration(row.p95DurationSeconds, locale: locale)
+            durations: (
+                total: duration(row.totalDurationSeconds, locale: locale),
+                average: duration(row.averageDurationSeconds, locale: locale),
+                p95: duration(row.p95DurationSeconds, locale: locale)
+            )
         )
     }
 

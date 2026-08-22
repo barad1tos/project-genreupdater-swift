@@ -40,11 +40,9 @@ struct AnalyticsViewTests {
             state: .populated,
             selectedWindow: .last24Hours,
             summary: .init(
-                calls: 3,
                 succeeded: 2,
                 failed: 1,
                 cancelled: 0,
-                successRate: 2.0 / 3.0,
                 totalDuration: "3.0 s",
                 averageDuration: "1.0 s",
                 p95Duration: "2.0 s"
@@ -60,9 +58,7 @@ struct AnalyticsViewTests {
                     category: "Music.app",
                     calls: 3,
                     successRate: "67%",
-                    totalDuration: "3.0 s",
-                    averageDuration: "1.0 s",
-                    p95Duration: "2.0 s"
+                    durations: (total: "3.0 s", average: "1.0 s", p95: "2.0 s")
                 ),
             ],
             recentEvents: [
@@ -77,6 +73,8 @@ struct AnalyticsViewTests {
         )
 
         #expect(snapshot.availableWindows == DesignAnalyticsWindow.allCases)
+        #expect(snapshot.summary.calls == 3)
+        #expect(snapshot.summary.successRate == 2.0 / 3.0)
         #expect(snapshot.operations.map(\.id) == ["music-app-fetch"])
         #expect(snapshot.recentEvents.map(\.outcome) == [.failed])
     }

@@ -144,9 +144,9 @@ public struct RootView<UpdateContent: View>: View {
         case .analytics:
             AnalyticsView(
                 snapshot: model.data.analytics,
-                selectWindow: selectAnalyticsWindow ?? { _ in },
-                retry: retryAnalytics ?? {},
-                openSettings: openAnalyticsSettings ?? {}
+                selectWindow: { selectAnalyticsWindow?($0) },
+                retry: { retryAnalytics?() },
+                openSettings: { openAnalyticsSettings?() }
             )
         case .update: updateContent()
         case .settings:

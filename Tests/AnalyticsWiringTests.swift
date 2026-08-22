@@ -51,5 +51,7 @@ struct AnalyticsWiringTests {
 }
 
 private actor FactoryAnalyticsProbe: AnalyticsService {
-    func record(_: AnalyticsOperation, duration _: Duration, outcome _: AnalyticsOutcome) {}
+    func record(_: AnalyticsOperation, duration _: Duration, outcome _: AnalyticsOutcome) {
+        // This identity-only probe verifies composition wiring, not event delivery.
+    }
 }

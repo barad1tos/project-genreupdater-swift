@@ -43,7 +43,6 @@ public struct AnalyticsSummary: Equatable, Sendable {
         succeeded: Int,
         failed: Int,
         cancelled: Int,
-        successRate: Double,
         totalDurationSeconds: Double,
         averageDurationSeconds: Double,
         p95DurationSeconds: Double
@@ -52,7 +51,7 @@ public struct AnalyticsSummary: Equatable, Sendable {
         self.succeeded = succeeded
         self.failed = failed
         self.cancelled = cancelled
-        self.successRate = successRate
+        successRate = calls == 0 ? 0 : Double(succeeded) / Double(calls)
         self.totalDurationSeconds = totalDurationSeconds
         self.averageDurationSeconds = averageDurationSeconds
         self.p95DurationSeconds = p95DurationSeconds
@@ -63,7 +62,6 @@ public struct AnalyticsSummary: Equatable, Sendable {
         succeeded: 0,
         failed: 0,
         cancelled: 0,
-        successRate: 0,
         totalDurationSeconds: 0,
         averageDurationSeconds: 0,
         p95DurationSeconds: 0
@@ -109,26 +107,19 @@ public struct AnalyticsOperationRow: Identifiable, Equatable, Sendable {
         operationValue: String,
         displayName: String,
         category: AnalyticsCategory?,
-        calls: Int,
-        succeeded: Int,
-        failed: Int,
-        cancelled: Int,
-        successRate: Double,
-        totalDurationSeconds: Double,
-        averageDurationSeconds: Double,
-        p95DurationSeconds: Double
+        summary: AnalyticsSummary
     ) {
         self.operationValue = operationValue
         self.displayName = displayName
         self.category = category
-        self.calls = calls
-        self.succeeded = succeeded
-        self.failed = failed
-        self.cancelled = cancelled
-        self.successRate = successRate
-        self.totalDurationSeconds = totalDurationSeconds
-        self.averageDurationSeconds = averageDurationSeconds
-        self.p95DurationSeconds = p95DurationSeconds
+        calls = summary.calls
+        succeeded = summary.succeeded
+        failed = summary.failed
+        cancelled = summary.cancelled
+        successRate = summary.successRate
+        totalDurationSeconds = summary.totalDurationSeconds
+        averageDurationSeconds = summary.averageDurationSeconds
+        p95DurationSeconds = summary.p95DurationSeconds
     }
 }
 

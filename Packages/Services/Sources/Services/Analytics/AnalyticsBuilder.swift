@@ -65,14 +65,7 @@ enum AnalyticsBuilder {
             operationValue: operationValue,
             displayName: operation?.displayName ?? AnalyticsOperation.displayName(for: operationValue),
             category: operation?.category,
-            calls: summary.calls,
-            succeeded: summary.succeeded,
-            failed: summary.failed,
-            cancelled: summary.cancelled,
-            successRate: summary.successRate,
-            totalDurationSeconds: summary.totalDurationSeconds,
-            averageDurationSeconds: summary.averageDurationSeconds,
-            p95DurationSeconds: summary.p95DurationSeconds
+            summary: summary
         )
     }
 
@@ -88,7 +81,6 @@ enum AnalyticsBuilder {
             succeeded: succeeded,
             failed: failed,
             cancelled: cancelled,
-            successRate: calls == 0 ? 0 : Double(succeeded) / Double(calls),
             totalDurationSeconds: totalDuration,
             averageDurationSeconds: calls == 0 ? 0 : totalDuration / Double(calls),
             p95DurationSeconds: p95(durations)
