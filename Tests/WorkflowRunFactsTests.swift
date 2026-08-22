@@ -132,4 +132,86 @@ struct WorkflowRunFactsTests {
         #expect(viewModel.capturedRunFacts?.tracks.map(\.name) == ["Reloaded Title"])
         #expect(viewModel.runScopeTitle == "Test Artist: Other")
     }
+
+    @Test("empty effective runs report zero scanned tracks")
+    func reportsEmptyEffectiveRun() async throws {
+        let fixture = makeWorkflowFixture(resolveIncrementalTracks: { _, _ in [] })
+        let viewModel = fixture.viewModel
+        viewModel.mode = .fullLibrary
+        viewModel.previewOnly = false
+        viewModel.updateGenre = false
+        viewModel.updateYear = false
+        let capturedTrack = Track(
+            id: "captured",
+            name: "Captured",
+            artist: "Initial Artist",
+            album: "Initial Album"
+        )
+
+        viewModel.start(tracks: [capturedTrack], testArtists: ["Initial Artist"])
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        let liveTracks = [
+            Track(id: "live-1", name: "Live One", artist: "Other", album: "Other"),
+            Track(id: "live-2", name: "Live Two", artist: "Other", album: "Other"),
+        ]
+        let view = UpdateWorkflowView(
+            viewModel: viewModel,
+            tracks: liveTracks,
+            testArtists: ["Other"],
+            reportDisplayMode: .detailed,
+            credentialIssue: nil,
+            isLibraryReadyForUpdates: true,
+            noticeMessage: .constant(nil)
+        )
+        let report = view.makeDoneReport()
+        let snapshot = UpdateResultWriteAdapter.makeSnapshot(from: report)
+        let metrics = Dictionary(uniqueKeysWithValues: snapshot.metrics.map { ($0.id, $0.value) })
+
+        #expect(viewModel.totalCount == 0)
+        #expect(viewModel.trackStatuses.isEmpty)
+        #expect(report.scannedTrackCount == 0)
+        #expect(snapshot.subtitle == "0 tracks scanned")
+        #expect(metrics["scanned-tracks"] == "0")
+        #expect(report.plainTextSummary.contains("Tracks scanned: 0"))
+        #expect(!report.plainTextSummary.contains("Tracks scanned: 1"))
+        #expect(!report.plainTextSummary.contains("Tracks scanned: 2"))
+    }
+
+    @Test("empty release restore reports zero scanned tracks")
+    func reportsEmptyRestoreRun() async {
+        let fixture = makeWorkflowFixture()
+        let viewModel = fixture.viewModel
+        viewModel.mode = .releaseYearRestore
+        viewModel.releaseYearRestoreThreshold = 5
+        let capturedTrack = Track(
+            id: "near-match",
+            name: "Near Match",
+            artist: "The Cure",
+            album: "Wish",
+            year: 1992,
+            releaseYear: 1991
+        )
+
+        viewModel.start(tracks: [capturedTrack])
+        await viewModel.processingTask?.value
+        await Task.yield()
+
+        let view = UpdateWorkflowView(
+            viewModel: viewModel,
+            tracks: [Track(id: "live", name: "Live", artist: "Other", album: "Other")],
+            testArtists: ["Other"],
+            reportDisplayMode: .detailed,
+            credentialIssue: nil,
+            isLibraryReadyForUpdates: true,
+            noticeMessage: .constant(nil)
+        )
+        let report = view.makeDoneReport()
+        let snapshot = UpdateResultWriteAdapter.makeSnapshot(from: report)
+
+        #expect(viewModel.totalCount == 0)
+        #expect(report.scannedTrackCount == 0)
+        #expect(snapshot.subtitle == "0 tracks scanned")
+        #expect(report.plainTextSummary.contains("Tracks scanned: 0"))
+    }
 }

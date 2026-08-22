@@ -252,6 +252,7 @@ extension WorkflowViewModel {
             trackStatuses: trackStatuses,
             tracks: capturedRunFacts?.tracks ?? [],
             testArtists: [],
+            scannedTrackCount: totalCount,
             scopeTitle: runScopeTitle,
             displayMode: displayMode,
             operationalContext: UpdateRunOperationalContext(

@@ -22,6 +22,7 @@ struct UpdateRunReport: Equatable {
         trackStatuses: [String: TrackProcessingStatus],
         tracks: [Track],
         testArtists: [String],
+        scannedTrackCount: Int? = nil,
         scopeTitle: String? = nil,
         displayMode: ChangeDisplayMode = .compact,
         operationalContext: UpdateRunOperationalContext = .empty
@@ -64,7 +65,7 @@ struct UpdateRunReport: Equatable {
             }
             return false
         }
-        scannedTrackCount = trackStatuses.isEmpty ? tracks.count : trackStatuses.count
+        self.scannedTrackCount = scannedTrackCount ?? (trackStatuses.isEmpty ? tracks.count : trackStatuses.count)
         self.displayMode = displayMode
         pendingVerification = operationalContext.pendingVerification
         databaseVerification = operationalContext.databaseVerification
