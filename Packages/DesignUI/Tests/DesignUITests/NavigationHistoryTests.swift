@@ -82,6 +82,29 @@ struct NavigationHistoryTests {
         #expect(model.route == .reports)
         #expect(!model.data.settings.isAdvancedExperience)
     }
+
+    @Test("Casual experience redirects Analytics restored from back or forward history")
+    @MainActor
+    func casualHistoryFallback() {
+        let advanced = makeNavigationSnapshot(isAdvancedExperience: true)
+        let casual = makeNavigationSnapshot(isAdvancedExperience: false)
+        let model = AppModel(data: advanced)
+        model.navigate(to: .analytics)
+        model.navigate(to: .update)
+
+        model.applyData(casual)
+        model.navigateBack()
+
+        #expect(model.route == .reports)
+
+        let forwardModel = AppModel(data: advanced)
+        forwardModel.navigate(to: .analytics)
+        forwardModel.navigateBack()
+        forwardModel.applyData(casual)
+        forwardModel.navigateForward()
+
+        #expect(forwardModel.route == .reports)
+    }
 }
 
 private func makeNavigationSnapshot(isAdvancedExperience: Bool) -> DesignDataSnapshot {

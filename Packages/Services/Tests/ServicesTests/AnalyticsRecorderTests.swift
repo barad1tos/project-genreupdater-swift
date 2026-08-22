@@ -126,6 +126,25 @@ struct AnalyticsRecorderTests {
         #expect(await iterator.next() == 1)
     }
 
+    @Test("A subscriber joining after a write receives the current generation")
+    func generationAfterWrite() async {
+        let store = AnalyticsTestStore()
+        var configuration = AnalyticsConfig()
+        configuration.enabled = true
+        let recorder = AnalyticsRecorder(
+            eventStore: store,
+            configuration: configuration,
+            sessionID: UUID(),
+            currentDate: { Date(timeIntervalSince1970: 1_000_000) }
+        )
+        await recorder.record(.libraryLoad, duration: .seconds(1), outcome: .succeeded)
+
+        let stream = await recorder.updates()
+        var iterator = stream.makeAsyncIterator()
+
+        #expect(await iterator.next() == 1)
+    }
+
     @Test("Projection selects the requested durable window")
     func projectionWindow() async {
         let store = AnalyticsTestStore()

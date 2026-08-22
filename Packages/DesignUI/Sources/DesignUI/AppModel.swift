@@ -97,7 +97,10 @@ public final class AppModel {
     }
 
     private func apply(_ entry: NavigationEntry) {
-        route = entry.route
+        route = SidebarRoutePolicy.fallback(
+            for: entry.route,
+            isAdvancedExperience: data.settings.isAdvancedExperience
+        )
         browseFilter = entry.browseFilter
     }
 }

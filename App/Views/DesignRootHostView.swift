@@ -165,15 +165,10 @@ struct DesignRootHostView: View {
     private func observeAnalyticsUpdates() async {
         guard selectedRoute == .analytics, let recorder = dependencies.analyticsService else { return }
         await refreshAnalytics()
-        var isInitialGeneration = true
         var refreshTask: Task<Void, Never>?
         defer { refreshTask?.cancel() }
         for await _ in await recorder.updates() {
             guard !Task.isCancelled, selectedRoute == .analytics else { return }
-            if isInitialGeneration {
-                isInitialGeneration = false
-                continue
-            }
             refreshTask?.cancel()
             refreshTask = Task { @MainActor in
                 do {

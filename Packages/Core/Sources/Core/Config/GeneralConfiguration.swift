@@ -227,14 +227,15 @@ public struct AnalyticsConfig: Sendable, Codable {
     public var enabled: Bool = false
     public var durationThresholds = DurationThresholdsConfig()
     public var maxEvents: Int = 10000
+    public var recentEventLimit: Int = 100
     public var retentionDays: Int = 7
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, durationThresholds, maxEvents, retentionDays
+        case enabled, durationThresholds, maxEvents, recentEventLimit, retentionDays
     }
 
     private enum DecodingKeys: String, CodingKey {
-        case enabled, durationThresholds, maxEvents, retentionDays
+        case enabled, durationThresholds, maxEvents, recentEventLimit, retentionDays
         case compactTime, timeFormat
     }
 
@@ -250,6 +251,7 @@ public struct AnalyticsConfig: Sendable, Codable {
             forKey: .durationThresholds
         ) ?? DurationThresholdsConfig()
         maxEvents = try container.decodeIfPresent(Int.self, forKey: .maxEvents) ?? 10000
+        recentEventLimit = try container.decodeIfPresent(Int.self, forKey: .recentEventLimit) ?? 100
         retentionDays = try container.decodeIfPresent(Int.self, forKey: .retentionDays) ?? 7
     }
 }

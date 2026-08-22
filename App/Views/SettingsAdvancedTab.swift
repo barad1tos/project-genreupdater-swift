@@ -150,6 +150,11 @@ struct AdvancedTab: View {
                 value: configBinding(dependencies, \.analytics.retentionDays),
                 unit: "days"
             )
+            analyticsIntegerField(
+                "Recent event rows",
+                value: configBinding(dependencies, \.analytics.recentEventLimit),
+                unit: "rows"
+            )
 
             durationThreshold(
                 "Short maximum",

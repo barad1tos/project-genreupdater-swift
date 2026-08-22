@@ -32,6 +32,7 @@ enum AnalyticsBuilder {
                 }
                 return $0.id.uuidString > $1.id.uuidString
             }
+            .prefix(configuration.recentEventLimit)
             .map {
                 AnalyticsRecentEvent(
                     id: $0.id,

@@ -63,6 +63,33 @@ struct AnalyticsBuilderTests {
         #expect(projection.operations.map(\.operationValue) == ["genre.determine", "year.determine"])
     }
 
+    @Test("Recent detail is bounded without truncating aggregate facts")
+    func recentDetailLimit() {
+        var configuration = AnalyticsConfig()
+        configuration.enabled = true
+        configuration.recentEventLimit = 2
+        let sessionID = UUID()
+        let events = (1 ... 5).map { index in
+            event(
+                index,
+                sessionID: sessionID,
+                operation: .libraryLoad,
+                duration: Double(index),
+                outcome: .failed
+            )
+        }
+
+        let projection = AnalyticsBuilder.build(
+            events: events,
+            window: .currentSession,
+            configuration: configuration
+        )
+
+        #expect(projection.summary.calls == 5)
+        #expect(projection.operations.first?.calls == 5)
+        #expect(projection.recentEvents.map(\.durationSeconds) == [5, 4])
+    }
+
     @Test("Empty and single-sample p95 are explicit")
     func p95Boundaries() {
         var configuration = AnalyticsConfig()
