@@ -10,6 +10,23 @@ enum UpdateResultSelection {
     }
 }
 
+enum UpdateResultActions {
+    static func canShowAccessAction(contentAccess: ContentAccess, hasAction: Bool) -> Bool {
+        guard case .locked = contentAccess else { return false }
+        return hasAction
+    }
+
+    static func canUsePrimary(
+        snapshot: UpdateResultSnapshot,
+        hasAction: Bool,
+        needsAccess: Bool
+    ) -> Bool {
+        guard hasAction else { return false }
+        guard !needsAccess || snapshot.contentAccess.isAvailable else { return false }
+        return snapshot.mode == .write || snapshot.canReview
+    }
+}
+
 /// Presents preview decisions and verified write outcomes through one album-centered hierarchy.
 ///
 /// The view owns only album selection. All workflow actions remain with the caller and are exposed
@@ -24,6 +41,7 @@ public struct UpdateResultView: View {
     public let onAcceptAll: (() -> Void)?
     public let onRejectAll: (() -> Void)?
     public let onAccessAction: (() -> Void)?
+    private let needsPrimaryAccess: Bool
 
     /// Creates a shared result surface for a preview or a verified write result.
     ///
@@ -35,6 +53,7 @@ public struct UpdateResultView: View {
     ///   - onAcceptAll: Accepts all reviewable preview changes.
     ///   - onRejectAll: Rejects all reviewable preview changes.
     ///   - onAccessAction: Opens the caller-owned access destination when locked content is shown.
+    ///   - needsPrimaryAccess: Whether locked content disables the primary action.
     public init(
         snapshot: UpdateResultSnapshot,
         onPrimaryAction: (() -> Void)? = nil,
@@ -42,7 +61,8 @@ public struct UpdateResultView: View {
         onToggleChange: ((String) -> Void)? = nil,
         onAcceptAll: (() -> Void)? = nil,
         onRejectAll: (() -> Void)? = nil,
-        onAccessAction: (() -> Void)? = nil
+        onAccessAction: (() -> Void)? = nil,
+        needsPrimaryAccess: Bool = true
     ) {
         self.snapshot = snapshot
         self.onPrimaryAction = onPrimaryAction
@@ -51,6 +71,7 @@ public struct UpdateResultView: View {
         self.onAcceptAll = onAcceptAll
         self.onRejectAll = onRejectAll
         self.onAccessAction = onAccessAction
+        self.needsPrimaryAccess = needsPrimaryAccess
     }
 
     public var body: some View {
@@ -84,7 +105,8 @@ public struct UpdateResultView: View {
                 onPrimaryAction: onPrimaryAction,
                 onSecondaryAction: onSecondaryAction,
                 onAcceptAll: onAcceptAll,
-                onRejectAll: onRejectAll
+                onRejectAll: onRejectAll,
+                needsAccess: needsPrimaryAccess
             )
         }
         .padding(24)
@@ -223,7 +245,10 @@ private struct ResultNotices: View {
                             .font(.system(size: 12.5))
                             .foregroundStyle(Ayu.fg2)
                         Spacer(minLength: 12)
-                        if let onAccessAction {
+                        if UpdateResultActions.canShowAccessAction(
+                            contentAccess: contentAccess,
+                            hasAction: onAccessAction != nil
+                        ), let onAccessAction {
                             Button("Open Settings", action: onAccessAction)
                         }
                     }
@@ -508,6 +533,7 @@ private struct ResultActionBar: View {
     let onSecondaryAction: (() -> Void)?
     let onAcceptAll: (() -> Void)?
     let onRejectAll: (() -> Void)?
+    let needsAccess: Bool
 
     var body: some View {
         GlassCard(padding: 16) {
@@ -586,7 +612,10 @@ private struct ResultActionBar: View {
     }
 
     private var isPrimaryEnabled: Bool {
-        guard onPrimaryAction != nil, snapshot.contentAccess.isAvailable else { return false }
-        return snapshot.mode == .write || snapshot.canReview
+        UpdateResultActions.canUsePrimary(
+            snapshot: snapshot,
+            hasAction: onPrimaryAction != nil,
+            needsAccess: needsAccess
+        )
     }
 }

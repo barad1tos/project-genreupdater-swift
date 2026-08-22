@@ -12,6 +12,13 @@ struct UpdateResultSelectionTests {
         #expect(UpdateResultSelection.resolve(currentID: "a", albums: []) == nil)
     }
 
+    @Test("locked access action is visible only when supplied")
+    func resolvesAccessAction() {
+        #expect(UpdateResultActions.canShowAccessAction(contentAccess: .locked(message: "Upgrade"), hasAction: true))
+        #expect(!UpdateResultActions.canShowAccessAction(contentAccess: .locked(message: "Upgrade"), hasAction: false))
+        #expect(!UpdateResultActions.canShowAccessAction(contentAccess: .available, hasAction: true))
+    }
+
     private func makeAlbum(id: String) -> UpdateResultAlbum {
         UpdateResultAlbum(id: id, title: "Album \(id)", tracks: [])
     }

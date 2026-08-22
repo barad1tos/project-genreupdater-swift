@@ -124,8 +124,13 @@ struct UpdateWorkflowView: View {
             onToggleChange: toggleReviewChange,
             onAcceptAll: { viewModel.acceptAll() },
             onRejectAll: { viewModel.rejectAll() },
-            onAccessAction: { openSettings() }
+            onAccessAction: { openSettings() },
+            needsPrimaryAccess: Self.needsPrimaryAccess(previewOnly: viewModel.previewOnly)
         )
+    }
+
+    nonisolated static func needsPrimaryAccess(previewOnly: Bool) -> Bool {
+        !previewOnly
     }
 
     private var reviewPrimaryCallback: (() -> Void)? {

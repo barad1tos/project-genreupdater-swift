@@ -41,7 +41,7 @@ enum UpdateResultPreviewAdapter {
                     issues: projection.operationalIssues,
                     message: noticeMessage,
                     tone: noticeTone
-                ),
+                ) + makeIdentityNotices(items),
                 hasCleaningAccess: hasCleaningAccess,
                 primaryActionLabel: applyLabel(count: projection.acceptedCount),
                 secondaryActionLabel: nil
@@ -231,6 +231,20 @@ enum UpdateResultPreviewAdapter {
         return notices
     }
 
+    private static func makeIdentityNotices(_ items: [PreviewItem]) -> [UpdateResultNotice] {
+        items.compactMap { item in
+            guard item.verdict == .accepted, !item.hasWriteID else { return nil }
+            let message = "Proposal \(item.id.uuidString) for track \(item.trackID) cannot be applied " +
+                "because its AppleScript write identity is missing."
+            return UpdateResultNotice(
+                id: "missing-write-id-\(item.id.uuidString)",
+                title: "Write identity required",
+                message: message,
+                tone: .warning
+            )
+        }
+    }
+
     private static func makeContentAccess(
         _ items: [PreviewItem],
         hasCleaningAccess: Bool
@@ -335,6 +349,7 @@ private struct PreviewItem {
     let confidence: Int
     let source: String
     let verdict: FixPlanItemVerdict
+    let hasWriteID: Bool
 
     init(_ item: FixPlanProjectionItem) {
         id = item.id
@@ -348,6 +363,7 @@ private struct PreviewItem {
         confidence = item.confidence
         source = item.source
         verdict = item.verdict
+        hasWriteID = item.hasWriteID
     }
 
     init(_ change: ProposedChange) {
@@ -362,6 +378,7 @@ private struct PreviewItem {
         confidence = change.confidence
         source = change.source
         verdict = change.isAccepted ? .accepted : .rejected
+        hasWriteID = change.track.appleScriptID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 }
 

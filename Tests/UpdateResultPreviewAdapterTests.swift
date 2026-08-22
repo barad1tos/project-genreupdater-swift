@@ -1,8 +1,8 @@
 import Core
-import DesignUI
 import Foundation
 import Services
 import Testing
+@testable import DesignUI
 @testable import Genre_Updater
 
 @Suite("UpdateResultPreviewAdapter")
@@ -51,6 +51,14 @@ struct UpdateResultPreviewAdapterTests {
         #expect(snapshot.notices.contains { $0.id == "fix-plan-write-identity" })
         #expect(snapshot.notices
             .contains { $0.message == "Write identity required: Accepted items without AppleScript ID: 1" })
+        let identityNotice = try #require(snapshot.notices.first {
+            $0.id == "missing-write-id-00000000-0000-0000-0000-000000000001"
+        })
+        #expect(identityNotice.title == "Write identity required")
+        #expect(identityNotice.message == """
+        Proposal 00000000-0000-0000-0000-000000000001 for track t1 cannot be applied because its AppleScript write \
+        identity is missing.
+        """)
     }
 
     @Test("maps every projection availability state")
@@ -145,22 +153,23 @@ struct UpdateResultPreviewAdapterTests {
         #expect(resultTrack.changes.map(\.confidence) == [1, 0])
     }
 
-    @MainActor
-    @Test("shared result view retains the optional locked-access action")
-    func retainsAccessAction() throws {
+    @Test("preview-only transition remains enabled while cleaning access is locked")
+    func allowsPreviewOnlyTransition() throws {
         let snapshot = try UpdateResultPreviewAdapter.makeSnapshot(
             from: makeCleaningProjection(verdict: .accepted),
             hasCleaningAccess: false
         )
-        var actionCount = 0
 
-        let view = UpdateResultView(
+        #expect(UpdateResultActions.canUsePrimary(
             snapshot: snapshot,
-            onAccessAction: { actionCount += 1 }
-        )
-        view.onAccessAction?()
-
-        #expect(actionCount == 1)
+            hasAction: true,
+            needsAccess: UpdateWorkflowView.needsPrimaryAccess(previewOnly: true)
+        ))
+        #expect(!UpdateResultActions.canUsePrimary(
+            snapshot: snapshot,
+            hasAction: true,
+            needsAccess: UpdateWorkflowView.needsPrimaryAccess(previewOnly: false)
+        ))
     }
 }
 
