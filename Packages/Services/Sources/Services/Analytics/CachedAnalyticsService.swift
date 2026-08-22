@@ -46,6 +46,18 @@ public actor CachedAnalyticsService: AnalyticsService {
         self.configuration = configuration
     }
 
+    public func record(
+        _ operation: AnalyticsOperation,
+        duration: Duration,
+        outcome: AnalyticsOutcome
+    ) async {
+        await trackEvent(
+            operation.rawValue,
+            duration: duration,
+            metadata: ["outcome": outcome.rawValue]
+        )
+    }
+
     public func trackEvent(
         _ eventType: String,
         duration: Duration,

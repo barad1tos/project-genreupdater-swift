@@ -122,6 +122,7 @@ struct AppConfigurationTests {
         #expect(config.processing.pendingVerificationIntervalDays == 30)
         #expect(config.processing.prereleaseHandling == .processEditable)
         #expect(config.analytics.maxEvents == 10000)
+        #expect(config.analytics.retentionDays == 7)
         #expect(config.analytics.enabled == false)
         #expect(config.analytics.durationThresholds.mediumMax == 20)
         #expect(config.cleaning.editionMarkers == MetadataRuleDefaults.editionMarkers)
@@ -209,6 +210,40 @@ struct AppConfigurationTests {
 
         let logic = try decodeWithStaleKeys(YearLogicConfig(), stale: ["preferredCountries": ["us"]])
         #expect(logic.minValidYear == 1900)
+    }
+
+    @Test("Analytics accepts legacy display keys but omits them when encoded")
+    func analyticsLegacyDisplayKeys() throws {
+        let data = Data("""
+        {
+          "enabled": true,
+          "maxEvents": 321,
+          "retentionDays": 14,
+          "compactTime": false,
+          "timeFormat": "%H:%M"
+        }
+        """.utf8)
+
+        let analytics = try JSONDecoder().decode(AnalyticsConfig.self, from: data)
+        let encoded = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(analytics)) as? [String: Any]
+        )
+
+        #expect(analytics.enabled)
+        #expect(analytics.maxEvents == 321)
+        #expect(analytics.retentionDays == 14)
+        #expect(encoded["retentionDays"] as? Int == 14)
+        #expect(encoded["compactTime"] == nil)
+        #expect(encoded["timeFormat"] == nil)
+    }
+
+    @Test("Analytics without retention uses the rolling-history default")
+    func analyticsLegacyRetentionDefault() throws {
+        let data = Data(#"{"enabled":true,"maxEvents":50}"#.utf8)
+
+        let analytics = try JSONDecoder().decode(AnalyticsConfig.self, from: data)
+
+        #expect(analytics.retentionDays == 7)
     }
 
     private func decodeWithStaleKeys<T: Codable>(_ value: T, stale: [String: Any]) throws -> T {
@@ -368,6 +403,7 @@ struct AppConfigurationTests {
         #expect(decoded.processing.batchSize == 12)
         #expect(decoded.processing.prereleaseHandling == .processEditable)
         #expect(decoded.analytics.maxEvents == 42)
+        #expect(decoded.analytics.retentionDays == 7)
         #expect(decoded.analytics.enabled == false)
         #expect(decoded.exceptions.trackCleaning == [
             TrackCleaningException(artist: "Rabbit Junk", album: "Xenospheres"),

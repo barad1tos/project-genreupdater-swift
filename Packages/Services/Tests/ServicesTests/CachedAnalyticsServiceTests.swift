@@ -5,6 +5,20 @@ import Testing
 
 @Suite("CachedAnalyticsService")
 struct CachedAnalyticsServiceTests {
+    @Test("Typed recording preserves the operation identity")
+    func typedRecording() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        var configuration = AnalyticsConfig()
+        configuration.enabled = true
+        let service = CachedAnalyticsService(cache: cache, configuration: configuration)
+
+        await service.record(.libraryLoad, duration: .seconds(2), outcome: .succeeded)
+
+        let events: [AnalyticsEvent]? = await cache.get(key: CachedAnalyticsService.eventsCacheKey)
+        #expect(events?.map(\.eventType) == ["library.load"])
+    }
+
     @Test("Disabled analytics does not write events")
     func disabledAnalyticsDoesNotWriteEvents() async throws {
         let cache = try GRDBCacheService.createInMemory()
