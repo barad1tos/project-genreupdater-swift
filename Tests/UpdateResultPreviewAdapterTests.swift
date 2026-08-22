@@ -146,6 +146,7 @@ struct UpdateResultPreviewAdapterTests {
         #expect(snapshot.mode == .preview)
         #expect(snapshot.scope == "Smart Filter - Missing Genres")
         #expect(snapshot.primaryActionLabel == "Enable Writes")
+        #expect(snapshot.secondaryActionLabel == "Back")
         #expect(metrics == [
             "changes": "6",
             "accepted": "5",

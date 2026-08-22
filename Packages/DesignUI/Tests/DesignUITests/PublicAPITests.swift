@@ -58,15 +58,26 @@ struct PublicAPITests {
             .ready, .applied, .noChange, .skipped, .failed(message: "Write failed"),
         ]
 
-        #expect(snapshot.albums == [album] && snapshot.metrics == [metric])
-        #expect(snapshot.notices == [notice])
-        #expect(snapshot.details == [detail] && snapshot.secondaryActionIcon == "xmark.circle")
-        #expect(snapshot.albums.first?.tracks.first?.details == [detail])
+        assertSnapshot(snapshot, album: album, metric: metric, notice: notice, detail: detail)
         #expect(modes.count == 2)
         #expect(statuses.count == 6)
         #expect(verdicts.count == 2)
         #expect(changeStates.count == 5)
         #expect(trackStates.count == 5)
+    }
+
+    private func assertSnapshot(
+        _ snapshot: UpdateResultSnapshot,
+        album: UpdateResultAlbum,
+        metric: UpdateResultMetric,
+        notice: UpdateResultNotice,
+        detail: UpdateResultDetail
+    ) {
+        #expect(snapshot.albums == [album] && snapshot.metrics == [metric])
+        #expect(snapshot.notices == [notice] && snapshot.details == [detail])
+        #expect(snapshot.primaryActionLabel == "Apply" && snapshot.secondaryActionLabel == "Reject all")
+        #expect(snapshot.secondaryActionIcon == "xmark.circle")
+        #expect(snapshot.albums.first?.tracks.first?.details == [detail])
     }
 
     @Test

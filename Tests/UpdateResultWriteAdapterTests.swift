@@ -23,6 +23,8 @@ struct UpdateResultWriteAdapterTests {
         #expect(metricValues["applied-operations"] == "1")
         #expect(metricValues["no-op-operations"] == "1")
         #expect(metricValues["failed-tracks"] == "1")
+        #expect(snapshot.primaryActionLabel == "Start New Update")
+        #expect(snapshot.secondaryActionLabel == "Copy Report")
         #expect(snapshot.secondaryActionIcon == "doc.on.doc")
         #expect(changes.contains { $0.state == .applied })
         #expect(changes.contains { $0.state == .noChange })
