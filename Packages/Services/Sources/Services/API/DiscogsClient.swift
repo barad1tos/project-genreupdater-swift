@@ -42,6 +42,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     private var reissueKeywords: [String]
     private var searchConfiguration: DiscogsSearchConfig
     private let baseURL: URL
+    private var analytics: (any AnalyticsService)?
     private let log = AppLogger.api
 
     public var isConfigured: Bool {
@@ -71,6 +72,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     ///   - rawRequestCache: Optional cache for raw API responses.
     ///   - reissueKeywords: Release text treated as reissue evidence.
     ///   - searchConfiguration: Search-result and missing-year release-detail limits.
+    ///   - analytics: Optional recorder for transport requests that bypass the raw cache.
     public init(
         token: String? = nil,
         contactEmail: String = "",
@@ -79,7 +81,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         baseURL: URL = Self.defaultBaseURL,
         rawRequestCache: RawAPIRequestCache? = nil,
         reissueKeywords: [String] = MetadataRuleDefaults.releaseReissues,
-        searchConfiguration: DiscogsSearchConfig = DiscogsSearchConfig()
+        searchConfiguration: DiscogsSearchConfig = DiscogsSearchConfig(),
+        analytics: (any AnalyticsService)? = nil
     ) {
         if contactEmail.isEmpty {
             self.userAgent = "GenreUpdater/1.0"
@@ -92,6 +95,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         self.searchConfiguration = searchConfiguration
         self.session = session
         self.baseURL = baseURL
+        self.analytics = analytics
         self.rateLimiter = rateLimiter ?? Self.defaultLimiter()
     }
 
@@ -109,13 +113,15 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
     ///   - session: URL session for network requests. Defaults to `.shared`.
     ///   - rateLimiter: Rate limiter for throttling. Defaults to 55 evenly paced requests per minute.
     ///   - baseURL: Base Discogs API URL. Defaults to the public Discogs API endpoint.
+    ///   - analytics: Optional recorder for transport requests.
     /// - Returns: A configured `DiscogsClient`.
     /// - Throws: `KeychainError` if the Keychain read fails.
     public static func fromKeychain(
         contactEmail: String = "",
         session: URLSession = .shared,
         rateLimiter: TokenBucketRateLimiter? = nil,
-        baseURL: URL = Self.defaultBaseURL
+        baseURL: URL = Self.defaultBaseURL,
+        analytics: (any AnalyticsService)? = nil
     ) throws -> Self {
         let token = try retrieveSavedToken(keychain: KeychainHelper())
         return Self(
@@ -123,7 +129,8 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             contactEmail: contactEmail,
             session: session,
             rateLimiter: rateLimiter,
-            baseURL: baseURL
+            baseURL: baseURL,
+            analytics: analytics
         )
     }
 
@@ -361,7 +368,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             log.warning("Failed to build Discogs search URL for \(artist, privacy: .private)")
             return nil
         }
-        let data = try await fetchWithRateLimit(url: url)
+        let data = try await fetchWithRateLimit(url: url, operation: .discogsYearSearch)
         return try JSONDecoder().decode(DiscogsSearchResponse.self, from: data)
     }
 
@@ -451,7 +458,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             }
 
             do {
-                let data = try await fetchWithRateLimit(url: url)
+                let data = try await fetchWithRateLimit(url: url, operation: .discogsReleaseSearch)
                 let response = try JSONDecoder().decode(DiscogsSearchResponse.self, from: data)
                 try await checkSearchCancellation()
                 let outcome = try await releaseCandidates(
@@ -579,7 +586,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             return nil
         }
 
-        let data = try await fetchWithRateLimit(url: url)
+        let data = try await fetchWithRateLimit(url: url, operation: .discogsReleaseDetails)
         let releaseDetail = try JSONDecoder().decode(
             DiscogsReleaseDetail.self,
             from: data
@@ -623,7 +630,7 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
             return nil
         }
 
-        let data = try await fetchWithRateLimit(url: url)
+        let data = try await fetchWithRateLimit(url: url, operation: .discogsPrimaryRelease)
         return try JSONDecoder().decode(
             DiscogsMasterRelease.self,
             from: data
@@ -657,16 +664,32 @@ public struct DiscogsClient: ExternalAPIService, Sendable {
         return copy
     }
 
-    private func fetchWithRateLimit(url: URL) async throws -> Data {
+    /// Returns a copy that records transport requests in the supplied analytics service.
+    public func withAnalytics(_ analytics: (any AnalyticsService)?) -> Self {
+        var copy = self
+        copy.analytics = analytics
+        return copy
+    }
+
+    private func fetchWithRateLimit(url: URL, operation: AnalyticsOperation) async throws -> Data {
         let data: Data = if let rawRequestCache {
             try await rawRequestCache.data(api: "discogs", url: url) {
-                try await performRateLimitedFetch(url: url)
+                try await measuredFetch(url: url, operation: operation)
             }
         } else {
-            try await performRateLimitedFetch(url: url)
+            try await measuredFetch(url: url, operation: operation)
         }
         try Task.checkCancellation()
         return data
+    }
+
+    private func measuredFetch(url: URL, operation: AnalyticsOperation) async throws -> Data {
+        guard let analytics else {
+            return try await performRateLimitedFetch(url: url)
+        }
+        return try await analytics.measure(operation) {
+            try await performRateLimitedFetch(url: url)
+        }
     }
 
     private func performRateLimitedFetch(url: URL) async throws -> Data {

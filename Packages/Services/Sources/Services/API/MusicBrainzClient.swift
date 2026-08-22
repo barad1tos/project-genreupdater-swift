@@ -27,6 +27,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     private let editionMarkers: [String]
     private let albumSuffixes: [String]
     private let rawRequestCache: RawAPIRequestCache?
+    private let analytics: (any AnalyticsService)?
     private let log = AppLogger.api
 
     static let defaultPolicy: TokenBucketRateLimiter.Policy = {
@@ -74,6 +75,8 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     ///   - rateLimiter: Rate limiter for throttling. Defaults to 1 req/sec.
     ///   - baseURL: Base MusicBrainz API URL.
     ///   - cleaningConfiguration: User-controlled album edition and suffix rules used to validate broad matches.
+    ///   - rawRequestCache: Optional cache for raw API responses.
+    ///   - analytics: Optional recorder for transport requests that bypass the raw cache.
     public init(
         appName: String = "GenreUpdater/1.0",
         contactEmail: String = "",
@@ -81,7 +84,8 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         rateLimiter: TokenBucketRateLimiter? = nil,
         baseURL: URL = Self.defaultBaseURL,
         cleaningConfiguration: CleaningConfig = CleaningConfig(),
-        rawRequestCache: RawAPIRequestCache? = nil
+        rawRequestCache: RawAPIRequestCache? = nil,
+        analytics: (any AnalyticsService)? = nil
     ) {
         let trimmedAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveAppName = trimmedAppName.isEmpty ? "GenreUpdater/1.0" : trimmedAppName
@@ -95,6 +99,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
         self.editionMarkers = cleaningConfiguration.editionMarkers
         self.albumSuffixes = cleaningConfiguration.albumSuffixes
         self.rawRequestCache = rawRequestCache
+        self.analytics = analytics
         self.rateLimiter = rateLimiter ?? Self.defaultLimiter()
     }
 
@@ -387,7 +392,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             return []
         }
 
-        let data = try await fetchWithRateLimit(url: url)
+        let data = try await fetchWithRateLimit(url: url, operation: .musicBrainzReleaseSearch)
         return try JSONDecoder().decode(
             MBReleaseGroupSearchResponse.self,
             from: data
@@ -441,7 +446,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             return []
         }
 
-        let data = try await fetchWithRateLimit(url: url)
+        let data = try await fetchWithRateLimit(url: url, operation: .musicBrainzReleaseSearch)
         return try JSONDecoder().decode(
             MBReleaseGroupSearchResponse.self,
             from: data
@@ -568,7 +573,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             return []
         }
 
-        let data = try await fetchWithRateLimit(url: url)
+        let data = try await fetchWithRateLimit(url: url, operation: .musicBrainzReleaseSearch)
         return try JSONDecoder().decode(
             MBReleaseSearchResponse.self,
             from: data
@@ -616,7 +621,7 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             return nil
         }
 
-        let data = try await fetchWithRateLimit(url: url)
+        let data = try await fetchWithRateLimit(url: url, operation: .musicBrainzArtistSearch)
         let response = try JSONDecoder().decode(
             MBArtistSearchResponse.self,
             from: data
@@ -730,11 +735,20 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
     ///
     /// Handles HTTP status codes: 200 (success), 400 (bad request),
     /// 503 (service unavailable), and all other codes as generic HTTP errors.
-    private func fetchWithRateLimit(url: URL) async throws -> Data {
+    private func fetchWithRateLimit(url: URL, operation: AnalyticsOperation) async throws -> Data {
         guard let rawRequestCache else {
-            return try await performRateLimitedFetch(url: url)
+            return try await measuredFetch(url: url, operation: operation)
         }
         return try await rawRequestCache.data(api: "musicbrainz", url: url) {
+            try await measuredFetch(url: url, operation: operation)
+        }
+    }
+
+    private func measuredFetch(url: URL, operation: AnalyticsOperation) async throws -> Data {
+        guard let analytics else {
+            return try await performRateLimitedFetch(url: url)
+        }
+        return try await analytics.measure(operation) {
             try await performRateLimitedFetch(url: url)
         }
     }
@@ -761,33 +775,6 @@ public struct MusicBrainzClient: ExternalAPIService, Sendable {
             throw MusicBrainzError.serviceUnavailable
         default:
             throw MusicBrainzError.httpError(httpResponse.statusCode)
-        }
-    }
-}
-
-// MARK: - MusicBrainzError
-
-/// Errors from MusicBrainz API requests.
-public enum MusicBrainzError: Error, Sendable, LocalizedError {
-    /// Response was not a valid HTTP response.
-    case invalidResponse
-    /// Server returned 400 Bad Request (malformed query).
-    case badRequest
-    /// Server returned 503 Service Unavailable (rate limited or down).
-    case serviceUnavailable
-    /// Server returned an unexpected HTTP status code.
-    case httpError(Int)
-
-    public var errorDescription: String? {
-        switch self {
-        case .invalidResponse:
-            "MusicBrainz returned an invalid response"
-        case .badRequest:
-            "MusicBrainz rejected the request as malformed (400)"
-        case .serviceUnavailable:
-            "MusicBrainz is temporarily unavailable (503)"
-        case let .httpError(code):
-            "MusicBrainz returned HTTP \(code)"
         }
     }
 }

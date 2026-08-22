@@ -18,7 +18,8 @@ public enum AnalyticsOutcome: String, Codable, CaseIterable, Sendable {
 
     /// Classifies a thrown operation without retaining its error details.
     public init(error: any Error, isTaskCancelled: Bool) {
-        self = isTaskCancelled || error is CancellationError ? .cancelled : .failed
+        let isURLCancellation = (error as? URLError)?.code == .cancelled
+        self = isTaskCancelled || error is CancellationError || isURLCancellation ? .cancelled : .failed
     }
 }
 

@@ -68,7 +68,8 @@ struct RunRuntimeFactory {
             configuration: cacheConfiguration,
             cache: cache,
             reachability: reachability,
-            discogsAccess: capturedAccess
+            discogsAccess: capturedAccess,
+            analytics: analytics
         )
         let coordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
@@ -135,7 +136,8 @@ struct RunRuntimeFactory {
                     configuration: cacheConfiguration,
                     cache: cache,
                     reachability: reachability,
-                    discogsAccess: .disabled
+                    discogsAccess: .disabled,
+                    analytics: analytics
                 ),
                 scriptBridge: runServices.scripts,
                 stores: .init(trackStore: store, cache: cache),

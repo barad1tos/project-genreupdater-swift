@@ -3,6 +3,31 @@
 
 import Foundation
 
+/// Errors from MusicBrainz API requests.
+public enum MusicBrainzError: Error, Sendable, LocalizedError {
+    /// Response was not a valid HTTP response.
+    case invalidResponse
+    /// Server returned 400 Bad Request (malformed query).
+    case badRequest
+    /// Server returned 503 Service Unavailable (rate limited or down).
+    case serviceUnavailable
+    /// Server returned an unexpected HTTP status code.
+    case httpError(Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            "MusicBrainz returned an invalid response"
+        case .badRequest:
+            "MusicBrainz rejected the request as malformed (400)"
+        case .serviceUnavailable:
+            "MusicBrainz is temporarily unavailable (503)"
+        case let .httpError(code):
+            "MusicBrainz returned HTTP \(code)"
+        }
+    }
+}
+
 // MARK: - Release Group Search
 
 /// Top-level response from MusicBrainz release-group search endpoint.

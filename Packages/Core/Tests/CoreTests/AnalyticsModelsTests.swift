@@ -15,6 +15,7 @@ struct AnalyticsModelsTests {
     @Test("Errors distinguish cancellation from failure")
     func errorOutcome() {
         #expect(AnalyticsOutcome(error: CancellationError(), isTaskCancelled: false) == .cancelled)
+        #expect(AnalyticsOutcome(error: URLError(.cancelled), isTaskCancelled: false) == .cancelled)
         #expect(AnalyticsOutcome(error: SampleError.failed, isTaskCancelled: false) == .failed)
         #expect(AnalyticsOutcome(error: SampleError.failed, isTaskCancelled: true) == .cancelled)
     }

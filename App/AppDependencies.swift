@@ -463,6 +463,7 @@ final class AppDependencies {
             configuration: cacheConfiguration,
             cache: cacheService,
             reachability: reachability,
+            analytics: analyticsService,
             factoryOverrides: APIClientFactoryOverrides(discogsCredentialIssueHandler: { [weak self] issue in
                 self?.setDiscogsIssue(issue)
             })
@@ -670,6 +671,7 @@ extension AppDependencies {
             configuration: cacheConfiguration,
             cache: cacheService,
             reachability: networkReachabilityMonitor,
+            analytics: analyticsService,
             factoryOverrides: APIClientFactoryOverrides(discogsCredentialIssueHandler: { [weak self] issue in
                 self?.setDiscogsIssue(issue)
             })

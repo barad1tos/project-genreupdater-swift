@@ -45,6 +45,18 @@ struct CatalogSearchClientTests {
         _ = initializer
     }
 
+    @Test("Public paced factory keeps its original function type")
+    func preservesPacedFactoryType() {
+        let factory: (
+            ITunesSearchConfig,
+            TokenBucketRateLimiter,
+            URLSession,
+            RawAPIRequestCache?
+        ) -> CatalogSearchClient = CatalogSearchClient.paced
+
+        _ = factory
+    }
+
     @Test("Album year lookup reports unavailable MusicKit authorization as a failure")
     func requiresAuthorization() async {
         let client = CatalogSearchClient(
