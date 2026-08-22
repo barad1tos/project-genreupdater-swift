@@ -1,5 +1,17 @@
 import SwiftUI
 
+enum UpdateResultSection: CaseIterable, Hashable {
+    case status
+    case metrics
+    case albums
+    case details
+    case actions
+
+    static func order(for _: UpdateResultMode) -> [Self] {
+        allCases
+    }
+}
+
 enum UpdateResultSelection {
     static func resolve(currentID: String?, albums: [UpdateResultAlbum]) -> String? {
         guard let firstAlbumID = albums.first?.id else { return nil }
@@ -76,14 +88,33 @@ public struct UpdateResultView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            ForEach(UpdateResultSection.order(for: snapshot.mode), id: \.self) { section in
+                sectionView(section)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Ayu.window)
+        .navigationTitle("Update")
+        .onAppear(perform: reconcileSelection)
+        .onChange(of: snapshot.albums) { _, _ in
+            reconcileSelection()
+        }
+    }
+
+    @ViewBuilder
+    private func sectionView(_ section: UpdateResultSection) -> some View {
+        switch section {
+        case .status:
             ResultStatusStrip(snapshot: snapshot)
             ResultNotices(
                 notices: snapshot.notices,
                 contentAccess: snapshot.contentAccess,
                 onAccessAction: onAccessAction
             )
-            ResultDetails(details: snapshot.details)
-
+        case .metrics:
+            ResultMetrics(metrics: snapshot.metrics)
+        case .albums:
             HSplitView {
                 ResultAlbumRail(
                     albums: snapshot.albums,
@@ -100,7 +131,9 @@ public struct UpdateResultView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-
+        case .details:
+            ResultDetails(details: snapshot.details)
+        case .actions:
             ResultActionBar(
                 snapshot: snapshot,
                 onPrimaryAction: onPrimaryAction,
@@ -109,14 +142,6 @@ public struct UpdateResultView: View {
                 onRejectAll: onRejectAll,
                 needsAccess: needsPrimaryAccess
             )
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Ayu.window)
-        .navigationTitle("Update")
-        .onAppear(perform: reconcileSelection)
-        .onChange(of: snapshot.albums) { _, _ in
-            reconcileSelection()
         }
     }
 
@@ -182,39 +207,29 @@ private struct ResultStatusStrip: View {
 
     var body: some View {
         GlassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: statusSymbol)
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(statusTone.color)
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: statusSymbol)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(statusTone.color)
 
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack(spacing: 8) {
-                            Text(snapshot.title)
-                                .font(.system(size: 24, weight: .heavy))
-                                .foregroundStyle(Ayu.fg)
-                            TagPill(text: modeLabel, tone: .accent)
-                            TagPill(text: statusLabel, tone: statusTone, dot: true)
-                        }
-
-                        Text(snapshot.subtitle)
-                            .font(.system(size: 13))
-                            .foregroundStyle(Ayu.fg2)
-                        Label(snapshot.scope, systemImage: "scope")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Ayu.fgMuted)
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 8) {
+                        Text(snapshot.title)
+                            .font(.system(size: 24, weight: .heavy))
+                            .foregroundStyle(Ayu.fg)
+                        TagPill(text: modeLabel, tone: .accent)
+                        TagPill(text: statusLabel, tone: statusTone, dot: true)
                     }
 
-                    Spacer(minLength: 0)
+                    Text(snapshot.subtitle)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Ayu.fg2)
+                    Label(snapshot.scope, systemImage: "scope")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Ayu.fgMuted)
                 }
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 24) {
-                        ForEach(snapshot.metrics) { metric in
-                            ResultMetric(metric: metric)
-                        }
-                    }
-                }
+                Spacer(minLength: 0)
             }
         }
     }
@@ -256,6 +271,22 @@ private struct ResultStatusStrip: View {
         case .unavailable: "exclamationmark.octagon"
         case .completed: "checkmark.seal"
         case .completedWithFailures: "exclamationmark.triangle"
+        }
+    }
+}
+
+private struct ResultMetrics: View {
+    let metrics: [UpdateResultMetric]
+
+    var body: some View {
+        GlassCard {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 24) {
+                    ForEach(metrics) { metric in
+                        ResultMetric(metric: metric)
+                    }
+                }
+            }
         }
     }
 }

@@ -18,6 +18,7 @@ struct UpdateResultWriteAdapterTests {
 
         #expect(snapshot.mode == .write)
         #expect(snapshot.status == .completedWithFailures)
+        #expect(!snapshot.canReview)
         #expect(metricValues["changed-tracks"] == "1")
         #expect(metricValues["applied-operations"] == "1")
         #expect(metricValues["no-op-operations"] == "1")
@@ -25,6 +26,14 @@ struct UpdateResultWriteAdapterTests {
         #expect(snapshot.secondaryActionIcon == "doc.on.doc")
         #expect(changes.contains { $0.state == .applied })
         #expect(changes.contains { $0.state == .noChange })
+        #expect(changes.allSatisfy { change in
+            if case .proposed = change.state {
+                return false
+            }
+            return true
+        })
+        #expect(Set(tracks.map { trackStateName($0.state) }) == ["applied", "no-change", "skipped", "failed"])
+        #expect(Set(changes.map { changeStateName($0.state) }) == ["applied", "no-change"])
         #expect(tracks.contains { $0.id == "skipped" && $0.state == .skipped })
         #expect(tracks.contains { track in
             guard track.id == "failed" else { return false }
@@ -240,6 +249,26 @@ struct UpdateResultWriteAdapterTests {
             problematic: 1,
             problematicDetails: [UpdateRunPendingVerificationDetail(album)]
         )
+    }
+
+    private func trackStateName(_ state: UpdateResultTrackState) -> String {
+        switch state {
+        case .ready: "ready"
+        case .applied: "applied"
+        case .noChange: "no-change"
+        case .skipped: "skipped"
+        case .failed: "failed"
+        }
+    }
+
+    private func changeStateName(_ state: UpdateResultChangeState) -> String {
+        switch state {
+        case .proposed: "proposed"
+        case .applied: "applied"
+        case .noChange: "no-change"
+        case .skipped: "skipped"
+        case .failed: "failed"
+        }
     }
 
     private func makeTrack(id: String, title: String, position: Int) -> Track {

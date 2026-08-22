@@ -44,6 +44,12 @@ struct UpdateResultPreviewAdapterTests {
 
         let changes = tracks.flatMap(\.changes)
         #expect(Set(changes.map(\.id)) == Set(proposalIDs.map(\.uuidString)))
+        #expect(changes.allSatisfy { change in
+            if case .proposed = change.state {
+                return true
+            }
+            return false
+        })
         #expect(changes.first?.state == .proposed(.accepted))
         #expect(changes.first?.source == "MusicBrainz")
         #expect(changes.first?.confidence == 0.91)

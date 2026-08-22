@@ -22,8 +22,13 @@ struct CredentialWarningTests {
     }
 
     @Test("preview-only review can be switched to live apply")
-    func previewOnlyReviewCanBeSwitchedToLiveApply() {
-        let viewModel = makeWorkflowViewModel()
+    func previewOnlyReviewCanBeSwitchedToLiveApply() async {
+        let metered = MeteredTracksBox()
+        let fixture = makeWorkflowFixture(configure: { options in
+            options.tier = .free
+            options.recordTrackUsage = { metered.count += $0 }
+        })
+        let viewModel = fixture.viewModel
         viewModel.previewOnly = true
         viewModel.phase = .review
         viewModel.proposedChanges = [
@@ -36,6 +41,8 @@ struct CredentialWarningTests {
         #expect(viewModel.previewOnly == false)
         #expect(viewModel.acceptedCount == 1)
         #expect(viewModel.proposedChanges.count == 2)
+        #expect(await fixture.scriptClient.updatedProperties().isEmpty)
+        #expect(metered.count == .zero)
         guard case .review = viewModel.phase else {
             Issue.record("workflow should remain in review phase")
             return
