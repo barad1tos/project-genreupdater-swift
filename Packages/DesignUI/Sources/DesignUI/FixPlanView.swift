@@ -1,16 +1,5 @@
 import SwiftUI
 
-/// Availability of gated content or an action.
-public enum ContentAccess: Equatable, Sendable {
-    case available
-    case locked(message: String)
-
-    /// Whether the gated content or action is currently available.
-    public var isAvailable: Bool {
-        self == .available
-    }
-}
-
 public enum FixPlanStatus: String, Equatable, Sendable {
     case empty
     case ready

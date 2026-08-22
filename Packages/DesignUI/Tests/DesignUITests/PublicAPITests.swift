@@ -5,6 +5,64 @@ import Testing
 @Suite("DesignUI public data contract")
 struct PublicAPITests {
     @Test
+    func constructsPublicResultModels() {
+        let change = UpdateResultChange(
+            id: "change",
+            type: .genre,
+            oldValue: "Electronic",
+            newValue: "Art Pop",
+            source: "Discogs",
+            confidence: 0.94,
+            state: .proposed(.accepted)
+        )
+        let track = UpdateResultTrack(
+            id: "track",
+            title: "Jóga",
+            artist: "Björk",
+            state: .ready,
+            changes: [change]
+        )
+        let album = UpdateResultAlbum(id: "album", title: "Björk — Homogenic", tracks: [track])
+        let metric = UpdateResultMetric(id: "changes", label: "Changes", value: "1", tone: .accent)
+        let notice = UpdateResultNotice(id: "notice", title: "Ready", message: "One change", tone: .info)
+        let snapshot = UpdateResultSnapshot(
+            mode: .preview,
+            status: .ready,
+            title: "Update results",
+            subtitle: "Review metadata changes",
+            scope: "Test artists",
+            metrics: [metric],
+            albums: [album],
+            notices: [notice],
+            contentAccess: .locked(message: "Week Pass or Pro required"),
+            primaryActionLabel: "Apply",
+            secondaryActionLabel: "Reject all"
+        )
+        let modes: [UpdateResultMode] = [.preview, .write]
+        let statuses: [UpdateResultStatus] = [
+            .empty, .ready, .stale, .unavailable, .completed, .completedWithFailures,
+        ]
+        let sections: [UpdateResultSection] = [.status, .metrics, .albums, .details, .actions]
+        let verdicts: [UpdateResultVerdict] = [.accepted, .rejected]
+        let changeStates: [UpdateResultChangeState] = [
+            .proposed(.rejected), .applied, .noChange, .skipped, .failed(message: "Write failed"),
+        ]
+        let trackStates: [UpdateResultTrackState] = [
+            .ready, .applied, .noChange, .skipped, .failed(message: "Write failed"),
+        ]
+
+        #expect(snapshot.albums == [album])
+        #expect(snapshot.metrics == [metric])
+        #expect(snapshot.notices == [notice])
+        #expect(modes.count == 2)
+        #expect(statuses.count == 6)
+        #expect(sections == snapshot.sections)
+        #expect(verdicts.count == 2)
+        #expect(changeStates.count == 5)
+        #expect(trackStates.count == 5)
+    }
+
+    @Test
     @MainActor
     func snapshotCanBeConstructedOutsideDesignUIModule() {
         let data = makeSnapshot(totalTracks: 10, syncStatusText: "No sync yet", deltaCount: 2)
