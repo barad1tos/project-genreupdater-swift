@@ -105,18 +105,18 @@ struct ScopeWorkflowTests {
         viewModel.previewOnly = true
         viewModel.updateGenre = false
         viewModel.updateYear = true
-
-        viewModel.start(tracks: [
-            Track(id: "1", name: "One", artist: "Alpha", album: "First", year: 1999),
-        ])
-
+        viewModel.start(tracks: [Track(id: "1", name: "One", artist: "Alpha", album: "First", year: 1999)])
         try await waitForWorkflowToLeaveScanning(viewModel)
-
         guard case .review = viewModel.phase else {
             #expect(Bool(false), "preview-only full-library start should enter review instead of writing")
             return
         }
-        #expect(viewModel.dryRunReport != nil)
+        #expect(UpdateResultPreviewAdapter.makeSnapshot(
+            changes: viewModel.proposedChanges,
+            scopeTitle: "Full Library",
+            hasCleaningAccess: true,
+            primaryActionLabel: "Apply 1 change"
+        ).metrics.contains { $0.id == "year" && $0.value == "1" })
         #expect(await fixture.scriptClient.updatedProperties().isEmpty)
     }
 

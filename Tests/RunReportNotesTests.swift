@@ -19,7 +19,7 @@ struct RunReportNotesTests {
         #expect(report.changedEntries.count == 1)
         #expect(report.skippedCount == 1)
         #expect(report.failures.count == 1)
-        #expect(report.hasOperationalNotes)
+        #expect(!report.operationalNotes.isEmpty)
 
         let noteTitles = report.operationalNotes.map(\.title)
         #expect(noteTitles.contains("Skipped"))

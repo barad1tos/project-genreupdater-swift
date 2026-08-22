@@ -116,7 +116,6 @@ extension WorkflowViewModel {
         proposedChanges = []
         completedEntries = []
         result = nil
-        dryRunReport = nil
         maintenancePreflightResult = nil
         pendingVerificationReportSummary = nil
         return refreshGeneration

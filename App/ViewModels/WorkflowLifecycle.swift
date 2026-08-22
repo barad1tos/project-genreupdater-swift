@@ -59,7 +59,6 @@ extension WorkflowViewModel {
         proposedChanges = []
         result = nil
         completedEntries = []
-        dryRunReport = nil
         maintenancePreflightResult = nil
         processedCount = 0
         totalCount = 0
@@ -74,13 +73,13 @@ extension WorkflowViewModel {
         pendingSkippedAlbumCount = 0
         pendingVerificationReportSummary = nil
         recoveryReportSummary = nil
+        capturedRunFacts = nil
         releaseYearRestoreThreshold = defaultReleaseYearRestoreThreshold
     }
 
     func enableWritesForReviewedChanges() {
         guard case .review = phase else { return }
         previewOnly = false
-        dryRunReport = nil
     }
 
     func configureFullLibraryScope(tracks: [Core.Track]) {

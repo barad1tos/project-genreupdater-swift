@@ -86,7 +86,7 @@ public struct SidebarItemView: View {
         templateIcon.isTemplate = true
         return Image(nsImage: templateIcon)
             .resizable()
-            .aspectRatio(contentMode: .fit)
+            .scaledToFit()
             .frame(width: 18, height: 18)
     }
 

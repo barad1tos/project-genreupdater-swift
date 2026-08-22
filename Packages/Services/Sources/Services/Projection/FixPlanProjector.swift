@@ -19,6 +19,7 @@ public enum FixPlanProjector {
             return FixPlanProjectionItem(
                 id: item.id,
                 identity: FixPlanProjectionItem.Identity(
+                    trackID: item.identity.readID,
                     trackName: item.identity.trackName,
                     artist: item.identity.artist,
                     album: item.identity.album
@@ -55,18 +56,43 @@ public enum FixPlanProjector {
                 decisionRevision: decision.revision,
                 sourceRunID: plan.sourceRunID
             ),
-            summary: FixPlanProjection.Summary(
-                itemCount: items.count,
+            scope: plan.scope,
+            summary: makeSummary(
+                items: items,
+                status: status,
                 acceptedCount: acceptedCount,
-                rejectedCount: items.count - acceptedCount,
-                genreCount: items.count(where: { $0.changeType == .genreUpdate }),
-                yearCount: items.count(where: { $0.changeType == .yearUpdate }),
-                averageConfidence: averageConfidence(for: items),
-                canApply: status == .ready && acceptedCount > 0 && missingIdentityCount == 0
+                missingIdentityCount: missingIdentityCount
             ),
             stalenessReasons: staleness.reasons,
             items: items,
             operationalIssues: issues
+        )
+    }
+
+    private static func makeSummary(
+        items: [FixPlanProjectionItem],
+        status: FixPlanProjectionStatus,
+        acceptedCount: Int,
+        missingIdentityCount: Int
+    ) -> FixPlanProjection.Summary {
+        let affectedAlbums = Set(items.map {
+            AlbumIdentity.key(artist: $0.artist, album: $0.album)
+        })
+        let affectedTracks = Set(items.map(\.trackID))
+
+        return FixPlanProjection.Summary(
+            itemCount: items.count,
+            acceptedCount: acceptedCount,
+            rejectedCount: items.count - acceptedCount,
+            genreCount: items.count(where: { $0.changeType == .genreUpdate }),
+            yearCount: items.count(where: { $0.changeType == .yearUpdate || $0.changeType == .yearRevert }),
+            trackCleaningCount: items.count(where: { $0.changeType == .trackCleaning }),
+            albumCleaningCount: items.count(where: { $0.changeType == .albumCleaning }),
+            artistRenameCount: items.count(where: { $0.changeType == .artistRename }),
+            affectedTrackCount: affectedTracks.count,
+            affectedAlbumCount: affectedAlbums.count,
+            averageConfidence: averageConfidence(for: items),
+            canApply: status == .ready && acceptedCount > 0 && missingIdentityCount == 0
         )
     }
 

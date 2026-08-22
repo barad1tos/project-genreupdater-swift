@@ -47,15 +47,15 @@ struct ReportGroupingTests {
         #expect(report.affectedArtistCount == 1)
 
         let foregone = report.albumGroups.first { $0.album == "Foregone" }
-        #expect(foregone?.changedTrackCount == 13)
+        #expect(Set(foregone?.entries.map(\.trackID) ?? []).count == 13)
         #expect(foregone?.changeSummary == "2021 -> 2023")
         let foregoneResult = report.albumResults.first { $0.album == "Foregone" }
         #expect(foregoneResult?.changedTrackCount == 13)
         #expect(foregoneResult?.failureCount == 1)
-        #expect(foregoneResult?.trackCount == 14)
+        #expect(foregoneResult?.tracks.count == 14)
 
         let subterranean = report.albumGroups.first { $0.album == "Subterranean" }
-        #expect(subterranean?.changedTrackCount == 7)
+        #expect(Set(subterranean?.entries.map(\.trackID) ?? []).count == 7)
         #expect(subterranean?.changeSummary == "1995 -> 1994")
 
         #expect(report.failures.first?.title == "Failed Song")
@@ -118,7 +118,7 @@ struct ReportGroupingTests {
         #expect(report.albumGroups.count == 1)
         #expect(group.artist == "Daft Punk")
         #expect(group.album == "Random Access Memories")
-        #expect(group.changedTrackCount == 2)
+        #expect(Set(group.entries.map(\.trackID)).count == 2)
         #expect(report.affectedAlbumCount == 1)
         #expect(report.affectedArtistCount == 1)
         #expect(report.changeBreakdown.map(\.albumCount) == [1])
@@ -179,7 +179,7 @@ struct ReportGroupingTests {
         let group = try #require(report.albumGroups.first)
         let result = try #require(report.albumResults.first)
         #expect(report.albumGroups.count == 1)
-        #expect(group.changedTrackCount == 2)
+        #expect(Set(group.entries.map(\.trackID)).count == 2)
         #expect(report.affectedAlbumCount == 1)
         #expect(report.affectedArtistCount == 1)
         #expect(report.changeBreakdown.map(\.albumCount) == [1])

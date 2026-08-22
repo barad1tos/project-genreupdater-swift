@@ -166,7 +166,7 @@ struct UpdateRunFailureTests {
         #expect(report.changedTrackCount == 0)
         #expect(report.affectedAlbumCount == 1)
         #expect(report.affectedArtistCount == 1)
-        #expect(album.trackCount == 1)
+        #expect(album.tracks.count == 1)
         #expect(album.changedTrackCount == 0)
         #expect(report.outcomeBreakdown.contains { breakdown in
             breakdown.outcome == UpdateRunOutcome.noChange
