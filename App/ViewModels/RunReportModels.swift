@@ -2,6 +2,11 @@ import Core
 import Foundation
 import Services
 
+struct WorkflowRunFacts: Equatable {
+    let tracks: [Track]
+    let scopeTitle: String
+}
+
 struct UpdateRunOperationalNote: Identifiable, Equatable {
     enum Severity: Equatable { case info, warning, failure }
 
@@ -236,5 +241,26 @@ struct UpdateRunChangeSummary: Equatable, Hashable {
 extension Date {
     var updateRunReportDate: String {
         formatted(date: .abbreviated, time: .shortened)
+    }
+}
+
+extension WorkflowViewModel {
+    func makeRunReport(displayMode: ChangeDisplayMode) -> UpdateRunReport {
+        UpdateRunReport(
+            result: result,
+            completedEntries: completedEntries,
+            trackStatuses: trackStatuses,
+            tracks: capturedRunFacts?.tracks ?? [],
+            testArtists: [],
+            scopeTitle: runScopeTitle,
+            displayMode: displayMode,
+            operationalContext: UpdateRunOperationalContext(
+                pendingVerification: pendingVerificationReportSummary,
+                databaseVerification: UpdateRunDatabaseVerificationSummary(
+                    preflightResult: maintenancePreflightResult
+                ),
+                recovery: recoveryReportSummary
+            )
+        )
     }
 }

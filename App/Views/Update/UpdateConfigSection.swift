@@ -415,7 +415,7 @@ extension UpdateConfigSection {
 
     private var startButton: some View {
         Button {
-            viewModel.start(tracks: tracks)
+            viewModel.start(tracks: tracks, testArtists: testArtists)
         } label: {
             Label(
                 startButtonTitle,

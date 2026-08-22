@@ -22,6 +22,7 @@ struct UpdateRunReport: Equatable {
         trackStatuses: [String: TrackProcessingStatus],
         tracks: [Track],
         testArtists: [String],
+        scopeTitle: String? = nil,
         displayMode: ChangeDisplayMode = .compact,
         operationalContext: UpdateRunOperationalContext = .empty
     ) {
@@ -68,7 +69,7 @@ struct UpdateRunReport: Equatable {
         pendingVerification = operationalContext.pendingVerification
         databaseVerification = operationalContext.databaseVerification
         recovery = operationalContext.recovery
-        scopeTitle = Self.makeScopeTitle(testArtists: testArtists)
+        self.scopeTitle = scopeTitle ?? Self.makeScopeTitle(testArtists: testArtists)
     }
 
     var changedTrackCount: Int {
@@ -285,40 +286,38 @@ struct UpdateRunReport: Equatable {
         trackStatuses: [String: TrackProcessingStatus]
     ) -> [UpdateRunAlbumResult] {
         let trackLookup = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
-        let changesByTrackID = Dictionary(grouping: entries, by: \.trackID)
-        let noOpChangesByTrackID = Dictionary(grouping: noOpEntries, by: \.trackID)
-        let noOpTrackIDs = Set(noOpEntries.map(\.trackID))
-        let failuresByTrackID = Dictionary(grouping: failures, by: \.technicalID)
-        let resultEntries = entries + noOpEntries
-        let albumKeys = albumResultKeys(
-            entries: resultEntries,
+        let evidence = UpdateRunEvidence(
+            entries: entries,
+            noOpEntries: noOpEntries,
             failures: failures,
+            trackStatuses: trackStatuses
+        )
+        let albumKeys = albumResultKeys(
+            evidence: evidence,
             trackLookup: trackLookup
         )
 
         return albumKeys.map { key in
             let albumTracks = tracks
                 .filter { track in
-                    albumIdentity(for: track) == key
+                    evidence.trackIDs.contains(track.id) && albumIdentity(for: track) == key
                 }
                 .sorted(by: trackSort)
-            let fallbackRows = fallbackRowsForMissingTracks(
+            let fallbackRows = missingTrackRows(
                 key: key,
-                entries: resultEntries,
-                failures: failures,
-                trackLookup: trackLookup,
-                noOpTrackIDs: noOpTrackIDs
+                evidence: evidence,
+                trackLookup: trackLookup
             )
             let trackRows = albumTracks.map { track in
                 makeTrackResult(
                     track: track,
                     entries: (
-                        applied: changesByTrackID[track.id] ?? [],
-                        noOp: noOpChangesByTrackID[track.id] ?? []
+                        applied: evidence.changesByTrackID[track.id] ?? [],
+                        noOp: evidence.noOpsByTrackID[track.id] ?? []
                     ),
-                    failures: failuresByTrackID[track.id] ?? [],
-                    status: trackStatuses[track.id],
-                    noOpTrackIDs: noOpTrackIDs
+                    failures: evidence.failuresByTrackID[track.id] ?? [],
+                    status: evidence.trackStatuses[track.id],
+                    noOpTrackIDs: evidence.noOpTrackIDs
                 )
             } + fallbackRows
 
@@ -331,46 +330,45 @@ struct UpdateRunReport: Equatable {
         }
         .sorted(by: albumResultSort)
     }
+
     private static func albumResultKeys(
-        entries: [ChangeLogEntry],
-        failures: [UpdateRunFailure],
+        evidence: UpdateRunEvidence,
         trackLookup: [String: Track]
     ) -> Set<UpdateRunAlbumIdentity> {
-        var keys = Set<UpdateRunAlbumIdentity>()
-        for entry in entries {
-            keys.insert(albumIdentity(for: entry, trackLookup: trackLookup))
-        }
-        for failure in failures {
-            keys.insert(UpdateRunAlbumIdentity(artist: failure.artist, album: failure.album))
-        }
-        return keys
+        Set(evidence.trackIDs.map { trackID in
+            resultIdentity(
+                trackID: trackID,
+                trackLookup: trackLookup,
+                entries: evidence.entriesByTrackID[trackID] ?? [],
+                failures: evidence.failuresByTrackID[trackID] ?? []
+            )
+        })
     }
 
-    private static func fallbackRowsForMissingTracks(
+    private static func missingTrackRows(
         key: UpdateRunAlbumIdentity,
-        entries: [ChangeLogEntry],
-        failures: [UpdateRunFailure],
-        trackLookup: [String: Track],
-        noOpTrackIDs: Set<String>
+        evidence: UpdateRunEvidence,
+        trackLookup: [String: Track]
     ) -> [UpdateRunTrackResult] {
-        let entriesByTrackID = Dictionary(grouping: entries.filter { entry in
-            trackLookup[entry.trackID] == nil
-                && albumIdentity(for: entry, trackLookup: trackLookup) == key
-        }, by: \.trackID)
-        let failuresByTrackID = Dictionary(grouping: failures.filter { failure in
-            trackLookup[failure.technicalID] == nil
-                && UpdateRunAlbumIdentity(artist: failure.artist, album: failure.album) == key
-        }, by: \.technicalID)
-        let trackIDs = Set(entriesByTrackID.keys).union(failuresByTrackID.keys)
+        let trackIDs = evidence.trackIDs.filter { trackID in
+            trackLookup[trackID] == nil
+                && resultIdentity(
+                    trackID: trackID,
+                    trackLookup: trackLookup,
+                    entries: evidence.entriesByTrackID[trackID] ?? [],
+                    failures: evidence.failuresByTrackID[trackID] ?? []
+                ) == key
+        }
 
         return trackIDs.map { trackID in
-            let trackEntries = entriesByTrackID[trackID] ?? []
-            let trackFailures = failuresByTrackID[trackID] ?? []
+            let trackEntries = evidence.entriesByTrackID[trackID] ?? []
+            let trackFailures = evidence.failuresByTrackID[trackID] ?? []
             let appliedEntries = trackEntries.filter(isRealChange)
             let noOpEntries = trackEntries.filter { !isRealChange($0) }
             let failureMessage = trackFailures.isEmpty ? nil : trackFailures.map(\.message).joined(separator: "\n")
             let entry = trackEntries.first
             let failure = trackFailures.first
+            let status = evidence.trackStatuses[trackID] ?? failureMessage.map(TrackProcessingStatus.failed)
             return UpdateRunTrackResult(
                 id: entry == nil ? failure?.id ?? trackID : trackID,
                 technicalID: trackID,
@@ -383,19 +381,37 @@ struct UpdateRunReport: Equatable {
                 changes: appliedEntries.map(makeChangeSummary),
                 noOpChanges: noOpEntries.map(makeChangeSummary),
                 failureMessage: failureMessage,
-                processingStatus: failureMessage.map(TrackProcessingStatus.failed),
+                processingStatus: status,
                 outcome: makeTrackOutcome(
                     trackID: trackID,
                     failureMessage: failureMessage,
                     changes: appliedEntries,
-                    noOpTrackIDs: noOpTrackIDs,
-                    status: nil
+                    noOpTrackIDs: evidence.noOpTrackIDs,
+                    status: status
                 )
             )
         }.sorted { left, right in
             let titleOrder = left.title.localizedStandardCompare(right.title)
             return titleOrder == .orderedSame ? left.id < right.id : titleOrder == .orderedAscending
         }
+    }
+
+    private static func resultIdentity(
+        trackID: String,
+        trackLookup: [String: Track],
+        entries: [ChangeLogEntry],
+        failures: [UpdateRunFailure]
+    ) -> UpdateRunAlbumIdentity {
+        if let track = trackLookup[trackID] {
+            return albumIdentity(for: track)
+        }
+        if let entry = entries.first {
+            return albumIdentity(for: entry, trackLookup: trackLookup)
+        }
+        if let failure = failures.first {
+            return UpdateRunAlbumIdentity(artist: failure.artist, album: failure.album)
+        }
+        return UpdateRunAlbumIdentity(artist: "Unknown artist", album: "Unknown album")
     }
 
     private static func makeTrackResult(
@@ -702,5 +718,33 @@ private struct UpdateRunAlbumGroupKey: Hashable {
         hasher.combine(changeType)
         hasher.combine(oldValue)
         hasher.combine(newValue)
+    }
+}
+
+private struct UpdateRunEvidence {
+    let entriesByTrackID: [String: [ChangeLogEntry]]
+    let changesByTrackID: [String: [ChangeLogEntry]]
+    let noOpsByTrackID: [String: [ChangeLogEntry]]
+    let failuresByTrackID: [String: [UpdateRunFailure]]
+    let noOpTrackIDs: Set<String>
+    let trackStatuses: [String: TrackProcessingStatus]
+    let trackIDs: Set<String>
+
+    init(
+        entries: [ChangeLogEntry],
+        noOpEntries: [ChangeLogEntry],
+        failures: [UpdateRunFailure],
+        trackStatuses: [String: TrackProcessingStatus]
+    ) {
+        let resultEntries = entries + noOpEntries
+        entriesByTrackID = Dictionary(grouping: resultEntries, by: \.trackID)
+        changesByTrackID = Dictionary(grouping: entries, by: \.trackID)
+        noOpsByTrackID = Dictionary(grouping: noOpEntries, by: \.trackID)
+        failuresByTrackID = Dictionary(grouping: failures, by: \.technicalID)
+        noOpTrackIDs = Set(noOpEntries.map(\.trackID))
+        self.trackStatuses = trackStatuses
+        trackIDs = Set(resultEntries.map(\.trackID))
+            .union(failures.map(\.technicalID))
+            .union(trackStatuses.keys)
     }
 }

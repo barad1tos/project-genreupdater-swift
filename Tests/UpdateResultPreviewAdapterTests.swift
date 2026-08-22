@@ -125,37 +125,12 @@ struct UpdateResultPreviewAdapterTests {
         #expect(snapshot.contentAccess == .available)
     }
 
-    @Test("maps legacy changes through real track and proposal identities")
+    @Test("legacy preview preserves all metrics across tracks and albums")
     func mapsLegacyChanges() throws {
-        let acceptedID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000011"))
-        let rejectedID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000012"))
-        let track = Track(
-            id: "legacy-track",
-            name: "Jóga",
-            artist: "Björk",
-            album: "Homogenic"
-        )
-        let changes = [
-            ProposedChange(
-                id: acceptedID,
-                track: track,
-                changeType: .genreUpdate,
-                oldValue: "Electronic",
-                newValue: "Electronica",
-                confidence: 125,
-                source: "Discogs"
-            ),
-            ProposedChange(
-                id: rejectedID,
-                track: track,
-                changeType: .yearUpdate,
-                oldValue: nil,
-                newValue: "1997",
-                confidence: -5,
-                source: "MusicBrainz",
-                isAccepted: false
-            ),
-        ]
+        let legacyIDs = try (11 ... 16).map { suffix in
+            try #require(UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", suffix)))
+        }
+        let changes = makeLegacyChanges(ids: legacyIDs)
 
         let snapshot = UpdateResultPreviewAdapter.makeSnapshot(
             changes: changes,
@@ -164,17 +139,29 @@ struct UpdateResultPreviewAdapterTests {
             primaryActionLabel: "Enable Writes"
         )
 
-        let resultTrack = try #require(snapshot.albums.first?.tracks.first)
+        let metrics = Dictionary(uniqueKeysWithValues: snapshot.metrics.map { ($0.id, $0.value) })
+        let resultTracks = snapshot.albums.flatMap(\.tracks)
         #expect(snapshot.mode == .preview)
         #expect(snapshot.scope == "Smart Filter - Missing Genres")
         #expect(snapshot.primaryActionLabel == "Enable Writes")
-        #expect(resultTrack.id == track.id)
-        #expect(resultTrack.changes.map(\.id) == [acceptedID.uuidString, rejectedID.uuidString])
-        #expect(resultTrack.changes.map(\.state) == [.proposed(.accepted), .proposed(.rejected)])
-        #expect(resultTrack.changes.map(\.confidence) == [1, 0])
+        #expect(metrics == [
+            "changes": "6",
+            "accepted": "5",
+            "rejected": "1",
+            "genre": "1",
+            "year": "2",
+            "track-cleaning": "1",
+            "album-cleaning": "1",
+            "artist-rename": "1",
+            "affected-tracks": "3",
+            "affected-albums": "2",
+            "average-confidence": "83%",
+        ])
+        #expect(Set(resultTracks.map(\.id)) == ["jóga", "bachelorette", "hyperballad"])
+        #expect(Set(resultTracks.flatMap(\.changes).map(\.id)) == Set(legacyIDs.map(\.uuidString)))
     }
 
-    @Test("preview-only transition remains enabled while cleaning access is locked")
+    @Test("preview-only transition does not require cleaning write access")
     func allowsPreviewOnlyTransition() throws {
         let snapshot = try UpdateResultPreviewAdapter.makeSnapshot(
             from: makeCleaningProjection(verdict: .accepted),
@@ -194,6 +181,39 @@ struct UpdateResultPreviewAdapterTests {
             needsAccess: UpdateWorkflowView.needsPrimaryAccess(previewOnly: false)
         ))
     }
+}
+
+private func makeLegacyChanges(ids: [UUID]) -> [ProposedChange] {
+    let jogaTrack = Track(id: "jóga", name: "Jóga", artist: "Björk", album: "Homogenic")
+    let bachelorette = Track(id: "bachelorette", name: "Bachelorette", artist: "Björk", album: "Homogenic")
+    let hyperballad = Track(id: "hyperballad", name: "Hyperballad", artist: "Björk", album: "Post")
+    return [
+        makeLegacyChange(id: ids[0], track: jogaTrack, type: .genreUpdate, confidence: 80),
+        makeLegacyChange(id: ids[1], track: jogaTrack, type: .yearUpdate, confidence: 81, isAccepted: false),
+        makeLegacyChange(id: ids[2], track: bachelorette, type: .yearRevert, confidence: 82),
+        makeLegacyChange(id: ids[3], track: bachelorette, type: .trackCleaning, confidence: 83),
+        makeLegacyChange(id: ids[4], track: hyperballad, type: .albumCleaning, confidence: 84),
+        makeLegacyChange(id: ids[5], track: hyperballad, type: .artistRename, confidence: 85),
+    ]
+}
+
+private func makeLegacyChange(
+    id: UUID,
+    track: Track,
+    type: Core.ChangeType,
+    confidence: Int,
+    isAccepted: Bool = true
+) -> ProposedChange {
+    ProposedChange(
+        id: id,
+        track: track,
+        changeType: type,
+        oldValue: "old",
+        newValue: "new",
+        confidence: confidence,
+        source: "Test",
+        isAccepted: isAccepted
+    )
 }
 
 private let proposalIDs = [

@@ -113,21 +113,7 @@ struct UpdateWorkflowView: View {
     }
 
     private func makeDoneReport() -> UpdateRunReport {
-        UpdateRunReport(
-            result: viewModel.result,
-            completedEntries: viewModel.completedEntries,
-            trackStatuses: viewModel.trackStatuses,
-            tracks: tracks,
-            testArtists: testArtists,
-            displayMode: reportDisplayMode,
-            operationalContext: UpdateRunOperationalContext(
-                pendingVerification: viewModel.pendingVerificationReportSummary,
-                databaseVerification: UpdateRunDatabaseVerificationSummary(
-                    preflightResult: viewModel.maintenancePreflightResult
-                ),
-                recovery: viewModel.recoveryReportSummary
-            )
-        )
+        viewModel.makeRunReport(displayMode: reportDisplayMode)
     }
 
     private func copyReport(_ report: UpdateRunReport) {
@@ -140,7 +126,7 @@ struct UpdateWorkflowView: View {
         UpdateResultView(
             snapshot: UpdateResultPreviewAdapter.makeSnapshot(
                 changes: viewModel.proposedChanges,
-                scopeTitle: reviewScopeTitle,
+                scopeTitle: viewModel.runScopeTitle,
                 hasCleaningAccess: hasCleaningAccess,
                 primaryActionLabel: reviewPrimaryLabel
             ),
@@ -161,27 +147,6 @@ struct UpdateWorkflowView: View {
     private var reviewPrimaryCallback: (() -> Void)? {
         guard viewModel.acceptedCount > 0 else { return nil }
         return { reviewPrimaryAction() }
-    }
-
-    private var reviewScopeTitle: String {
-        let normalizedArtists = ArtistAllowList.normalized(testArtists)
-        if normalizedArtists.count == 1, let artist = normalizedArtists.first {
-            return "Test Artist: \(artist)"
-        }
-        if !normalizedArtists.isEmpty {
-            return "Test Artists: \(normalizedArtists.count)"
-        }
-
-        switch viewModel.mode {
-        case .fullLibrary:
-            return "Full Library - effective scope"
-        case .smartFilter:
-            return "Smart Filter - \(viewModel.smartFilterType.rawValue)"
-        case .pendingVerification:
-            return "Pending Verification"
-        case .releaseYearRestore:
-            return "Restore Years"
-        }
     }
 
     private var reviewPrimaryLabel: String {

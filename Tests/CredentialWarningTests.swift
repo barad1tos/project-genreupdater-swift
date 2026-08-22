@@ -21,8 +21,8 @@ struct CredentialWarningTests {
         #expect(view.credentialWarningMessage?.contains("slower") == true)
     }
 
-    @Test("preview-only review can be switched to live apply")
-    func previewOnlyReviewCanBeSwitchedToLiveApply() async {
+    @Test("preview-only review can enable writes without applying changes")
+    func previewOnlyReviewCanEnableWrites() async {
         let metered = MeteredTracksBox()
         let fixture = makeWorkflowFixture(configure: { options in
             options.tier = .free

@@ -7,7 +7,7 @@ import Testing
 
 @Suite("Verified write result adaptation")
 struct UpdateResultWriteAdapterTests {
-    @Test("maps verified outcomes without inferring writes")
+    @Test("maps only tracks with explicit run evidence")
     func mapsVerifiedOutcomes() {
         let report = makeReport()
 
@@ -43,6 +43,38 @@ struct UpdateResultWriteAdapterTests {
             return false
         })
         #expect(tracks.contains { $0.id == "unchanged" && $0.state == .noChange })
+    }
+
+    @Test("skipped-only albums stay visible without evidence-free siblings")
+    func keepsExactResultMembership() throws {
+        let skipped = makeTrack(
+            id: "skipped-only",
+            title: "Green Machine",
+            position: 1,
+            artist: "Kyuss",
+            album: "Blues for the Red Sun"
+        )
+        let sibling = makeTrack(
+            id: "outside-run",
+            title: "Thong Song",
+            position: 2,
+            artist: "Kyuss",
+            album: "Blues for the Red Sun"
+        )
+        let report = UpdateRunReport(
+            result: BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: []),
+            completedEntries: [],
+            trackStatuses: [skipped.id: .skipped],
+            tracks: [skipped, sibling],
+            testArtists: ["Kyuss"]
+        )
+
+        let album = try #require(report.albumResults.first)
+
+        #expect(report.albumResults.count == 1)
+        #expect(album.title == "Kyuss - Blues for the Red Sun")
+        #expect(album.tracks.map(\.id) == [skipped.id])
+        #expect(album.tracks.first?.outcome == .skipped)
     }
 
     @Test("preserves every operational note")
@@ -271,12 +303,18 @@ struct UpdateResultWriteAdapterTests {
         }
     }
 
-    private func makeTrack(id: String, title: String, position: Int) -> Track {
+    private func makeTrack(
+        id: String,
+        title: String,
+        position: Int,
+        artist: String = "Clutch",
+        album: String = "Pure Rock Fury"
+    ) -> Track {
         Track(
             id: id,
             name: title,
-            artist: "Clutch",
-            album: "Pure Rock Fury",
+            artist: artist,
+            album: album,
             genre: "Rock",
             year: 2001,
             trackStatus: "subscription",

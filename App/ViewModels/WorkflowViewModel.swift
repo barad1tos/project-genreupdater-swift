@@ -125,6 +125,7 @@ final class WorkflowViewModel {
     var batchFailureDescriptions: [String] = []
     var failedCount: Int = 0
     var maintenancePreflightResult: MaintenancePreflightResult?
+    var capturedRunFacts: WorkflowRunFacts?
 
     // MARK: - Computed Properties
 
@@ -134,6 +135,10 @@ final class WorkflowViewModel {
 
     var acceptedCount: Int {
         proposedChanges.filter(\.isAccepted).count
+    }
+
+    var runScopeTitle: String {
+        capturedRunFacts?.scopeTitle ?? "Scope unavailable"
     }
 
     var isProcessing: Bool {
@@ -242,9 +247,13 @@ final class WorkflowViewModel {
     /// In **Smart Filter** mode, runs a dry-run first to produce proposed
     /// changes for review. In **Full Library** mode, processes all tracks
     /// through `BatchProcessor` with real-time progress.
-    func start(tracks: [Track]) {
+    func start(tracks: [Track], testArtists: [String] = []) {
         guard canStart else { return }
 
+        capturedRunFacts = WorkflowRunFacts(
+            tracks: tracks,
+            scopeTitle: scopeTitle(testArtists: testArtists)
+        )
         maintenancePreflightResult = nil
 
         if mode == .pendingVerification {
@@ -280,6 +289,27 @@ final class WorkflowViewModel {
 
         if mode == .pendingVerification {
             refreshPendingScope(tracks: tracks)
+        }
+    }
+
+    private func scopeTitle(testArtists: [String]) -> String {
+        let normalizedArtists = ArtistAllowList.normalized(testArtists)
+        if normalizedArtists.count == 1, let artist = normalizedArtists.first {
+            return "Test Artist: \(artist)"
+        }
+        if !normalizedArtists.isEmpty {
+            return "Test Artists: \(normalizedArtists.count)"
+        }
+
+        switch mode {
+        case .fullLibrary:
+            return "Full Library - effective scope"
+        case .smartFilter:
+            return "Smart Filter - \(smartFilterType.rawValue)"
+        case .pendingVerification:
+            return "Pending Verification"
+        case .releaseYearRestore:
+            return "Restore Years"
         }
     }
 
