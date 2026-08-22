@@ -111,6 +111,7 @@ struct ProjectionRuntimeLibraryTests {
     @Test("a cancelled live load is not an error")
     func cancelledLiveLoadIsNotAnError() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let analytics = try await installAnalytics(on: fixture.dependencies)
         await fixture.snapshotService.installSnapshot([
             Core.Track(id: "cached", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
         ])
@@ -121,11 +122,18 @@ struct ProjectionRuntimeLibraryTests {
         #expect(fixture.dependencies.libraryLoadError == nil)
         #expect(fixture.dependencies.libraryTracks.map(\.id) == ["cached"])
         #expect(!fixture.dependencies.isLibraryLoading)
+        let row = try #require(await analytics.projection(for: .currentSession).operations.first {
+            $0.operationValue == AnalyticsOperation.libraryLoad.rawValue
+        })
+        #expect(row.calls == 2)
+        #expect(row.succeeded == 1)
+        #expect(row.cancelled == 1)
     }
 
     @Test("a live-load failure falls back to cached tracks")
     func loadFailureFallsBackToCachedTracks() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let analytics = try await installAnalytics(on: fixture.dependencies)
         await fixture.snapshotService.installSnapshot([
             Core.Track(id: "cached", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
         ])
@@ -136,6 +144,12 @@ struct ProjectionRuntimeLibraryTests {
         #expect(fixture.dependencies.libraryLoadError != nil)
         #expect(fixture.dependencies.libraryTracks.map(\.id) == ["cached"])
         #expect(!fixture.dependencies.isLibraryLoading)
+        let row = try #require(await analytics.projection(for: .currentSession).operations.first {
+            $0.operationValue == AnalyticsOperation.libraryLoad.rawValue
+        })
+        #expect(row.calls == 2)
+        #expect(row.succeeded == 1)
+        #expect(row.failed == 1)
     }
 
     @Test("request tokens invalidate across begins")
@@ -152,6 +166,18 @@ struct ProjectionRuntimeLibraryTests {
         gate.invalidate()
         #expect(!gate.isCurrent(second))
     }
+}
+
+@MainActor
+private func installAnalytics(on dependencies: AppDependencies) async throws -> AnalyticsRecorder {
+    var configuration = AnalyticsConfig()
+    configuration.enabled = true
+    let store = try GRDBCacheService.createInMemory()
+    try await store.initialize()
+    let recorder = AnalyticsRecorder(store: store, configuration: configuration)
+    await recorder.initialize()
+    dependencies.installTestAnalyticsRecorder(recorder)
+    return recorder
 }
 
 private actor LibraryReadGate {

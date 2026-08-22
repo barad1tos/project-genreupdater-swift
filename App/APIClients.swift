@@ -229,6 +229,7 @@ extension AppDependencies {
             configuration: configuration,
             cache: cache,
             reachability: reachability,
+            analytics: analytics,
             serviceContext: serviceContext
         )
     }
@@ -262,6 +263,7 @@ extension AppDependencies {
             configuration: configuration,
             cache: cache,
             reachability: reachability,
+            analytics: analytics,
             serviceContext: serviceContext
         )
     }
@@ -270,12 +272,14 @@ extension AppDependencies {
         configuration: AppConfiguration,
         cache: (any CacheService)?,
         reachability: NetworkReachabilityMonitor?,
+        analytics: (any AnalyticsService)?,
         serviceContext: APIServiceContext
     ) -> APIOrchestrator {
-        let orchestratorConfiguration = makeAPIOrchestratorConfiguration(
+        let orchestratorConfiguration = orchestratorConfiguration(
             configuration: configuration,
             cache: cache,
             reachability: reachability,
+            analytics: analytics,
             disabledSources: serviceContext.disabledSources
         )
 
@@ -425,15 +429,17 @@ extension AppDependencies {
         }
     }
 
-    private static func makeAPIOrchestratorConfiguration(
+    static func orchestratorConfiguration(
         configuration: AppConfiguration,
         cache: (any CacheService)?,
         reachability: NetworkReachabilityMonitor?,
+        analytics: (any AnalyticsService)?,
         disabledSources: Set<APISource>
     ) -> APIOrchestratorConfiguration {
         var orchestratorConfiguration = APIOrchestratorConfiguration(configuration: configuration)
         orchestratorConfiguration.reachability = reachability
         orchestratorConfiguration.cache = cache
+        orchestratorConfiguration.analytics = analytics
         orchestratorConfiguration.disabledSources = disabledSources
         return orchestratorConfiguration
     }

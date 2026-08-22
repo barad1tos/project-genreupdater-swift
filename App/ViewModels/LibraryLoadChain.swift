@@ -120,9 +120,17 @@ extension AppDependencies {
                 loadStart: loadStart
             )
         } catch is CancellationError {
+            if libraryLoadGate.isCurrent(token) {
+                await recordLibraryLoad(startedAt: loadStart, outcome: .cancelled)
+            }
             return libraryLoadGate.isCurrent(token)
         } catch {
-            await handleLibraryLoadFailure(error, hasCachedTracks: hasCachedTracks, token: token)
+            await handleLibraryLoadFailure(
+                error,
+                hasCachedTracks: hasCachedTracks,
+                token: token,
+                loadStart: loadStart
+            )
         }
 
         return libraryLoadGate.isCurrent(token)
@@ -175,10 +183,11 @@ extension AppDependencies {
     private func handleLibraryLoadFailure(
         _ error: any Error,
         hasCachedTracks: Bool,
-        token: UInt64
+        token: UInt64,
+        loadStart: ContinuousClock.Instant
     ) async {
         guard libraryLoadGate.isCurrent(token) else { return }
-        await analyticsService?.record(.libraryLoad, duration: .zero, outcome: .failed)
+        await recordLibraryLoad(startedAt: loadStart, outcome: .failed)
         libraryLoadError = LibraryLoadError.make(from: error)
         if !hasCachedTracks {
             libraryTracks = []
@@ -191,11 +200,14 @@ extension AppDependencies {
         }
     }
 
-    private func recordLibraryLoad(startedAt loadStart: ContinuousClock.Instant) async {
+    private func recordLibraryLoad(
+        startedAt loadStart: ContinuousClock.Instant,
+        outcome: AnalyticsOutcome = .succeeded
+    ) async {
         await analyticsService?.record(
             .libraryLoad,
             duration: loadStart.duration(to: .now),
-            outcome: .succeeded
+            outcome: outcome
         )
     }
 }

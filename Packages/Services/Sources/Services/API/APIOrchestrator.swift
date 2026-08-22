@@ -84,6 +84,7 @@ public struct APIOrchestratorServices: Sendable {
 public struct APIOrchestratorConfiguration: Sendable {
     public var reachability: NetworkReachabilityMonitor?
     public var cache: (any CacheService)?
+    public var analytics: (any AnalyticsService)?
     public var timeout: Duration
     public var negativeResultTTL: TimeInterval
     public var candidateResultTTL: TimeInterval?
@@ -102,6 +103,7 @@ public struct APIOrchestratorConfiguration: Sendable {
     public init() {
         reachability = nil
         cache = nil
+        analytics = nil
         timeout = .seconds(YearRetrievalConfig.defaultProviderTimeoutSeconds)
         negativeResultTTL = CachingConfig().negativeResultTTL
         candidateResultTTL = nil
@@ -177,6 +179,7 @@ public actor APIOrchestrator {
     let appleMusic: any ExternalAPIService
     let reachability: NetworkReachabilityMonitor?
     let cache: (any CacheService)?
+    let analytics: (any AnalyticsService)?
     let timeout: Duration
     let negativeResultTTL: TimeInterval
     let candidateResultTTL: TimeInterval?
@@ -206,6 +209,7 @@ public actor APIOrchestrator {
         appleMusic = services.appleMusic
         reachability = configuration.reachability
         cache = configuration.cache
+        analytics = configuration.analytics
         timeout = configuration.timeout
         negativeResultTTL = max(0, configuration.negativeResultTTL)
         candidateResultTTL = configuration.candidateResultTTL.flatMap { $0 > 0 ? $0 : nil }
@@ -407,6 +411,7 @@ public actor APIOrchestrator {
     ) async -> [SourceFetchResult] {
         let cacheContext = SourceCacheContext(
             cache: cache,
+            analytics: analytics,
             negativeResultTTL: negativeResultTTL,
             candidateResultTTL: candidateResultTTL,
             discogsAcquisitionSignature: DiscogsAcquisition.signature(for: discogsSearchConfiguration)
@@ -490,13 +495,22 @@ public actor APIOrchestrator {
         query: SourceQuery,
         cacheContext: SourceCacheContext
     ) async -> YearResult? {
-        guard let cached = await cacheContext.cache?.getCachedAPIResult(
+        guard let cache = cacheContext.cache else { return nil }
+        let clock = ContinuousClock()
+        let start = clock.now
+        let cached = await cache.getCachedAPIResult(
             artist: query.artist,
             album: query.album,
             source: source.rawValue
-        ) else {
-            return nil
+        )
+        if let analytics = cacheContext.analytics {
+            await analytics.record(
+                .apiResultCacheRead,
+                duration: start.duration(to: clock.now),
+                outcome: .succeeded
+            )
         }
+        guard let cached else { return nil }
         guard source != .discogs ||
             cached.metadata[DiscogsAcquisition.metadataKey] == cacheContext.discogsAcquisitionSignature else {
             return nil
@@ -666,6 +680,7 @@ private struct SourceQuery {
 
 private struct SourceCacheContext {
     let cache: (any CacheService)?
+    let analytics: (any AnalyticsService)?
     let negativeResultTTL: TimeInterval
     let candidateResultTTL: TimeInterval?
     let discogsAcquisitionSignature: String

@@ -34,6 +34,20 @@ struct AnalyticsWiringTests {
         #expect(musicBrainzAnalytics === analytics)
         #expect(catalogAnalytics === analytics)
     }
+
+    @Test("API orchestrators receive the composition-root analytics service")
+    func orchestratorAnalytics() {
+        let analytics = FactoryAnalyticsProbe()
+        let configuration = AppDependencies.orchestratorConfiguration(
+            configuration: AppConfiguration(),
+            cache: nil,
+            reachability: nil,
+            analytics: analytics,
+            disabledSources: []
+        )
+
+        #expect(configuration.analytics as? FactoryAnalyticsProbe === analytics)
+    }
 }
 
 private actor FactoryAnalyticsProbe: AnalyticsService {
