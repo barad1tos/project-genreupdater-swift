@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import DesignUI
 
-// BrowseView.filterArtists is a View static and therefore MainActor-
-// isolated; newer runtimes enforce that with a dispatch assertion, so
-// the suite must run on the main actor.
+/// BrowseView.filterArtists is a View static and therefore MainActor-
+/// isolated; newer runtimes enforce that with a dispatch assertion, so
+/// the suite must run on the main actor.
 @Suite("Browse triage filter")
 @MainActor
 struct BrowseFilterTests {
