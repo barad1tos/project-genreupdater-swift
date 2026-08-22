@@ -112,8 +112,17 @@ struct UpdateWorkflowView: View {
         }
     }
 
-    private func makeDoneReport() -> UpdateRunReport {
+    func makeDoneReport() -> UpdateRunReport {
         viewModel.makeRunReport(displayMode: reportDisplayMode)
+    }
+
+    func makeReviewSnapshot(hasCleaningAccess: Bool) -> UpdateResultSnapshot {
+        UpdateResultPreviewAdapter.makeSnapshot(
+            changes: viewModel.proposedChanges,
+            scopeTitle: viewModel.runScopeTitle,
+            hasCleaningAccess: hasCleaningAccess,
+            primaryActionLabel: reviewPrimaryLabel
+        )
     }
 
     private func copyReport(_ report: UpdateRunReport) {
@@ -124,12 +133,7 @@ struct UpdateWorkflowView: View {
 
     private var reviewResults: some View {
         UpdateResultView(
-            snapshot: UpdateResultPreviewAdapter.makeSnapshot(
-                changes: viewModel.proposedChanges,
-                scopeTitle: viewModel.runScopeTitle,
-                hasCleaningAccess: hasCleaningAccess,
-                primaryActionLabel: reviewPrimaryLabel
-            ),
+            snapshot: makeReviewSnapshot(hasCleaningAccess: hasCleaningAccess),
             onPrimaryAction: reviewPrimaryCallback,
             onSecondaryAction: { viewModel.reset() },
             onToggleChange: toggleReviewChange,

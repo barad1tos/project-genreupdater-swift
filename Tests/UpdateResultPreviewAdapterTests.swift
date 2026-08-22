@@ -141,6 +141,8 @@ struct UpdateResultPreviewAdapterTests {
 
         let metrics = Dictionary(uniqueKeysWithValues: snapshot.metrics.map { ($0.id, $0.value) })
         let resultTracks = snapshot.albums.flatMap(\.tracks)
+        let resultChanges = resultTracks.flatMap(\.changes)
+        let confidences = Dictionary(uniqueKeysWithValues: resultChanges.map { ($0.id, $0.confidence) })
         #expect(snapshot.mode == .preview)
         #expect(snapshot.scope == "Smart Filter - Missing Genres")
         #expect(snapshot.primaryActionLabel == "Enable Writes")
@@ -155,10 +157,13 @@ struct UpdateResultPreviewAdapterTests {
             "artist-rename": "1",
             "affected-tracks": "3",
             "affected-albums": "2",
-            "average-confidence": "83%",
+            "average-confidence": "61%",
         ])
         #expect(Set(resultTracks.map(\.id)) == ["jóga", "bachelorette", "hyperballad"])
-        #expect(Set(resultTracks.flatMap(\.changes).map(\.id)) == Set(legacyIDs.map(\.uuidString)))
+        #expect(Set(resultChanges.map(\.id)) == Set(legacyIDs.map(\.uuidString)))
+        #expect(confidences[legacyIDs[0].uuidString] == 0.2)
+        #expect(confidences[legacyIDs[1].uuidString] == 0)
+        #expect(legacyIDs.dropFirst(2).allSatisfy { confidences[$0.uuidString] == 1 })
     }
 
     @Test("preview-only transition does not require cleaning write access")
@@ -188,12 +193,12 @@ private func makeLegacyChanges(ids: [UUID]) -> [ProposedChange] {
     let bachelorette = Track(id: "bachelorette", name: "Bachelorette", artist: "Björk", album: "Homogenic")
     let hyperballad = Track(id: "hyperballad", name: "Hyperballad", artist: "Björk", album: "Post")
     return [
-        makeLegacyChange(id: ids[0], track: jogaTrack, type: .genreUpdate, confidence: 80),
-        makeLegacyChange(id: ids[1], track: jogaTrack, type: .yearUpdate, confidence: 81, isAccepted: false),
-        makeLegacyChange(id: ids[2], track: bachelorette, type: .yearRevert, confidence: 82),
-        makeLegacyChange(id: ids[3], track: bachelorette, type: .trackCleaning, confidence: 83),
-        makeLegacyChange(id: ids[4], track: hyperballad, type: .albumCleaning, confidence: 84),
-        makeLegacyChange(id: ids[5], track: hyperballad, type: .artistRename, confidence: 85),
+        makeLegacyChange(id: ids[0], track: jogaTrack, type: .genreUpdate, confidence: 20),
+        makeLegacyChange(id: ids[1], track: jogaTrack, type: .yearUpdate, confidence: -100, isAccepted: false),
+        makeLegacyChange(id: ids[2], track: bachelorette, type: .yearRevert, confidence: 110),
+        makeLegacyChange(id: ids[3], track: bachelorette, type: .trackCleaning, confidence: 110),
+        makeLegacyChange(id: ids[4], track: hyperballad, type: .albumCleaning, confidence: 110),
+        makeLegacyChange(id: ids[5], track: hyperballad, type: .artistRename, confidence: 113),
     ]
 }
 

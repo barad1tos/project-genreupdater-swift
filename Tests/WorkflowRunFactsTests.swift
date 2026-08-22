@@ -1,5 +1,6 @@
 import Core
 import Services
+import SwiftUI
 import Testing
 @testable import Genre_Updater
 
@@ -7,7 +8,7 @@ import Testing
 @MainActor
 struct WorkflowRunFactsTests {
     @Test("review scope remains tied to the run after settings change")
-    func reviewScopeUsesCapturedRunFacts() async throws {
+    func keepsReviewRunFacts() async throws {
         let fixture = makeWorkflowFixture()
         let viewModel = fixture.viewModel
         viewModel.mode = .smartFilter
@@ -39,12 +40,16 @@ struct WorkflowRunFactsTests {
         viewModel.smartFilterType = .lowConfidence
         libraryTracks = [Track(id: "replacement", name: "Replacement", artist: "Other", album: "Other")]
         testArtists = ["Other"]
-        let preview = UpdateResultPreviewAdapter.makeSnapshot(
-            changes: viewModel.proposedChanges,
-            scopeTitle: viewModel.runScopeTitle,
-            hasCleaningAccess: true,
-            primaryActionLabel: "Apply"
+        let view = UpdateWorkflowView(
+            viewModel: viewModel,
+            tracks: libraryTracks,
+            testArtists: testArtists,
+            reportDisplayMode: .detailed,
+            credentialIssue: nil,
+            isLibraryReadyForUpdates: true,
+            noticeMessage: .constant(nil)
         )
+        let preview = view.makeReviewSnapshot(hasCleaningAccess: true)
         let previewAlbum = try #require(preview.albums.first)
         let previewTrack = try #require(previewAlbum.tracks.first)
 
@@ -59,7 +64,7 @@ struct WorkflowRunFactsTests {
     }
 
     @Test("done report and copy text use the run's original display facts")
-    func doneReportUsesCapturedRunFacts() async throws {
+    func keepsDoneRunFacts() async throws {
         let fixture = makeWorkflowFixture()
         let viewModel = fixture.viewModel
         viewModel.mode = .smartFilter
@@ -97,7 +102,16 @@ struct WorkflowRunFactsTests {
 
         libraryTracks = [Track(id: runTrack.id, name: "Reloaded Title", artist: "Other", album: "Other")]
         testArtists = ["Other"]
-        let report = viewModel.makeRunReport(displayMode: .detailed)
+        let view = UpdateWorkflowView(
+            viewModel: viewModel,
+            tracks: libraryTracks,
+            testArtists: testArtists,
+            reportDisplayMode: .detailed,
+            credentialIssue: nil,
+            isLibraryReadyForUpdates: true,
+            noticeMessage: .constant(nil)
+        )
+        let report = view.makeDoneReport()
 
         #expect(report.scopeTitle == "Test Artist: Run Artist")
         #expect(report.albumResults.first?.title == "Run Artist - Run Album")
@@ -111,5 +125,11 @@ struct WorkflowRunFactsTests {
         viewModel.reset()
 
         #expect(viewModel.capturedRunFacts == nil)
+
+        viewModel.start(tracks: libraryTracks, testArtists: testArtists)
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        #expect(viewModel.capturedRunFacts?.tracks.map(\.name) == ["Reloaded Title"])
+        #expect(viewModel.runScopeTitle == "Test Artist: Other")
     }
 }
