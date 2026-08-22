@@ -72,12 +72,18 @@ struct FixPlanAdapterTests {
                 decisionRevision: ReviewDecisionRevision(4),
                 sourceRunID: RunID()
             ),
+            scope: nil,
             summary: FixPlanProjection.Summary(
                 itemCount: 2,
                 acceptedCount: 2,
                 rejectedCount: 0,
                 genreCount: 0,
                 yearCount: 2,
+                trackCleaningCount: 0,
+                albumCleaningCount: 0,
+                artistRenameCount: 0,
+                affectedTrackCount: 2,
+                affectedAlbumCount: 1,
                 averageConfidence: 91,
                 canApply: true
             ),
@@ -102,6 +108,7 @@ struct FixPlanAdapterTests {
         FixPlanProjectionItem(
             id: id,
             identity: FixPlanProjectionItem.Identity(
+                trackID: id.uuidString,
                 trackName: "Idioteque",
                 artist: "Radiohead",
                 album: "Kid A"
@@ -130,12 +137,18 @@ struct FixPlanAdapterTests {
                 decisionRevision: .initial,
                 sourceRunID: RunID()
             ),
+            scope: nil,
             summary: FixPlanProjection.Summary(
                 itemCount: 1,
                 acceptedCount: acceptedCount,
                 rejectedCount: 1 - acceptedCount,
                 genreCount: 0,
                 yearCount: 0,
+                trackCleaningCount: 1,
+                albumCleaningCount: 0,
+                artistRenameCount: 0,
+                affectedTrackCount: 1,
+                affectedAlbumCount: 1,
                 averageConfidence: 90,
                 canApply: acceptedCount > 0
             ),
@@ -144,6 +157,7 @@ struct FixPlanAdapterTests {
                 FixPlanProjectionItem(
                     id: itemID,
                     identity: FixPlanProjectionItem.Identity(
+                        trackID: itemID.uuidString,
                         trackName: "Song (Remastered)",
                         artist: "Artist",
                         album: "Album"

@@ -39,6 +39,36 @@ struct FixPlanProjectionTests {
         #expect(projection.items.map(\.verdict) == [.accepted, .accepted])
     }
 
+    @Test("summary covers every change type and distinct affected identity")
+    func mapsCompleteSummary() {
+        let plan = makePlan(items: [
+            makeItem(id: itemID(1), readID: "t1", artist: "Björk", album: "Post", type: .genreUpdate),
+            makeItem(id: itemID(2), readID: "t1", artist: "Björk", album: "Post", type: .yearRevert),
+            makeItem(id: itemID(3), readID: "t2", artist: "Björk", album: "Post", type: .trackCleaning),
+            makeItem(id: itemID(4), readID: "t3", artist: "Björk", album: "Homogenic", type: .albumCleaning),
+            makeItem(id: itemID(5), readID: "t3", artist: "Björk", album: "Homogenic", type: .artistRename),
+        ])
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: decidedAt)
+        let projection = FixPlanProjector.makeProjection(
+            plan: plan,
+            decision: decision,
+            staleness: FixPlanStaleness.evaluate(
+                plan: plan,
+                currentScope: plan.scope,
+                currentConfiguration: plan.configuration
+            )
+        )
+
+        #expect(projection.genreCount == 1)
+        #expect(projection.yearCount == 1)
+        #expect(projection.trackCleaningCount == 1)
+        #expect(projection.albumCleaningCount == 1)
+        #expect(projection.artistRenameCount == 1)
+        #expect(projection.affectedTrackCount == 3)
+        #expect(projection.affectedAlbumCount == 2)
+        #expect(projection.scope == plan.scope)
+    }
+
     @Test("average confidence stays a percentage when scores exceed 100")
     func averageConfidenceIsClampedForDisplay() {
         // Domain scores are unclamped for Python parity — a perfect match is
@@ -261,6 +291,9 @@ private func makeConfiguration(minConfidence: Int = 80) -> FixPlanConfig {
 
 private func makeItem(
     id: UUID = itemID(1),
+    readID: String? = nil,
+    artist: String = "Aphex Twin",
+    album: String = "Syro",
     type: ChangeType,
     confidence: Int = 90,
     writeID: String? = "script-id",
@@ -269,10 +302,10 @@ private func makeItem(
     FixPlanItem(
         id: id,
         identity: FixPlanItemIdentity(
-            readID: "read-\(id.uuidString)",
+            readID: readID ?? "read-\(id.uuidString)",
             appleScriptID: writeID,
-            artist: "Aphex Twin",
-            album: "Syro",
+            artist: artist,
+            album: album,
             trackName: "minipops 67"
         ),
         changeType: type,

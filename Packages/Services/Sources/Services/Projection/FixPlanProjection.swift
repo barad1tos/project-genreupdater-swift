@@ -10,11 +10,13 @@ public enum FixPlanProjectionStatus: String, Equatable, Sendable {
 
 public struct FixPlanProjectionItem: Identifiable, Equatable, Sendable {
     public struct Identity: Equatable, Sendable {
+        public let trackID: String
         public let trackName: String
         public let artist: String
         public let album: String
 
-        public init(trackName: String, artist: String, album: String) {
+        public init(trackID: String, trackName: String, artist: String, album: String) {
+            self.trackID = trackID
             self.trackName = trackName
             self.artist = artist
             self.album = album
@@ -66,6 +68,9 @@ public struct FixPlanProjectionItem: Identifiable, Equatable, Sendable {
     public var trackName: String {
         identity.trackName
     }
+    public var trackID: String {
+        identity.trackID
+    }
     public var artist: String {
         identity.artist
     }
@@ -115,6 +120,11 @@ public struct FixPlanProjection: Equatable, Sendable {
         public let rejectedCount: Int
         public let genreCount: Int
         public let yearCount: Int
+        public let trackCleaningCount: Int
+        public let albumCleaningCount: Int
+        public let artistRenameCount: Int
+        public let affectedTrackCount: Int
+        public let affectedAlbumCount: Int
         public let averageConfidence: Int?
         public let canApply: Bool
 
@@ -124,6 +134,11 @@ public struct FixPlanProjection: Equatable, Sendable {
             rejectedCount: Int,
             genreCount: Int,
             yearCount: Int,
+            trackCleaningCount: Int,
+            albumCleaningCount: Int,
+            artistRenameCount: Int,
+            affectedTrackCount: Int,
+            affectedAlbumCount: Int,
             averageConfidence: Int?,
             canApply: Bool
         ) {
@@ -132,6 +147,11 @@ public struct FixPlanProjection: Equatable, Sendable {
             self.rejectedCount = rejectedCount
             self.genreCount = genreCount
             self.yearCount = yearCount
+            self.trackCleaningCount = trackCleaningCount
+            self.albumCleaningCount = albumCleaningCount
+            self.artistRenameCount = artistRenameCount
+            self.affectedTrackCount = affectedTrackCount
+            self.affectedAlbumCount = affectedAlbumCount
             self.averageConfidence = averageConfidence
             self.canApply = canApply
         }
@@ -140,6 +160,7 @@ public struct FixPlanProjection: Equatable, Sendable {
     public let revision: ProjectionRevision
     public let status: FixPlanProjectionStatus
     public let lineage: Lineage
+    public let scope: ProcessingScopeSnapshot?
     public let summary: Summary
     public let stalenessReasons: [FixPlanStalenessReason]
     public let items: [FixPlanProjectionItem]
@@ -149,6 +170,7 @@ public struct FixPlanProjection: Equatable, Sendable {
         revision: ProjectionRevision,
         status: FixPlanProjectionStatus,
         lineage: Lineage,
+        scope: ProcessingScopeSnapshot?,
         summary: Summary,
         stalenessReasons: [FixPlanStalenessReason],
         items: [FixPlanProjectionItem],
@@ -157,6 +179,7 @@ public struct FixPlanProjection: Equatable, Sendable {
         self.revision = revision
         self.status = status
         self.lineage = lineage
+        self.scope = scope
         self.summary = summary
         self.stalenessReasons = stalenessReasons
         self.items = items
@@ -190,6 +213,21 @@ public struct FixPlanProjection: Equatable, Sendable {
     public var yearCount: Int {
         summary.yearCount
     }
+    public var trackCleaningCount: Int {
+        summary.trackCleaningCount
+    }
+    public var albumCleaningCount: Int {
+        summary.albumCleaningCount
+    }
+    public var artistRenameCount: Int {
+        summary.artistRenameCount
+    }
+    public var affectedTrackCount: Int {
+        summary.affectedTrackCount
+    }
+    public var affectedAlbumCount: Int {
+        summary.affectedAlbumCount
+    }
     public var averageConfidence: Int? {
         summary.averageConfidence
     }
@@ -202,6 +240,7 @@ public struct FixPlanProjection: Equatable, Sendable {
             revision: revision,
             status: status,
             lineage: lineage,
+            scope: scope,
             summary: summary,
             stalenessReasons: stalenessReasons,
             items: items,
@@ -219,12 +258,18 @@ public struct FixPlanProjection: Equatable, Sendable {
                 decisionRevision: nil,
                 sourceRunID: nil
             ),
+            scope: nil,
             summary: Summary(
                 itemCount: 0,
                 acceptedCount: 0,
                 rejectedCount: 0,
                 genreCount: 0,
                 yearCount: 0,
+                trackCleaningCount: 0,
+                albumCleaningCount: 0,
+                artistRenameCount: 0,
+                affectedTrackCount: 0,
+                affectedAlbumCount: 0,
                 averageConfidence: nil,
                 canApply: false
             ),
@@ -244,12 +289,18 @@ public struct FixPlanProjection: Equatable, Sendable {
                 decisionRevision: nil,
                 sourceRunID: nil
             ),
+            scope: nil,
             summary: Summary(
                 itemCount: 0,
                 acceptedCount: 0,
                 rejectedCount: 0,
                 genreCount: 0,
                 yearCount: 0,
+                trackCleaningCount: 0,
+                albumCleaningCount: 0,
+                artistRenameCount: 0,
+                affectedTrackCount: 0,
+                affectedAlbumCount: 0,
                 averageConfidence: nil,
                 canApply: false
             ),

@@ -85,12 +85,18 @@ final class FixPlanCommandHarness {
             revision: fixPlanProjection.revision,
             status: .stale,
             lineage: fixPlanProjection.lineage,
+            scope: fixPlanProjection.scope,
             summary: FixPlanProjection.Summary(
                 itemCount: fixPlanProjection.itemCount,
                 acceptedCount: fixPlanProjection.acceptedCount,
                 rejectedCount: fixPlanProjection.rejectedCount,
                 genreCount: fixPlanProjection.genreCount,
                 yearCount: fixPlanProjection.yearCount,
+                trackCleaningCount: fixPlanProjection.trackCleaningCount,
+                albumCleaningCount: fixPlanProjection.albumCleaningCount,
+                artistRenameCount: fixPlanProjection.artistRenameCount,
+                affectedTrackCount: fixPlanProjection.affectedTrackCount,
+                affectedAlbumCount: fixPlanProjection.affectedAlbumCount,
                 averageConfidence: fixPlanProjection.averageConfidence,
                 canApply: false
             ),

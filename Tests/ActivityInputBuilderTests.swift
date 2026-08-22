@@ -170,12 +170,18 @@ struct ActivityInputBuilderTests {
                 decisionRevision: nil,
                 sourceRunID: nil
             ),
+            scope: nil,
             summary: FixPlanProjection.Summary(
                 itemCount: 4,
                 acceptedCount: 3,
                 rejectedCount: 1,
                 genreCount: 3,
                 yearCount: 1,
+                trackCleaningCount: 0,
+                albumCleaningCount: 0,
+                artistRenameCount: 0,
+                affectedTrackCount: 0,
+                affectedAlbumCount: 0,
                 averageConfidence: 92,
                 canApply: true
             ),
