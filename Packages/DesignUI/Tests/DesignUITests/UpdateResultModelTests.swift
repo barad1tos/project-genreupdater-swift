@@ -18,7 +18,7 @@ struct UpdateResultModelTests {
         #expect(UpdateResultChangeState.proposed(.accepted).verdict == .accepted)
     }
 
-    @Test("details and secondary icon have source-compatible defaults")
+    @Test("content details and secondary action icon use defaults")
     func preservesPresentationDefaults() throws {
         let snapshot = makeSnapshot(mode: .preview, status: .ready)
         let track = try #require(snapshot.albums.first?.tracks.first)
