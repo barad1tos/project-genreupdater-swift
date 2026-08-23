@@ -254,6 +254,12 @@ public struct ArtistRenamerConfig: Sendable, Codable, Equatable {
 
 // MARK: - Verification Configuration
 
+/// User-adjustable range shared by automatic verification schedules.
+public enum VerificationScheduleRange {
+    /// Supported day values in the Advanced settings UI.
+    public static let days = 0 ... 90
+}
+
 public struct DatabaseVerificationConfig: Sendable, Codable {
     public var autoVerifyDays: Int = 7
     public var batchSize: Int = 10

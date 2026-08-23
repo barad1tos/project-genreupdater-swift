@@ -319,4 +319,36 @@ struct LibrarySyncVerifyTests {
         #expect(forced.removedTrackIDs == ["T3"])
         #expect(afterForceIDs == ["T1"])
     }
+
+    @Test("Disabled automatic schedule keeps forced verification available")
+    func disabledScheduleAllowsForcedVerification() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
+        await bridge.setLibrary(ids: ["T1"], tracks: [:])
+        await store.setStored([
+            Track(id: "T1", name: "One", artist: "Artist", album: "Album"),
+            Track(id: "T2", name: "Two", artist: "Artist", album: "Album"),
+        ])
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                databaseVerificationIntervalDays: 0,
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            )
+        )
+
+        let scheduledResult = try await service.runScheduledVerification()
+
+        #expect(scheduledResult == nil)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+
+        #expect(result.removedTrackIDs == ["T2"])
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+    }
 }

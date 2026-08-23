@@ -51,6 +51,14 @@ public actor LibrarySyncService {
         }
     }
 
+    /// Runs automatic database verification when the live schedule is enabled.
+    public func runScheduledVerification() async throws -> DatabaseVerificationResult? {
+        guard runtimeConfiguration.databaseVerificationIntervalDays > 0 else {
+            return nil
+        }
+        return try await verifyAndCleanDatabase(force: false)
+    }
+
     // MARK: Manual Sync
 
     /// Detect changes between the current Music.app library and stored state.

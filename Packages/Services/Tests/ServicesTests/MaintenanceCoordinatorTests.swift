@@ -16,7 +16,7 @@ struct MaintenanceCoordinatorTests {
 
         let result = await coordinator.runPreflight()
 
-        #expect(await database.receivedForceValues() == [false])
+        #expect(await database.runCount() == 1)
         #expect(await pending.shouldAutoVerifyCallCount() == 1)
         #expect(result.databaseVerification?.verifiedTrackCount == 3)
         #expect(result.databaseVerification?.removedTrackIDs == ["stale-track"])
@@ -49,11 +49,57 @@ struct MaintenanceCoordinatorTests {
 
         let result = await coordinator.runPreflight()
 
-        #expect(await database.receivedForceValues() == [false])
+        #expect(await database.runCount() == 1)
         #expect(await pending.shouldAutoVerifyCallCount() == 1)
         #expect(result.databaseVerification == nil)
         #expect(result.isPendingVerificationDue)
         #expect(result.databaseVerificationError == "Database unavailable")
+    }
+
+    @Test("Preflight reads the live database verification schedule")
+    func preflightReadsLiveSchedule() async {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let pending = RecordingPendingService(shouldAutoVerify: true)
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MaintenanceCoordinatorTests-\(UUID().uuidString)")
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                databaseVerificationIntervalDays: 0,
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            )
+        )
+        let coordinator = MaintenanceCoordinator(
+            databaseVerificationService: service,
+            pendingVerificationService: pending
+        )
+        await bridge.setLibrary(ids: ["T1"], tracks: [:])
+        await store.setStored([
+            Track(id: "T1", name: "One", artist: "Artist", album: "Album"),
+        ])
+
+        let disabledResult = await coordinator.runPreflight()
+
+        #expect(disabledResult.databaseVerification == nil)
+        #expect(disabledResult.databaseVerificationError == nil)
+        #expect(disabledResult.isPendingVerificationDue)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+
+        await service.updateRuntimeConfiguration(
+            LibrarySyncRuntimeConfiguration(
+                databaseVerificationIntervalDays: 7,
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            )
+        )
+        let enabledResult = await coordinator.runPreflight()
+
+        #expect(enabledResult.databaseVerification?.verifiedTrackCount == 1)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        #expect(await pending.shouldAutoVerifyCallCount() == 2)
     }
 }
 
@@ -66,15 +112,15 @@ private enum MaintenanceTestError: Error, LocalizedError {
 }
 
 private actor RecordingDatabaseVerificationService: DatabaseVerificationCleaning {
-    private var forceValues: [Bool] = []
+    private var scheduledRuns = 0
     private let error: Error?
 
     init(error: Error? = nil) {
         self.error = error
     }
 
-    func verifyAndCleanDatabase(force: Bool) async throws -> DatabaseVerificationResult {
-        forceValues.append(force)
+    func runScheduledVerification() async throws -> DatabaseVerificationResult? {
+        scheduledRuns += 1
         if let error {
             throw error
         }
@@ -84,8 +130,8 @@ private actor RecordingDatabaseVerificationService: DatabaseVerificationCleaning
         )
     }
 
-    func receivedForceValues() -> [Bool] {
-        forceValues
+    func runCount() -> Int {
+        scheduledRuns
     }
 }
 
