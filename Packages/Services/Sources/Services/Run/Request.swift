@@ -123,6 +123,17 @@ public struct RunRequest: Equatable, Sendable {
         kind.previewConfiguration
     }
 
+    var canWriteLibrary: Bool {
+        switch intent {
+        case .writeFixes, .batchUpdate:
+            true
+        case .previewFixes:
+            fixPlanPolicy?.mode == .autoFix
+        case .observeLibrary:
+            false
+        }
+    }
+
     private init(
         id: RunRequestID = RunRequestID(),
         trigger: RunTrigger,

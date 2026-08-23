@@ -267,6 +267,62 @@ struct AutomaticWriteTests {
         #expect(finished.map(\.intent) == [.previewFixes, .previewFixes, .writeFixes])
     }
 
+    @Test(
+        "newer mutating runs discard an older scheduled plan",
+        arguments: SupersedingRun.allCases
+    )
+    private func mutationInvalidatesPlan(_ supersedingRun: SupersedingRun) async {
+        let fixture = stalePlanFixture()
+
+        let scheduled = Task {
+            await fixture.orchestrator.submit(.preview(
+                trigger: .backgroundSync,
+                configuration: fixture.scheduledConfiguration,
+                mode: .autoFix,
+                automation: .scheduled,
+                requestedTestArtists: [],
+                knownTrackCount: 75
+            ))
+        }
+        await fixture.planningGate.waitUntilEntered()
+        switch supersedingRun {
+        case .autoFix:
+            _ = await fixture.orchestrator.submit(.preview(
+                trigger: .manualCheck,
+                configuration: fixture.manualConfiguration,
+                mode: .autoFix,
+                requestedTestArtists: [],
+                knownTrackCount: 75
+            ))
+        case .batch:
+            _ = await fixture.orchestrator.submit(.manualBatchUpdate(
+                input: BatchRunInput(options: UpdateOptions(), trackCount: 75),
+                requestedTestArtists: [],
+                knownTrackCount: 75
+            ))
+        }
+        await fixture.planningGate.release()
+        let scheduledResult = await scheduled.value
+        let finishedCount = supersedingRun == .autoFix ? 3 : 2
+        await fixture.records.waitUntilFinished(count: finishedCount)
+
+        guard case let .completed(scheduledLifecycle) = scheduledResult else {
+            Issue.record("Expected the superseded scheduled plan to complete without writing")
+            return
+        }
+        #expect(scheduledLifecycle.trigger == .backgroundSync)
+        #expect(scheduledLifecycle.intent == .previewFixes)
+        let finished = await fixture.records.records.filter { $0.finishedAt != nil }
+        switch supersedingRun {
+        case .autoFix:
+            #expect(finished.map(\.intent) == [.previewFixes, .previewFixes, .writeFixes])
+            #expect(await fixture.writeProbe.calls.map(\.target.planID) == [fixture.manualPlanID])
+        case .batch:
+            #expect(finished.map(\.intent) == [.previewFixes, .batchUpdate])
+            #expect(await fixture.writeProbe.calls.isEmpty)
+        }
+    }
+
     @Test("recovery hold degrades auto-fix planning to preview")
     func recoveryHoldBlocksAutomaticWrite() async {
         let records = RunRecordProbe()
@@ -472,6 +528,21 @@ struct AutomaticWriteTests {
     }
 }
 
+private enum SupersedingRun: CaseIterable {
+    case autoFix
+    case batch
+}
+
+private struct StalePlanFixture {
+    let records: RunRecordProbe
+    let planningGate: SyncGate
+    let manualPlanID: FixPlanID
+    let scheduledConfiguration: FixPlanConfig
+    let manualConfiguration: FixPlanConfig
+    let writeProbe: WriteProbe
+    let orchestrator: RunOrchestrator
+}
+
 private enum AdmissionFactoryCase: CaseIterable {
     case automaticBackground
     case automaticWatch
@@ -642,6 +713,55 @@ private func planConfiguration(
         configuration: AppConfiguration(),
         options: options,
         capturedAt: capturedAt
+    )
+}
+
+private func stalePlanFixture() -> StalePlanFixture {
+    let records = RunRecordProbe()
+    let planningGate = SyncGate()
+    let scheduledPlanID = FixPlanID()
+    let manualPlanID = FixPlanID()
+    let capturedAt = Date(timeIntervalSince1970: 100)
+    let scheduledConfiguration = planConfiguration(capturedAt: capturedAt)
+    let manualConfiguration = planConfiguration(
+        capturedAt: capturedAt,
+        options: UpdateOptions(minConfidence: 80)
+    )
+    let writeProbe = WriteProbe(result: BatchUpdateResult(
+        entries: [writeEntry()],
+        failedTrackIDs: [],
+        errorDescriptions: []
+    ))
+    let orchestrator = RunOrchestrator(dependencies: .init(
+        synchronizeLibrary: { SyncResult() },
+        persistRunRecord: { try await records.append($0) },
+        produceFixPlan: { _, _, configuration in
+            if configuration.id == scheduledConfiguration.id {
+                await planningGate.waitUntilReleased()
+                return FixPlanProduction(planID: scheduledPlanID, proposalCount: 1)
+            }
+            return FixPlanProduction(planID: manualPlanID, proposalCount: 1)
+        },
+        prepareAutomaticWrite: { producedPlanID, planning, _ in
+            automaticInput(planID: producedPlanID, planning: planning, capturedAt: capturedAt)
+        },
+        write: .init(writeFixPlan: { input, _, checkpoint in
+            try await checkpointWrite(input, using: checkpoint)
+            return try await writeProbe.apply(input: input)
+        }),
+        runBatchUpdate: { _, _ in
+            BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
+        },
+        now: { capturedAt }
+    ))
+    return StalePlanFixture(
+        records: records,
+        planningGate: planningGate,
+        manualPlanID: manualPlanID,
+        scheduledConfiguration: scheduledConfiguration,
+        manualConfiguration: manualConfiguration,
+        writeProbe: writeProbe,
+        orchestrator: orchestrator
     )
 }
 

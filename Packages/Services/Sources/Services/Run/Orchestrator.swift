@@ -13,12 +13,11 @@ public actor RunOrchestrator {
     /// The one write request retained while a recovery hold blocks writes.
     /// Managed exclusively by the QueuedWrite extension.
     var queuedWrite: RunRequest?
-    /// A released queued write between leaving the slot and being parked or
-    /// started by `submit` — kept visible so plan retention never treats its
-    /// plan as orphaned inside that window. Defensive, not load-bearing:
-    /// submit registers the request synchronously on this actor before any
-    /// suspension, and the single marker is not reentrancy-safe, so coverage
-    /// must keep resting on slot/pending/activeRun.
+    /// A queued write released from its slot but not yet parked or started.
+    /// Its visibility prevents plan retention from treating it as orphaned.
+    /// Defensive, not load-bearing: `submit` registers the request synchronously
+    /// before suspension, and this marker is not reentrancy-safe; coverage must
+    /// keep resting on slot/pending/activeRun.
     var releasingWrite: RunRequest?
     private var activeTransitions: [RunLifecycleTransition] = []
     /// Internal for the QueuedWrite extension's in-flight visibility only;
@@ -219,7 +218,14 @@ public actor RunOrchestrator {
         }
         await publishInactive(completed)
         if let chainedRequest, recoveryState.hasWriteBlock == false {
-            if pendingTriggers.contains(where: { TriggerArbiter.outranks($0.request, chainedRequest) }) {
+            let outrankingRequests = pendingTriggers.filter {
+                TriggerArbiter.outranks($0.request, chainedRequest)
+            }
+            if outrankingRequests.contains(where: \.request.canWriteLibrary) {
+                startPendingRun()
+                return .completed(completed)
+            }
+            if !outrankingRequests.isEmpty {
                 pendingTriggers.append(PendingTrigger(request: chainedRequest))
                 startPendingRun()
                 return .queued(activeRun: activeRun ?? completed)
