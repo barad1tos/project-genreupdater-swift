@@ -45,7 +45,7 @@ extension RunRecordDataStore {
             )
             let configuration = payload?.configuration ?? fallback?.configuration
             let intent = RunIntent(rawValue: row.intentRaw)
-                ?? (configuration?.writeAuthority == .reviewedPlan ? .writeFixes : .observeLibrary)
+                ?? (configuration?.writeAuthority.canWritePlan == true ? .writeFixes : .observeLibrary)
             let hasInvalidAuthority = Self.hasInvalidWorkAuthority(
                 workItems,
                 intent: intent,

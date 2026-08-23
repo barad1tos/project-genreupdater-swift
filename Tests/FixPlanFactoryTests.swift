@@ -6,6 +6,153 @@ import Testing
 
 @Suite("Fix plan write factory")
 struct FixPlanFactoryTests {
+    @Test("automatic plan authority uses the canonical fix-plan writer")
+    @MainActor
+    func automaticPlanUsesCanonicalWriter() async throws {
+        let fixture = await makeWriteFixture(hasInitialRecovery: false)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        await fixture.script.returnChangedOutcome()
+        let reviewed = fixture.input.configuration
+        let automatic = FixPlanWriteInput(
+            target: fixture.input.target,
+            scope: fixture.input.scope,
+            configuration: RunConfig(
+                id: reviewed.id,
+                capturedAt: reviewed.capturedAt,
+                mode: .autoFix,
+                writeAuthority: .automaticPlan,
+                automation: .hybrid,
+                scopeID: reviewed.scopeID,
+                settings: reviewed.settings,
+                hadRecoveryHold: false
+            ),
+            workItems: fixture.input.workItems
+        )
+
+        let result = try await fixture.run(automatic)
+
+        #expect(result.entries.count == 1)
+        #expect(await fixture.runtime.callCount == 1)
+    }
+
+    @Test("automatic input builder preserves plan lineage and processing policy")
+    @MainActor
+    func automaticBuilderPreservesLineage() async throws {
+        let item = makeItem()
+        let plan = makePlan(item)
+        let decision = FixPlanReviewer.initialDecision(
+            for: plan,
+            at: Date(timeIntervalSince1970: 110)
+        )
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { configuration in _ = configuration }
+        )
+        dependencies.configureLibraryPersistenceForTesting(
+            fixPlanStore: FactoryPlanStore(plan: plan, decision: decision)
+        )
+        dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        let planning = RunConfig(
+            capturedAt: Date(timeIntervalSince1970: 100),
+            mode: .autoFix,
+            writeAuthority: .readOnly,
+            automation: .hybrid,
+            scopeID: plan.scope.id,
+            settings: plan.configuration,
+            hadRecoveryHold: false
+        )
+
+        let input = try await dependencies.makeAutomaticWriteBuilder()(
+            plan.id,
+            planning,
+            .backgroundSync
+        )
+
+        #expect(input.target.planID == plan.id)
+        #expect(input.target.planRevision == plan.revision)
+        #expect(input.target.decisionRevision == decision.revision)
+        #expect(input.scope == plan.scope)
+        #expect(input.configuration.mode == .autoFix)
+        #expect(input.configuration.writeAuthority == .automaticPlan)
+        #expect(input.configuration.automation == .hybrid)
+        let request = RunRequest.automaticWrite(trigger: .backgroundSync, input: input)
+        #expect(request.writeInput?.requiredAdmissionFeature == .autoSync)
+        #expect(input.workItems.map(\.id) == plan.items.map(\.id))
+    }
+
+    @Test("background automatic write rechecks entitlement at reservation")
+    @MainActor
+    func automaticWriteRechecksEntitlement() async throws {
+        let tier = MutableTier(.pro)
+        let gate = FeatureGate(
+            tierProvider: { tier.value },
+            freeTracksUsedProvider: { 0 },
+            usageRecorder: { trackCount in _ = trackCount }
+        )
+        let fixture = await makeWriteFixture(
+            hasInitialRecovery: false,
+            featureGate: gate
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let baseInput = FixPlanWriteInput(
+            target: fixture.input.target,
+            scope: fixture.input.scope,
+            configuration: fixture.input.configuration,
+            workItems: fixture.input.workItems
+        )
+        let request = RunRequest.automaticWrite(trigger: .backgroundSync, input: baseInput)
+        let input = try #require(request.writeInput)
+        tier.value = .free
+
+        await #expect(throws: FeatureGateError.self) {
+            _ = try await fixture.run(input)
+        }
+        #expect(await fixture.runtime.callCount == 0)
+        #expect(await fixture.script.fetchCalls.isEmpty)
+    }
+
+    @Test("background automatic input rechecks the live automation entitlement")
+    @MainActor
+    func automaticBuilderRechecksEntitlement() async throws {
+        let item = makeItem()
+        let plan = makePlan(item)
+        let decision = FixPlanReviewer.initialDecision(
+            for: plan,
+            at: Date(timeIntervalSince1970: 110)
+        )
+        let tier = MutableTier(.pro)
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { configuration in _ = configuration }
+        )
+        dependencies.configureLibraryPersistenceForTesting(
+            fixPlanStore: FactoryPlanStore(plan: plan, decision: decision)
+        )
+        dependencies.installTestFeatureGate(FeatureGate(
+            tierProvider: { tier.value },
+            freeTracksUsedProvider: { 0 },
+            usageRecorder: { trackCount in _ = trackCount }
+        ))
+        let builder = dependencies.makeAutomaticWriteBuilder()
+        tier.value = .free
+
+        await #expect(throws: FeatureGateError.self) {
+            _ = try await builder(
+                plan.id,
+                RunConfig(
+                    capturedAt: Date(timeIntervalSince1970: 100),
+                    mode: .autoFix,
+                    writeAuthority: .readOnly,
+                    automation: .scheduled,
+                    scopeID: plan.scope.id,
+                    settings: plan.configuration,
+                    hadRecoveryHold: false
+                ),
+                .backgroundSync
+            )
+        }
+    }
+
     @Test("a free user spends one track after applying a reviewed fix plan")
     @MainActor
     func freePlanConsumesAllowance() async throws {

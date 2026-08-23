@@ -261,7 +261,7 @@ struct SettingsCommandsTests {
             target: SettingsCommandTarget(expectedSettingsRevision: 0),
             dependencies: dependencies
         )
-        let planConfig = dependencies.capturePreviewConfig(
+        let planConfig = dependencies.captureFixPlanConfig(
             at: Date(timeIntervalSince1970: 100),
             hasDiscogsAccess: dependencies.isDiscogsAccessAvailable ?? false
         )
@@ -299,7 +299,7 @@ struct SettingsCommandsTests {
             target: SettingsCommandTarget(expectedSettingsRevision: 0),
             dependencies: dependencies
         )
-        let planConfig = dependencies.capturePreviewConfig(
+        let planConfig = dependencies.captureFixPlanConfig(
             at: Date(timeIntervalSince1970: 100),
             hasDiscogsAccess: dependencies.isDiscogsAccessAvailable ?? false
         )

@@ -35,9 +35,10 @@ extension AppDependencies {
     func makeRunOrchestrator(
         syncService: LibrarySyncService,
         runRecordStore: any RunRecordStore,
-        processor: BatchProcessor
+        processor: BatchProcessor,
+        runtimeFactory: RunRuntimeFactory? = nil
     ) -> RunOrchestrator {
-        let runtime = makeRunRuntime()
+        let runtime = runtimeFactory ?? makeRunRuntime()
         let synchronizePreview: (@Sendable (
             ProcessingScopeSnapshot,
             FixPlanConfig
@@ -73,13 +74,60 @@ extension AppDependencies {
                 }
             ),
             produceFixPlan: makePreviewProducer(runtime: runtime),
+            prepareAutomaticWrite: makeAutomaticWriteBuilder(),
             releasePreview: { configuration in
                 await runtime?.discard(configuration)
             },
             write: write,
             runBatchUpdate: makeBatchRunnerBridge(),
-            currentDecisionTarget: makeCurrentDecisionTarget()
+            currentDecisionTarget: makeCurrentDecisionTarget(),
+            recordSuccessfulProcessing: { [weak self] in
+                guard let self else { return }
+                await self.incrementalRunTracker?.updateLastRunTimestamp()
+                await self.refreshIncrementalRunTimestamp()
+            }
         ))
+    }
+
+    func makeAutomaticWriteBuilder() -> @Sendable (
+        FixPlanID,
+        RunConfig,
+        RunTrigger
+    ) async throws -> FixPlanWriteInput {
+        { [weak self] planID, planning, trigger in
+            guard let self else {
+                throw AppDependencyServiceError.runOrchestratorUnavailable
+            }
+            guard let store = await self.fixPlanStore else {
+                throw AppDependencyServiceError.fixPlanStoreUnavailable
+            }
+            guard let gate = await self.featureGate else {
+                throw AppDependencyServiceError.featureGateUnavailable
+            }
+            if trigger == .backgroundSync || trigger == .fileSystemEvent {
+                try await gate.require(.autoSync)
+            }
+            guard let decision = try await store.currentDecision(for: planID) else {
+                throw FixPlanWrite.Failure.missingDecision(planID)
+            }
+            guard let plan = try await store.plan(id: planID, revision: decision.planRevision) else {
+                throw FixPlanWrite.Failure.missingPlan(planID)
+            }
+            let configuration = RunConfig(
+                capturedAt: Date(),
+                mode: planning.mode,
+                writeAuthority: .automaticPlan,
+                automation: planning.automation,
+                scopeID: plan.scope.id,
+                settings: plan.configuration,
+                hadRecoveryHold: false
+            )
+            return try FixPlanWrite.makeInput(
+                plan: plan,
+                decision: decision,
+                configuration: configuration
+            )
+        }
     }
 
     /// Bridges the orchestrator's Sendable runner slot onto the live

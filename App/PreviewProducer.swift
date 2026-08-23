@@ -6,7 +6,7 @@ import Services
 private let previewProducerLog = Logger(subsystem: "com.genreupdater", category: "preview-producer")
 
 extension AppDependencies {
-    func capturePreviewConfig(
+    func captureFixPlanConfig(
         at date: Date,
         hasDiscogsAccess: Bool,
         albumTarget: FixPlanAlbumTarget? = nil
@@ -27,15 +27,12 @@ extension AppDependencies {
             ProcessingScopeSnapshot,
             FixPlanConfig
         ) async throws -> FixPlanProduction)? {
-        let missingInputs = missingPreviewInputs()
-        guard missingInputs.isEmpty,
-              let runtime,
+        guard let runtime,
               let trackStore,
               let fixPlanStore
         else {
-            let missingList = missingInputs.joined(separator: ", ")
-            previewProducerLog.warning("Preview producer unavailable: missing \(missingList, privacy: .public)")
-            assertionFailure("Preview producer unavailable: missing \(missingList)")
+            previewProducerLog.warning("Preview producer unavailable: missing runtime or stores")
+            assertionFailure("Preview producer unavailable: missing runtime or stores")
             return nil
         }
 
@@ -74,18 +71,5 @@ extension AppDependencies {
             updateGenre: selection.updateGenre,
             updateYear: selection.updateYear
         )
-    }
-
-    private func missingPreviewInputs() -> [String] {
-        [
-            scriptInstaller == nil ? "scriptInstaller" : nil,
-            modelContainer == nil ? "modelContainer" : nil,
-            featureGate == nil ? "featureGate" : nil,
-            cacheService == nil ? "cacheService" : nil,
-            undoCoordinator == nil ? "undoCoordinator" : nil,
-            trackStore == nil ? "trackStore" : nil,
-            fixPlanStore == nil ? "fixPlanStore" : nil,
-            trackIDMapper == nil ? "trackIDMapper" : nil
-        ].compactMap(\.self)
     }
 }

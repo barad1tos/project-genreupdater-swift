@@ -24,7 +24,7 @@ struct ExperienceLevelTests {
             }
         )
         await dependencies.publishSettingsProjection()
-        let baselineFingerprint = dependencies.capturePreviewConfig(
+        let baselineFingerprint = dependencies.captureFixPlanConfig(
             at: Date(timeIntervalSince1970: 100),
             hasDiscogsAccess: true
         ).fingerprint
@@ -35,7 +35,7 @@ struct ExperienceLevelTests {
         // level-derived projection field could not slip through unnoticed.
         defaults.set(ExperienceLevel.casual.rawValue, forKey: AppStorageKey.experienceLevel)
 
-        let casualFingerprint = dependencies.capturePreviewConfig(
+        let casualFingerprint = dependencies.captureFixPlanConfig(
             at: Date(timeIntervalSince1970: 100),
             hasDiscogsAccess: true
         ).fingerprint

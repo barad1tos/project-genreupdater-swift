@@ -5,6 +5,59 @@ import Testing
 
 @Suite("Run configuration persistence")
 struct RunConfigStoreTests {
+    @Test("Explicit processing mode and automatic authority survive persistence")
+    func roundTripsExplicitAutomaticMode() throws {
+        let capturedAt = Date(timeIntervalSince1970: 100)
+        let snapshot = RunConfig(
+            capturedAt: capturedAt,
+            mode: .preview,
+            writeAuthority: .automaticPlan,
+            automation: .hybrid,
+            scopeID: UUID(),
+            settings: FixPlanConfig.capture(
+                configuration: AppConfiguration(),
+                options: UpdateOptions(),
+                capturedAt: capturedAt
+            ),
+            hadRecoveryHold: false
+        )
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(RunConfig.self, from: encoded)
+
+        #expect(decoded.mode == .preview)
+        #expect(decoded.writeAuthority == .automaticPlan)
+        #expect(decoded.automation == .hybrid)
+    }
+
+    @Test("Legacy snapshots derive processing mode when the persisted field is absent")
+    func decodesLegacyProcessingMode() throws {
+        var configuration = AppConfiguration()
+        configuration.runtime.dryRun = true
+        let capturedAt = Date(timeIntervalSince1970: 100)
+        let snapshot = RunConfig(
+            capturedAt: capturedAt,
+            mode: .autoFix,
+            writeAuthority: .readOnly,
+            automation: .manualOnly,
+            scopeID: UUID(),
+            settings: FixPlanConfig.capture(
+                configuration: configuration,
+                options: UpdateOptions(),
+                capturedAt: capturedAt
+            ),
+            hadRecoveryHold: false
+        )
+        let encoded = try JSONEncoder().encode(snapshot)
+        var payload = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        payload["mode"] = nil
+        let legacyData = try JSONSerialization.data(withJSONObject: payload)
+
+        let decoded = try JSONDecoder().decode(RunConfig.self, from: legacyData)
+
+        #expect(decoded.mode == .preview)
+    }
+
     @Test("Historical run snapshots preserve formerly tolerated numeric values")
     func historicalNumericSnapshotRemainsDecodable() throws {
         var configuration = AppConfiguration()

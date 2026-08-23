@@ -206,6 +206,8 @@ public actor BatchProcessor {
     ///     moves; a default would let a caller opt out in silence.
     ///   - requiredFeature: Additional paid feature required by the accepted
     ///     write set, or `nil` when ordinary free-track admission is sufficient.
+    ///   - requiredAdmissionFeature: Feature required by the route that admitted
+    ///     the write, captured with the same live entitlement snapshot.
     ///   - appliedTrackIDs: Projects the distinct tracks actually changed by a
     ///     successful operation. Failed and no-op writes must not be returned.
     ///   - partialTrackIDs: Projects known successful changes carried by a
@@ -214,6 +216,7 @@ public actor BatchProcessor {
     public func performRecoverableWrite<Value: Sendable>(
         trackCount: Int,
         requiredFeature: AppFeature?,
+        requiredAdmissionFeature: AppFeature? = nil,
         appliedTrackIDs: @Sendable (Value) -> Set<String>,
         partialTrackIDs: @Sendable (any Error) -> Set<String>,
         operation: @escaping @Sendable () async throws -> Value
@@ -221,6 +224,7 @@ public actor BatchProcessor {
         let admission = try await reserveWrite(
             requiresBatchFeature: false,
             requiredFeature: requiredFeature,
+            requiredAdmissionFeature: requiredAdmissionFeature,
             trackCount: trackCount
         )
         defer { isWriteReserved = false }
@@ -466,6 +470,7 @@ public actor BatchProcessor {
     private func reserveWrite(
         requiresBatchFeature: Bool,
         requiredFeature: AppFeature?,
+        requiredAdmissionFeature: AppFeature? = nil,
         trackCount: Int
     ) async throws -> WriteAdmission {
         guard !isWriteReserved else {
@@ -480,6 +485,9 @@ public actor BatchProcessor {
             // verification, and fix-plan paths all wrote past the free limit.
             if let requiredFeature {
                 try admission.require(requiredFeature)
+            }
+            if let requiredAdmissionFeature {
+                try admission.require(requiredAdmissionFeature)
             }
             try admission.requireTrackCapacity(count: trackCount)
             if requiresBatchFeature {

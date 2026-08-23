@@ -13,12 +13,11 @@ public actor RunOrchestrator {
     /// The one write request retained while a recovery hold blocks writes.
     /// Managed exclusively by the QueuedWrite extension.
     var queuedWrite: RunRequest?
-    /// A released queued write between leaving the slot and being parked or
-    /// started by `submit` — kept visible so plan retention never treats its
-    /// plan as orphaned inside that window. Defensive, not load-bearing:
-    /// submit registers the request synchronously on this actor before any
-    /// suspension, and the single marker is not reentrancy-safe, so coverage
-    /// must keep resting on slot/pending/activeRun.
+    /// A queued write released from its slot but not yet parked or started.
+    /// Its visibility prevents plan retention from treating it as orphaned.
+    /// Defensive, not load-bearing: `submit` registers the request synchronously
+    /// before suspension, and this marker is not reentrancy-safe; coverage must
+    /// keep resting on slot/pending/activeRun.
     var releasingWrite: RunRequest?
     private var activeTransitions: [RunLifecycleTransition] = []
     /// Internal for the QueuedWrite extension's in-flight visibility only;
@@ -112,17 +111,7 @@ public actor RunOrchestrator {
         }
 
         do {
-            let work = try await performRunWork(from: lifecycle, request: request)
-            await releasePreview(request)
-            if let failureMessage = work.failureMessage {
-                return await finishFailedRun(
-                    from: work.reportingSource,
-                    failureMessage: failureMessage,
-                    syncResult: work.result,
-                    writeSummary: work.writeSummary
-                )
-            }
-            return await finishSuccessfulRun(work, intent: request.intent)
+            return try await finishRunWork(from: lifecycle, request: request)
         } catch is CancellationError {
             await releasePreview(request)
             log.error("Run \(lifecycle.runID.rawValue.uuidString, privacy: .public) cancelled")
@@ -184,7 +173,11 @@ public actor RunOrchestrator {
         )
     }
 
-    private func finishSuccessfulRun(_ work: RunWork, intent: RunIntent) async -> RunSubmissionResult {
+    func finishSuccessfulRun(
+        _ work: RunWork,
+        intent: RunIntent,
+        chainedRequest: RunRequest? = nil
+    ) async -> RunSubmissionResult {
         let reporting = beginReporting(from: work.reportingSource)
         let finishedAt = auditTime()
         let completed = reporting.finishing(
@@ -200,7 +193,7 @@ public actor RunOrchestrator {
             failureMessage: nil,
             finishedAt: completed.finishedAt
         )
-        if intent.isMutating, !isStored {
+        if intent.isMutating || chainedRequest != nil, !isStored {
             activeTransitions.removeLast()
             if reporting.hasWriteProgress || (work.writeSummary?.applied ?? 0) > 0 {
                 return await finishUnstoredWrite(
@@ -212,13 +205,34 @@ public actor RunOrchestrator {
             }
             return await finishFailedRun(
                 from: reporting,
-                failureMessage: "Verified write run could not persist its terminal record",
+                failureMessage: intent.isMutating
+                    ? "Verified write run could not persist its terminal record"
+                    : "Fix plan result could not persist its terminal record",
                 syncResult: completed.syncResult,
                 writeSummary: work.writeSummary,
                 isTerminalRetry: true
             )
         }
+        if intent == .writeFixes {
+            await dependencies.recordSuccessfulProcessing?()
+        }
         await publishInactive(completed)
+        if let chainedRequest, recoveryState.hasWriteBlock == false {
+            let outrankingRequests = pendingTriggers.filter {
+                TriggerArbiter.outranks($0.request, chainedRequest)
+            }
+            if outrankingRequests.contains(where: \.request.canWriteLibrary) {
+                startPendingRun()
+                return .completed(completed)
+            }
+            if !outrankingRequests.isEmpty {
+                pendingTriggers.append(PendingTrigger(request: chainedRequest))
+                startPendingRun()
+                return .queued(activeRun: activeRun ?? completed)
+            }
+            let chainedTask = startRun(for: chainedRequest, startedAt: dependencies.now())
+            return await chainedTask.value
+        }
         startPendingRun()
         if case .finished(.completedNoOp, _) = completed.phase {
             return .completedNoOp(completed)
@@ -246,12 +260,6 @@ public actor RunOrchestrator {
         )
     }
 
-    private func releasePreview(_ request: RunRequest) async {
-        guard let configuration = request.previewConfiguration,
-              let releasePreview = dependencies.releasePreview else { return }
-        await releasePreview(configuration)
-    }
-
     private func releaseCoveredPreview(
         _ request: RunRequest,
         active: RunLifecycleSnapshot,
@@ -276,7 +284,7 @@ public actor RunOrchestrator {
         }
     }
 
-    private func performRunWork(
+    func performRunWork(
         from lifecycle: RunLifecycleSnapshot,
         request: RunRequest
     ) async throws -> RunWork {
@@ -306,7 +314,8 @@ public actor RunOrchestrator {
                 result: syncResult,
                 hasActionableWork: production.producedPlan,
                 writeSummary: nil,
-                failureMessage: nil
+                failureMessage: nil,
+                producedPlanID: production.planID
             )
         case let .writeFixes(writeInput):
             return try await performWrite(writeInput, from: lifecycle)
@@ -362,7 +371,7 @@ public actor RunOrchestrator {
         )
     }
 
-    private func finishFailedRun(
+    func finishFailedRun(
         from lifecycle: RunLifecycleSnapshot,
         failureMessage: String,
         syncResult: SyncResult? = nil,
@@ -756,7 +765,8 @@ public actor RunOrchestrator {
             request: request,
             scope: scope,
             startedAt: startedAt,
-            phase: .active(.created)
+            phase: .active(.created),
+            hadRecoveryHold: recoveryState.hasWriteBlock
         )
     }
 

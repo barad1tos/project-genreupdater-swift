@@ -48,7 +48,7 @@ extension AppDependencies {
                     break
                 }
                 guard let self else { break }
-                await self.submitScheduledObservation()
+                await self.submitScheduledProcessing()
                 delay = interval
             }
         }
@@ -91,7 +91,7 @@ extension AppDependencies {
                     if Task.isCancelled {
                         return
                     }
-                    await self.submitWatchObservation()
+                    await self.submitWatchProcessing()
                 }
                 if Task.isCancelled {
                     return
@@ -136,7 +136,7 @@ extension AppDependencies {
     }
 
     /// The anchor is the LATER of the durable tracker timestamp and the
-    /// in-memory last tick: observations never advance the tracker (the
+    /// in-memory last tick: planning without writes never advances the tracker (the
     /// processing watermark), so without the tick anchor every re-arm
     /// after the first tick would fire immediately.
     private func initialScheduleDelay(interval: TimeInterval) async -> TimeInterval {
@@ -145,11 +145,11 @@ extension AppDependencies {
         return Self.scheduleDelay(anchor: anchor, now: Date(), interval: interval)
     }
 
-    /// One scheduled tick = one observation submitted through the
+    /// One scheduled tick = one processing run submitted through the
     /// orchestrator; the arbiter absorbs or queues it against any active
     /// run (ADR 0003 priorities). The gate is re-checked per tick so a
     /// lapsed subscription disarms mid-session instead of ticking on.
-    func submitScheduledObservation() async {
+    func submitScheduledProcessing() async {
         guard featureGate?.canAccess(.autoSync) == true else {
             automationScheduleTask?.cancel()
             automationScheduleTask = nil
@@ -158,22 +158,26 @@ extension AppDependencies {
             log.info("Automation gate lapsed; schedule source disarmed")
             return
         }
-        guard let runOrchestrator else { return }
         lastScheduledTickAt = Date()
-        let request = await RunRequest.observation(
-            trigger: .backgroundSync,
-            requestedTestArtists: config.development.testArtists,
-            knownTrackCount: currentKnownTrackCount()
-        )
-        let result = await runOrchestrator.submit(request)
-        log.info("Scheduled observation finished as \(String(describing: result.lifecycle?.state), privacy: .public)")
+        do {
+            let result = try await submitProcessingRun(
+                trigger: .backgroundSync,
+                mode: configuredProcessingMode
+            )
+            log
+                .info(
+                    "Scheduled processing finished as \(String(describing: result.lifecycle?.state), privacy: .public)"
+                )
+        } catch {
+            log.error("Scheduled processing failed: \(error.localizedDescription, privacy: .private)")
+        }
     }
 
     /// Python launchd ThrottleInterval (300 s): mutation bursts coalesce
-    /// into one observation; the gate is re-checked per event.
+    /// into one processing run; the gate is re-checked per event.
     static let watchThrottleInterval: TimeInterval = 300
 
-    func submitWatchObservation() async {
+    func submitWatchProcessing() async {
         guard featureGate?.canAccess(.autoSync) == true else {
             teardownWatchSource()
             isAutomationArmed = automationScheduleTask != nil
@@ -189,15 +193,16 @@ extension AppDependencies {
                 return
             }
         }
-        guard let runOrchestrator else { return }
         lastWatchTickAt = Date()
-        let request = await RunRequest.observation(
-            trigger: .fileSystemEvent,
-            requestedTestArtists: config.development.testArtists,
-            knownTrackCount: currentKnownTrackCount()
-        )
-        let result = await runOrchestrator.submit(request)
-        log.info("Watch observation finished as \(String(describing: result.lifecycle?.state), privacy: .public)")
+        do {
+            let result = try await submitProcessingRun(
+                trigger: .fileSystemEvent,
+                mode: configuredProcessingMode
+            )
+            log.info("Watch processing finished as \(String(describing: result.lifecycle?.state), privacy: .public)")
+        } catch {
+            log.error("Watch processing failed: \(error.localizedDescription, privacy: .private)")
+        }
     }
 
     /// The agent's wake entry (slice 14): the URL carries only intent —
@@ -220,7 +225,7 @@ extension AppDependencies {
         // redundant agent nudge would coalesce into a trailing tick and
         // re-observe an already-recorded change ~5 minutes later.
         guard automationWatchTask == nil else { return }
-        await submitWatchObservation()
+        await submitWatchProcessing()
     }
 
     /// The parked cold-launch wake, submitted DIRECTLY: the in-process
@@ -230,7 +235,7 @@ extension AppDependencies {
         guard let url = pendingAutomationWakeURL else { return }
         pendingAutomationWakeURL = nil
         guard Self.isAutomationWakeURL(url), wantsWatchStrategy else { return }
-        await submitWatchObservation()
+        await submitWatchProcessing()
     }
 
     private static func isAutomationWakeURL(_ url: URL) -> Bool {
@@ -250,7 +255,7 @@ extension AppDependencies {
             try? await Task.sleep(for: .seconds(delay))
             guard let self, !Task.isCancelled else { return }
             automationWatchTrailingTask = nil
-            await submitWatchObservation()
+            await submitWatchProcessing()
         }
     }
 }

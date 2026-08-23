@@ -332,14 +332,19 @@ struct StoreWriteError: LocalizedError {
     }
 }
 
-func makeCommandPlan(firstHasWriteID: Bool = true) -> FixPlan {
-    FixPlan(
+func makeCommandPlan(
+    firstHasWriteID: Bool = true,
+    automationStrategy: AutomationStrategy = .manualOnly
+) -> FixPlan {
+    var configuration = AppConfiguration()
+    configuration.runtime.automationStrategy = automationStrategy
+    return FixPlan(
         id: FixPlanID(rawValue: commandUUID("00000000-0000-0000-0000-000000000101")),
         revision: .initial,
         sourceRunID: RunID(rawValue: commandUUID("00000000-0000-0000-0000-000000000102")),
         createdAt: Date(timeIntervalSince1970: 1_800_000_100),
         configuration: FixPlanConfig.capture(
-            configuration: AppConfiguration(),
+            configuration: configuration,
             options: UpdateOptions(
                 updateGenre: true,
                 updateYear: true,

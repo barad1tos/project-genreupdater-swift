@@ -197,6 +197,7 @@ struct WriteTerminalStoreTests {
     @Test("partial write requires recovery when its terminal record cannot persist")
     func partialWriteStoreFailure() async {
         let records = FailingRecordProbe(failingCall: 5)
+        let processing = ProcessingSuccessProbe()
         let recoveryID = UUID()
         let writer = WriteProbe(result: BatchUpdateResult(
             entries: [writeEntry()],
@@ -213,7 +214,8 @@ struct WriteTerminalStoreTests {
                     return try await writer.apply(input: input)
                 },
                 beginRecoveryHold: { recoveryID }
-            )
+            ),
+            recordSuccessfulProcessing: { await processing.record() }
         ))
 
         let result = await orchestrator.submit(.manualWrite(input: writeInput()))
@@ -227,6 +229,7 @@ struct WriteTerminalStoreTests {
         #expect(reason.contains("Failed to write genre for track track-2"))
         #expect(!reason.contains("Verify Music.app"))
         #expect(await writer.calls.count == 1)
+        #expect(await processing.callCount == 0)
         let recovered = await records.records.last
         #expect(recovered?.recoveryID == recoveryID)
         #expect(recovered?.writeSummary?.applied == 1)

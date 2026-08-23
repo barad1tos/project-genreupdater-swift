@@ -226,7 +226,7 @@ extension RunRecordDataStore {
             }
         }
         return hasWriteState
-            && (intent != .writeFixes || configuration?.writeAuthority != .reviewedPlan)
+            && (intent != .writeFixes || configuration?.writeAuthority.canWritePlan != true)
     }
 
     static func isBlocked(
@@ -283,7 +283,7 @@ extension RunRecordDataStore {
         configuration: RunConfig?,
         writeTarget: FixPlanWriteTarget?
     ) -> String? {
-        if configuration?.writeAuthority == .reviewedPlan {
+        if configuration?.writeAuthority.canWritePlan == true {
             return "configuration.writeAuthority"
         }
         if writeTarget != nil {
@@ -299,7 +299,7 @@ extension RunRecordDataStore {
         transitions: [RunLifecycleTransition]?,
         writeSummary: RunWriteSummary?
     ) -> String? {
-        if configuration?.writeAuthority == .reviewedPlan {
+        if configuration?.writeAuthority.canWritePlan == true {
             return "configuration.writeAuthority"
         }
         if writeTarget != nil {

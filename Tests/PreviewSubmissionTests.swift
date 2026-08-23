@@ -7,6 +7,38 @@ import Testing
 @Suite("Preview submission")
 @MainActor
 struct PreviewSubmissionTests {
+    @Test("Manual Run submits the canonical fix-plan pipeline with captured mode")
+    func manualRunSubmitsFixPlanPipeline() async throws {
+        let probe = SubmissionProbe()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { configuration in _ = configuration }
+        )
+        dependencies.config.runtime.dryRun = false
+        dependencies.config.runtime.automationStrategy = .hybrid
+        dependencies.installTrackCountSource { 1 }
+        await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            synchronizePreview: { scope, configuration in
+                await probe.recordSync(scope: scope, configuration: configuration)
+                return SyncResult()
+            },
+            persistRunRecord: { record in _ = record },
+            produceFixPlan: { _, scope, configuration in
+                await probe.record(scope: scope, configuration: configuration)
+                return .empty
+            }
+        )))
+
+        let result = try await dependencies.submitManualRun()
+
+        #expect(result.lifecycle?.intent == .previewFixes)
+        #expect(result.lifecycle?.configuration?.mode == .autoFix)
+        #expect(result.lifecycle?.configuration?.automation == .hybrid)
+        #expect(await probe.configuration != nil)
+        #expect(await probe.syncConfiguration != nil)
+    }
+
     @Test("Submission captures configuration before its first suspension")
     func submissionKeepsConfiguration() async throws {
         let gate = SubmissionGate()

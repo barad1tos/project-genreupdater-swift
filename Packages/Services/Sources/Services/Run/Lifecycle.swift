@@ -223,7 +223,8 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         request: RunRequest,
         scope: ProcessingScopeSnapshot,
         startedAt: Date,
-        phase: RunPhase
+        phase: RunPhase,
+        hadRecoveryHold: Bool = false
     ) {
         self.runID = runID
         requestID = request.id
@@ -232,7 +233,20 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         self.scope = scope
         previewConfiguration = request.previewConfiguration
         writeTarget = request.writeTarget
-        configuration = request.writeInput?.configuration
+        if let policy = request.fixPlanPolicy,
+           let previewConfiguration = request.previewConfiguration {
+            configuration = RunConfig(
+                capturedAt: startedAt,
+                mode: policy.mode,
+                writeAuthority: .readOnly,
+                automation: policy.automation,
+                scopeID: scope.id,
+                settings: previewConfiguration,
+                hadRecoveryHold: hadRecoveryHold
+            )
+        } else {
+            configuration = request.writeInput?.configuration
+        }
         continuesRunID = request.continuesRunID
         workLedger = WorkLedger(request.writeInput?.workItems ?? [])
         self.startedAt = startedAt
@@ -419,11 +433,11 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
                 reason: "unexpected \(intent.rawValue) run intent"
             )
         }
-        guard configuration?.writeAuthority == .reviewedPlan else {
+        guard configuration?.writeAuthority.canWritePlan == true else {
             throw WorkCheckpointError.invalid(
                 checkpoint.boundary,
                 writeAdjacent: writeAdjacent,
-                reason: "write checkpoint requires reviewed plan authority"
+                reason: "write checkpoint requires plan write authority"
             )
         }
         return try withWorkLedger(workLedger.applying(checkpoint))

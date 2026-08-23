@@ -7,6 +7,43 @@ import Testing
 @Suite("Run write runtime")
 @MainActor
 struct RunRuntimeTests {
+    @Test("headless scheduled auto-fix uses the app composition end to end")
+    func headlessAutoFixUsesAppComposition() async throws {
+        var configuration = AppConfiguration()
+        configuration.runtime.dryRun = false
+        configuration.runtime.automationStrategy = .scheduled
+        configuration.processing.defaultUpdateBehavior = .genreOnly
+        configuration.genreUpdate.overrideExisting = true
+        configuration.cleaning.genreMappings = ["Rock": "Metal"]
+        configuration.yearRetrieval.enabled = false
+        configuration.experimental.batchUpdatesEnabled = true
+
+        let track = Track(
+            id: "AS-1",
+            name: "Track 1",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            dateAdded: Date(timeIntervalSince1970: 50),
+            trackStatus: TrackKind.subscription.rawValue,
+            appleScriptID: "AS-1"
+        )
+        let fixture = try await makeCompositionFixture(configuration: configuration, track: track)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let directChanges = try await fixture.proposedChanges(configuration: configuration)
+        #expect(directChanges.map(\.changeType) == [.genreUpdate])
+
+        await fixture.dependencies.submitScheduledProcessing()
+
+        let records = try await fixture.runStore.loadAll().filter { $0.finishedAt != nil }
+        #expect(records.map(\.intent) == [.writeFixes, .previewFixes])
+        #expect(records.first?.configuration?.writeAuthority == .automaticPlan)
+        #expect(records.first?.writeSummary?.applied == 1)
+        #expect(await fixture.script.storedTrack(id: track.id)?.genre == "Metal")
+        #expect(await fixture.tracker.getLastRunTimestamp() != nil)
+        #expect(fixture.dependencies.lastIncrementalRunTimestamp != nil)
+    }
+
     @Test("Live Free access overrides captured paid cache settings")
     func freeAccessOverridesCapturedCache() async throws {
         let track = Track(id: "cache-track", name: "Track", artist: "Artist", album: "Album")
@@ -204,6 +241,182 @@ struct RunRuntimeTests {
     }
 }
 
+private struct CompositionFixture {
+    let dependencies: AppDependencies
+    let runStore: RunRecordDataStore
+    let script: RuntimeScriptSpy
+    let tracker: IncrementalRunTracker
+    let directory: URL
+    let runtime: RunRuntimeFactory
+    let store: TrackDataStore
+
+    @MainActor
+    func proposedChanges(configuration: AppConfiguration) async throws -> [ProposedChange] {
+        let capturedAt = Date(timeIntervalSince1970: 100)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: capturedAt,
+            reason: "composition-positive-control"
+        )
+        let planConfiguration = FixPlanConfig.capture(
+            configuration: configuration,
+            options: PreviewRunOptions.make(configuration: configuration, updateGenre: true, updateYear: false),
+            capturedAt: capturedAt
+        )
+        let tracks = try await store.loadAllTracks()
+        let preview = try await runtime.makePreview(configuration: planConfiguration, scope: scope)
+        try await preview.refreshIdentity(tracks, scope)
+        let albums = await preview.albumContext(tracks)
+        let artists = await preview.artistContext(tracks)
+        guard let track = tracks.first else { return [] }
+        return try await preview.determineChanges(
+            track,
+            albums[track.id] ?? [],
+            artists[track.id] ?? [],
+            planConfiguration.determinationOptions,
+            YearRunScope()
+        )
+    }
+}
+
+private struct CompositionServices {
+    let script: RuntimeScriptSpy
+    let provider: RuntimeReadProvider
+    let store: TrackDataStore
+    let planStore: FixPlanDataStore
+    let runStore: RunRecordDataStore
+    let cache: GRDBCacheService
+    let gate: FeatureGate
+    let undo: UndoCoordinator
+    let mapper: TrackIDMapper
+    let discogsAccess: DiscogsAccessStore
+
+    var runtime: RunRuntimeFactory {
+        RunRuntimeFactory(
+            services: RunServiceFactory(
+                makeScripts: { _ in script },
+                makePendingVerification: { _ in nil },
+                makeReadProvider: { _ in provider }
+            ),
+            store: store,
+            gate: gate,
+            cache: cache,
+            undo: undo,
+            mapper: mapper,
+            reachability: nil,
+            discogsAccessStore: discogsAccess,
+            analytics: nil
+        )
+    }
+}
+
+@MainActor
+private func makeCompositionFixture(
+    configuration: AppConfiguration,
+    track: Track
+) async throws -> CompositionFixture {
+    let dependencies = AppDependencies(
+        configurationLoader: { configuration },
+        configurationSaver: { savedConfiguration in _ = savedConfiguration }
+    )
+    let services = try await makeCompositionServices(
+        track: track,
+        discogsAccess: dependencies.discogsAccessStore
+    )
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("RunComposition-\(UUID().uuidString)")
+    let processor = BatchProcessor(
+        checkpointManager: CheckpointManager(directory: directory),
+        featureGate: services.gate
+    )
+    let tracker = IncrementalRunTracker(
+        logsBaseDirectory: directory.path,
+        lastIncrementalRunFile: "last-run.txt"
+    )
+    dependencies.installTestFeatureGate(services.gate)
+    dependencies.installTestIncrementalRunTracker(tracker)
+    dependencies.configureLibraryPersistenceForTesting(
+        trackStore: services.store,
+        runRecordStore: services.runStore,
+        fixPlanStore: services.planStore,
+        cache: services.cache
+    )
+    dependencies.installTestWrites(TestWriteServices(
+        batchProcessor: processor,
+        undoCoordinator: services.undo,
+        mapper: services.mapper,
+        fixPlanStore: services.planStore,
+        runRecordStore: services.runStore
+    ))
+    let syncService = LibrarySyncService(
+        scriptBridge: services.script,
+        trackStore: services.store,
+        cache: services.cache,
+        runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: configuration),
+        readProvider: services.provider
+    )
+    let orchestrator = dependencies.makeRunOrchestrator(
+        syncService: syncService,
+        runRecordStore: services.runStore,
+        processor: processor,
+        runtimeFactory: services.runtime
+    )
+    await dependencies.installTestOrchestrator(orchestrator)
+    return CompositionFixture(
+        dependencies: dependencies,
+        runStore: services.runStore,
+        script: services.script,
+        tracker: tracker,
+        directory: directory,
+        runtime: services.runtime,
+        store: services.store
+    )
+}
+
+@MainActor
+private func makeCompositionServices(
+    track: Track,
+    discogsAccess: DiscogsAccessStore
+) async throws -> CompositionServices {
+    let script = RuntimeScriptSpy(track: track)
+    let container = try ModelContainerFactory.createInMemory()
+    let store = TrackDataStore(modelContainer: container)
+    try await store.initialize()
+    try await store.saveTracks([track])
+    let cache = try GRDBCacheService.createInMemory()
+    try await cache.initialize()
+    let mapper = TrackIDMapper()
+    await mapper.seedKnownMappings([(musicKitTrack: track, appleScriptTrack: track)])
+    return CompositionServices(
+        script: script,
+        provider: RuntimeReadProvider(track: track),
+        store: store,
+        planStore: FixPlanDataStore(modelContainer: container),
+        runStore: RunRecordDataStore(modelContainer: container),
+        cache: cache,
+        gate: FeatureGate(fixedTier: .pro),
+        undo: UndoCoordinator(scriptBridge: script),
+        mapper: mapper,
+        discogsAccess: discogsAccess
+    )
+}
+
+private actor RuntimeReadProvider: LibraryReadProvider {
+    private let track: Track
+
+    init(track: Track) {
+        self.track = track
+    }
+
+    func loadLibrarySnapshot(request: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        LibraryReadSnapshot(
+            tracks: request.admits(track) ? [track] : [],
+            scannedAt: Date(timeIntervalSince1970: 100)
+        )
+    }
+}
+
 private actor RuntimeConfigProbe {
     private(set) var last: AppConfiguration?
 
@@ -256,6 +469,10 @@ private actor RuntimeScriptSpy: AppleScriptClient {
         for update in updates {
             apply(property: update.property, value: update.value, trackID: update.trackID)
         }
+    }
+
+    func storedTrack(id: String) -> Track? {
+        tracks[id]
     }
 
     private func apply(property: String, value: String, trackID: String) {

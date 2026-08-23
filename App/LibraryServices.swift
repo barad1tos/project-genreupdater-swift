@@ -41,6 +41,8 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
     case runRecordStoreUnavailable
     case runOrchestratorUnavailable
     case batchRunnerUnavailable
+    case fixPlanStoreUnavailable
+    case featureGateUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -64,6 +66,10 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
             "Run orchestrator is unavailable"
         case .batchRunnerUnavailable:
             "Batch runner is unavailable without an open workflow window"
+        case .fixPlanStoreUnavailable:
+            "Fix plan store is unavailable"
+        case .featureGateUnavailable:
+            "Feature access state is unavailable"
         }
     }
 }
@@ -162,12 +168,10 @@ extension AppDependencies {
     }
 
     func submitManualRun() async throws -> RunSubmissionResult {
-        try await submitRun { knownTrackCount in
-            .manualObservation(
-                requestedTestArtists: config.development.testArtists,
-                knownTrackCount: knownTrackCount
-            )
-        }
+        try await submitProcessingRun(
+            trigger: .manualCheck,
+            mode: configuredProcessingMode
+        )
     }
 
     func submitFixPlanWrite(input: FixPlanWriteInput) async throws -> RunSubmissionResult {
@@ -178,6 +182,20 @@ extension AppDependencies {
     }
 
     func submitPreviewRun(
+        factoryOverrides: APIClientFactoryOverrides = APIClientFactoryOverrides(),
+        albumTarget: FixPlanAlbumTarget? = nil
+    ) async throws -> RunSubmissionResult {
+        try await submitProcessingRun(
+            trigger: .manualCheck,
+            mode: .preview,
+            factoryOverrides: factoryOverrides,
+            albumTarget: albumTarget
+        )
+    }
+
+    func submitProcessingRun(
+        trigger: RunTrigger,
+        mode: RunProcessingMode,
         factoryOverrides: APIClientFactoryOverrides = APIClientFactoryOverrides(),
         albumTarget: FixPlanAlbumTarget? = nil
     ) async throws -> RunSubmissionResult {
@@ -196,27 +214,25 @@ extension AppDependencies {
             configuration: config,
             factoryOverrides: factoryOverrides
         )
-        let configuration = capturePreviewConfig(
+        let configuration = captureFixPlanConfig(
             at: Date(),
             hasDiscogsAccess: discogsAccess.isEnabled,
             albumTarget: albumTarget
         )
         let knownTrackCount = await currentKnownTrackCount()
         await discogsAccessStore.save(discogsAccess, configurationID: configuration.id)
-        return await runOrchestrator.submit(.manualPreview(
+        return await runOrchestrator.submit(.preview(
+            trigger: trigger,
             configuration: configuration,
+            mode: mode,
+            automation: configuration.appConfiguration.runtime.automationStrategy,
             requestedTestArtists: requestedTestArtists,
             knownTrackCount: knownTrackCount
         ))
     }
 
-    private func submitRun(makeRequest: (Int?) -> RunRequest) async throws -> RunSubmissionResult {
-        guard let runOrchestrator else {
-            throw AppDependencyServiceError.runOrchestratorUnavailable
-        }
-
-        let knownTrackCount = await currentKnownTrackCount()
-        return await runOrchestrator.submit(makeRequest(knownTrackCount))
+    var configuredProcessingMode: RunProcessingMode {
+        config.runtime.dryRun ? .preview : .autoFix
     }
 
     func currentRunLifecycle() async -> RunLifecycleSnapshot? {

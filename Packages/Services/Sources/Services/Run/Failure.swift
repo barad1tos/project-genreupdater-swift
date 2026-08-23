@@ -70,6 +70,8 @@ extension WriteAttemptFailure {
 extension RunOrchestrator {
     enum RunWorkError: LocalizedError {
         case missingFixPlanProducer
+        case missingAutomaticWriteBuilder
+        case invalidAutomaticWriteInput
         case missingWriteRunner
         case missingBatchRunner
         case recoveryPending
@@ -84,6 +86,10 @@ extension RunOrchestrator {
             switch self {
             case .missingFixPlanProducer:
                 "Fix plan producer is unavailable"
+            case .missingAutomaticWriteBuilder:
+                "Automatic fix-plan write builder is unavailable"
+            case .invalidAutomaticWriteInput:
+                "Automatic fix-plan write input does not match the captured plan"
             case .missingWriteRunner:
                 "Fix plan write runner is unavailable"
             case .missingBatchRunner:
