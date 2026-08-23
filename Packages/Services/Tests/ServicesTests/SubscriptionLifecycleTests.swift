@@ -477,7 +477,7 @@ struct EntitlementLifecycleTests {
             dateProvider: { now },
             entitlementSource: source
         )
-        let finish: @Sendable () async -> Void = {}
+        let finish = FinishRecorder()
 
         await service.handleUpdate(
             .transaction(
@@ -485,7 +485,7 @@ struct EntitlementLifecycleTests {
                     id: transactionID,
                     productID: SubscriptionProductID.proMonthly,
                     isPurchase: true,
-                    finish: finish
+                    finish: { await finish.finish() }
                 )
             )
         )
@@ -495,7 +495,7 @@ struct EntitlementLifecycleTests {
                     id: transactionID,
                     productID: SubscriptionProductID.proMonthly,
                     state: .statusPending(resolve: { .pending }),
-                    finish: finish
+                    finish: { await finish.finish() }
                 )
             )
         )
@@ -503,6 +503,7 @@ struct EntitlementLifecycleTests {
         #expect(service.activatingProductIDs == [SubscriptionProductID.proMonthly])
         #expect(!service.canPurchase(productID: SubscriptionProductID.proMonthly))
         #expect(!service.canPurchase(productID: SubscriptionProductID.proYearly))
+        #expect(await finish.finishCount == 0)
     }
 
     @Test("Refresh cancels the old boundary before rearming")
@@ -578,7 +579,9 @@ private actor SequencedSource: StoreEntitlementSource {
     }
 
     nonisolated func updates() -> AsyncStream<StoreUpdate> {
-        AsyncStream { _ in }
+        AsyncStream { continuation in
+            continuation.finish()
+        }
     }
 
     func waitForRequests(_ expectedCount: Int) async {
