@@ -59,10 +59,10 @@ final class AppDependencies {
     /// The interval the live loop was armed with — identical inputs
     /// short-circuit the re-arm so settings edits never reset the tick.
     @ObservationIgnored var armedScheduleInterval: TimeInterval?
-    /// In-memory tick anchor: observations never advance the durable
-    /// tracker (it is the PROCESSING watermark — only batch runs move
-    /// it), so re-arms after the first tick anchor here instead of
-    /// firing immediately on every settings apply.
+    /// In-memory tick anchor: planning without writes never advances the durable
+    /// processing watermark. Successful batch and canonical writes move it, so
+    /// re-arms after the first tick anchor here instead of firing immediately on
+    /// every settings apply.
     @ObservationIgnored var lastScheduledTickAt: Date?
     /// The armed watch source consumer; nil = strategy without watch,
     /// missing Pro, or an unavailable source (sandbox).
@@ -479,6 +479,7 @@ final class AppDependencies {
         // session emits no lifecycle event to re-derive it.
         await refreshChromeProjection()
         startLifecycleProjectionObserver()
+        _ = await ensureRecoveryHold()
         if agentRegistrar == nil {
             agentRegistrar = SMAppServiceRegistrar()
         }
@@ -622,7 +623,7 @@ final class AppDependencies {
             createdAt: now,
             reason: "fixPlanProjectionRefresh"
         )
-        let currentConfiguration = capturePreviewConfig(
+        let currentConfiguration = captureFixPlanConfig(
             at: now,
             hasDiscogsAccess: isDiscogsAccessAvailable ?? plan.configuration.hasDiscogsAccess,
             // The album target is the plan's identity, not a live setting:

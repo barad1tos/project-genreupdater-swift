@@ -7,6 +7,23 @@ extension RunOrchestrator {
         let hasActionableWork: Bool
         let writeSummary: RunWriteSummary?
         let failureMessage: String?
+        let producedPlanID: FixPlanID?
+
+        init(
+            reportingSource: RunLifecycleSnapshot,
+            result: SyncResult,
+            hasActionableWork: Bool,
+            writeSummary: RunWriteSummary?,
+            failureMessage: String?,
+            producedPlanID: FixPlanID? = nil
+        ) {
+            self.reportingSource = reportingSource
+            self.result = result
+            self.hasActionableWork = hasActionableWork
+            self.writeSummary = writeSummary
+            self.failureMessage = failureMessage
+            self.producedPlanID = producedPlanID
+        }
     }
 
     /// The batch mirrors the write's result contract without its ledger:

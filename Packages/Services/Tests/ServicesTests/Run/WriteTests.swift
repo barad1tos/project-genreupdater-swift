@@ -107,6 +107,7 @@ struct WriteTests {
     @Test("write run fails when reviewed writes partially fail")
     func writeFailsPartialFailure() async throws {
         let probe = WriteRecordProbe()
+        let processing = ProcessingSuccessProbe()
         let target = writeTarget()
         let input = writeInput(target: target, artists: ["Björk"], knownTrackCount: 12)
         let writer = WriteProbe(result: BatchUpdateResult(
@@ -122,6 +123,7 @@ struct WriteTests {
                 try await checkpointWrite(input, using: checkpoint)
                 return try await writer.apply(input: input)
             }),
+            recordSuccessfulProcessing: { await processing.record() },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -132,6 +134,7 @@ struct WriteTests {
             return
         }
         #expect(await writer.calls == [input])
+        #expect(await processing.callCount == 0)
 
         let final = try #require(await probe.records.last)
         #expect(final.intent == .writeFixes)
@@ -146,6 +149,42 @@ struct WriteTests {
             .reporting,
             .failed,
         ])
+    }
+
+    @Test("successful processing callback retains single-flight ownership")
+    func processingCallbackRetainsActiveRun() async {
+        let callbackGate = SyncGate()
+        let firstInput = writeInput(target: writeTarget())
+        let secondInput = writeInput(target: writeTarget())
+        let writer = WriteProbe(result: BatchUpdateResult(
+            entries: [writeEntry()],
+            failedTrackIDs: [],
+            errorDescriptions: []
+        ))
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in },
+            write: .init(writeFixPlan: { input, _, checkpoint in
+                try await checkpointWrite(input, using: checkpoint)
+                return try await writer.apply(input: input)
+            }),
+            recordSuccessfulProcessing: { await callbackGate.waitUntilReleased() },
+            now: { Date(timeIntervalSince1970: 100) }
+        ))
+
+        let firstWrite = Task { await orchestrator.submit(.manualWrite(input: firstInput)) }
+        await callbackGate.waitUntilEntered()
+        let secondWrite = Task { await orchestrator.submit(.manualWrite(input: secondInput)) }
+        await Task.yield()
+
+        #expect(await orchestrator.activeLifecycle()?.writeTarget == firstInput.target)
+        #expect(await writer.calls == [firstInput])
+
+        await callbackGate.release()
+        _ = await firstWrite.value
+        _ = await secondWrite.value
+        await writer.waitUntilCallCount(2)
+        #expect(await writer.calls == [firstInput, secondInput])
     }
 
     @Test("write run without a writer fails before shared sync")

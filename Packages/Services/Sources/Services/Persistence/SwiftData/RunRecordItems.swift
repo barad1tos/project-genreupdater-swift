@@ -44,14 +44,15 @@ extension RunRecordDataStore {
             throw RunRecordPersistenceError.invalidField(name: "checkpoint.runID", runID: rawRunID)
         }
         guard row.intentRaw == RunIntent.writeFixes.rawValue,
-              row.writeAuthorityRaw == WriteAuthority.reviewedPlan.rawValue,
+              row.writeAuthorityRaw == WriteAuthority.reviewedPlan.rawValue
+              || row.writeAuthorityRaw == WriteAuthority.automaticPlan.rawValue,
               row.stateRaw == RunLifecycleState.writing.rawValue,
               row.finishedAt == nil
         else {
             throw WorkCheckpointError.invalid(
                 boundary,
                 writeAdjacent: writeAdjacent,
-                reason: "run is not an active reviewed write"
+                reason: "run is not an active plan write"
             )
         }
     }

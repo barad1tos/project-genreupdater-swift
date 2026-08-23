@@ -60,18 +60,26 @@ enum TriggerArbiter {
     fileprivate static func rank(trigger: RunTrigger, intent: RunIntent) -> RequestRank {
         RequestRank(triggerPriority: trigger.priority, intentPriority: intent.priority)
     }
+
+    static func outranks(_ candidate: RunRequest, _ baseline: RunRequest) -> Bool {
+        RequestKey(request: candidate).rank > RequestKey(request: baseline).rank
+    }
 }
 
 private struct RequestKey {
     let rank: RequestRank
     let scope: ScopeKey
     let previewFingerprint: String?
+    let fixPlanPolicy: FixPlanRunPolicy?
     let writeTarget: FixPlanWriteTarget?
 
     init(lifecycle: RunLifecycleSnapshot) {
         rank = TriggerArbiter.rank(trigger: lifecycle.trigger, intent: lifecycle.intent)
         scope = ScopeKey(snapshot: lifecycle.scope)
         previewFingerprint = lifecycle.previewConfiguration?.fingerprint
+        fixPlanPolicy = lifecycle.configuration.map {
+            FixPlanRunPolicy(mode: $0.mode, automation: $0.automation)
+        }
         writeTarget = lifecycle.writeTarget
     }
 
@@ -79,6 +87,7 @@ private struct RequestKey {
         rank = TriggerArbiter.rank(trigger: request.trigger, intent: request.intent)
         scope = ScopeKey(request: request)
         previewFingerprint = request.previewConfiguration?.fingerprint
+        fixPlanPolicy = request.fixPlanPolicy
         writeTarget = request.writeTarget
     }
 
@@ -87,7 +96,8 @@ private struct RequestKey {
         if rank.intentPriority == IntentPriority.previewFixes {
             guard other.rank.intentPriority == IntentPriority.previewFixes,
                   let previewFingerprint,
-                  let otherFingerprint = other.previewFingerprint
+                  let otherFingerprint = other.previewFingerprint,
+                  fixPlanPolicy == nil || other.fixPlanPolicy == nil || fixPlanPolicy == other.fixPlanPolicy
             else { return false }
             return previewFingerprint == otherFingerprint
         }

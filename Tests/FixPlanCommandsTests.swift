@@ -222,7 +222,10 @@ struct FixPlanCommandsTests {
 
     @Test("apply command submits the reviewed plan snapshot")
     func submitsPlanSnapshot() async {
-        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        let harness = FixPlanCommandHarness(
+            startingVerdict: .accepted,
+            plan: makeCommandPlan(automationStrategy: .hybrid)
+        )
         let commands = harness.makeCommands()
         let capturedAt = Date(timeIntervalSince1970: 1_800_000_200)
 
@@ -239,7 +242,7 @@ struct FixPlanCommandsTests {
         #expect(input.scope == harness.plan.scope)
         #expect(input.configuration.capturedAt == capturedAt)
         #expect(input.configuration.writeAuthority == .reviewedPlan)
-        #expect(input.configuration.automation == .manualOnly)
+        #expect(input.configuration.automation == .hybrid)
         #expect(input.configuration.scopeID == harness.plan.scope.id)
         #expect(input.configuration.settings == harness.plan.configuration)
         #expect(!input.configuration.hadRecoveryHold)
@@ -415,7 +418,10 @@ struct FixPlanCommandsTests {
 
     @Test("remaining fixes submit the full accepted set as a linked continuation")
     func remainingFixesSubmitLinkedContinuation() async {
-        let harness = FixPlanCommandHarness(startingVerdict: .accepted)
+        let harness = FixPlanCommandHarness(
+            startingVerdict: .accepted,
+            plan: makeCommandPlan(automationStrategy: .scheduled)
+        )
         let source = makeClosedSourceRecord(
             readIDs: ["read-00000000-0000-0000-0000-000000000201"],
             planTarget: harness.target.writeTarget
@@ -433,6 +439,7 @@ struct FixPlanCommandsTests {
         #expect(harness.submittedRequests.count == 1)
         #expect(harness.submittedRequests.first?.continuesRunID == source.runID)
         #expect(harness.submittedRequests.first?.trigger == .recovery)
+        #expect(harness.submittedRequests.first?.writeInput?.configuration.automation == .scheduled)
         // The write runner validates input against exactly the full accepted
         // set; already-landed items verify as no-ops downstream.
         let items = harness.submittedRequests.first?.writeInput?.workItems ?? []

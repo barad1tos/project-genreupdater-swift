@@ -77,6 +77,36 @@ enum FixPlanWrite {
             .map(RunWorkItem.init(item:))
     }
 
+    static func makeInput(
+        plan: FixPlan,
+        decision: FixPlanReviewDecision,
+        configuration: RunConfig
+    ) throws -> FixPlanWriteInput {
+        guard decision.planID == plan.id,
+              decision.planRevision == plan.revision,
+              configuration.writeAuthority.canWritePlan,
+              configuration.scopeID == plan.scope.id,
+              configuration.settings == plan.configuration
+        else {
+            throw Failure.staleInput
+        }
+        _ = try itemVerdicts(from: decision, matching: plan)
+        let workItems = acceptedWorkItems(in: plan, decision: decision)
+        guard !workItems.isEmpty else {
+            throw Failure.noAcceptedItems
+        }
+        return FixPlanWriteInput(
+            target: FixPlanWriteTarget(
+                planID: plan.id,
+                planRevision: plan.revision,
+                decisionRevision: decision.revision
+            ),
+            scope: plan.scope,
+            configuration: configuration,
+            workItems: workItems
+        )
+    }
+
     static func requiredFeature(for workItems: [RunWorkItem]) -> AppFeature? {
         workItems.lazy.compactMap(\.change.changeType.requiredWriteFeature).first
     }
@@ -168,6 +198,7 @@ enum FixPlanWrite {
             return try await dependencies.batchProcessor.performRecoverableWrite(
                 trackCount: trackCount,
                 requiredFeature: requiredFeature(for: input.workItems),
+                requiredAdmissionFeature: input.requiredAdmissionFeature,
                 appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
                 partialTrackIDs: { _ in [] },
                 operation: {
@@ -225,7 +256,7 @@ enum FixPlanWrite {
         // The input crosses an async queue; it must still match the immutable plan revision.
         let expectedWorkItems = acceptedWorkItems(in: plan, decision: decision)
         guard plan.scope == input.scope,
-              input.configuration.writeAuthority == .reviewedPlan,
+              input.configuration.writeAuthority.canWritePlan,
               input.configuration.scopeID == plan.scope.id,
               input.configuration.settings == plan.configuration,
               input.workItems == expectedWorkItems

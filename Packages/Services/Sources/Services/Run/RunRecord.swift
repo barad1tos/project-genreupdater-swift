@@ -315,14 +315,14 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     func applying(_ checkpoint: WorkCheckpoint) throws -> Self {
         let writeAdjacent = workLedger.isWriteAdjacent(to: checkpoint)
         guard intent == .writeFixes,
-              configuration?.writeAuthority == .reviewedPlan,
+              configuration?.writeAuthority.canWritePlan == true,
               state == .writing,
               finishedAt == nil
         else {
             throw WorkCheckpointError.invalid(
                 checkpoint.boundary,
                 writeAdjacent: writeAdjacent,
-                reason: "run is not an active reviewed write"
+                reason: "run is not an active plan write"
             )
         }
         return try Self(

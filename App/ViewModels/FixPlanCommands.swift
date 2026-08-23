@@ -263,19 +263,7 @@ struct FixPlanCommands {
             guard let plan = try await store.plan(id: target.planID, revision: target.planRevision) else {
                 return await conflictResult()
             }
-            let input = FixPlanWriteInput(
-                target: target.writeTarget,
-                scope: plan.scope,
-                configuration: RunConfig(
-                    capturedAt: now(),
-                    writeAuthority: .reviewedPlan,
-                    automation: .manualOnly,
-                    scopeID: plan.scope.id,
-                    settings: plan.configuration,
-                    hadRecoveryHold: false
-                ),
-                workItems: FixPlanWrite.acceptedWorkItems(in: plan, decision: decision)
-            )
+            let input = try makeWriteInput(plan: plan, decision: decision)
             let result = try await submitFixPlanWrite(input)
             return await writeResult(result, fallbackAcceptedCount: projection.acceptedCount)
         } catch {
@@ -308,6 +296,12 @@ struct FixPlanCommands {
                 refreshedFixPlanProjection: projection
             )
         }
+        guard decision.itemDecisions.contains(where: { $0.verdict == .accepted }) else {
+            return await staleResult(
+                message: "Nothing left to continue.",
+                projection: projection
+            )
+        }
         do {
             guard let record = try await loadRunRecord(sourceRunID) else {
                 return await staleResult(
@@ -318,34 +312,35 @@ struct FixPlanCommands {
             guard let plan = try await store.plan(id: target.planID, revision: target.planRevision) else {
                 return await conflictResult()
             }
-            let items = FixPlanWrite.acceptedWorkItems(in: plan, decision: decision)
-            guard !items.isEmpty else {
-                return await staleResult(
-                    message: "Nothing left to continue.",
-                    projection: projection
-                )
-            }
-            let input = FixPlanWriteInput(
-                target: target.writeTarget,
-                scope: plan.scope,
-                configuration: RunConfig(
-                    capturedAt: now(),
-                    writeAuthority: .reviewedPlan,
-                    automation: .manualOnly,
-                    scopeID: plan.scope.id,
-                    settings: plan.configuration,
-                    hadRecoveryHold: false
-                ),
-                workItems: items
-            )
+            let input = try makeWriteInput(plan: plan, decision: decision)
             let request = try RunRequest.continuation(of: record, input: input)
             let result = try await submitRunRequest(request)
-            return await writeResult(result, fallbackAcceptedCount: items.count)
+            return await writeResult(result, fallbackAcceptedCount: input.workItems.count)
         } catch let error as RunContinuationError {
             return await continuationRejection(error, projection: projection)
         } catch {
             return await writeFailureResult(error, projection: projection)
         }
+    }
+
+    private func makeWriteInput(
+        plan: FixPlan,
+        decision: FixPlanReviewDecision
+    ) throws -> FixPlanWriteInput {
+        let configuration = RunConfig(
+            capturedAt: now(),
+            mode: .preview,
+            writeAuthority: .reviewedPlan,
+            automation: plan.configuration.appConfiguration.runtime.automationStrategy,
+            scopeID: plan.scope.id,
+            settings: plan.configuration,
+            hadRecoveryHold: false
+        )
+        return try FixPlanWrite.makeInput(
+            plan: plan,
+            decision: decision,
+            configuration: configuration
+        )
     }
 
     private func continuationRejection(

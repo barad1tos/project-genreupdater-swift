@@ -707,65 +707,6 @@ private final class ReversingClockProbe: @unchecked Sendable {
     }
 }
 
-private actor FixPlanProducerProbe {
-    private(set) var callCount = 0
-    private let production: FixPlanProduction
-
-    init(production: FixPlanProduction) {
-        self.production = production
-    }
-
-    func produce(runID _: RunID, scope _: ProcessingScopeSnapshot) throws -> FixPlanProduction {
-        callCount += 1
-        return production
-    }
-}
-
-private actor SyncGate {
-    private var hasEntered = false
-    private var isReleased = false
-    private var enteredContinuations: [CheckedContinuation<Void, Never>] = []
-    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
-
-    func waitUntilEntered() async {
-        if hasEntered {
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            enteredContinuations.append(continuation)
-        }
-    }
-
-    func waitUntilReleased() async {
-        hasEntered = true
-        resumeEnteredContinuations()
-
-        if isReleased {
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            releaseContinuations.append(continuation)
-        }
-    }
-
-    func release() {
-        isReleased = true
-        for continuation in releaseContinuations {
-            continuation.resume()
-        }
-        releaseContinuations = []
-    }
-
-    private func resumeEnteredContinuations() {
-        for continuation in enteredContinuations {
-            continuation.resume()
-        }
-        enteredContinuations = []
-    }
-}
-
 private struct ProbeError: LocalizedError {
     let message: String
 
@@ -776,20 +717,4 @@ private struct ProbeError: LocalizedError {
 
 private func ignoreRunRecord(_ record: RunRecord) async throws {
     _ = record
-}
-
-private actor RunRecordProbe {
-    private(set) var records: [RunRecord] = []
-    private var persistError: Error?
-
-    func append(_ record: RunRecord) throws {
-        if let persistError {
-            throw persistError
-        }
-        records.append(record)
-    }
-
-    func setPersistError(_ error: Error) {
-        persistError = error
-    }
 }

@@ -44,6 +44,11 @@ extension RunOrchestrator {
             ProcessingScopeSnapshot,
             FixPlanConfig
         ) async throws -> FixPlanProduction)?
+        public let prepareAutomaticWrite: (@Sendable (
+            FixPlanID,
+            RunConfig,
+            RunTrigger
+        ) async throws -> FixPlanWriteInput)?
         public let releasePreview: (@Sendable (FixPlanConfig) async -> Void)?
         public let write: WriteDependencies?
         /// Runs the full-library batch against the live view-model; the
@@ -57,6 +62,7 @@ extension RunOrchestrator {
         /// means no current decision; a nil closure makes freshness
         /// unverifiable and release fails closed.
         public let currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)?
+        public let recordSuccessfulProcessing: (@Sendable () async -> Void)?
         public let now: @Sendable () -> Date
 
         public init(
@@ -71,6 +77,11 @@ extension RunOrchestrator {
                 ProcessingScopeSnapshot,
                 FixPlanConfig
             ) async throws -> FixPlanProduction)? = nil,
+            prepareAutomaticWrite: (@Sendable (
+                FixPlanID,
+                RunConfig,
+                RunTrigger
+            ) async throws -> FixPlanWriteInput)? = nil,
             releasePreview: (@Sendable (FixPlanConfig) async -> Void)? = nil,
             write: WriteDependencies? = nil,
             runBatchUpdate: (@Sendable (
@@ -78,16 +89,19 @@ extension RunOrchestrator {
                 RunID
             ) async throws -> BatchUpdateResult)? = nil,
             currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)? = nil,
+            recordSuccessfulProcessing: (@Sendable () async -> Void)? = nil,
             now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.synchronizeLibrary = synchronizeLibrary
             self.synchronizePreview = synchronizePreview
             self.persistRunRecord = persistRunRecord
             self.produceFixPlan = produceFixPlan
+            self.prepareAutomaticWrite = prepareAutomaticWrite
             self.releasePreview = releasePreview
             self.write = write
             self.runBatchUpdate = runBatchUpdate
             self.currentDecisionTarget = currentDecisionTarget
+            self.recordSuccessfulProcessing = recordSuccessfulProcessing
             self.now = now
         }
     }

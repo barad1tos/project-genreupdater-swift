@@ -10,21 +10,26 @@ import Testing
 @Suite("Automation runtime")
 @MainActor
 struct AutomationRuntimeTests {
-    @Test("a scheduled tick submits a background observation with a record")
-    func scheduledTickSubmitsBackgroundObservation() async {
+    @Test("a scheduled tick submits background fix-plan processing with a record")
+    func scheduledTickSubmitsProcessing() async {
         let dependencies = makeAutomationTestDependencies()
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.dryRun = true
+        dependencies.config.runtime.automationStrategy = .scheduled
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
-        await dependencies.submitScheduledObservation()
+        await dependencies.submitScheduledProcessing()
 
         let stored = await records.records
         #expect(stored.first?.trigger == .backgroundSync)
-        #expect(stored.first?.intent == .observeLibrary)
+        #expect(stored.first?.intent == .previewFixes)
+        #expect(stored.first?.configuration?.mode == .preview)
+        #expect(stored.first?.configuration?.automation == .scheduled)
         #expect(stored.last?.finishedAt != nil)
     }
 
@@ -34,7 +39,8 @@ struct AutomationRuntimeTests {
         let records = AutomationRecordCollector()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { await gate.sync() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         ))
         let dependencies = makeAutomationTestDependencies()
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
@@ -48,7 +54,7 @@ struct AutomationRuntimeTests {
 
         // ADR 0003 coalescing: the active manual observation COVERS the
         // lower-ranked background tick — no displacement, no duplicate.
-        await dependencies.submitScheduledObservation()
+        await dependencies.submitScheduledProcessing()
         let activeAfterTick = await orchestrator.activeLifecycle()
         #expect(activeAfterTick?.trigger == .manualCheck)
 
@@ -128,7 +134,8 @@ struct AutomationRuntimeTests {
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
         // No tracker and no in-memory tick anchor → fail open, tick now.
@@ -187,7 +194,7 @@ struct AutomationRuntimeTests {
         dependencies.automationScheduleTask = Task {}
         dependencies.isAutomationArmed = true
 
-        await dependencies.submitScheduledObservation()
+        await dependencies.submitScheduledProcessing()
 
         #expect(dependencies.automationScheduleTask == nil)
         #expect(!dependencies.isAutomationArmed)
@@ -227,17 +234,19 @@ struct AutomationRuntimeTests {
         await dependencies.applyAutomationStrategy()
     }
 
-    @Test("a watch event submits a file-system observation with a record")
-    func watchEventSubmitsFileSystemObservation() async throws {
+    @Test("a watch event submits file-system fix-plan processing with a record")
+    func watchEventSubmitsProcessing() async throws {
         let dependencies = makeAutomationTestDependencies()
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        dependencies.config.runtime.dryRun = false
         dependencies.config.runtime.automationStrategy = .libraryChange
         let source = StubLibraryChangeSource(isAvailable: true)
         dependencies.libraryChangeSource = source
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
         await dependencies.applyAutomationStrategy()
@@ -255,7 +264,10 @@ struct AutomationRuntimeTests {
             }
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(landed, "a watch event must submit a real observation")
+        #expect(landed, "a watch event must submit real fix-plan processing")
+        let first = await records.records.first
+        #expect(first?.configuration?.mode == .autoFix)
+        #expect(first?.configuration?.automation == .libraryChange)
 
         dependencies.config.runtime.automationStrategy = .manualOnly
         await dependencies.applyAutomationStrategy()
@@ -268,11 +280,12 @@ struct AutomationRuntimeTests {
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
-        await dependencies.submitWatchObservation()
-        await dependencies.submitWatchObservation()
+        await dependencies.submitWatchProcessing()
+        await dependencies.submitWatchProcessing()
 
         // Python launchd ThrottleInterval parity: the second event inside
         // 300 s coalesces into the first tick.
@@ -324,7 +337,7 @@ struct AutomationRuntimeTests {
         dependencies.automationWatchTask = Task {}
         dependencies.armedWatchPath = "probe"
 
-        await dependencies.submitWatchObservation()
+        await dependencies.submitWatchProcessing()
 
         #expect(dependencies.automationWatchTask == nil)
         #expect(dependencies.armedWatchPath == nil)
@@ -369,12 +382,13 @@ struct AutomationRuntimeTests {
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
-        await dependencies.submitWatchObservation()
+        await dependencies.submitWatchProcessing()
         dependencies.lastWatchTickAt = Date().addingTimeInterval(-(AppDependencies.watchThrottleInterval + 1))
-        await dependencies.submitWatchObservation()
+        await dependencies.submitWatchProcessing()
 
         let terminals = await records.records.filter { $0.finishedAt != nil }
         #expect(terminals.count == 2)
@@ -387,14 +401,15 @@ struct AutomationRuntimeTests {
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
         // Nearly-expired window: the in-window event must arm a trailing
         // tick that fires when the remainder elapses (launchd defer
         // parity), not vanish.
         dependencies.lastWatchTickAt = Date().addingTimeInterval(-(AppDependencies.watchThrottleInterval - 0.2))
-        await dependencies.submitWatchObservation()
+        await dependencies.submitWatchProcessing()
         #expect(dependencies.automationWatchTrailingTask != nil)
 
         let clock = ContinuousClock()
@@ -451,7 +466,8 @@ struct AutomationRuntimeTests {
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
         await dependencies.applyAutomationStrategy()
@@ -491,12 +507,12 @@ struct AutomationRuntimeTests {
 
     /// The tracker file is the PROCESSING watermark: the manual incremental
     /// batch anchors its newTracks window on it (UpdateTrackScopeResolver).
-    /// An observation only looks — advancing the mark here would burn that
+    /// Planning without writes only looks — advancing the mark here would burn that
     /// window for tracks nobody processed (PR #160 review, Codex P1 +
     /// panel convergent). Python parity: the mark moves only at the end of
     /// a processing run.
-    @Test("a completed observation leaves the processing watermark untouched")
-    func completedObservationLeavesWatermarkUntouched() async {
+    @Test("completed planning without writes leaves the processing watermark untouched")
+    func completedPlanningLeavesWatermarkUntouched() async {
         let dependencies = makeAutomationTestDependencies()
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
         let tempDirectory = FileManager.default.temporaryDirectory
@@ -514,36 +530,39 @@ struct AutomationRuntimeTests {
                     Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
                 ])
             },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
-        await dependencies.submitScheduledObservation()
+        await dependencies.submitScheduledProcessing()
 
-        // Positive control: without proof the observation COMPLETED, the
+        // Positive control: without proof the planning run COMPLETED, the
         // nil asserts below would pass vacuously on a broken fixture.
         let terminal = await records.records.last
-        #expect(terminal?.intent == .observeLibrary)
+        #expect(terminal?.intent == .previewFixes)
+        #expect(terminal?.state == .completedNoOp)
         #expect(terminal?.finishedAt != nil)
         #expect(await tracker.getLastRunTimestamp() == nil)
         #expect(dependencies.lastIncrementalRunTimestamp == nil)
     }
 
-    @Test("an agent wake URL lands a file-system observation")
-    func agentWakeSubmitsFileSystemObservation() async {
+    @Test("an agent wake URL lands file-system fix-plan processing")
+    func agentWakeSubmitsProcessing() async {
         let dependencies = makeAutomationTestDependencies()
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
         dependencies.config.runtime.automationStrategy = .libraryChange
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
         await dependencies.handleAutomationWake(url: automationWakeURL())
 
         let stored = await records.records
         #expect(stored.first?.trigger == .fileSystemEvent)
-        #expect(stored.first?.intent == .observeLibrary)
+        #expect(stored.first?.intent == .previewFixes)
     }
 
     @Test("a wake under the manual strategy submits nothing")
@@ -554,7 +573,8 @@ struct AutomationRuntimeTests {
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
         await dependencies.handleAutomationWake(url: automationWakeURL())
@@ -570,7 +590,8 @@ struct AutomationRuntimeTests {
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
         await dependencies.handleAutomationWake(url: automationWakeURL())
@@ -586,7 +607,8 @@ struct AutomationRuntimeTests {
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
         let junkHost = try #require(URL(string: "genreupdater://something/else"))
@@ -616,7 +638,8 @@ struct AutomationRuntimeTests {
         dependencies.libraryChangeSource = StubLibraryChangeSource(isAvailable: false)
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
         await dependencies.completeLaunch()
@@ -627,6 +650,36 @@ struct AutomationRuntimeTests {
 
         dependencies.config.runtime.automationStrategy = .manualOnly
         await dependencies.applyAutomationStrategy()
+    }
+
+    @Test("launch admits persisted recovery before draining a parked wake")
+    func launchAdmitsRecoveryBeforeDrainingWake() async throws {
+        let seed = uncertainRunRecord(recoveryID: nil).record
+        let store = try RunRecordDataStore(modelContainer: ModelContainerFactory.createInMemory())
+        try await store.upsert(seed)
+        let setup = try await makeRecoverySetup(store: store)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        setup.dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
+        setup.dependencies.config.runtime.automationStrategy = .libraryChange
+        setup.dependencies.config.runtime.dryRun = false
+        setup.dependencies.libraryChangeSource = StubLibraryChangeSource(isAvailable: false)
+        setup.dependencies.pendingAutomationWakeURL = automationWakeURL()
+        await setup.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { try await store.upsert($0) },
+            produceFixPlan: { _, _, _ in .empty }
+        )))
+
+        await setup.dependencies.completeLaunch()
+
+        let records = try await store.loadAll()
+        let wakeRecord = try #require(records.first { $0.trigger == .fileSystemEvent })
+        #expect(wakeRecord.configuration?.hadRecoveryHold == true)
+        #expect(wakeRecord.configuration?.mode == .autoFix)
+        #expect(setup.dependencies.pendingAutomationWakeURL == nil)
+
+        setup.dependencies.config.runtime.automationStrategy = .manualOnly
+        await setup.dependencies.applyAutomationStrategy()
     }
 
     /// Codex P2: with the in-process watcher armed, an agent nudge is the
@@ -641,7 +694,8 @@ struct AutomationRuntimeTests {
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { await records.append($0) }
+            persistRunRecord: { await records.append($0) },
+            produceFixPlan: { _, _, _ in .empty }
         )))
         await dependencies.applyAutomationStrategy()
         #expect(dependencies.automationWatchTask != nil)
@@ -722,121 +776,5 @@ struct AutomationRuntimeTests {
                 // Persistence is irrelevant to these runtime pins.
             }
         )
-    }
-}
-
-/// The saver closure runs synchronously on MainActor with the command.
-@MainActor
-private final class SavedStrategiesBox {
-    var values: [AutomationStrategy] = []
-}
-
-/// Records registration calls; a set failure throws instead.
-@MainActor
-final class StubAgentRegistrar: AgentRegistrar {
-    var isRegistered = false
-    var needsApproval = false
-    var failure: Error?
-    private(set) var registerCalls = 0
-    private(set) var unregisterCalls = 0
-
-    func register() throws {
-        if let failure {
-            throw failure
-        }
-        registerCalls += 1
-        isRegistered = true
-    }
-
-    func unregister() async throws {
-        if let failure {
-            throw failure
-        }
-        unregisterCalls += 1
-        isRegistered = false
-    }
-
-    func openApprovalSettings() {
-        // Settings deep links are outside pin scope.
-    }
-}
-
-enum AgentRegistrationFailure: Error {
-    case denied
-}
-
-/// A hand-driven source: tests emit events and control availability.
-/// The stream is created eagerly so an emit before the consumer
-/// subscribes is buffered, not lost.
-final class StubLibraryChangeSource: LibraryChangeSource, @unchecked Sendable {
-    let isAvailable: Bool
-    private(set) var isTerminated = false
-    private let stream: AsyncStream<Void>
-    private let continuation: AsyncStream<Void>.Continuation
-
-    init(isAvailable: Bool) {
-        self.isAvailable = isAvailable
-        (stream, continuation) = AsyncStream.makeStream(of: Void.self)
-        continuation.onTermination = { [self] _ in
-            isTerminated = true
-        }
-    }
-
-    func events() -> AsyncStream<Void> {
-        stream
-    }
-
-    func emit() {
-        continuation.yield()
-    }
-}
-
-private actor AutomationRecordCollector {
-    private(set) var records: [RunRecord] = []
-
-    func append(_ record: RunRecord) {
-        records.append(record)
-    }
-}
-
-private actor AutomationSyncGate {
-    private var isArmed = false
-    private var isReleased = false
-    private var isEntered = false
-    private var enterContinuations: [CheckedContinuation<Void, Never>] = []
-    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
-
-    func arm() {
-        isArmed = true
-    }
-
-    func sync() async -> SyncResult {
-        guard isArmed, !isReleased else { return SyncResult() }
-        isEntered = true
-        for continuation in enterContinuations {
-            continuation.resume()
-        }
-        enterContinuations = []
-        await withCheckedContinuation { continuation in
-            releaseContinuations.append(continuation)
-        }
-        return SyncResult()
-    }
-
-    func waitUntilEntered() async {
-        if isEntered {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            enterContinuations.append(continuation)
-        }
-    }
-
-    func release() {
-        isReleased = true
-        for continuation in releaseContinuations {
-            continuation.resume()
-        }
-        releaseContinuations = []
     }
 }

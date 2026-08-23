@@ -63,8 +63,8 @@ struct WorkAuditTests {
         #expect(try await store.record(for: record.runID)?.workItems.first?.state == .prepared)
     }
 
-    @Test("Checkpoints require reviewed-plan authority")
-    func requiresReviewedAuthority() async throws {
+    @Test("Checkpoints reject read-only authority")
+    func rejectsReadOnlyAuthority() async throws {
         let store = try makeRunStore()
         let startedAt = Date(timeIntervalSince1970: 100)
         let scope = ProcessingScopeSnapshot.capture(
@@ -100,8 +100,43 @@ struct WorkAuditTests {
         #expect(try await store.record(for: record.runID)?.workItems.first?.state == .prepared)
     }
 
+    @Test("Checkpoints accept automatic plan authority")
+    func acceptsAutomaticAuthority() async throws {
+        let store = try makeRunStore()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: startedAt,
+            reason: "backgroundSync"
+        )
+        let item = makeWorkItem(state: .prepared)
+        let record = makeRunRecord(
+            startedAt: startedAt,
+            finishedAt: nil,
+            state: .writing,
+            syncSummary: nil,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [item],
+                scope: scope,
+                configuration: makeRunConfiguration(
+                    scopeID: scope.id,
+                    capturedAt: startedAt,
+                    writeAuthority: .automaticPlan
+                ),
+                includesSyncTransition: false
+            )
+        )
+        try await store.upsert(record)
+
+        try await store.checkpoint(.beforeAttempt([item.id]), runID: record.runID)
+
+        #expect(try await store.record(for: record.runID)?.workItems.first?.state == .attempting)
+    }
+
     @Test(
-        "Write-adjacent audit states require reviewed write authority",
+        "Write-adjacent audit states require plan write authority",
         arguments: [WorkState.attempting, .attempted, .outcome(.written)]
     )
     func rejectsUnauthorizedWriteState(_ state: WorkState) async throws {

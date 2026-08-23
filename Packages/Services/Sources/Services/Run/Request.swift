@@ -1,3 +1,4 @@
+import Core
 import Foundation
 
 /// Why a run record cannot serve as the source of a linked continuation,
@@ -31,6 +32,16 @@ public enum RunIntent: String, Codable, Equatable, Sendable {
         case .observeLibrary, .previewFixes: false
         case .writeFixes, .batchUpdate: true
         }
+    }
+}
+
+public struct FixPlanRunPolicy: Equatable, Sendable {
+    public let mode: RunProcessingMode
+    public let automation: AutomationStrategy
+
+    public init(mode: RunProcessingMode, automation: AutomationStrategy) {
+        self.mode = mode
+        self.automation = automation
     }
 }
 
@@ -92,6 +103,7 @@ public struct RunRequest: Equatable, Sendable {
     public let kind: RunRequestKind
     public let requestedTestArtists: [String]
     public let knownTrackCount: Int?
+    public let fixPlanPolicy: FixPlanRunPolicy?
     /// The closed run this request intentionally continues, if any.
     public let continuesRunID: RunID?
 
@@ -117,6 +129,7 @@ public struct RunRequest: Equatable, Sendable {
         kind: RunRequestKind,
         requestedTestArtists: [String],
         knownTrackCount: Int?,
+        fixPlanPolicy: FixPlanRunPolicy? = nil,
         continuesRunID: RunID? = nil
     ) {
         self.id = id
@@ -124,6 +137,7 @@ public struct RunRequest: Equatable, Sendable {
         self.kind = kind
         self.requestedTestArtists = requestedTestArtists
         self.knownTrackCount = knownTrackCount
+        self.fixPlanPolicy = fixPlanPolicy
         self.continuesRunID = continuesRunID
     }
 
@@ -146,6 +160,8 @@ public struct RunRequest: Equatable, Sendable {
         id: RunRequestID = RunRequestID(),
         trigger: RunTrigger,
         configuration: FixPlanConfig,
+        mode: RunProcessingMode = .preview,
+        automation: AutomationStrategy = .manualOnly,
         requestedTestArtists: [String],
         knownTrackCount: Int?
     ) -> Self {
@@ -154,19 +170,21 @@ public struct RunRequest: Equatable, Sendable {
             trigger: trigger,
             kind: .previewFixes(configuration),
             requestedTestArtists: requestedTestArtists,
-            knownTrackCount: knownTrackCount
+            knownTrackCount: knownTrackCount,
+            fixPlanPolicy: FixPlanRunPolicy(mode: mode, automation: automation)
         )
     }
 
-    public static func write(
+    private static func write(
         id: RunRequestID = RunRequestID(),
         trigger: RunTrigger,
-        input: FixPlanWriteInput
+        input: FixPlanWriteInput,
+        requiredAdmissionFeature: AppFeature?
     ) -> Self {
         Self(
             id: id,
             trigger: trigger,
-            kind: .writeFixes(input),
+            kind: .writeFixes(input.requiringAdmission(requiredAdmissionFeature)),
             requestedTestArtists: input.scope.normalizedTestArtists,
             knownTrackCount: input.scope.knownTrackCount
         )
@@ -228,7 +246,23 @@ public struct RunRequest: Equatable, Sendable {
     public static func manualWrite(input: FixPlanWriteInput) -> Self {
         write(
             trigger: .manualCheck,
-            input: input
+            input: input,
+            requiredAdmissionFeature: input.configuration.writeAuthority == .automaticPlan ? .autoSync : nil
+        )
+    }
+
+    public static func automaticWrite(
+        trigger: RunTrigger,
+        input: FixPlanWriteInput
+    ) -> Self {
+        let feature: AppFeature? = switch trigger {
+        case .backgroundSync, .fileSystemEvent: .autoSync
+        case .manualCheck, .recovery: nil
+        }
+        return write(
+            trigger: trigger,
+            input: input,
+            requiredAdmissionFeature: feature
         )
     }
 
@@ -262,9 +296,10 @@ public struct RunRequest: Equatable, Sendable {
         else {
             throw RunContinuationError.inputPlanMismatch
         }
+        let feature: AppFeature? = input.configuration.writeAuthority == .automaticPlan ? .autoSync : nil
         return Self(
             trigger: .recovery,
-            kind: .writeFixes(input),
+            kind: .writeFixes(input.requiringAdmission(feature)),
             requestedTestArtists: input.scope.normalizedTestArtists,
             knownTrackCount: input.scope.knownTrackCount,
             continuesRunID: record.runID

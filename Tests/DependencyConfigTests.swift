@@ -503,7 +503,7 @@ struct DependencyConfigTests {
                 // This test reads a stored fix plan without mutating app configuration.
             }
         )
-        let plan = try #require(makeStoredFixPlan(configuration: dependencies.capturePreviewConfig(
+        let plan = try #require(makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
             at: Date(timeIntervalSince1970: 1_800_000_100),
             hasDiscogsAccess: true
         )))
@@ -539,7 +539,7 @@ struct DependencyConfigTests {
         )
         // The target is the plan's identity, not a live setting: staleness
         // must not flag it as configuration drift.
-        let plan = try #require(makeStoredFixPlan(configuration: dependencies.capturePreviewConfig(
+        let plan = try #require(makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
             at: Date(timeIntervalSince1970: 1_800_000_100),
             hasDiscogsAccess: true,
             albumTarget: FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant")

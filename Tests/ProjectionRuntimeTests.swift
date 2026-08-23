@@ -208,7 +208,8 @@ struct ProjectionRuntimeTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is outside this observer pin.
-            }
+            },
+            produceFixPlan: { _, _, _ in .empty }
         )))
         fixture.dependencies.startLifecycleProjectionObserver()
         #expect(fixture.dependencies.lifecycleObserverTask != nil)
@@ -245,7 +246,7 @@ struct ProjectionRuntimeTests {
     @Test("a terminal preview boundary refreshes the fix plan")
     func previewTerminalRefreshesFixPlan() async throws {
         let dependencies = makeDependencies()
-        let plan = try #require(makeStoredFixPlan(configuration: dependencies.capturePreviewConfig(
+        let plan = try #require(makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
             at: Date(timeIntervalSince1970: 1_800_000_100),
             hasDiscogsAccess: true
         )))
@@ -271,7 +272,8 @@ struct ProjectionRuntimeTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is outside this probe pin.
-            }
+            },
+            produceFixPlan: { _, _, _ in .empty }
         )))
         _ = try await fixture.dependencies.submitManualRun()
         #expect(fixture.dependencies.currentLifecycleSnapshot == nil)
@@ -398,7 +400,8 @@ struct ProjectionRuntimeTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is outside this wiring pin.
-            }
+            },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
         let result = await fixture.dependencies.makeMenuActivityCommands().handle(.runManually())
@@ -578,12 +581,13 @@ struct ProjectionRuntimeTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is outside this wiring pin.
-            }
+            },
+            produceFixPlan: { _, _, _ in .empty }
         )))
         _ = await fixture.dependencies.makeMenuActivityCommands().handle(.runManually())
 
         let terminal = await terminalTask.value
-        #expect(terminal != nil)
+        #expect(terminal?.state == .completedNoOp)
     }
 
     @Test("a subscription survives an orchestrator rebuild")
@@ -594,7 +598,8 @@ struct ProjectionRuntimeTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is outside this wiring pin.
-            }
+            },
+            produceFixPlan: { _, _, _ in .empty }
         )))
 
         let updates = await fixture.dependencies.runLifecycleUpdates()
@@ -606,12 +611,13 @@ struct ProjectionRuntimeTests {
             synchronizeLibrary: { SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is outside this wiring pin.
-            }
+            },
+            produceFixPlan: { _, _, _ in .empty }
         )))
         _ = await fixture.dependencies.makeMenuActivityCommands().handle(.runManually())
 
         let terminal = await terminalTask.value
-        #expect(terminal != nil)
+        #expect(terminal?.state == .completedNoOp)
     }
 
     @Test("report detail is served by a backend query")

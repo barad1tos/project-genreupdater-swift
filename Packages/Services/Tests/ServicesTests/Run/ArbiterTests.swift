@@ -248,6 +248,48 @@ struct ArbiterTests {
         }
     }
 
+    @Test("auto-fix is not covered by an active preview with the same inputs")
+    func autoFixQueuesBehindPreview() {
+        let configuration = previewConfig()
+        let active = Self.previewLifecycle(configuration: configuration, mode: .preview)
+        let request = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: configuration,
+            mode: .autoFix,
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(active: active, pending: [], incoming: request)
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected auto-fix policy to queue, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [request])
+    }
+
+    @Test("preview is not covered by active auto-fix with the same inputs")
+    func previewQueuesBehindAutoFix() {
+        let configuration = previewConfig()
+        let active = Self.previewLifecycle(configuration: configuration, mode: .autoFix)
+        let request = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: configuration,
+            mode: .preview,
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+
+        let decision = TriggerArbiter.decide(active: active, pending: [], incoming: request)
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected preview policy to queue, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [request])
+    }
+
     @Test("equal trigger queues when test artist scope differs")
     func differentScopeQueues() {
         let active = Self.lifecycle(
@@ -399,29 +441,29 @@ struct ArbiterTests {
     ) -> RunRequest {
         switch intent {
         case .observeLibrary:
-            RunRequest.observation(
+            return RunRequest.observation(
                 trigger: trigger,
                 requestedTestArtists: requestedTestArtists,
                 knownTrackCount: knownTrackCount
             )
         case .previewFixes:
-            RunRequest.preview(
+            return RunRequest.preview(
                 trigger: trigger,
                 configuration: previewConfig(),
                 requestedTestArtists: requestedTestArtists,
                 knownTrackCount: knownTrackCount
             )
         case .writeFixes:
-            RunRequest.write(
-                trigger: trigger,
-                input: writeInput(
-                    writeTarget("00000000-0000-0000-0000-000000000999"),
-                    artists: requestedTestArtists,
-                    knownTrackCount: knownTrackCount
-                )
+            let input = writeInput(
+                writeTarget("00000000-0000-0000-0000-000000000999"),
+                artists: requestedTestArtists,
+                knownTrackCount: knownTrackCount
             )
+            return trigger == .manualCheck
+                ? RunRequest.manualWrite(input: input)
+                : RunRequest.automaticWrite(trigger: trigger, input: input)
         case .batchUpdate:
-            RunRequest.batchUpdate(
+            return RunRequest.batchUpdate(
                 trigger: trigger,
                 input: BatchRunInput(options: UpdateOptions(), trackCount: knownTrackCount ?? 0),
                 requestedTestArtists: requestedTestArtists,
@@ -490,6 +532,32 @@ struct ArbiterTests {
                 phase: .active(.writing)
             )
         }
+    }
+
+    private static func previewLifecycle(
+        configuration: FixPlanConfig,
+        mode: RunProcessingMode
+    ) -> RunLifecycleSnapshot {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let request = RunRequest.preview(
+            trigger: .manualCheck,
+            configuration: configuration,
+            mode: mode,
+            requestedTestArtists: [],
+            knownTrackCount: nil
+        )
+        return RunLifecycleSnapshot(
+            runID: RunID(),
+            request: request,
+            scope: .capture(
+                requestedTestArtists: [],
+                knownTrackCount: nil,
+                createdAt: startedAt,
+                reason: "arbiter-policy-test"
+            ),
+            startedAt: startedAt,
+            phase: .active(.syncingLibrary)
+        )
     }
 
     private static func writeTarget(_ rawPlanID: String) -> FixPlanWriteTarget {

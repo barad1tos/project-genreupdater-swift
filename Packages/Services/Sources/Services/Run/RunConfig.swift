@@ -9,26 +9,28 @@ public enum RunProcessingMode: String, Codable, Equatable, Sendable {
 public enum WriteAuthority: String, Codable, Equatable, Sendable {
     case readOnly
     case reviewedPlan
+    case automaticPlan
+
+    public var canWritePlan: Bool {
+        self == .reviewedPlan || self == .automaticPlan
+    }
 }
 
 /// Immutable runtime choices captured when an orchestrated run starts.
 public struct RunConfig: Codable, Equatable, Sendable {
     public let id: UUID
     public let capturedAt: Date
+    public let mode: RunProcessingMode
     public let writeAuthority: WriteAuthority
     public let automation: AutomationStrategy
     public let scopeID: UUID
     public let settings: FixPlanConfig
     public let hadRecoveryHold: Bool
 
-    /// Processing policy captured from runtime settings, independent of request intent and write authority.
-    public var mode: RunProcessingMode {
-        settings.appConfiguration.runtime.dryRun ? .preview : .autoFix
-    }
-
     public init(
         id: UUID = UUID(),
         capturedAt: Date,
+        mode: RunProcessingMode? = nil,
         writeAuthority: WriteAuthority,
         automation: AutomationStrategy,
         scopeID: UUID,
@@ -37,11 +39,33 @@ public struct RunConfig: Codable, Equatable, Sendable {
     ) {
         self.id = id
         self.capturedAt = capturedAt
+        self.mode = mode ?? Self.processingMode(from: settings)
         self.writeAuthority = writeAuthority
         self.automation = automation
         self.scopeID = scopeID
         self.settings = settings
         self.hadRecoveryHold = hadRecoveryHold
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, capturedAt, mode, writeAuthority, automation, scopeID, settings, hadRecoveryHold
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        capturedAt = try container.decode(Date.self, forKey: .capturedAt)
+        writeAuthority = try container.decode(WriteAuthority.self, forKey: .writeAuthority)
+        automation = try container.decode(AutomationStrategy.self, forKey: .automation)
+        scopeID = try container.decode(UUID.self, forKey: .scopeID)
+        settings = try container.decode(FixPlanConfig.self, forKey: .settings)
+        hadRecoveryHold = try container.decode(Bool.self, forKey: .hadRecoveryHold)
+        mode = try container.decodeIfPresent(RunProcessingMode.self, forKey: .mode)
+            ?? Self.processingMode(from: settings)
+    }
+
+    private static func processingMode(from settings: FixPlanConfig) -> RunProcessingMode {
+        settings.appConfiguration.runtime.dryRun ? .preview : .autoFix
     }
 
     /// Compares canonical encoded values after applying configuration codec migrations.
@@ -51,6 +75,7 @@ public struct RunConfig: Codable, Equatable, Sendable {
         else {
             return left.id == right.id
                 && left.capturedAt == right.capturedAt
+                && left.mode == right.mode
                 && left.writeAuthority == right.writeAuthority
                 && left.automation == right.automation
                 && left.scopeID == right.scopeID

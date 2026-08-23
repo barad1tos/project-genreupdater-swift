@@ -1,3 +1,4 @@
+import Core
 import Foundation
 
 public struct FixPlanID: Hashable, Sendable, Codable, CustomStringConvertible {
@@ -71,6 +72,7 @@ public struct FixPlanWriteInput: Equatable, Sendable {
     public let scope: ProcessingScopeSnapshot
     public let configuration: RunConfig
     public let workItems: [RunWorkItem]
+    public private(set) var requiredAdmissionFeature: AppFeature?
 
     public init(
         target: FixPlanWriteTarget,
@@ -82,5 +84,12 @@ public struct FixPlanWriteInput: Equatable, Sendable {
         self.scope = scope
         self.configuration = configuration
         self.workItems = workItems
+        requiredAdmissionFeature = nil
+    }
+
+    func requiringAdmission(_ feature: AppFeature?) -> Self {
+        var input = self
+        input.requiredAdmissionFeature = feature
+        return input
     }
 }
