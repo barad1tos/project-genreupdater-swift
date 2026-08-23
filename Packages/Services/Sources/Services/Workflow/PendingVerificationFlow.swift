@@ -7,11 +7,11 @@ extension UpdateCoordinator {
         albumTracks: [Track]
     ) async throws -> PendingAlbumVerificationResult {
         guard !albumTracks.isEmpty else {
-            return PendingAlbumVerificationResult(entries: [], resolvedYear: nil)
+            return PendingAlbumVerificationResult(disposition: .failed, entries: [], resolvedYear: nil)
         }
 
         guard let identity = Self.pendingVerificationIdentity(for: entry, albumTracks: albumTracks) else {
-            return PendingAlbumVerificationResult(entries: [], resolvedYear: nil)
+            return PendingAlbumVerificationResult(disposition: .failed, entries: [], resolvedYear: nil)
         }
         let yearLookup = await apiOrchestrator.getAlbumYearLookup(
             artist: identity.artist,
@@ -26,7 +26,11 @@ extension UpdateCoordinator {
             if yearLookup.didAttemptLookup {
                 await markPendingVerificationRetries(entry: entry, lookupIdentity: identity)
             }
-            return PendingAlbumVerificationResult(entries: [], resolvedYear: nil)
+            return PendingAlbumVerificationResult(
+                disposition: yearLookup.didAttemptLookup ? .deferred : .unavailable,
+                entries: [],
+                resolvedYear: nil
+            )
         }
 
         return try await applyPendingVerificationYear(
@@ -80,14 +84,24 @@ extension UpdateCoordinator {
             }
         }
 
+        let canClearPendingEntry = failedTrackIDs.isEmpty
+            && (result.isDefinitive || !entries.isEmpty || !unchangedTrackIDs.isEmpty)
+        let disposition: PendingDisposition = if !failedTrackIDs.isEmpty {
+            .failed
+        } else if canClearPendingEntry {
+            .resolved
+        } else {
+            .deferred
+        }
+
         return PendingAlbumVerificationResult(
+            disposition: disposition,
             entries: entries,
             resolvedYear: year,
             unchangedTrackIDs: unchangedTrackIDs,
             failedTrackIDs: failedTrackIDs,
             errorDescriptions: errorDescriptions,
-            canClearPendingEntry: failedTrackIDs.isEmpty
-                && (result.isDefinitive || !entries.isEmpty || !unchangedTrackIDs.isEmpty)
+            canClearPendingEntry: canClearPendingEntry
         )
     }
 

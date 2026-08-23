@@ -158,6 +158,7 @@ struct PendingVerificationFlowTests {
         let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
 
         let written = await fixture.bridge.writtenProperties
+        #expect(result.disposition == .resolved)
         #expect(result.resolvedYear == 1997)
         #expect(result.entries.count == 2)
         #expect(result.canClearPendingEntry)
@@ -225,6 +226,7 @@ struct PendingVerificationFlowTests {
         let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
 
         let written = await fixture.bridge.writtenProperties
+        #expect(result.disposition == .deferred)
         #expect(result.resolvedYear == 2013)
         #expect(result.entries.isEmpty)
         #expect(result.failedTrackIDs.isEmpty)
@@ -258,6 +260,7 @@ struct PendingVerificationFlowTests {
         let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
 
         let written = await fixture.bridge.writtenProperties
+        #expect(result.disposition == .failed)
         #expect(result.resolvedYear == 1997)
         #expect(result.entries.isEmpty)
         #expect(result.failedTrackIDs == ["T1"])
@@ -479,6 +482,7 @@ struct PendingVerificationFlowTests {
         let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
 
         let written = await fixture.bridge.writtenProperties
+        #expect(result.disposition == .deferred)
         #expect(result.resolvedYear == nil)
         #expect(result.entries.isEmpty)
         #expect(result.canClearPendingEntry == false)
@@ -516,6 +520,7 @@ struct PendingVerificationFlowTests {
 
         let result = try await fixture.coordinator.verifyPendingAlbum(entry, albumTracks: albumTracks)
 
+        #expect(result.disposition == .unavailable)
         #expect(result.resolvedYear == nil)
         #expect(result.entries.isEmpty)
         #expect(result.canClearPendingEntry == false)

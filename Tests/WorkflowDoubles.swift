@@ -6,17 +6,20 @@ struct DashboardStateAPIService: ExternalAPIService {
     let year: Int?
     let confidence: Int
     let isDefinitive: Bool
+    let isLookupAvailable: Bool
     let beforeAlbumYearLookup: (@Sendable () async -> Void)?
 
     init(
         year: Int? = nil,
         confidence: Int = 0,
         isDefinitive: Bool = true,
+        isLookupAvailable: Bool = true,
         beforeAlbumYearLookup: (@Sendable () async -> Void)? = nil
     ) {
         self.year = year
         self.confidence = confidence
         self.isDefinitive = isDefinitive
+        self.isLookupAvailable = isLookupAvailable
         self.beforeAlbumYearLookup = beforeAlbumYearLookup
     }
 
@@ -27,6 +30,9 @@ struct DashboardStateAPIService: ExternalAPIService {
         earliestTrackAddedYear _: Int?
     ) async throws -> YearResult {
         await beforeAlbumYearLookup?()
+        guard isLookupAvailable else {
+            throw LookupFixtureError.unavailable
+        }
         return YearResult(
             year: year,
             isDefinitive: isDefinitive,
@@ -59,6 +65,10 @@ struct DashboardStateAPIService: ExternalAPIService {
     func close() async {
         // Test double has no external resources to release.
     }
+}
+
+private enum LookupFixtureError: Error {
+    case unavailable
 }
 
 actor DashboardStateScriptClient: AppleScriptClient {
