@@ -20,7 +20,7 @@ struct SubscriptionRuntimeTests {
         subscription.applyEntitlementState(
             tier: .pro,
             weekPassExpiry: nil,
-            proAccess: .active(expiresAt: Date().addingTimeInterval(86400), willRenew: true)
+            proAccess: .active(expiresAt: Date().addingTimeInterval(86400), renewal: .renews)
         )
         await dependencies.runtimeApplyQueue?.value
         #expect(dependencies.automationScheduleTask != nil)

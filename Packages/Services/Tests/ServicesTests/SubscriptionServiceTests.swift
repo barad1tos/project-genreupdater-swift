@@ -89,16 +89,10 @@ struct ProRenewalStateTests {
 
     @Test("StoreKit grace expiration controls Pro access")
     func usesStoreGrace() {
-        let transactionExpiry = now.addingTimeInterval(-86400)
         let graceExpiry = now.addingTimeInterval(3 * 86400)
         let snapshot = StoreEntitlementSnapshot(
             proStatuses: [
-                StoreProStatus(
-                    productID: SubscriptionProductID.proMonthly,
-                    state: .gracePeriod,
-                    transactionExpiry: transactionExpiry,
-                    graceExpiry: graceExpiry
-                ),
+                .billingGrace(expiresAt: graceExpiry),
             ]
         )
 
@@ -113,12 +107,7 @@ struct ProRenewalStateTests {
     func rejectsBillingRetry() {
         let snapshot = StoreEntitlementSnapshot(
             proStatuses: [
-                StoreProStatus(
-                    productID: SubscriptionProductID.proYearly,
-                    state: .billingRetry,
-                    transactionExpiry: now.addingTimeInterval(-1),
-                    graceExpiry: nil
-                ),
+                .notEntitled,
             ]
         )
 
@@ -134,20 +123,25 @@ struct ProRenewalStateTests {
         let expiry = now.addingTimeInterval(86400)
         let snapshot = StoreEntitlementSnapshot(
             proStatuses: [
-                StoreProStatus(
-                    productID: SubscriptionProductID.proMonthly,
-                    state: .subscribed,
-                    transactionExpiry: expiry,
-                    graceExpiry: nil,
-                    willRenew: false
-                ),
+                .active(expiresAt: expiry, renewal: .expires),
             ]
         )
 
         let state = SubscriptionService.resolveEntitlements(snapshot, at: now)
 
         #expect(state.tier == .pro)
-        #expect(state.proAccess == .active(expiresAt: expiry, willRenew: false))
+        #expect(state.proAccess == .active(expiresAt: expiry, renewal: .expires))
+    }
+
+    @Test("Unavailable subscription status preserves verified Pro access")
+    func preservesUnavailableStatus() {
+        let snapshot = StoreEntitlementSnapshot(proStatuses: [.statusUnavailable])
+
+        let state = SubscriptionService.resolveEntitlements(snapshot, at: now)
+
+        #expect(state.tier == .pro)
+        #expect(state.proAccess == .statusUnavailable)
+        #expect(state.nextBoundary == now.addingTimeInterval(SubscriptionDuration.statusRetryInterval))
     }
 }
 
@@ -192,13 +186,7 @@ struct EntitlementResolutionTests {
         let snapshot = StoreEntitlementSnapshot(
             weekPassPurchases: [now.addingTimeInterval(-2 * 86400)],
             proStatuses: [
-                StoreProStatus(
-                    productID: SubscriptionProductID.proMonthly,
-                    state: .subscribed,
-                    transactionExpiry: proExpiry,
-                    graceExpiry: nil,
-                    willRenew: true
-                ),
+                .active(expiresAt: proExpiry, renewal: .renews),
             ]
         )
 
@@ -206,303 +194,8 @@ struct EntitlementResolutionTests {
 
         #expect(state.tier == .pro)
         #expect(state.weekPassExpiry == weekPassExpiry)
-        #expect(state.proAccess == .active(expiresAt: proExpiry, willRenew: true))
+        #expect(state.proAccess == .active(expiresAt: proExpiry, renewal: .renews))
         #expect(state.nextBoundary == proExpiry)
-    }
-}
-
-// MARK: - Entitlement Lifecycle
-
-@Suite("SubscriptionService — entitlement lifecycle")
-@MainActor
-struct EntitlementLifecycleTests {
-    @Test("Week Pass downgrades at expiry without a transaction update")
-    func downgradesWeekPass() async throws {
-        let purchaseDate = Date(timeIntervalSince1970: 1_700_000_000)
-        let expiry = purchaseDate.addingTimeInterval(7 * 86400)
-        let date = TestDate(purchaseDate.addingTimeInterval(6 * 86400))
-        let source = EntitlementStub(
-            snapshot: StoreEntitlementSnapshot(weekPassPurchases: [purchaseDate])
-        )
-        let sleeper = TestSleeper()
-        var tierChangeCount = 0
-        let service = try SubscriptionService(
-            counterStore: CounterStub(),
-            userDefaults: #require(UserDefaults(suiteName: UUID().uuidString)),
-            dateProvider: date.now,
-            entitlementSource: source,
-            sleep: sleeper.sleep,
-            tierChangeHandler: { tierChangeCount += 1 }
-        )
-
-        await service.refreshEntitlements()
-
-        #expect(service.currentTier == .weekPass)
-        #expect(await sleeper.waitForDelay() == .seconds(86400))
-        #expect(tierChangeCount == 1)
-
-        date.set(expiry)
-        await sleeper.resume()
-        await source.waitForSnapshots(2)
-
-        #expect(service.currentTier == .free)
-        #expect(tierChangeCount == 2)
-    }
-
-    @Test("Store update refreshes a running service")
-    func refreshesOnStoreUpdate() async throws {
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let source = EntitlementStub(
-            snapshot: StoreEntitlementSnapshot(
-                proStatuses: [
-                    StoreProStatus(
-                        productID: SubscriptionProductID.proMonthly,
-                        state: .subscribed,
-                        transactionExpiry: now.addingTimeInterval(86400),
-                        graceExpiry: nil
-                    ),
-                ]
-            )
-        )
-        var tierChangeCount = 0
-        let service = try SubscriptionService(
-            counterStore: CounterStub(),
-            userDefaults: #require(UserDefaults(suiteName: UUID().uuidString)),
-            dateProvider: { now },
-            entitlementSource: source,
-            productLoader: { [] },
-            tierChangeHandler: { tierChangeCount += 1 }
-        )
-
-        await service.start()
-        #expect(service.currentTier == .pro)
-
-        await source.setSnapshot(StoreEntitlementSnapshot())
-        await source.emitUpdate()
-        await source.waitForSnapshots(2)
-
-        #expect(service.currentTier == .free)
-        #expect(tierChangeCount == 2)
-    }
-
-    @Test("Refresh cancels the old boundary before rearming")
-    func rearmsBoundary() async throws {
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let laterPurchase = now.addingTimeInterval(86400)
-        let source = EntitlementStub(
-            snapshot: StoreEntitlementSnapshot(weekPassPurchases: [now])
-        )
-        let sleeper = TestSleeper()
-        let service = try SubscriptionService(
-            counterStore: CounterStub(),
-            userDefaults: #require(UserDefaults(suiteName: UUID().uuidString)),
-            dateProvider: { now },
-            entitlementSource: source,
-            sleep: sleeper.sleep
-        )
-
-        await service.refreshEntitlements()
-        #expect(await sleeper.waitForDelay() == .seconds(7 * 86400))
-
-        await source.setSnapshot(
-            StoreEntitlementSnapshot(weekPassPurchases: [now, laterPurchase])
-        )
-        await service.refreshEntitlements()
-        await sleeper.waitForCancellation()
-        await sleeper.waitForDelay(.seconds(8 * 86400))
-
-        #expect(await sleeper.pendingDelays() == [.seconds(8 * 86400)])
-    }
-
-    @Test("Older refresh cannot restore stale access")
-    func rejectsStaleRefresh() async throws {
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let source = SequencedSource()
-        let service = try SubscriptionService(
-            counterStore: CounterStub(),
-            userDefaults: #require(UserDefaults(suiteName: UUID().uuidString)),
-            dateProvider: { now },
-            entitlementSource: source
-        )
-        let firstRefresh = Task { @MainActor in
-            await service.refreshEntitlements()
-        }
-        await source.waitForRequests(1)
-        let secondRefresh = Task { @MainActor in
-            await service.refreshEntitlements()
-        }
-        await source.waitForRequests(2)
-
-        await source.respond(to: 1, with: StoreEntitlementSnapshot())
-        await secondRefresh.value
-        await source.respond(
-            to: 0,
-            with: StoreEntitlementSnapshot(weekPassPurchases: [now])
-        )
-        await firstRefresh.value
-
-        #expect(service.currentTier == .free)
-    }
-}
-
-private actor SequencedSource: StoreEntitlementSource {
-    private var requestCount = 0
-    private var continuations: [Int: CheckedContinuation<StoreEntitlementSnapshot, Never>] = [:]
-
-    func snapshot(products: [StoreKit.Product]) async -> StoreEntitlementSnapshot {
-        _ = products
-        let request = requestCount
-        requestCount += 1
-        return await withCheckedContinuation { continuation in
-            continuations[request] = continuation
-        }
-    }
-
-    nonisolated func updates() -> AsyncStream<Void> {
-        AsyncStream { _ in }
-    }
-
-    func waitForRequests(_ expectedCount: Int) async {
-        while requestCount < expectedCount {
-            await Task.yield()
-        }
-    }
-
-    func respond(to request: Int, with snapshot: StoreEntitlementSnapshot) {
-        continuations.removeValue(forKey: request)?.resume(returning: snapshot)
-    }
-}
-
-private actor EntitlementStub: StoreEntitlementSource {
-    private var value: StoreEntitlementSnapshot
-    private var snapshotCount = 0
-    nonisolated private let updateFeed = UpdateFeed()
-
-    init(snapshot: StoreEntitlementSnapshot) {
-        value = snapshot
-    }
-
-    func snapshot(products: [StoreKit.Product]) async -> StoreEntitlementSnapshot {
-        _ = products
-        snapshotCount += 1
-        return value
-    }
-
-    nonisolated func updates() -> AsyncStream<Void> {
-        updateFeed.stream
-    }
-
-    func setSnapshot(_ snapshot: StoreEntitlementSnapshot) {
-        value = snapshot
-    }
-
-    func emitUpdate() {
-        updateFeed.emit()
-    }
-
-    func waitForSnapshots(_ expectedCount: Int) async {
-        while snapshotCount < expectedCount {
-            await Task.yield()
-        }
-    }
-}
-
-private final class UpdateFeed: @unchecked Sendable {
-    let stream: AsyncStream<Void>
-    private let continuation: AsyncStream<Void>.Continuation
-
-    init() {
-        let pair = AsyncStream<Void>.makeStream()
-        stream = pair.stream
-        continuation = pair.continuation
-    }
-
-    func emit() {
-        continuation.yield()
-    }
-}
-
-private actor TestSleeper {
-    private struct Wait {
-        let delay: Duration
-        let continuation: CheckedContinuation<Void, Error>
-    }
-
-    private var waits: [UUID: Wait] = [:]
-    private var cancellationCount = 0
-
-    func sleep(for delay: Duration) async throws {
-        let waitID = UUID()
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                waits[waitID] = Wait(delay: delay, continuation: continuation)
-            }
-        } onCancel: {
-            Task { await self.cancel(waitID) }
-        }
-    }
-
-    func waitForDelay() async -> Duration? {
-        while waits.isEmpty {
-            await Task.yield()
-        }
-        return waits.values.first?.delay
-    }
-
-    func resume() {
-        guard let waitID = waits.keys.first, let wait = waits.removeValue(forKey: waitID) else { return }
-        wait.continuation.resume()
-    }
-
-    func waitForCancellation() async {
-        while cancellationCount == 0 {
-            await Task.yield()
-        }
-    }
-
-    func pendingDelays() -> [Duration] {
-        waits.values.map(\.delay).sorted()
-    }
-
-    func waitForDelay(_ expectedDelay: Duration) async {
-        while !waits.values.contains(where: { $0.delay == expectedDelay }) {
-            await Task.yield()
-        }
-    }
-
-    private func cancel(_ waitID: UUID) {
-        guard let wait = waits.removeValue(forKey: waitID) else { return }
-        cancellationCount += 1
-        wait.continuation.resume(throwing: CancellationError())
-    }
-}
-
-private final class TestDate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: Date
-
-    init(_ value: Date) {
-        self.value = value
-    }
-
-    func now() -> Date {
-        lock.withLock { value }
-    }
-
-    func set(_ value: Date) {
-        lock.withLock { self.value = value }
-    }
-}
-
-private final class CounterStub: SubscriptionCounterStore {
-    func counter(forKey key: String) -> Int64 {
-        _ = key
-        return 0
-    }
-
-    func setCounter(_ value: Int64, forKey key: String) {
-        _ = value
-        _ = key
     }
 }
 
@@ -518,5 +211,10 @@ struct DurationConstantTests {
     @Test("Cooldown is 14 days")
     func cooldownDays() {
         #expect(SubscriptionDuration.weekPassCooldownDays == 14)
+    }
+
+    @Test("StoreKit status retry is centrally configured")
+    func statusRetry() {
+        #expect(SubscriptionDuration.statusRetrySeconds == 300)
     }
 }

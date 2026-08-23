@@ -25,7 +25,12 @@ struct FeatureGatedView<Content: View>: View {
                 lockedFeature: feature,
                 currentTier: dependencies.subscriptionService?.currentTier ?? .free,
                 weekPassAvailable: feature.minimumTier < .pro
-                    && (dependencies.subscriptionService?.canPurchaseWeekPass ?? false),
+                    &&
+                    (dependencies.subscriptionService?
+                        .canPurchase(productID: SubscriptionProductID.weekPass) ?? false),
+                isProPurchaseAvailable: dependencies.subscriptionService?
+                    .canPurchase(productID: SubscriptionProductID.proMonthly) ?? false,
+                isPurchaseActivating: dependencies.subscriptionService?.activatingProductIDs.isEmpty == false,
                 weekPassPrice: priceString(for: SubscriptionProductID.weekPass),
                 proMonthlyPrice: priceString(for: SubscriptionProductID.proMonthly),
                 proYearlyPrice: priceString(for: SubscriptionProductID.proYearly),
@@ -45,6 +50,7 @@ struct FeatureGatedView<Content: View>: View {
     }
 
     private func purchaseProduct(id productID: String) {
+        guard dependencies.subscriptionService?.canPurchase(productID: productID) == true else { return }
         guard let product = dependencies.subscriptionService?.products
             .first(where: { $0.id == productID })
         else { return }

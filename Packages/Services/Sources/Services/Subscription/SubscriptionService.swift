@@ -28,12 +28,16 @@ public enum SubscriptionProductID {
 public enum SubscriptionDuration {
     public static let weekPassDays = 7
     public static let weekPassCooldownDays = 14
+    public static let statusRetrySeconds = 300
 
     static var weekPassInterval: TimeInterval {
         TimeInterval(weekPassDays * 86400)
     }
     static var weekPassCooldownInterval: TimeInterval {
         TimeInterval(weekPassCooldownDays * 86400)
+    }
+    static var statusRetryInterval: TimeInterval {
+        TimeInterval(statusRetrySeconds)
     }
 }
 
@@ -59,6 +63,17 @@ extension NSUbiquitousKeyValueStore: SubscriptionCounterStore {
     }
 }
 
+enum EntitlementRefreshResult: Sendable, Equatable {
+    case appliedVerified
+    case verificationFailed
+    case superseded
+}
+
+private struct DeliveryEntry: Sendable {
+    let revision: Int
+    var delivery: StoreTransactionDelivery
+}
+
 // MARK: - SubscriptionService
 
 @MainActor
@@ -72,6 +87,9 @@ public final class SubscriptionService {
     public private(set) var freeTracksUsed: Int = 0
     public private(set) var weekPassPurchaseCount: Int = 0
     public private(set) var isLoading = true
+    public private(set) var hasVerificationError = false
+    /// Products whose verified purchases are still being activated.
+    public private(set) var activatingProductIDs: Set<String> = []
 
     // MARK: - Products
 
@@ -82,6 +100,9 @@ public final class SubscriptionService {
     @ObservationIgnored private var entitlementListener: Task<Void, Never>?
     @ObservationIgnored private var boundaryTask: Task<Void, Never>?
     @ObservationIgnored private var refreshVersion = 0
+    @ObservationIgnored private var deliveryRevision = 0
+    // Keep StoreKit transactions unfinished until a complete snapshot proves their expected grant or removal.
+    @ObservationIgnored private var pendingDeliveries: [UInt64: DeliveryEntry] = [:]
     private let counterStore: any SubscriptionCounterStore
     private let userDefaults: UserDefaults
     private let dateProvider: @Sendable () -> Date
@@ -154,9 +175,9 @@ public final class SubscriptionService {
     public func start() async {
         isLoading = true
         loadICloudCounters()
+        listenForUpdates()
         await loadProducts()
         await refreshEntitlements()
-        listenForUpdates()
         isLoading = false
         log.info("SubscriptionService started, tier=\(String(describing: self.currentTier), privacy: .public)")
     }
@@ -169,10 +190,17 @@ public final class SubscriptionService {
         switch result {
         case let .success(verification):
             let transaction = try checkVerification(verification)
-            await refreshEntitlements()
-            await transaction.finish()
-            recordWeekPassPurchase(transaction)
-            log.info("Purchase succeeded: \(product.id, privacy: .public)")
+            await handleUpdate(
+                .transaction(
+                    StoreTransactionDelivery(
+                        id: transaction.id,
+                        productID: transaction.productID,
+                        isPurchase: true,
+                        finish: { await transaction.finish() }
+                    )
+                )
+            )
+            log.info("Purchase verified: \(product.id, privacy: .public)")
             return transaction
 
         case .userCancelled:
@@ -222,6 +250,15 @@ public final class SubscriptionService {
         weekPassCooldownRemaining == nil
     }
 
+    /// Whether the product can be purchased after activation and Week Pass cooldown checks.
+    public func canPurchase(productID: String) -> Bool {
+        if SubscriptionProductID.proProductIDs.contains(productID) {
+            return activatingProductIDs.isDisjoint(with: SubscriptionProductID.proProductIDs)
+        }
+        guard !activatingProductIDs.contains(productID) else { return false }
+        return productID != SubscriptionProductID.weekPass || canPurchaseWeekPass
+    }
+
     // MARK: - Internal: Products
 
     private func loadProducts() async {
@@ -236,19 +273,34 @@ public final class SubscriptionService {
 
     // MARK: - Internal: Entitlements
 
-    func refreshEntitlements() async {
+    @discardableResult
+    func refreshEntitlements() async -> EntitlementRefreshResult {
         refreshVersion += 1
         let version = refreshVersion
+        await resolvePendingStates(refreshVersion: version)
+        guard version == refreshVersion else { return .superseded }
+        let read = await entitlementSource.snapshot()
+        guard version == refreshVersion else { return .superseded }
         let now = dateProvider()
-        let snapshot = await entitlementSource.snapshot(products: products)
-        guard version == refreshVersion else { return }
-        let state = Self.resolveEntitlements(snapshot, at: now)
+        let state = Self.resolveEntitlements(read.snapshot, at: now)
+        hasVerificationError = !read.isVerified
         applyEntitlementState(
             tier: state.tier,
             weekPassExpiry: state.weekPassExpiry,
             proAccess: state.proAccess
         )
-        scheduleBoundary(at: state.nextBoundary)
+        let deliveries = read.isVerified
+            ? takeDeliveredTransactions(from: read.snapshot, at: now)
+            : []
+        let shouldRetry = !read.isVerified || !pendingDeliveries.isEmpty
+        let retryBoundary = now.addingTimeInterval(SubscriptionDuration.statusRetryInterval)
+        let nextBoundary = shouldRetry
+            ? [state.nextBoundary, retryBoundary].compactMap(\.self).min()
+            : state.nextBoundary
+        scheduleBoundary(at: nextBoundary)
+        await finishDeliveries(deliveries)
+        guard version == refreshVersion else { return .superseded }
+        return read.isVerified ? .appliedVerified : .verificationFailed
     }
 
     func applyEntitlementState(
@@ -269,20 +321,116 @@ public final class SubscriptionService {
 
     private func listenForUpdates() {
         entitlementListener?.cancel()
+        let updates = entitlementSource.updates()
         entitlementListener = Task(priority: .utility) { @MainActor [weak self] in
-            guard let updates = self?.entitlementSource.updates() else { return }
-            for await _ in updates {
+            for await update in updates {
                 guard let self else { return }
-                await self.refreshEntitlements()
+                await self.handleUpdate(update)
             }
         }
+    }
+
+    func handleUpdate(_ update: StoreUpdate) async {
+        if case let .transaction(delivery) = update {
+            storeDelivery(delivery)
+        }
+        var result = await refreshEntitlements()
+        while result == .superseded {
+            guard !Task.isCancelled else { return }
+            result = await refreshEntitlements()
+        }
+    }
+
+    private func storeDelivery(_ delivery: StoreTransactionDelivery) {
+        let isPurchase = delivery.isPurchase || pendingDeliveries[delivery.id]?.delivery.isPurchase == true
+        deliveryRevision += 1
+        let merged = StoreTransactionDelivery(
+            id: delivery.id,
+            productID: delivery.productID,
+            state: delivery.state,
+            isPurchase: isPurchase,
+            finish: delivery.finish
+        )
+        pendingDeliveries[delivery.id] = DeliveryEntry(revision: deliveryRevision, delivery: merged)
+        syncPendingProducts()
+    }
+
+    private func takeDeliveredTransactions(
+        from snapshot: StoreEntitlementSnapshot,
+        at date: Date
+    ) -> [StoreTransactionDelivery] {
+        let appliedIDs = snapshot.appliedTransactionIDs(at: date)
+        let currentIDs = snapshot.currentTransactionIDs
+        let deliveredIDs = pendingDeliveries.compactMap { transactionID, entry -> UInt64? in
+            switch entry.delivery.state {
+            case .grantPending:
+                appliedIDs.contains(transactionID) ? transactionID : nil
+            case .removalPending:
+                currentIDs.contains(transactionID) ? nil : transactionID
+            case .statusPending:
+                nil
+            }
+        }
+        let deliveries = deliveredIDs.compactMap { pendingDeliveries.removeValue(forKey: $0)?.delivery }
+        syncPendingProducts()
+        return deliveries
+    }
+
+    private func finishDeliveries(_ deliveries: [StoreTransactionDelivery]) async {
+        for delivery in deliveries {
+            await delivery.finish()
+            if delivery.isPurchase, case .grantPending = delivery.state {
+                recordWeekPassPurchase(productID: delivery.productID)
+            }
+        }
+    }
+
+    private func resolvePendingStates(refreshVersion version: Int) async {
+        let pendingIDs = Array(pendingDeliveries.keys)
+        for transactionID in pendingIDs {
+            guard let entry = pendingDeliveries[transactionID],
+                  case let .statusPending(resolver) = entry.delivery.state
+            else { continue }
+            let decision = await resolver()
+            guard version == refreshVersion,
+                  var current = pendingDeliveries[transactionID],
+                  current.revision == entry.revision
+            else {
+                continue
+            }
+            switch decision {
+            case .grant:
+                current.delivery.state = .grantPending
+            case .removal:
+                current.delivery.state = .removalPending
+            case .pending:
+                break
+            }
+            pendingDeliveries[transactionID] = current
+        }
+        syncPendingProducts()
+    }
+
+    private func syncPendingProducts() {
+        activatingProductIDs = Set(
+            pendingDeliveries.values.compactMap { entry in
+                guard entry.delivery.isPurchase else { return nil }
+                return entry.delivery.productID
+            }
+        )
     }
 
     private func scheduleBoundary(at deadline: Date?) {
         boundaryTask?.cancel()
         let now = dateProvider()
-        guard let deadline, deadline > now else {
+        guard let deadline else {
             boundaryTask = nil
+            return
+        }
+        guard deadline > now else {
+            boundaryTask = Task { @MainActor [weak self] in
+                await self?.refreshEntitlements()
+            }
             return
         }
 
@@ -329,8 +477,8 @@ public final class SubscriptionService {
         )
     }
 
-    private func recordWeekPassPurchase(_ transaction: Transaction) {
-        guard transaction.productID == SubscriptionProductID.weekPass else { return }
+    private func recordWeekPassPurchase(productID: String) {
+        guard productID == SubscriptionProductID.weekPass else { return }
         weekPassPurchaseCount += 1
         counterStore.setCounter(Int64(weekPassPurchaseCount), forKey: KVSKey.weekPassPurchaseCount)
     }
@@ -346,21 +494,15 @@ extension SubscriptionService {
         let weekPassExpiry = snapshot.weekPassPurchases
             .map(weekPassExpiryDate(purchaseDate:))
             .max()
-        let proAccess = snapshot.proStatuses.compactMap { status -> ProAccessState? in
-            guard SubscriptionProductID.proProductIDs.contains(status.productID) else { return nil }
-
-            switch status.state {
-            case .subscribed:
-                guard let expiry = status.transactionExpiry, expiry > now else { return nil }
-                return .active(expiresAt: expiry, willRenew: status.willRenew ?? false)
-            case .gracePeriod:
-                guard let expiry = status.graceExpiry, expiry > now else { return nil }
-                return .billingGrace(expiresAt: expiry)
-            case .billingRetry, .expired, .revoked:
-                return nil
+        let proAccess = snapshot.proStatuses.compactMap { $0.access(at: now) }.max { lhs, rhs in
+            switch (lhs.expiry, rhs.expiry) {
+            case let (lhsExpiry?, rhsExpiry?):
+                lhsExpiry < rhsExpiry
+            case (nil, _?):
+                true
+            case (_?, nil), (nil, nil):
+                false
             }
-        }.max { lhs, rhs in
-            lhs.expiry < rhs.expiry
         }
 
         if let proAccess {
@@ -369,6 +511,7 @@ extension SubscriptionService {
                 weekPassExpiry: weekPassExpiry,
                 proAccess: proAccess,
                 nextBoundary: proAccess.expiry
+                    ?? now.addingTimeInterval(SubscriptionDuration.statusRetryInterval)
             )
         }
 
