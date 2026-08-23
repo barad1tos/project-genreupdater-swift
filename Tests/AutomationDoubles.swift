@@ -3,6 +3,19 @@ import Foundation
 import Services
 @testable import Genre_Updater
 
+extension RunRequest {
+    static func manualObservation(
+        requestedTestArtists: [String],
+        knownTrackCount: Int?
+    ) -> Self {
+        observation(
+            trigger: .manualCheck,
+            requestedTestArtists: requestedTestArtists,
+            knownTrackCount: knownTrackCount
+        )
+    }
+}
+
 /// The saver closure runs synchronously on MainActor with the command.
 @MainActor
 final class SavedStrategiesBox {

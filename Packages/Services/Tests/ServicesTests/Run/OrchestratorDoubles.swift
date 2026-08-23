@@ -2,6 +2,32 @@ import Core
 import Foundation
 @testable import Services
 
+extension RunRequest {
+    static func manualObservation(
+        requestedTestArtists: [String],
+        knownTrackCount: Int?
+    ) -> Self {
+        observation(
+            trigger: .manualCheck,
+            requestedTestArtists: requestedTestArtists,
+            knownTrackCount: knownTrackCount
+        )
+    }
+
+    static func manualPreview(
+        configuration: FixPlanConfig,
+        requestedTestArtists: [String],
+        knownTrackCount: Int?
+    ) -> Self {
+        preview(
+            trigger: .manualCheck,
+            configuration: configuration,
+            requestedTestArtists: requestedTestArtists,
+            knownTrackCount: knownTrackCount
+        )
+    }
+}
+
 actor FixPlanProducerProbe {
     private(set) var callCount = 0
     private let production: FixPlanProduction

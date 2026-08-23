@@ -201,30 +201,6 @@ public struct RunRequest: Equatable, Sendable {
         )
     }
 
-    public static func manualObservation(
-        requestedTestArtists: [String],
-        knownTrackCount: Int?
-    ) -> Self {
-        observation(
-            trigger: .manualCheck,
-            requestedTestArtists: requestedTestArtists,
-            knownTrackCount: knownTrackCount
-        )
-    }
-
-    public static func manualPreview(
-        configuration: FixPlanConfig,
-        requestedTestArtists: [String],
-        knownTrackCount: Int?
-    ) -> Self {
-        preview(
-            trigger: .manualCheck,
-            configuration: configuration,
-            requestedTestArtists: requestedTestArtists,
-            knownTrackCount: knownTrackCount
-        )
-    }
-
     public static func batchUpdate(
         id: RunRequestID = RunRequestID(),
         trigger: RunTrigger,
