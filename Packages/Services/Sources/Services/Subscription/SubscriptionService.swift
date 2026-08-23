@@ -2,7 +2,7 @@
 //
 // Manages 3-tier model: Free / Week Pass / Pro.
 // - Week Pass: non-renewing, 7-day expiry, 14-day cooldown
-// - Pro: auto-renewable (monthly/yearly), 16-day billing grace period
+// - Pro: auto-renewable (monthly/yearly), including StoreKit billing grace
 // - Free counter: NSUbiquitousKeyValueStore (iCloud KVS)
 
 import Core
@@ -28,17 +28,12 @@ public enum SubscriptionProductID {
 public enum SubscriptionDuration {
     public static let weekPassDays = 7
     public static let weekPassCooldownDays = 14
-    public static let proGracePeriodDays = 16
-    public static let offlineCacheDays = 7
 
     static var weekPassInterval: TimeInterval {
         TimeInterval(weekPassDays * 86400)
     }
     static var weekPassCooldownInterval: TimeInterval {
         TimeInterval(weekPassCooldownDays * 86400)
-    }
-    static var proGraceInterval: TimeInterval {
-        TimeInterval(proGracePeriodDays * 86400)
     }
 }
 
@@ -73,7 +68,7 @@ public final class SubscriptionService {
 
     public private(set) var currentTier: Tier = .free
     public private(set) var weekPassExpiry: Date?
-    public private(set) var proExpiry: Date?
+    public private(set) var proAccess: ProAccessState?
     public private(set) var freeTracksUsed: Int = 0
     public private(set) var weekPassPurchaseCount: Int = 0
     public private(set) var isLoading = true
@@ -84,10 +79,15 @@ public final class SubscriptionService {
 
     // MARK: - Internal State
 
-    @ObservationIgnored private var transactionListener: Task<Void, Never>?
+    @ObservationIgnored private var entitlementListener: Task<Void, Never>?
+    @ObservationIgnored private var boundaryTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshVersion = 0
     private let counterStore: any SubscriptionCounterStore
     private let userDefaults: UserDefaults
     private let dateProvider: @Sendable () -> Date
+    private let entitlementSource: any StoreEntitlementSource
+    private let productLoader: @Sendable () async throws -> [Product]
+    private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private let tierChangeHandler: @MainActor () -> Void
 
     private static let localCounterKey = "freeTracksUsed_local"
@@ -113,6 +113,11 @@ public final class SubscriptionService {
             counterStore: iCloudStore,
             userDefaults: userDefaults,
             dateProvider: dateProvider,
+            entitlementSource: StoreKitSource(),
+            productLoader: {
+                try await Product.products(for: SubscriptionProductID.allProductIDs)
+            },
+            sleep: { try await Task.sleep(for: $0) },
             tierChangeHandler: tierChangeHandler
         )
     }
@@ -121,6 +126,11 @@ public final class SubscriptionService {
         counterStore: any SubscriptionCounterStore,
         userDefaults: UserDefaults,
         dateProvider: @escaping @Sendable () -> Date = { Date() },
+        entitlementSource: any StoreEntitlementSource = StoreKitSource(),
+        productLoader: @escaping @Sendable () async throws -> [Product] = {
+            try await Product.products(for: SubscriptionProductID.allProductIDs)
+        },
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         tierChangeHandler: @escaping @MainActor () -> Void = {
             // Custom counter-store consumers opt in to tier-change effects.
         }
@@ -128,11 +138,15 @@ public final class SubscriptionService {
         self.counterStore = counterStore
         self.userDefaults = userDefaults
         self.dateProvider = dateProvider
+        self.entitlementSource = entitlementSource
+        self.productLoader = productLoader
+        self.sleep = sleep
         self.tierChangeHandler = tierChangeHandler
     }
 
     deinit {
-        transactionListener?.cancel()
+        entitlementListener?.cancel()
+        boundaryTask?.cancel()
     }
 
     // MARK: - Lifecycle
@@ -142,7 +156,7 @@ public final class SubscriptionService {
         loadICloudCounters()
         await loadProducts()
         await refreshEntitlements()
-        listenForTransactions()
+        listenForUpdates()
         isLoading = false
         log.info("SubscriptionService started, tier=\(String(describing: self.currentTier), privacy: .public)")
     }
@@ -157,7 +171,7 @@ public final class SubscriptionService {
             let transaction = try checkVerification(verification)
             await refreshEntitlements()
             await transaction.finish()
-            trackWeekPassPurchaseIfNeeded(transaction)
+            recordWeekPassPurchase(transaction)
             log.info("Purchase succeeded: \(product.id, privacy: .public)")
             return transaction
 
@@ -212,7 +226,7 @@ public final class SubscriptionService {
 
     private func loadProducts() async {
         do {
-            products = try await Product.products(for: SubscriptionProductID.allProductIDs)
+            products = try await productLoader()
                 .sorted { $0.price < $1.price }
             log.info("Loaded \(self.products.count, privacy: .public) products")
         } catch {
@@ -223,64 +237,66 @@ public final class SubscriptionService {
     // MARK: - Internal: Entitlements
 
     func refreshEntitlements() async {
-        var detectedTier: Tier = .free
-        var detectedWeekPassExpiry: Date?
-        var detectedProExpiry: Date?
+        refreshVersion += 1
+        let version = refreshVersion
         let now = dateProvider()
-
-        for await verification in Transaction.currentEntitlements {
-            guard let transaction = try? checkVerification(verification) else { continue }
-
-            if SubscriptionProductID.proProductIDs.contains(transaction.productID) {
-                let expiry = proExpiryDate(for: transaction)
-                if let expiry, expiry > now {
-                    detectedTier = .pro
-                    detectedProExpiry = expiry
-                } else if let expiry,
-                          expiry.addingTimeInterval(SubscriptionDuration.proGraceInterval) > now {
-                    detectedTier = max(detectedTier, .pro)
-                    detectedProExpiry = expiry
-                }
-            }
-
-            if transaction.productID == SubscriptionProductID.weekPass {
-                let expiry = transaction.purchaseDate.addingTimeInterval(
-                    SubscriptionDuration.weekPassInterval
-                )
-                detectedWeekPassExpiry = expiry
-                if expiry > now, detectedTier < .weekPass {
-                    detectedTier = .weekPass
-                }
-            }
-        }
-
+        let snapshot = await entitlementSource.snapshot(products: products)
+        guard version == refreshVersion else { return }
+        let state = Self.resolveEntitlements(snapshot, at: now)
         applyEntitlementState(
-            tier: detectedTier,
-            weekPassExpiry: detectedWeekPassExpiry,
-            proExpiry: detectedProExpiry
+            tier: state.tier,
+            weekPassExpiry: state.weekPassExpiry,
+            proAccess: state.proAccess
         )
+        scheduleBoundary(at: state.nextBoundary)
     }
 
-    func applyEntitlementState(tier: Tier, weekPassExpiry: Date?, proExpiry: Date?) {
+    func applyEntitlementState(
+        tier: Tier,
+        weekPassExpiry: Date?,
+        proAccess: ProAccessState?
+    ) {
         let previousTier = currentTier
         currentTier = tier
         self.weekPassExpiry = weekPassExpiry
-        self.proExpiry = proExpiry
+        self.proAccess = proAccess
         if tier != previousTier {
             tierChangeHandler()
         }
     }
 
-    // MARK: - Internal: Transaction Listener
+    // MARK: - Internal: Lifecycle
 
-    private func listenForTransactions() {
-        transactionListener = Task(priority: .utility) { @MainActor [weak self] in
-            for await verification in Transaction.updates {
+    private func listenForUpdates() {
+        entitlementListener?.cancel()
+        entitlementListener = Task(priority: .utility) { @MainActor [weak self] in
+            guard let updates = self?.entitlementSource.updates() else { return }
+            for await _ in updates {
                 guard let self else { return }
-                if let transaction = try? self.checkVerification(verification) {
-                    await self.refreshEntitlements()
-                    await transaction.finish()
-                }
+                await self.refreshEntitlements()
+            }
+        }
+    }
+
+    private func scheduleBoundary(at deadline: Date?) {
+        boundaryTask?.cancel()
+        let now = dateProvider()
+        guard let deadline, deadline > now else {
+            boundaryTask = nil
+            return
+        }
+
+        let delay = Duration.seconds(deadline.timeIntervalSince(now))
+        let sleep = sleep
+        boundaryTask = Task { @MainActor [weak self] in
+            do {
+                try await sleep(delay)
+                try Task.checkCancellation()
+                await self?.refreshEntitlements()
+            } catch is CancellationError {
+                return
+            } catch {
+                log.error("Entitlement boundary wait failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -299,12 +315,6 @@ public final class SubscriptionService {
         }
     }
 
-    // MARK: - Internal: Pro Expiry
-
-    nonisolated private func proExpiryDate(for transaction: Transaction) -> Date? {
-        transaction.expirationDate
-    }
-
     // MARK: - Internal: iCloud Counters
 
     private func loadICloudCounters() {
@@ -319,7 +329,7 @@ public final class SubscriptionService {
         )
     }
 
-    private func trackWeekPassPurchaseIfNeeded(_ transaction: Transaction) {
+    private func recordWeekPassPurchase(_ transaction: Transaction) {
         guard transaction.productID == SubscriptionProductID.weekPass else { return }
         weekPassPurchaseCount += 1
         counterStore.setCounter(Int64(weekPassPurchaseCount), forKey: KVSKey.weekPassPurchaseCount)
@@ -329,6 +339,56 @@ public final class SubscriptionService {
 // MARK: - Testable Math (pure functions)
 
 extension SubscriptionService {
+    nonisolated static func resolveEntitlements(
+        _ snapshot: StoreEntitlementSnapshot,
+        at now: Date
+    ) -> ResolvedEntitlements {
+        let weekPassExpiry = snapshot.weekPassPurchases
+            .map(weekPassExpiryDate(purchaseDate:))
+            .max()
+        let proAccess = snapshot.proStatuses.compactMap { status -> ProAccessState? in
+            guard SubscriptionProductID.proProductIDs.contains(status.productID) else { return nil }
+
+            switch status.state {
+            case .subscribed:
+                guard let expiry = status.transactionExpiry, expiry > now else { return nil }
+                return .active(expiresAt: expiry, willRenew: status.willRenew ?? false)
+            case .gracePeriod:
+                guard let expiry = status.graceExpiry, expiry > now else { return nil }
+                return .billingGrace(expiresAt: expiry)
+            case .billingRetry, .expired, .revoked:
+                return nil
+            }
+        }.max { lhs, rhs in
+            lhs.expiry < rhs.expiry
+        }
+
+        if let proAccess {
+            return ResolvedEntitlements(
+                tier: .pro,
+                weekPassExpiry: weekPassExpiry,
+                proAccess: proAccess,
+                nextBoundary: proAccess.expiry
+            )
+        }
+
+        if let weekPassExpiry, weekPassExpiry > now {
+            return ResolvedEntitlements(
+                tier: .weekPass,
+                weekPassExpiry: weekPassExpiry,
+                proAccess: nil,
+                nextBoundary: weekPassExpiry
+            )
+        }
+
+        return ResolvedEntitlements(
+            tier: .free,
+            weekPassExpiry: weekPassExpiry,
+            proAccess: nil,
+            nextBoundary: nil
+        )
+    }
+
     /// Calculate Week Pass expiry from purchase date. Pure function for testing.
     nonisolated public static func weekPassExpiryDate(purchaseDate: Date) -> Date {
         purchaseDate.addingTimeInterval(SubscriptionDuration.weekPassInterval)
@@ -342,12 +402,6 @@ extension SubscriptionService {
     /// Whether a Week Pass is active at the given date. Pure function for testing.
     nonisolated public static func isWeekPassActive(purchaseDate: Date, at now: Date) -> Bool {
         now < weekPassExpiryDate(purchaseDate: purchaseDate)
-    }
-
-    /// Whether a Pro subscription is in grace period. Pure function for testing.
-    nonisolated public static func isProInGracePeriod(expiryDate: Date, at now: Date) -> Bool {
-        now >= expiryDate
-            && now < expiryDate.addingTimeInterval(SubscriptionDuration.proGraceInterval)
     }
 
     /// Whether cooldown has passed since Week Pass expiry. Pure function for testing.

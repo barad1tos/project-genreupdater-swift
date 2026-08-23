@@ -67,7 +67,7 @@ struct DependencyConfigTests {
         dependencies.installTestFeatureGate(gate)
         dependencies.configureLibraryPersistenceForTesting(cache: cache)
 
-        subscription.applyEntitlementState(tier: .weekPass, weekPassExpiry: nil, proExpiry: nil)
+        subscription.applyEntitlementState(tier: .weekPass, weekPassExpiry: nil, proAccess: nil)
         await dependencies.runtimeApplyQueue?.value
 
         await cache.set(key: "paid-a", value: 1, ttl: 3600)
@@ -76,7 +76,7 @@ struct DependencyConfigTests {
         #expect(paidStatistics.genericCacheCount == 1)
         #expect(await dependencies.librarySnapshotService?.isEnabled == false)
 
-        subscription.applyEntitlementState(tier: .free, weekPassExpiry: nil, proExpiry: nil)
+        subscription.applyEntitlementState(tier: .free, weekPassExpiry: nil, proAccess: nil)
         await dependencies.runtimeApplyQueue?.value
 
         await cache.set(key: "free-c", value: 3, ttl: 3600)

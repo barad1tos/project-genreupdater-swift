@@ -14,15 +14,19 @@ struct SubscriptionRuntimeTests {
         dependencies.lastScheduledTickAt = Date()
         let subscription = dependencies.makeSubscriptionService()
 
-        subscription.applyEntitlementState(tier: .weekPass, weekPassExpiry: nil, proExpiry: nil)
+        subscription.applyEntitlementState(tier: .weekPass, weekPassExpiry: nil, proAccess: nil)
         dependencies.installTestFeatureGate(AppDependencies.makeFeatureGate(for: subscription))
 
-        subscription.applyEntitlementState(tier: .pro, weekPassExpiry: nil, proExpiry: nil)
+        subscription.applyEntitlementState(
+            tier: .pro,
+            weekPassExpiry: nil,
+            proAccess: .active(expiresAt: Date().addingTimeInterval(86400), willRenew: true)
+        )
         await dependencies.runtimeApplyQueue?.value
         #expect(dependencies.automationScheduleTask != nil)
         #expect(dependencies.isAutomationArmed)
 
-        subscription.applyEntitlementState(tier: .weekPass, weekPassExpiry: nil, proExpiry: nil)
+        subscription.applyEntitlementState(tier: .weekPass, weekPassExpiry: nil, proAccess: nil)
         await dependencies.runtimeApplyQueue?.value
         #expect(dependencies.automationScheduleTask == nil)
         #expect(!dependencies.isAutomationArmed)

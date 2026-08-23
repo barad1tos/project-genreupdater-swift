@@ -55,10 +55,27 @@ struct SubscriptionView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let proExpiry = dependencies.subscriptionService?.proExpiry, currentTier == .pro {
-                Text("Renews \(proExpiry, format: .dateTime.month().day().year())")
+            if let proAccess = dependencies.subscriptionService?.proAccess, currentTier == .pro {
+                switch proAccess {
+                case let .active(expiresAt, willRenew):
+                    if willRenew {
+                        Text("Renews \(expiresAt, format: .dateTime.month().day().year())")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Expires \(expiresAt, format: .dateTime.month().day().year())")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                case let .billingGrace(expiresAt):
+                    Label {
+                        Text("Billing issue — Pro access until \(expiresAt, format: .dateTime.month().day().year())")
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.orange)
+                }
             }
 
             if let weekPassExpiry = dependencies.subscriptionService?.weekPassExpiry,
