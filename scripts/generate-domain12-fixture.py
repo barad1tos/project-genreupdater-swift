@@ -219,6 +219,12 @@ class OrchestratorCommand(Protocol):
     async def __call__(self, instance: object, arguments: object) -> None: ...
 
 
+def completed_future() -> asyncio.Future[None]:
+    future = asyncio.get_running_loop().create_future()
+    future.set_result(None)
+    return future
+
+
 class PipelineProbe:
     def __init__(self) -> None:
         self.dry_run_mode: str | None = None
@@ -227,8 +233,14 @@ class PipelineProbe:
     def set_dry_run_context(self, mode: str, _artists: set[str]) -> None:
         self.dry_run_mode = mode
 
-    async def run_main_pipeline(self, *, force: bool, fresh: bool) -> None:
+    def run_main_pipeline(
+        self,
+        *,
+        force: bool,
+        fresh: bool,
+    ) -> asyncio.Future[None]:
         self.pipeline_calls.append({"force": force, "fresh": fresh})
+        return completed_future()
 
 
 class ConcurrencyProbe:
@@ -454,8 +466,8 @@ async def execute_orchestration_case(
     setattr(orchestrator, "error_logger", logger)
     setattr(orchestrator, "music_updater", pipeline)
 
-    async def skip_maintenance() -> None:
-        return None
+    def skip_maintenance() -> asyncio.Future[None]:
+        return completed_future()
 
     setattr(orchestrator, "_maybe_auto_verify", skip_maintenance)
     setattr(orchestrator, "_maybe_auto_verify_pending", skip_maintenance)
