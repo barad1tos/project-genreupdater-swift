@@ -208,15 +208,16 @@ struct FixPlanProducerTests {
         )
 
         let calls = await spy.determinationCalls()
+        let callsByTrackID = Dictionary(uniqueKeysWithValues: calls.map { ($0.trackID, $0) })
         #expect(await spy.refreshInputs() == [["T1", "T2", "T3"]])
         #expect(await spy.refreshScopes() == [currentScope])
-        #expect(calls.map(\.trackID) == ["T1", "T2", "T3"])
-        #expect(calls[0].albumTrackIDs == ["T1", "T3"])
-        #expect(calls[0].artistTrackIDs == ["T1", "T2"])
-        #expect(calls[0].updateGenre == false)
-        #expect(calls[0].updateYear == true)
-        #expect(calls[0].minConfidence == 70)
-        #expect(calls[2].artistTrackIDs == ["T3"])
+        #expect(Set(calls.map(\.trackID)) == ["T1", "T2", "T3"])
+        #expect(callsByTrackID["T1"]?.albumTrackIDs == ["T1", "T3"])
+        #expect(callsByTrackID["T1"]?.artistTrackIDs == ["T1", "T2"])
+        #expect(callsByTrackID["T1"]?.updateGenre == false)
+        #expect(callsByTrackID["T1"]?.updateYear == true)
+        #expect(callsByTrackID["T1"]?.minConfidence == 70)
+        #expect(callsByTrackID["T3"]?.artistTrackIDs == ["T3"])
     }
 
     @Test("feature credits share artist context during plan production")
@@ -345,6 +346,48 @@ struct FixPlanProducerTests {
         #expect(saved.decision.itemDecisions.map(\.itemID) == saved.plan.items.map(\.id))
     }
 
+    @Test("planning admits bounded albums and preserves source order")
+    func boundsAlbumPlanning() async throws {
+        let first = track("A1", album: "First")
+        let second = track("A2", album: "First")
+        let third = track("B1", album: "Second")
+        let fourth = track("C1", album: "Third")
+        let concurrency = PlanConcurrencyProbe(trackDelays: [
+            "A1": .milliseconds(80),
+            "A2": .milliseconds(5),
+            "B1": .milliseconds(50),
+            "C1": .milliseconds(10),
+        ])
+        let spy = FixPlanProducerSpy(
+            tracks: [first, second, third, fourth],
+            outcomes: [
+                "A1": .changes([proposal(for: first)]),
+                "A2": .changes([proposal(for: second)]),
+                "B1": .changes([proposal(for: third)]),
+                "C1": .changes([proposal(for: fourth)]),
+            ],
+            concurrency: concurrency
+        )
+        var appConfiguration = AppConfiguration()
+        appConfiguration.genreUpdate.concurrentLimit = 3
+        appConfiguration.applescript.concurrency = 2
+        appConfiguration.yearRetrieval.rateLimits.concurrentAPICalls = 4
+
+        _ = try await makeProducer(spy).producePlan(
+            sourceRunID: sourceRunID,
+            scope: scope(requestedTestArtists: [], knownTrackCount: 4),
+            configuration: configuration(
+                UpdateOptions(updateGenre: true, updateYear: true, minConfidence: 60),
+                appConfiguration: appConfiguration
+            )
+        )
+
+        let saved = try #require(await spy.savedPlans().first)
+        #expect(await concurrency.maximumActiveCount() == 2)
+        #expect(await concurrency.maximumAlbumActiveCount() == 1)
+        #expect(saved.plan.items.map(\.identity.readID) == ["A1", "A2", "B1", "C1"])
+    }
+
     @Test("empty proposals return empty production and do not save")
     func emptyDoesNotSave() async throws {
         let spy = FixPlanProducerSpy(
@@ -413,10 +456,11 @@ struct FixPlanProducerTests {
 
     private func configuration(
         _ options: UpdateOptions = UpdateOptions(),
+        appConfiguration: AppConfiguration = AppConfiguration(),
         albumTarget: FixPlanAlbumTarget? = nil
     ) -> FixPlanConfig {
         FixPlanConfig.capture(
-            configuration: AppConfiguration(),
+            configuration: appConfiguration,
             options: options,
             capturedAt: Date(timeIntervalSince1970: 1_700_000_000),
             albumTarget: albumTarget
@@ -429,6 +473,7 @@ private actor FixPlanProducerSpy {
     private let albumContextIDs: [String: [String]]
     private let outcomes: [String: DeterminationOutcome]
     private let refreshFails: Bool
+    private let concurrency: PlanConcurrencyProbe?
     private var refreshInputIDs: [[String]] = []
     private var capturedScopes: [ProcessingScopeSnapshot] = []
     private var albumContextInputIDs: [[String]] = []
@@ -440,12 +485,14 @@ private actor FixPlanProducerSpy {
         tracks: [Track],
         albumContextIDs: [String: [String]] = [:],
         outcomes: [String: DeterminationOutcome] = [:],
-        refreshFails: Bool = false
+        refreshFails: Bool = false,
+        concurrency: PlanConcurrencyProbe? = nil
     ) {
         self.tracks = tracks
         self.albumContextIDs = albumContextIDs
         self.outcomes = outcomes
         self.refreshFails = refreshFails
+        self.concurrency = concurrency
     }
 
     func loadTracks() -> [Track] {
@@ -487,7 +534,7 @@ private actor FixPlanProducerSpy {
         albumTracks: [Track],
         artistTracks: [Track],
         options: UpdateOptions
-    ) throws -> [ProposedChange] {
+    ) async throws -> [ProposedChange] {
         events.append("determine:\(track.id)")
         calls.append(DeterminationCall(
             trackID: track.id,
@@ -497,6 +544,10 @@ private actor FixPlanProducerSpy {
             updateYear: options.updateYear,
             minConfidence: options.minConfidence
         ))
+        try await concurrency?.pause(
+            trackID: track.id,
+            albumKey: AlbumIdentity.key(for: track)
+        )
 
         switch outcomes[track.id] ?? .changes([]) {
         case let .changes(changes):
@@ -538,6 +589,39 @@ private actor FixPlanProducerSpy {
 
     func savedPlans() -> [(plan: FixPlan, decision: FixPlanReviewDecision)] {
         saved
+    }
+}
+
+private actor PlanConcurrencyProbe {
+    private let trackDelays: [String: Duration]
+    private var activeCount = 0
+    private var maximumActive = 0
+    private var activeByAlbum: [String: Int] = [:]
+    private var maximumAlbumActive = 0
+
+    init(trackDelays: [String: Duration]) {
+        self.trackDelays = trackDelays
+    }
+
+    func pause(trackID: String, albumKey: String) async throws {
+        activeCount += 1
+        maximumActive = max(maximumActive, activeCount)
+        activeByAlbum[albumKey, default: 0] += 1
+        maximumAlbumActive = max(maximumAlbumActive, activeByAlbum[albumKey, default: 0])
+        defer {
+            activeCount -= 1
+            activeByAlbum[albumKey, default: 0] -= 1
+        }
+
+        try await Task.sleep(for: trackDelays[trackID] ?? .zero)
+    }
+
+    func maximumActiveCount() -> Int {
+        maximumActive
+    }
+
+    func maximumAlbumActiveCount() -> Int {
+        maximumAlbumActive
     }
 }
 
