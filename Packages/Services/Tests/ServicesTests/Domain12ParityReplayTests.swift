@@ -244,7 +244,8 @@ struct Domain12ParityReplayTests {
         #expect(replayCase.pythonExpected.pipelineRuns == 1)
         #expect(!replayCase.pythonExpected.force)
         #expect(!replayCase.pythonExpected.fresh)
-        #expect((replayCase.pythonExpected.dryRunMode != nil) == replayCase.input.pythonDryRun)
+        let expectedDryRunMode = replayCase.input.pythonDryRun ? "dry_run" : nil
+        #expect(replayCase.pythonExpected.dryRunMode == expectedDryRunMode)
         #expect(replayCase.divergences.allSatisfy { !$0.reason.isEmpty })
         let modeDivergence = replayCase.divergences.first { $0.field == "mode" }
         if replayCase.input.pythonDryRun == (mode == .preview) {
