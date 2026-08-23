@@ -3,6 +3,12 @@
   "pythonBaseline": "0f6dca1f36eab74a6899a0f770511927b68d3e15",
   "requiresGeneratedInput": true,
   "files": {
+    "domain_12_reference.json": {
+      "digest": "sha256:a52e0389eda6c23374f928c3051c63bf55f863d677c947ded0b8cabaa064e2f1",
+      "caseCount": 9,
+      "generated": 9,
+      "verifiedByExecution": 0
+    },
     "provider_acquisition_reference.json": {
       "digest": "sha256:9cc337498f0ce1cda40eefd019c9f8be4f48553aaf9ffdedff707dfcb927ca99",
       "caseCount": 1,

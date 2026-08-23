@@ -468,7 +468,7 @@ struct FixPlanProducerTests {
     }
 }
 
-private actor FixPlanProducerSpy {
+actor FixPlanProducerSpy {
     private let tracks: [Track]
     private let albumContextIDs: [String: [String]]
     private let outcomes: [String: DeterminationOutcome]
@@ -583,7 +583,7 @@ private actor FixPlanProducerSpy {
         events
     }
 
-    func determinationCalls() -> [DeterminationCall] {
+    fileprivate func determinationCalls() -> [DeterminationCall] {
         calls
     }
 
@@ -592,7 +592,7 @@ private actor FixPlanProducerSpy {
     }
 }
 
-private actor PlanConcurrencyProbe {
+actor PlanConcurrencyProbe {
     private let trackDelays: [String: Duration]
     private var activeCount = 0
     private var maximumActive = 0
@@ -634,7 +634,7 @@ private struct DeterminationCall: Equatable {
     let minConfidence: Int
 }
 
-private enum DeterminationOutcome {
+enum DeterminationOutcome {
     case changes([ProposedChange])
     case trackNotEditable
     case missingAppleScriptID
@@ -642,11 +642,11 @@ private enum DeterminationOutcome {
     case cancellation
 }
 
-private enum ProducerTestError: Error, Equatable {
+enum ProducerTestError: Error, Equatable {
     case intentional
 }
 
-private func track(
+func track(
     _ id: String,
     artist: String = "Artist",
     album: String = "Album",
@@ -655,7 +655,7 @@ private func track(
     Track(id: id, name: "Track \(id)", artist: artist, album: album, albumArtist: albumArtist)
 }
 
-private func proposal(
+func proposal(
     for track: Track,
     changeType: ChangeType = .genreUpdate,
     confidence: Int = 80
