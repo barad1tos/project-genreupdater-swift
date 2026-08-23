@@ -24,6 +24,7 @@ struct RandomAccessLiveBatchRun {
 struct RandomAccessWorkflowFixtureOptions {
     var tier: Tier = .pro
     var apiService = DashboardStateAPIService(year: 2013, confidence: 100)
+    var apiServices: APIOrchestratorServices?
     var randomAccessYear: Int?
     var failingWriteTrackIDs: Set<String> = []
     var cancellingWriteTrackIDs: Set<String> = []
@@ -95,6 +96,9 @@ func makeRandomAccessPendingViewModel(
 @MainActor
 func makeRandomAccessLiveBatchRun(
     pendingVerificationService: WorkflowPendingVerificationService? = nil,
+    apiServices: APIOrchestratorServices? = nil,
+    apiYear: Int? = 2013,
+    isLookupAvailable: Bool = true,
     randomAccessYear: Int? = nil,
     failingWriteTrackIDs: Set<String> = [],
     cancellingWriteTrackIDs: Set<String> = [],
@@ -111,7 +115,12 @@ func makeRandomAccessLiveBatchRun(
         dueEntries: [randomAccessMemoriesPendingEntry()]
     )
     var options = RandomAccessWorkflowFixtureOptions()
-    options.apiService = DashboardStateAPIService(year: 2013, confidence: 100)
+    options.apiService = DashboardStateAPIService(
+        year: apiYear,
+        confidence: apiYear == nil ? 0 : 100,
+        isLookupAvailable: isLookupAvailable
+    )
+    options.apiServices = apiServices
     options.randomAccessYear = randomAccessYear
     options.failingWriteTrackIDs = failingWriteTrackIDs
     options.cancellingWriteTrackIDs = cancellingWriteTrackIDs
@@ -189,6 +198,7 @@ func makeRandomAccessWorkflowFixture(
         prepareMutationMetadata: options.prepareMutationMetadata
     ) { fixtureOptions in
         fixtureOptions.tier = options.tier
+        fixtureOptions.apiServices = options.apiServices
         fixtureOptions.cancellingWriteTrackIDs = options.cancellingWriteTrackIDs
         fixtureOptions.outcomeTrackIDs = options.outcomeTrackIDs
         fixtureOptions.runMaintenancePreflight = options.runMaintenancePreflight

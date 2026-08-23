@@ -4,6 +4,7 @@ import Core
 import Services
 
 struct PendingEntryOutcome {
+    var dispositions: Set<PendingDisposition> = []
     var completed: [ChangeLogEntry] = []
     var successfulTrackIDs: [String] = []
     var failedTrackIDs: [String] = []
@@ -13,8 +14,17 @@ struct PendingEntryOutcome {
     var handledIdentityKeys: Set<String> = []
 
     var isEmpty: Bool {
-        completed.isEmpty && successfulTrackIDs.isEmpty && failedTrackIDs.isEmpty && errorDescriptions
+        dispositions.isEmpty && completed.isEmpty && successfulTrackIDs.isEmpty && failedTrackIDs
+            .isEmpty && errorDescriptions
             .isEmpty && processedCount == 0
+    }
+
+    var canAdvanceTimestamp: Bool {
+        !dispositions.isEmpty && dispositions.isSubset(of: [.resolved, .deferred])
+    }
+
+    var hasHardFailure: Bool {
+        dispositions.contains(.failed)
     }
 }
 
@@ -292,9 +302,7 @@ extension WorkflowViewModel {
             }
         }
 
-        if !dueEntries.isEmpty,
-           runOutcome.failedTrackIDs.isEmpty,
-           runOutcome.errorDescriptions.isEmpty {
+        if !dueEntries.isEmpty, runOutcome.canAdvanceTimestamp {
             do {
                 try await pendingVerificationService.updateVerificationTimestamp()
             } catch is CancellationError {
@@ -413,24 +421,17 @@ extension WorkflowViewModel {
             missingTracks: missingContextTracks
         )
         guard missingEntryTracks.isEmpty else {
-            let errorDescription = "Missing AppleScript metadata for \(entry.artist) - \(entry.album)"
-            let failedTracks = Self.uniqueTracks(albumTracks + missingEntryTracks)
-            markPendingAlbumTracks(failedTracks, as: .failed(errorDescription))
-            totalCount = max(totalCount, trackStatuses.count)
-            return PendingEntryOutcome(
-                failedTrackIDs: failedTracks.map(\.id),
-                errorDescriptions: Array(repeating: errorDescription, count: failedTracks.count),
-                processedCount: failedTracks.count,
-                handledIdentityKeys: Self.pendingHandledIdentityKeys(
-                    entry: entry,
-                    albumTracks: albumTracks,
-                    albumGroups: albumGroups
-                )
+            return pendingContextFailure(
+                entry: entry,
+                albumTracks: albumTracks,
+                albumGroups: albumGroups,
+                missingTracks: missingEntryTracks
             )
         }
 
         guard !albumTracks.isEmpty else {
             return PendingEntryOutcome(
+                dispositions: [.failed],
                 failedTrackIDs: [entry.id],
                 errorDescriptions: ["No local tracks found for \(entry.artist) - \(entry.album)"],
                 handledIdentityKeys: Self.pendingIdentityKeys(for: entry)
@@ -460,6 +461,7 @@ extension WorkflowViewModel {
         } catch {
             markPendingAlbumTracks(albumTracks, as: .failed(error.localizedDescription))
             return PendingEntryOutcome(
+                dispositions: [.failed],
                 failedTrackIDs: albumTracks.map(\.id),
                 errorDescriptions: [error.localizedDescription],
                 processedCount: albumTracks.count,
@@ -470,6 +472,29 @@ extension WorkflowViewModel {
                 )
             )
         }
+    }
+
+    private func pendingContextFailure(
+        entry: PendingAlbumEntry,
+        albumTracks: [Track],
+        albumGroups: [String: [Track]],
+        missingTracks: [Track]
+    ) -> PendingEntryOutcome {
+        let description = "Missing AppleScript metadata for \(entry.artist) - \(entry.album)"
+        let failedTracks = Self.uniqueTracks(albumTracks + missingTracks)
+        markPendingAlbumTracks(failedTracks, as: .failed(description))
+        totalCount = max(totalCount, trackStatuses.count)
+        return PendingEntryOutcome(
+            dispositions: [.failed],
+            failedTrackIDs: failedTracks.map(\.id),
+            errorDescriptions: Array(repeating: description, count: failedTracks.count),
+            processedCount: failedTracks.count,
+            handledIdentityKeys: Self.pendingHandledIdentityKeys(
+                entry: entry,
+                albumTracks: albumTracks,
+                albumGroups: albumGroups
+            )
+        )
     }
 
     private func pendingVerificationSnapshot() async -> (all: [PendingAlbumEntry], due: [PendingAlbumEntry]) {
@@ -594,7 +619,8 @@ extension WorkflowViewModel {
         albumGroups: [String: [Track]],
         pendingVerificationService: any PendingVerificationService
     ) async -> PendingEntryOutcome {
-        if verification.canClearPendingEntry, !verification.hasFailures {
+        switch verification.disposition {
+        case .resolved:
             let resolvedIdentities = Self.pendingResolvedIdentities(
                 entry: entry,
                 albumTracks: albumTracks,
@@ -609,18 +635,18 @@ extension WorkflowViewModel {
             }
             markPendingAlbumTracks(albumTracks, as: .done)
             return PendingEntryOutcome(
+                dispositions: [.resolved],
                 completed: verification.entries,
                 successfulTrackIDs: albumTracks.map(\.id),
                 processedCount: albumTracks.count,
                 resolvedIdentityKeys: resolvedIdentityKeys,
                 handledIdentityKeys: resolvedIdentityKeys
             )
-        } else if verification.didResolveYear {
-            markPartiallyVerifiedPendingAlbumTracks(albumTracks, verification: verification)
+        case .deferred, .unavailable:
+            markPendingAlbumTracks(albumTracks, as: .skipped)
             return PendingEntryOutcome(
+                dispositions: [verification.disposition],
                 completed: verification.entries,
-                failedTrackIDs: verification.failedTrackIDs,
-                errorDescriptions: verification.errorDescriptions,
                 processedCount: albumTracks.count,
                 handledIdentityKeys: Self.pendingHandledIdentityKeys(
                     entry: entry,
@@ -628,11 +654,23 @@ extension WorkflowViewModel {
                     albumGroups: albumGroups
                 )
             )
-        } else {
-            markPendingAlbumTracks(albumTracks, as: .failed("No year resolved"))
+        case .failed:
+            if verification.didResolveYear {
+                markPartiallyVerifiedPendingAlbumTracks(albumTracks, verification: verification)
+            } else {
+                markPendingAlbumTracks(albumTracks, as: .failed("Pending verification failed"))
+            }
+            let failedTrackIDs = verification.failedTrackIDs.isEmpty
+                ? albumTracks.map(\.id)
+                : verification.failedTrackIDs
+            let errorDescriptions = verification.errorDescriptions.isEmpty
+                ? ["Pending verification failed for \(entry.artist) - \(entry.album)"]
+                : verification.errorDescriptions
             return PendingEntryOutcome(
-                failedTrackIDs: albumTracks.map(\.id),
-                errorDescriptions: ["No year resolved for \(entry.artist) - \(entry.album)"],
+                dispositions: [.failed],
+                completed: verification.entries,
+                failedTrackIDs: failedTrackIDs,
+                errorDescriptions: errorDescriptions,
                 processedCount: albumTracks.count,
                 handledIdentityKeys: Self.pendingHandledIdentityKeys(
                     entry: entry,
@@ -894,6 +932,7 @@ extension WorkflowViewModel {
 
 extension PendingEntryOutcome {
     fileprivate mutating func merge(_ other: PendingEntryOutcome) {
+        dispositions.formUnion(other.dispositions)
         completed.append(contentsOf: other.completed)
         successfulTrackIDs.append(contentsOf: other.successfulTrackIDs)
         failedTrackIDs.append(contentsOf: other.failedTrackIDs)

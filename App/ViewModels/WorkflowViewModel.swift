@@ -653,7 +653,7 @@ final class WorkflowViewModel {
         _ outcome: PendingEntryOutcome,
         processingTracks: [Track]
     ) -> Bool {
-        if !outcome.failedTrackIDs.isEmpty {
+        if outcome.hasHardFailure {
             finishEmptyProcessingRun(preflightOutcome: outcome)
             return true
         }

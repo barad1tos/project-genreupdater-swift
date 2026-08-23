@@ -475,6 +475,64 @@ struct PendingWorkflowTests {
         #expect(await run.timestampUpdates.count() == 0)
     }
 
+    @Test("confirmed no-year preflight defers and continues live batch")
+    func deferredContinuesBatch() async throws {
+        let run = makeRandomAccessLiveBatchRun(apiYear: nil)
+        let viewModel = run.viewModel
+
+        startRandomAccessLiveYearBatch(run)
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        #expect(await run.pendingVerification.getAllPendingAlbums().isEmpty == false)
+        #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 1)
+        #expect(await run.timestampUpdates.count() == 1)
+        #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
+    }
+
+    @Test("unavailable pending lookup preserves retry window and continues live batch")
+    func unavailableContinuesBatch() async throws {
+        let run = makeRandomAccessLiveBatchRun(isLookupAvailable: false)
+        let viewModel = run.viewModel
+
+        startRandomAccessLiveYearBatch(run)
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        #expect(await run.pendingVerification.getAllPendingAlbums().isEmpty == false)
+        #expect(await run.pendingVerification.verificationTimestampUpdateCount() == 0)
+        #expect(await run.timestampUpdates.count() == 1)
+        #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
+    }
+
+    @Test("mixed resolved and deferred preflight advances the maintenance window")
+    func safeOutcomesAdvance() async throws {
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry(), pureRockFuryPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry(), pureRockFuryPendingEntry()]
+        )
+        let apiService = PendingYearService(yearsByAlbum: ["Pure Rock Fury": 2001])
+        let apiServices = APIOrchestratorServices(
+            musicBrainz: apiService,
+            discogs: apiService,
+            appleMusic: apiService
+        )
+        let run = makeRandomAccessLiveBatchRun(
+            pendingVerificationService: pendingVerification,
+            apiServices: apiServices
+        )
+        let viewModel = run.viewModel
+
+        startRandomAccessLiveYearBatch(run)
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+        let remaining = await pendingVerification.getAllPendingAlbums()
+
+        #expect(remaining.map(\.album) == ["Random Access Memories"])
+        #expect(await pendingVerification.verificationTimestampUpdateCount() == 1)
+        #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
+    }
+
     @Test("successful preflight entries stay visible after live batch")
     func successfulPreflightEntriesStayVisibleAfterLiveBatch() async throws {
         let run = makeRandomAccessLiveBatchRun()
@@ -768,5 +826,32 @@ actor PendingMutationPreparationRecorder {
 
     func preparedTrackIDBatches() -> [[String]] {
         batches
+    }
+}
+
+private struct PendingYearService: ExternalAPIService {
+    let yearsByAlbum: [String: Int]
+
+    func getAlbumYear(
+        artist _: String,
+        album: String,
+        currentLibraryYear _: Int?,
+        earliestTrackAddedYear _: Int?
+    ) async throws -> YearResult {
+        guard let year = yearsByAlbum[album] else { return YearResult() }
+        return YearResult(
+            year: year,
+            isDefinitive: true,
+            confidence: 100,
+            yearScores: [year: 100]
+        )
+    }
+
+    func getArtistActivityPeriod(normalizedArtist _: String) async throws -> (start: Int?, end: Int?) {
+        (nil, nil)
+    }
+
+    func getArtistStartYear(normalizedArtist _: String) async throws -> Int? {
+        nil
     }
 }

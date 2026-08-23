@@ -45,37 +45,48 @@ public struct BatchUpdateResult: Sendable {
     }
 }
 
+/// Observable outcome of one pending-album maintenance attempt.
+public enum PendingDisposition: Sendable, Hashable {
+    /// The pending entry reached a verified terminal result and can be cleared.
+    case resolved
+
+    /// Providers completed the lookup, but no safe terminal year was available.
+    case deferred
+
+    /// The lookup could not complete, so retry state must not advance.
+    case unavailable
+
+    /// Mutation eligibility, context, or a write failed and requires attention.
+    case failed
+}
+
 /// Result of resolving and applying a pending album verification.
 public struct PendingAlbumVerificationResult: Sendable {
+    public let disposition: PendingDisposition
     public let entries: [ChangeLogEntry]
     public let resolvedYear: Int?
     public let unchangedTrackIDs: [String]
     public let failedTrackIDs: [String]
     public let errorDescriptions: [String]
-    public let canClearPendingEntry: Bool
 
     public init(
+        disposition: PendingDisposition,
         entries: [ChangeLogEntry],
         resolvedYear: Int?,
         unchangedTrackIDs: [String] = [],
         failedTrackIDs: [String] = [],
-        errorDescriptions: [String] = [],
-        canClearPendingEntry: Bool = false
+        errorDescriptions: [String] = []
     ) {
+        self.disposition = disposition
         self.entries = entries
         self.resolvedYear = resolvedYear
         self.unchangedTrackIDs = unchangedTrackIDs
         self.failedTrackIDs = failedTrackIDs
         self.errorDescriptions = errorDescriptions
-        self.canClearPendingEntry = canClearPendingEntry
     }
 
     public var didResolveYear: Bool {
         resolvedYear != nil
-    }
-
-    public var hasFailures: Bool {
-        !failedTrackIDs.isEmpty
     }
 }
 
