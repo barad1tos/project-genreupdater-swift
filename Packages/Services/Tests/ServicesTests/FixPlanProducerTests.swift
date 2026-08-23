@@ -359,7 +359,7 @@ struct FixPlanProducerTests {
             "C1": .milliseconds(10),
         ])
         let spy = FixPlanProducerSpy(
-            tracks: [first, second, third, fourth],
+            tracks: [first, third, second, fourth],
             outcomes: [
                 "A1": .changes([proposal(for: first)]),
                 "A2": .changes([proposal(for: second)]),
@@ -385,7 +385,7 @@ struct FixPlanProducerTests {
         let saved = try #require(await spy.savedPlans().first)
         #expect(await concurrency.maximumActiveCount() == 2)
         #expect(await concurrency.maximumAlbumActiveCount() == 1)
-        #expect(saved.plan.items.map(\.identity.readID) == ["A1", "A2", "B1", "C1"])
+        #expect(saved.plan.items.map(\.identity.readID) == ["A1", "B1", "A2", "C1"])
     }
 
     @Test("empty proposals return empty production and do not save")

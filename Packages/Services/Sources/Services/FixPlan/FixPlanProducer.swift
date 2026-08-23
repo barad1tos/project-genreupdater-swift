@@ -114,7 +114,7 @@ public struct FixPlanProducer: Sendable {
         concurrencyLimit: Int
     ) async throws -> [ProposedChange] {
         let workUnits = Self.albumWorkUnits(tracks)
-        return try await withThrowingTaskGroup(of: (Int, [ProposedChange]).self) { group in
+        return try await withThrowingTaskGroup(of: [IndexedProposals].self) { group in
             var nextIndex = 0
             let initialCount = min(concurrencyLimit, workUnits.count)
             while nextIndex < initialCount {
@@ -127,9 +127,9 @@ public struct FixPlanProducer: Sendable {
                 nextIndex += 1
             }
 
-            var proposalsByUnit = [[ProposedChange]?](repeating: nil, count: workUnits.count)
-            while let (index, proposals) = try await group.next() {
-                proposalsByUnit[index] = proposals
+            var indexedProposals: [IndexedProposals] = []
+            while let proposals = try await group.next() {
+                indexedProposals.append(contentsOf: proposals)
                 if nextIndex < workUnits.count {
                     Self.addAlbumUnit(
                         at: nextIndex,
@@ -140,33 +140,33 @@ public struct FixPlanProducer: Sendable {
                     nextIndex += 1
                 }
             }
-            return proposalsByUnit.compactMap(\.self).flatMap(\.self)
+            return indexedProposals.sorted { $0.trackIndex < $1.trackIndex }.flatMap(\.proposals)
         }
     }
 
     private static func addAlbumUnit(
         at index: Int,
-        from workUnits: [[Track]],
-        to group: inout ThrowingTaskGroup<(Int, [ProposedChange]), any Error>,
+        from workUnits: [[IndexedTrack]],
+        to group: inout ThrowingTaskGroup<[IndexedProposals], any Error>,
         context: PlanContext
     ) {
         let tracks = workUnits[index]
         group.addTask {
-            let proposals = try await determineAlbumProposals(
+            try await determineAlbumProposals(
                 for: tracks,
                 context: context
             )
-            return (index, proposals)
         }
     }
 
     private static func determineAlbumProposals(
-        for tracks: [Track],
+        for tracks: [IndexedTrack],
         context: PlanContext
-    ) async throws -> [ProposedChange] {
-        var proposals: [ProposedChange] = []
-        for track in tracks {
+    ) async throws -> [IndexedProposals] {
+        var indexedProposals: [IndexedProposals] = []
+        for indexedTrack in tracks {
             try Task.checkCancellation()
+            let track = indexedTrack.track
             do {
                 let changes = try await context.runtime.determineChanges(
                     track,
@@ -175,24 +175,28 @@ public struct FixPlanProducer: Sendable {
                     context.options,
                     context.yearRunScope
                 )
-                proposals.append(contentsOf: changes)
+                indexedProposals.append(IndexedProposals(
+                    trackIndex: indexedTrack.trackIndex,
+                    proposals: changes
+                ))
             } catch let error where isWriteEligibilityError(error) {
                 continue
             }
         }
-        return proposals
+        return indexedProposals
     }
 
-    private static func albumWorkUnits(_ tracks: [Track]) -> [[Track]] {
-        var workUnits: [[Track]] = []
+    private static func albumWorkUnits(_ tracks: [Track]) -> [[IndexedTrack]] {
+        var workUnits: [[IndexedTrack]] = []
         var indicesByAlbum: [String: Int] = [:]
-        for track in tracks {
+        for (trackIndex, track) in tracks.enumerated() {
+            let indexedTrack = IndexedTrack(trackIndex: trackIndex, track: track)
             let albumKey = AlbumIdentity.key(for: track)
             if let index = indicesByAlbum[albumKey] {
-                workUnits[index].append(track)
+                workUnits[index].append(indexedTrack)
             } else {
                 indicesByAlbum[albumKey] = workUnits.count
-                workUnits.append([track])
+                workUnits.append([indexedTrack])
             }
         }
         return workUnits
@@ -216,6 +220,16 @@ public struct FixPlanProducer: Sendable {
         let artistTracks: [String: [Track]]
         let options: UpdateOptions
         let yearRunScope: YearRunScope
+    }
+
+    private struct IndexedTrack: Sendable {
+        let trackIndex: Int
+        let track: Track
+    }
+
+    private struct IndexedProposals: Sendable {
+        let trackIndex: Int
+        let proposals: [ProposedChange]
     }
 
     private static func scopedTracks(_ tracks: [Track], scope: ProcessingScopeSnapshot) -> [Track] {
