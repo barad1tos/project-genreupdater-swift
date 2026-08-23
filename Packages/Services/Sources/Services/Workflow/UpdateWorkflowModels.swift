@@ -85,11 +85,6 @@ public struct PendingAlbumVerificationResult: Sendable {
         self.errorDescriptions = errorDescriptions
     }
 
-    /// Whether the pending entry reached a verified terminal result and can be cleared.
-    public var canClearPendingEntry: Bool {
-        disposition == .resolved
-    }
-
     public var didResolveYear: Bool {
         resolvedYear != nil
     }
