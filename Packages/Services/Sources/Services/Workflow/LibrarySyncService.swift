@@ -51,9 +51,12 @@ public actor LibrarySyncService {
         }
     }
 
-    /// Whether automatic maintenance preflight should invoke database verification.
-    public func isScheduled() -> Bool {
-        runtimeConfiguration.databaseVerificationIntervalDays > 0
+    /// Runs automatic database verification when the live schedule is enabled.
+    public func runScheduledVerification() async throws -> DatabaseVerificationResult? {
+        guard runtimeConfiguration.databaseVerificationIntervalDays > 0 else {
+            return nil
+        }
+        return try await verifyAndCleanDatabase(force: false)
     }
 
     // MARK: Manual Sync

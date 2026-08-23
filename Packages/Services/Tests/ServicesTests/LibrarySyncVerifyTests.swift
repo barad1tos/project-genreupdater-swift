@@ -341,6 +341,11 @@ struct LibrarySyncVerifyTests {
             )
         )
 
+        let scheduledResult = try await service.runScheduledVerification()
+
+        #expect(scheduledResult == nil)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+
         let result = try await service.verifyAndCleanDatabase(force: true)
 
         #expect(result.removedTrackIDs == ["T2"])

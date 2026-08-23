@@ -16,7 +16,7 @@ struct MaintenanceCoordinatorTests {
 
         let result = await coordinator.runPreflight()
 
-        #expect(await database.receivedForceValues() == [false])
+        #expect(await database.runCount() == 1)
         #expect(await pending.shouldAutoVerifyCallCount() == 1)
         #expect(result.databaseVerification?.verifiedTrackCount == 3)
         #expect(result.databaseVerification?.removedTrackIDs == ["stale-track"])
@@ -49,7 +49,7 @@ struct MaintenanceCoordinatorTests {
 
         let result = await coordinator.runPreflight()
 
-        #expect(await database.receivedForceValues() == [false])
+        #expect(await database.runCount() == 1)
         #expect(await pending.shouldAutoVerifyCallCount() == 1)
         #expect(result.databaseVerification == nil)
         #expect(result.isPendingVerificationDue)
@@ -112,19 +112,15 @@ private enum MaintenanceTestError: Error, LocalizedError {
 }
 
 private actor RecordingDatabaseVerificationService: DatabaseVerificationCleaning {
-    private var forceValues: [Bool] = []
+    private var scheduledRuns = 0
     private let error: Error?
 
     init(error: Error? = nil) {
         self.error = error
     }
 
-    func isScheduled() -> Bool {
-        true
-    }
-
-    func verifyAndCleanDatabase(force: Bool) async throws -> DatabaseVerificationResult {
-        forceValues.append(force)
+    func runScheduledVerification() async throws -> DatabaseVerificationResult? {
+        scheduledRuns += 1
         if let error {
             throw error
         }
@@ -134,8 +130,8 @@ private actor RecordingDatabaseVerificationService: DatabaseVerificationCleaning
         )
     }
 
-    func receivedForceValues() -> [Bool] {
-        forceValues
+    func runCount() -> Int {
+        scheduledRuns
     }
 }
 
