@@ -126,10 +126,6 @@ struct Domain12ParityReplayTests {
             _ = try await produce()
             let saved = try #require(await spy.savedPlans().first)
             #expect(
-                await concurrency.maximumActiveCount() == replayCase.expected.swiftMaximumActive,
-                Comment(rawValue: "[\(replayCase.id)] \(replayCase.description): admission differs")
-            )
-            #expect(
                 saved.plan.items.map(\.identity.readID) == replayCase.expected.pythonProposalOrder,
                 Comment(rawValue: "[\(replayCase.id)] \(replayCase.description): proposal order differs")
             )
@@ -139,6 +135,10 @@ struct Domain12ParityReplayTests {
             }
             #expect(await spy.savedPlans().isEmpty)
         }
+        #expect(
+            await concurrency.maximumActiveCount() == replayCase.expected.swiftMaximumActive,
+            Comment(rawValue: "[\(replayCase.id)] \(replayCase.description): admission differs")
+        )
         assertDivergences(in: replayCase)
     }
 

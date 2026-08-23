@@ -17,7 +17,7 @@ struct FixtureProvenanceTests {
         let files: [String: Entry]
     }
 
-    private struct ProviderReference: Decodable {
+    private struct FixtureHeader: Decodable {
         let pythonBaseline: String
     }
 
@@ -33,21 +33,16 @@ struct FixtureProvenanceTests {
         #expect(fixtureNames == Set(manifest.files.keys))
     }
 
-    @Test("fixtures match their generated digests and case counts")
+    @Test("fixtures match their generated baseline digests and case counts")
     func fixtureMatchesManifest() throws {
         let manifest = try loadManifest()
-        let reference = try JSONDecoder().decode(
-            ProviderReference.self,
-            from: Data(contentsOf: fixtureURL(named: "provider_acquisition_reference.json"))
-        )
 
         #expect(manifest.requiresGeneratedInput)
-        #expect(reference.pythonBaseline == manifest.pythonBaseline)
 
         for (name, entry) in manifest.files {
-            let object = try JSONSerialization.jsonObject(
-                with: Data(contentsOf: fixtureURL(named: name))
-            )
+            let data = try Data(contentsOf: fixtureURL(named: name))
+            let header = try JSONDecoder().decode(FixtureHeader.self, from: data)
+            let object = try JSONSerialization.jsonObject(with: data)
             let canonical = try JSONSerialization.data(
                 withJSONObject: object,
                 options: [.sortedKeys, .withoutEscapingSlashes]
@@ -58,6 +53,7 @@ struct FixtureProvenanceTests {
             let fixture = try #require(object as? [String: Any])
             let cases = try #require(fixture["cases"] as? [[String: Any]])
 
+            #expect(header.pythonBaseline == manifest.pythonBaseline)
             #expect(digest == entry.digest, "\(name) changed without provenance refresh")
             #expect(cases.count == entry.caseCount)
             #expect(entry.generated + entry.verifiedByExecution == entry.caseCount)
