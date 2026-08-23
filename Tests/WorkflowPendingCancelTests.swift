@@ -211,6 +211,29 @@ struct WorkflowPendingCancelTests {
         #expect(metered.count == 2)
     }
 
+    @Test("pending timestamp failure stops the live batch")
+    func timestampFailureStopsLiveBatch() async throws {
+        let pendingVerification = WorkflowPendingVerificationService(
+            entries: [randomAccessMemoriesPendingEntry()],
+            dueEntries: [randomAccessMemoriesPendingEntry()],
+            timestampUpdateFailure: PendingTimestampUpdateError.failed
+        )
+        let run = makeRandomAccessLiveBatchRun(pendingVerificationService: pendingVerification)
+        let viewModel = run.viewModel
+
+        startRandomAccessLiveYearBatch(run)
+
+        try await waitForWorkflowToLeaveScanning(viewModel)
+
+        #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1", "ram-2"])
+        #expect(await run.timestampUpdates.count() == 0)
+        if case let .error(message) = viewModel.phase {
+            #expect(message == PendingTimestampUpdateError.failed.localizedDescription)
+        } else {
+            Issue.record("Expected timestamp persistence failure to stop the live batch")
+        }
+    }
+
     @Test("completed pending writes are metered before an unknown outcome")
     func completedPendingWritesAreMeteredBeforeUnknownOutcome() async {
         let pendingEntries = [
