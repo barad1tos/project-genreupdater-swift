@@ -12,7 +12,7 @@ struct PreviewSubmissionTests {
         let probe = SubmissionProbe()
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in }
+            configurationSaver: { configuration in _ = configuration }
         )
         dependencies.config.runtime.dryRun = false
         dependencies.config.runtime.automationStrategy = .hybrid
@@ -23,7 +23,7 @@ struct PreviewSubmissionTests {
                 await probe.recordSync(scope: scope, configuration: configuration)
                 return SyncResult()
             },
-            persistRunRecord: { _ in },
+            persistRunRecord: { record in _ = record },
             produceFixPlan: { _, scope, configuration in
                 await probe.record(scope: scope, configuration: configuration)
                 return .empty

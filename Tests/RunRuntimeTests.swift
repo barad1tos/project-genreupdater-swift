@@ -318,7 +318,7 @@ private func makeCompositionFixture(
 ) async throws -> CompositionFixture {
     let dependencies = AppDependencies(
         configurationLoader: { configuration },
-        configurationSaver: { _ in }
+        configurationSaver: { savedConfiguration in _ = savedConfiguration }
     )
     let services = try await makeCompositionServices(
         track: track,

@@ -529,18 +529,16 @@ private enum AutomaticInputMutation: CaseIterable, Equatable {
     case recovery
 
     func applying(to input: FixPlanWriteInput) -> FixPlanWriteInput {
-        let target = switch self {
-        case .plan:
+        let target = if self == .plan {
             FixPlanWriteTarget(
                 planID: FixPlanID(),
                 planRevision: input.target.planRevision,
                 decisionRevision: input.target.decisionRevision
             )
-        default:
+        } else {
             input.target
         }
-        let scope = switch self {
-        case .scope:
+        let scope = if self == .scope {
             ProcessingScopeSnapshot(
                 id: UUID(),
                 createdAt: input.scope.createdAt,
@@ -551,7 +549,7 @@ private enum AutomaticInputMutation: CaseIterable, Equatable {
                 fingerprint: input.scope.fingerprint,
                 reason: input.scope.reason
             )
-        default:
+        } else {
             input.scope
         }
         let configuration = RunConfig(

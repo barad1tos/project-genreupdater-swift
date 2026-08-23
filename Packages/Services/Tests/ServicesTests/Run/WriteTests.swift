@@ -163,7 +163,7 @@ struct WriteTests {
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
-            persistRunRecord: { _ in },
+            persistRunRecord: { record in _ = record },
             write: .init(writeFixPlan: { input, _, checkpoint in
                 try await checkpointWrite(input, using: checkpoint)
                 return try await writer.apply(input: input)

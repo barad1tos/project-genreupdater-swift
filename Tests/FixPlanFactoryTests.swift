@@ -46,7 +46,7 @@ struct FixPlanFactoryTests {
         )
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in }
+            configurationSaver: { configuration in _ = configuration }
         )
         dependencies.configureLibraryPersistenceForTesting(
             fixPlanStore: FactoryPlanStore(plan: plan, decision: decision)
@@ -87,7 +87,7 @@ struct FixPlanFactoryTests {
         let gate = FeatureGate(
             tierProvider: { tier.value },
             freeTracksUsedProvider: { 0 },
-            usageRecorder: { _ in }
+            usageRecorder: { trackCount in _ = trackCount }
         )
         let fixture = await makeWriteFixture(
             hasInitialRecovery: false,
@@ -123,7 +123,7 @@ struct FixPlanFactoryTests {
         let tier = MutableTier(.pro)
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in }
+            configurationSaver: { configuration in _ = configuration }
         )
         dependencies.configureLibraryPersistenceForTesting(
             fixPlanStore: FactoryPlanStore(plan: plan, decision: decision)
@@ -131,7 +131,7 @@ struct FixPlanFactoryTests {
         dependencies.installTestFeatureGate(FeatureGate(
             tierProvider: { tier.value },
             freeTracksUsedProvider: { 0 },
-            usageRecorder: { _ in }
+            usageRecorder: { trackCount in _ = trackCount }
         ))
         let builder = dependencies.makeAutomaticWriteBuilder()
         tier.value = .free
