@@ -10,10 +10,13 @@ struct VerificationSettingsSection: View {
 
     var body: some View {
         Section("Verification") {
-            Stepper(value: configBinding(dependencies, \.databaseVerification.autoVerifyDays), in: 1 ... 90) {
+            Stepper(
+                value: configBinding(dependencies, \.databaseVerification.autoVerifyDays),
+                in: VerificationScheduleRange.days
+            ) {
                 LabeledContent(
                     "Database verify interval",
-                    value: "\(dependencies.config.databaseVerification.autoVerifyDays)d"
+                    value: Self.intervalText(days: dependencies.config.databaseVerification.autoVerifyDays)
                 )
             }
 
@@ -24,11 +27,26 @@ struct VerificationSettingsSection: View {
                 )
             }
 
-            Stepper(value: configBinding(dependencies, \.pendingVerification.autoVerifyDays), in: 1 ... 90) {
+            Stepper(
+                value: configBinding(dependencies, \.pendingVerification.autoVerifyDays),
+                in: VerificationScheduleRange.days
+            ) {
                 LabeledContent(
                     "Pending verify interval",
-                    value: "\(dependencies.config.pendingVerification.autoVerifyDays)d"
+                    value: Self.intervalText(days: dependencies.config.pendingVerification.autoVerifyDays)
                 )
+            }
+
+            ForEach(
+                Self.disabledMessages(
+                    databaseDays: dependencies.config.databaseVerification.autoVerifyDays,
+                    pendingDays: dependencies.config.pendingVerification.autoVerifyDays
+                ),
+                id: \.self
+            ) { message in
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Stepper(value: configBinding(dependencies, \.reporting.minAttemptsForReport), in: 1 ... 20, step: 1) {
@@ -91,5 +109,20 @@ struct VerificationSettingsSection: View {
             return "Verified \(result.verifiedTrackCount) tracks"
         }
         return "Removed \(result.removedCount) stale tracks"
+    }
+
+    static func intervalText(days: Int) -> String {
+        days > 0 ? "\(days)d" : "Off"
+    }
+
+    static func disabledMessages(databaseDays: Int, pendingDays: Int) -> [String] {
+        var messages: [String] = []
+        if databaseDays == 0 {
+            messages.append("Automatic database cleanup is off. Verify Now still works.")
+        }
+        if pendingDays == 0 {
+            messages.append("Automatic pending-year retries are off. Run Pending Verification manually.")
+        }
+        return messages
     }
 }

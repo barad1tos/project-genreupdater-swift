@@ -51,6 +51,11 @@ public actor LibrarySyncService {
         }
     }
 
+    /// Whether automatic maintenance preflight should invoke database verification.
+    public func isScheduled() -> Bool {
+        runtimeConfiguration.databaseVerificationIntervalDays > 0
+    }
+
     // MARK: Manual Sync
 
     /// Detect changes between the current Music.app library and stored state.

@@ -2,6 +2,8 @@ import Core
 import Foundation
 
 public protocol DatabaseVerificationCleaning: Actor {
+    /// Whether automatic maintenance preflight should invoke database verification.
+    func isScheduled() -> Bool
     func verifyAndCleanDatabase(force: Bool) async throws -> DatabaseVerificationResult
 }
 
@@ -48,6 +50,9 @@ public actor MaintenanceCoordinator {
 
     private func runDatabaseVerificationIfNeeded() async -> (result: DatabaseVerificationResult?, error: String?) {
         guard let databaseVerificationService else {
+            return (nil, nil)
+        }
+        guard await databaseVerificationService.isScheduled() else {
             return (nil, nil)
         }
 

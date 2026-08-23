@@ -55,6 +55,52 @@ struct MaintenanceCoordinatorTests {
         #expect(result.isPendingVerificationDue)
         #expect(result.databaseVerificationError == "Database unavailable")
     }
+
+    @Test("Preflight reads the live database verification schedule")
+    func preflightReadsLiveSchedule() async {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let pending = RecordingPendingService(shouldAutoVerify: true)
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MaintenanceCoordinatorTests-\(UUID().uuidString)")
+        let service = LibrarySyncService(
+            scriptBridge: bridge,
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                databaseVerificationIntervalDays: 0,
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            )
+        )
+        let coordinator = MaintenanceCoordinator(
+            databaseVerificationService: service,
+            pendingVerificationService: pending
+        )
+        await bridge.setLibrary(ids: ["T1"], tracks: [:])
+        await store.setStored([
+            Track(id: "T1", name: "One", artist: "Artist", album: "Album"),
+        ])
+
+        let disabledResult = await coordinator.runPreflight()
+
+        #expect(disabledResult.databaseVerification == nil)
+        #expect(disabledResult.databaseVerificationError == nil)
+        #expect(disabledResult.isPendingVerificationDue)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+
+        await service.updateRuntimeConfiguration(
+            LibrarySyncRuntimeConfiguration(
+                databaseVerificationIntervalDays: 7,
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            )
+        )
+        let enabledResult = await coordinator.runPreflight()
+
+        #expect(enabledResult.databaseVerification?.verifiedTrackCount == 1)
+        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        #expect(await pending.shouldAutoVerifyCallCount() == 2)
+    }
 }
 
 private enum MaintenanceTestError: Error, LocalizedError {
@@ -71,6 +117,10 @@ private actor RecordingDatabaseVerificationService: DatabaseVerificationCleaning
 
     init(error: Error? = nil) {
         self.error = error
+    }
+
+    func isScheduled() -> Bool {
+        true
     }
 
     func verifyAndCleanDatabase(force: Bool) async throws -> DatabaseVerificationResult {

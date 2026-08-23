@@ -182,6 +182,23 @@ struct SettingsCommandsTests {
         #expect(saved.configurations.count == 1)
     }
 
+    @Test("Zero verification intervals display Off with actionable consequences")
+    func zeroIntervalsExplainManualFallbacks() {
+        #expect(VerificationScheduleRange.days.contains(0))
+        #expect(VerificationScheduleRange.days.contains(90))
+        #expect(!VerificationScheduleRange.days.contains(-1))
+        #expect(!VerificationScheduleRange.days.contains(91))
+        #expect(VerificationSettingsSection.intervalText(days: 0) == "Off")
+        #expect(VerificationSettingsSection.intervalText(days: 7) == "7d")
+        #expect(VerificationSettingsSection.disabledMessages(databaseDays: 7, pendingDays: 14).isEmpty)
+        #expect(VerificationSettingsSection.disabledMessages(databaseDays: 0, pendingDays: 14) == [
+            "Automatic database cleanup is off. Verify Now still works.",
+        ])
+        #expect(VerificationSettingsSection.disabledMessages(databaseDays: 7, pendingDays: 0) == [
+            "Automatic pending-year retries are off. Run Pending Verification manually.",
+        ])
+    }
+
     @Test("a whole-config command discards the submitted revision")
     func wholeConfigCommandDiscardsSubmittedRevision() async {
         let dependencies = AppDependencies(
