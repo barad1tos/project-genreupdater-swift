@@ -55,8 +55,49 @@ struct SubscriptionView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let proExpiry = dependencies.subscriptionService?.proExpiry, currentTier == .pro {
-                Text("Renews \(proExpiry, format: .dateTime.month().day().year())")
+            if let proAccess = dependencies.subscriptionService?.proAccess, currentTier == .pro {
+                switch proAccess {
+                case let .active(expiresAt, renewal):
+                    switch renewal {
+                    case .renews:
+                        Text("Renews \(expiresAt, format: .dateTime.month().day().year())")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    case .expires:
+                        Text("Expires \(expiresAt, format: .dateTime.month().day().year())")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    case .unknown:
+                        Text("Active until \(expiresAt, format: .dateTime.month().day().year())")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                case let .billingGrace(expiresAt):
+                    Label {
+                        Text("Billing issue — Pro access until \(expiresAt, format: .dateTime.month().day().year())")
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                case .statusUnavailable:
+                    Text("Pro active — renewal status temporarily unavailable")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if dependencies.subscriptionService?.hasVerificationError == true {
+                Label(
+                    "Couldn’t verify all purchases. We’ll try again automatically.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+
+            if dependencies.subscriptionService?.activatingProductIDs.isEmpty == false {
+                Label("Purchase verified. Activating access — we’ll keep trying automatically.", systemImage: "clock")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -213,10 +254,7 @@ struct SubscriptionView: View {
     }
 
     private func canPurchase(_ product: Product) -> Bool {
-        if product.id == SubscriptionProductID.weekPass {
-            return dependencies.subscriptionService?.canPurchaseWeekPass ?? false
-        }
-        return true
+        dependencies.subscriptionService?.canPurchase(productID: product.id) ?? false
     }
 
     private func handlePurchase(_ product: Product) {

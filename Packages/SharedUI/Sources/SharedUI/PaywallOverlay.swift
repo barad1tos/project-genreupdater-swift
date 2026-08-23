@@ -14,6 +14,8 @@ public struct PaywallOverlay: View {
     let lockedFeature: AppFeature
     let currentTier: Tier
     let weekPassAvailable: Bool
+    let isProPurchaseAvailable: Bool
+    let isPurchaseActivating: Bool
     let weekPassPrice: String?
     let proMonthlyPrice: String?
     let proYearlyPrice: String?
@@ -27,6 +29,8 @@ public struct PaywallOverlay: View {
     ///   - lockedFeature: The feature the user is trying to access.
     ///   - currentTier: The user's current subscription tier.
     ///   - weekPassAvailable: Whether the Week Pass option should be shown.
+    ///   - isProPurchaseAvailable: Whether the Pro purchase button should be enabled.
+    ///   - isPurchaseActivating: Whether a verified purchase is still being activated.
     ///   - weekPassPrice: Localized price string for the Week Pass (e.g., "$1.99").
     ///   - proMonthlyPrice: Localized monthly price for Pro (e.g., "$4.99/mo").
     ///   - proYearlyPrice: Localized yearly price for Pro (e.g., "$39.99/yr").
@@ -37,6 +41,8 @@ public struct PaywallOverlay: View {
         lockedFeature: AppFeature,
         currentTier: Tier,
         weekPassAvailable: Bool = true,
+        isProPurchaseAvailable: Bool = true,
+        isPurchaseActivating: Bool = false,
         weekPassPrice: String? = nil,
         proMonthlyPrice: String? = nil,
         proYearlyPrice: String? = nil,
@@ -47,6 +53,8 @@ public struct PaywallOverlay: View {
         self.lockedFeature = lockedFeature
         self.currentTier = currentTier
         self.weekPassAvailable = weekPassAvailable
+        self.isProPurchaseAvailable = isProPurchaseAvailable
+        self.isPurchaseActivating = isPurchaseActivating
         self.weekPassPrice = weekPassPrice
         self.proMonthlyPrice = proMonthlyPrice
         self.proYearlyPrice = proYearlyPrice
@@ -61,6 +69,7 @@ public struct PaywallOverlay: View {
             titleSection
             tierComparison
             purchaseButtons
+            activationStatus
             restoreButton
         }
         .padding(Spacing.xxl)
@@ -143,8 +152,21 @@ public struct PaywallOverlay: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .accessibilityHint("Double-tap to purchase")
+                .disabled(!isProPurchaseAvailable)
+                .accessibilityHint(
+                    isProPurchaseAvailable ? "Double-tap to purchase" : "Pro purchase activation is in progress"
+                )
             }
+        }
+    }
+
+    @ViewBuilder
+    private var activationStatus: some View {
+        if isPurchaseActivating {
+            Label("Purchase verified. Activating access automatically.", systemImage: "clock")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Purchase verified. Access activation is in progress.")
         }
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import StoreKit
 import Testing
 @testable import Services
 
@@ -80,48 +81,121 @@ struct CooldownMathTests {
     }
 }
 
-// MARK: - Pro Grace Period Math
+// MARK: - Pro Renewal State
 
-@Suite("SubscriptionService — Pro grace period math")
-struct ProGracePeriodTests {
-    private let proExpiry = Date(timeIntervalSince1970: 1_700_000_000)
+@Suite("SubscriptionService — Pro renewal state")
+struct ProRenewalStateTests {
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
 
-    @Test("Not in grace period while subscription is active")
-    func activeSubscription() {
-        let before = proExpiry.addingTimeInterval(-86400)
-        #expect(!SubscriptionService.isProInGracePeriod(expiryDate: proExpiry, at: before))
+    @Test("StoreKit grace expiration controls Pro access")
+    func usesStoreGrace() {
+        let graceExpiry = now.addingTimeInterval(3 * 86400)
+        let snapshot = StoreEntitlementSnapshot(
+            proStatuses: [
+                .billingGrace(expiresAt: graceExpiry),
+            ]
+        )
+
+        let state = SubscriptionService.resolveEntitlements(snapshot, at: now)
+
+        #expect(state.tier == .pro)
+        #expect(state.proAccess == .billingGrace(expiresAt: graceExpiry))
+        #expect(state.nextBoundary == graceExpiry)
     }
 
-    @Test("In grace period right after expiry")
-    func graceStart() {
-        let justAfter = proExpiry.addingTimeInterval(1)
-        #expect(SubscriptionService.isProInGracePeriod(expiryDate: proExpiry, at: justAfter))
+    @Test("Billing retry without grace does not grant Pro")
+    func rejectsBillingRetry() {
+        let snapshot = StoreEntitlementSnapshot(
+            proStatuses: [
+                .notEntitled,
+            ]
+        )
+
+        let state = SubscriptionService.resolveEntitlements(snapshot, at: now)
+
+        #expect(state.tier == .free)
+        #expect(state.proAccess == nil)
+        #expect(state.nextBoundary == nil)
     }
 
-    @Test("In grace period at exactly expiry")
-    func graceAtExpiry() {
-        #expect(SubscriptionService.isProInGracePeriod(expiryDate: proExpiry, at: proExpiry))
+    @Test("Cancelled renewal keeps access but reports expiry")
+    func reportsCancelledRenewal() {
+        let expiry = now.addingTimeInterval(86400)
+        let snapshot = StoreEntitlementSnapshot(
+            proStatuses: [
+                .active(expiresAt: expiry, renewal: .expires),
+            ]
+        )
+
+        let state = SubscriptionService.resolveEntitlements(snapshot, at: now)
+
+        #expect(state.tier == .pro)
+        #expect(state.proAccess == .active(expiresAt: expiry, renewal: .expires))
     }
 
-    @Test("In grace period at day 15")
-    func graceDay15() {
-        let day15 = proExpiry.addingTimeInterval(15 * 86400)
-        #expect(SubscriptionService.isProInGracePeriod(expiryDate: proExpiry, at: day15))
+    @Test("Unavailable subscription status preserves verified Pro access")
+    func preservesUnavailableStatus() {
+        let snapshot = StoreEntitlementSnapshot(proStatuses: [.statusUnavailable])
+
+        let state = SubscriptionService.resolveEntitlements(snapshot, at: now)
+
+        #expect(state.tier == .pro)
+        #expect(state.proAccess == .statusUnavailable)
+        #expect(state.nextBoundary == now.addingTimeInterval(SubscriptionDuration.statusRetryInterval))
+    }
+}
+
+// MARK: - Entitlement Resolution
+
+@Suite("SubscriptionService — entitlement resolution")
+struct EntitlementResolutionTests {
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+    @Test("Newest active Week Pass defines access and boundary")
+    func usesNewestWeekPass() {
+        let olderPurchase = now.addingTimeInterval(-6 * 86400)
+        let newerPurchase = now.addingTimeInterval(-2 * 86400)
+        let expectedExpiry = newerPurchase.addingTimeInterval(7 * 86400)
+        let snapshot = StoreEntitlementSnapshot(
+            weekPassPurchases: [newerPurchase, olderPurchase]
+        )
+
+        let state = SubscriptionService.resolveEntitlements(snapshot, at: now)
+
+        #expect(state.tier == .weekPass)
+        #expect(state.weekPassExpiry == expectedExpiry)
+        #expect(state.nextBoundary == expectedExpiry)
     }
 
-    @Test("Not in grace period after 16 days")
-    func graceExpired() {
-        let day17 = proExpiry.addingTimeInterval(17 * 86400)
-        #expect(!SubscriptionService.isProInGracePeriod(expiryDate: proExpiry, at: day17))
+    @Test("Week Pass is Free exactly at its expiry boundary")
+    func expiresWeekPass() {
+        let purchase = now.addingTimeInterval(-7 * 86400)
+        let snapshot = StoreEntitlementSnapshot(weekPassPurchases: [purchase])
+
+        let state = SubscriptionService.resolveEntitlements(snapshot, at: now)
+
+        #expect(state.tier == .free)
+        #expect(state.weekPassExpiry == now)
+        #expect(state.nextBoundary == nil)
     }
 
-    @Test("Grace period is exactly 16 days")
-    func graceBoundary() {
-        let exactEnd = proExpiry.addingTimeInterval(16 * 86400)
-        #expect(!SubscriptionService.isProInGracePeriod(expiryDate: proExpiry, at: exactEnd))
+    @Test("Active Pro takes priority over Week Pass")
+    func proTakesPriority() {
+        let weekPassExpiry = now.addingTimeInterval(5 * 86400)
+        let proExpiry = now.addingTimeInterval(30 * 86400)
+        let snapshot = StoreEntitlementSnapshot(
+            weekPassPurchases: [now.addingTimeInterval(-2 * 86400)],
+            proStatuses: [
+                .active(expiresAt: proExpiry, renewal: .renews),
+            ]
+        )
 
-        let justBefore = proExpiry.addingTimeInterval(16 * 86400 - 1)
-        #expect(SubscriptionService.isProInGracePeriod(expiryDate: proExpiry, at: justBefore))
+        let state = SubscriptionService.resolveEntitlements(snapshot, at: now)
+
+        #expect(state.tier == .pro)
+        #expect(state.weekPassExpiry == weekPassExpiry)
+        #expect(state.proAccess == .active(expiresAt: proExpiry, renewal: .renews))
+        #expect(state.nextBoundary == proExpiry)
     }
 }
 
@@ -139,13 +213,8 @@ struct DurationConstantTests {
         #expect(SubscriptionDuration.weekPassCooldownDays == 14)
     }
 
-    @Test("Pro grace period is 16 days")
-    func graceDays() {
-        #expect(SubscriptionDuration.proGracePeriodDays == 16)
-    }
-
-    @Test("Offline cache is 7 days")
-    func offlineDays() {
-        #expect(SubscriptionDuration.offlineCacheDays == 7)
+    @Test("StoreKit status retry is centrally configured")
+    func statusRetry() {
+        #expect(SubscriptionDuration.statusRetrySeconds == 300)
     }
 }
