@@ -100,8 +100,7 @@ extension UpdateCoordinator {
             resolvedYear: year,
             unchangedTrackIDs: unchangedTrackIDs,
             failedTrackIDs: failedTrackIDs,
-            errorDescriptions: errorDescriptions,
-            canClearPendingEntry: canClearPendingEntry
+            errorDescriptions: errorDescriptions
         )
     }
 

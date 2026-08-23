@@ -68,7 +68,6 @@ public struct PendingAlbumVerificationResult: Sendable {
     public let unchangedTrackIDs: [String]
     public let failedTrackIDs: [String]
     public let errorDescriptions: [String]
-    public let canClearPendingEntry: Bool
 
     public init(
         disposition: PendingDisposition,
@@ -76,8 +75,7 @@ public struct PendingAlbumVerificationResult: Sendable {
         resolvedYear: Int?,
         unchangedTrackIDs: [String] = [],
         failedTrackIDs: [String] = [],
-        errorDescriptions: [String] = [],
-        canClearPendingEntry: Bool = false
+        errorDescriptions: [String] = []
     ) {
         self.disposition = disposition
         self.entries = entries
@@ -85,7 +83,11 @@ public struct PendingAlbumVerificationResult: Sendable {
         self.unchangedTrackIDs = unchangedTrackIDs
         self.failedTrackIDs = failedTrackIDs
         self.errorDescriptions = errorDescriptions
-        self.canClearPendingEntry = canClearPendingEntry
+    }
+
+    /// Whether the pending entry reached a verified terminal result and can be cleared.
+    public var canClearPendingEntry: Bool {
+        disposition == .resolved
     }
 
     public var didResolveYear: Bool {
