@@ -75,23 +75,18 @@ public struct FixPlanProducer: Sendable {
         // whole-scope one for the same track.
         let artistTracksByTrackID = await runtime.artistContext(scopedTracks)
         let yearRunScope = YearRunScope()
-
-        var proposals: [ProposedChange] = []
-        for track in targetedTracks {
-            try Task.checkCancellation()
-            do {
-                let changes = try await runtime.determineChanges(
-                    track,
-                    albumTracksByTrackID[track.id] ?? [],
-                    artistTracksByTrackID[track.id] ?? [],
-                    options,
-                    yearRunScope
-                )
-                proposals.append(contentsOf: changes)
-            } catch let error where Self.isWriteEligibilityError(error) {
-                continue
-            }
-        }
+        let context = PlanContext(
+            runtime: runtime,
+            albumTracks: albumTracksByTrackID,
+            artistTracks: artistTracksByTrackID,
+            options: options,
+            yearRunScope: yearRunScope
+        )
+        let proposals = try await determineProposals(
+            for: targetedTracks,
+            context: context,
+            concurrencyLimit: Self.planningConcurrencyLimit(configuration)
+        )
 
         let filteredProposals = ChangePreviewPipeline().filter(
             changes: proposals,
@@ -111,6 +106,130 @@ public struct FixPlanProducer: Sendable {
         let decision = FixPlanReviewer.initialDecision(for: plan, at: producedAt)
         try await dependencies.savePlan(plan, decision)
         return FixPlanProduction(planID: plan.id, proposalCount: plan.items.count)
+    }
+
+    private func determineProposals(
+        for tracks: [Track],
+        context: PlanContext,
+        concurrencyLimit: Int
+    ) async throws -> [ProposedChange] {
+        let workUnits = Self.albumWorkUnits(tracks)
+        return try await withThrowingTaskGroup(of: [IndexedProposals].self) { group in
+            var nextIndex = 0
+            let initialCount = min(concurrencyLimit, workUnits.count)
+            while nextIndex < initialCount {
+                Self.addAlbumUnit(
+                    at: nextIndex,
+                    from: workUnits,
+                    to: &group,
+                    context: context
+                )
+                nextIndex += 1
+            }
+
+            var indexedProposals: [IndexedProposals] = []
+            while let proposals = try await group.next() {
+                indexedProposals.append(contentsOf: proposals)
+                if nextIndex < workUnits.count {
+                    Self.addAlbumUnit(
+                        at: nextIndex,
+                        from: workUnits,
+                        to: &group,
+                        context: context
+                    )
+                    nextIndex += 1
+                }
+            }
+            return indexedProposals.sorted { $0.trackIndex < $1.trackIndex }.flatMap(\.proposals)
+        }
+    }
+
+    private static func addAlbumUnit(
+        at index: Int,
+        from workUnits: [[IndexedTrack]],
+        to group: inout ThrowingTaskGroup<[IndexedProposals], any Error>,
+        context: PlanContext
+    ) {
+        let tracks = workUnits[index]
+        group.addTask {
+            try await determineAlbumProposals(
+                for: tracks,
+                context: context
+            )
+        }
+    }
+
+    private static func determineAlbumProposals(
+        for tracks: [IndexedTrack],
+        context: PlanContext
+    ) async throws -> [IndexedProposals] {
+        var indexedProposals: [IndexedProposals] = []
+        for indexedTrack in tracks {
+            try Task.checkCancellation()
+            let track = indexedTrack.track
+            do {
+                let changes = try await context.runtime.determineChanges(
+                    track,
+                    context.albumTracks[track.id] ?? [],
+                    context.artistTracks[track.id] ?? [],
+                    context.options,
+                    context.yearRunScope
+                )
+                indexedProposals.append(IndexedProposals(
+                    trackIndex: indexedTrack.trackIndex,
+                    proposals: changes
+                ))
+            } catch let error where isWriteEligibilityError(error) {
+                continue
+            }
+        }
+        return indexedProposals
+    }
+
+    private static func albumWorkUnits(_ tracks: [Track]) -> [[IndexedTrack]] {
+        var workUnits: [[IndexedTrack]] = []
+        var indicesByAlbum: [String: Int] = [:]
+        for (trackIndex, track) in tracks.enumerated() {
+            let indexedTrack = IndexedTrack(trackIndex: trackIndex, track: track)
+            let albumKey = AlbumIdentity.key(for: track)
+            if let index = indicesByAlbum[albumKey] {
+                workUnits[index].append(indexedTrack)
+            } else {
+                indicesByAlbum[albumKey] = workUnits.count
+                workUnits.append([indexedTrack])
+            }
+        }
+        return workUnits
+    }
+
+    private static func planningConcurrencyLimit(_ configuration: FixPlanConfig) -> Int {
+        let appConfiguration = configuration.appConfiguration
+        var limit = appConfiguration.applescript.concurrency
+        if configuration.updateGenre {
+            limit = min(limit, appConfiguration.genreUpdate.concurrentLimit)
+        }
+        if configuration.updateYear {
+            limit = min(limit, appConfiguration.yearRetrieval.rateLimits.concurrentAPICalls)
+        }
+        return limit
+    }
+
+    private struct PlanContext: Sendable {
+        let runtime: Runtime
+        let albumTracks: [String: [Track]]
+        let artistTracks: [String: [Track]]
+        let options: UpdateOptions
+        let yearRunScope: YearRunScope
+    }
+
+    private struct IndexedTrack: Sendable {
+        let trackIndex: Int
+        let track: Track
+    }
+
+    private struct IndexedProposals: Sendable {
+        let trackIndex: Int
+        let proposals: [ProposedChange]
     }
 
     private static func scopedTracks(_ tracks: [Track], scope: ProcessingScopeSnapshot) -> [Track] {
