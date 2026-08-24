@@ -60,7 +60,9 @@ public actor MusicLibraryReader {
         let libraryAddedDate: Date?
     }
 
-    public init() {}
+    public init() {
+        // Artist scope is request-local, so the reader has no state to initialize.
+    }
 
     /// Request access to the user's music library.
     public func requestAuthorization() async throws {
