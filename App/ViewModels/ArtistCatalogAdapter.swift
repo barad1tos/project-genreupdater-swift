@@ -1,10 +1,24 @@
 import Core
 import DesignUI
+import Observation
 import Services
+
+@MainActor
+@Observable
+final class ArtistCatalogFeed {
+    private(set) var projection: ArtistCatalogProjection = .empty()
+
+    func observe(_ store: ProjectionStore) async {
+        for await projection in await store.artistCatalogUpdates() {
+            self.projection = projection
+        }
+    }
+}
 
 enum ArtistCatalogAdapter {
     static func makeScope(
         selected: [String],
+        settingsRevision: UInt64,
         projection: ArtistCatalogProjection
     ) -> DesignArtistScope {
         let options: [DesignArtistOption]
@@ -20,6 +34,7 @@ enum ArtistCatalogAdapter {
         }
 
         return DesignArtistScope(
+            settingsRevision: settingsRevision,
             selected: ArtistAllowList.normalized(selected),
             options: options,
             catalogIssue: issue

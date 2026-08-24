@@ -9,7 +9,7 @@ import SwiftUI
 struct SettingsTestArtistsSection: View {
     let dependencies: AppDependencies
 
-    @State private var artistCatalog: ArtistCatalogProjection = .empty()
+    @State private var artistCatalogFeed = ArtistCatalogFeed()
     @State private var importStatus = ""
     @State private var isArtistPickerOpen = false
 
@@ -53,8 +53,9 @@ struct SettingsTestArtistsSection: View {
             .foregroundStyle(.tertiary)
         }
         .task {
-            artistCatalog = await dependencies.refreshArtistCatalog()
+            _ = await dependencies.refreshArtistCatalog()
         }
+        .task { await artistCatalogFeed.observe(dependencies.projectionStore) }
         .sheet(isPresented: $isArtistPickerOpen) {
             ArtistScopePicker(scope: artistScope, apply: applyTestArtists)
         }
@@ -63,16 +64,22 @@ struct SettingsTestArtistsSection: View {
     private var artistScope: DesignArtistScope {
         ArtistCatalogAdapter.makeScope(
             selected: dependencies.config.development.testArtists,
-            projection: artistCatalog
+            settingsRevision: dependencies.config.revision,
+            projection: artistCatalogFeed.projection
         )
     }
 
-    private func applyTestArtists(_ artists: [String]) -> Bool {
-        let status = mutateConfiguration(dependencies) { configuration in
-            configuration.development.testArtists = ArtistAllowList.normalized(artists)
+    private func applyTestArtists(_ change: ArtistScopeChange) -> ArtistScopeSaveResult {
+        let result = saveArtistScope(change, dependencies: dependencies)
+        switch result {
+        case .accepted:
+            importStatus = "Saved"
+        case .stale:
+            importStatus = "Settings changed elsewhere. Review the current artist list."
+        case .failed:
+            importStatus = "Could not save the artist list"
         }
-        importStatus = status == .accepted ? "Saved" : "Could not save the artist list"
-        return status == .accepted
+        return result
     }
 
     private func importTestArtistsFromFile() {

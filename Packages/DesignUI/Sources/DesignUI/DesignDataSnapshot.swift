@@ -207,17 +207,38 @@ public struct DesignArtistOption: Identifiable, Equatable, Sendable {
     }
 }
 
+/// A staged artist selection anchored to the settings revision the user saw.
+public struct ArtistScopeChange: Equatable, Sendable {
+    public let selected: [String]
+    public let expectedSettingsRevision: UInt64
+
+    public init(selected: [String], expectedSettingsRevision: UInt64) {
+        self.selected = selected
+        self.expectedSettingsRevision = expectedSettingsRevision
+    }
+}
+
+/// Outcome of committing a staged artist scope against its settings revision.
+public enum ArtistScopeSaveResult: Equatable, Sendable {
+    case accepted
+    case stale
+    case failed
+}
+
 /// The selected test scope paired with the full searchable library catalog.
 public struct DesignArtistScope: Equatable, Sendable {
+    public let settingsRevision: UInt64
     public let selected: [String]
     public let options: [DesignArtistOption]
     public let catalogIssue: String?
 
     public init(
+        settingsRevision: UInt64,
         selected: [String],
         options: [DesignArtistOption],
         catalogIssue: String? = nil
     ) {
+        self.settingsRevision = settingsRevision
         self.selected = selected
         self.options = options
         self.catalogIssue = catalogIssue
@@ -256,6 +277,7 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         minimumConfidencePercent: 70,
         releaseYearRestoreThresholdYears: 5,
         artistScope: DesignArtistScope(
+            settingsRevision: 0,
             selected: ["Aphex Twin", "Boards of Canada"],
             options: [
                 DesignArtistOption(name: "Aphex Twin", trackCount: 84),

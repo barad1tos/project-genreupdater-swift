@@ -27,7 +27,7 @@ struct DesignRootHostView: View {
     @State private var browseRowIndex: [String: [BrowseTrackRow]] = [:]
     @State private var browseReadSource: BrowseReadSource = .cachedMirror(scannedAt: nil)
     @State private var browseNoticeMessage: String?
-    @State private var artistCatalogProjection: ArtistCatalogProjection = .empty()
+    @State private var artistCatalogFeed = ArtistCatalogFeed()
     @State private var analyticsSnapshot: DesignAnalyticsSnapshot = .empty
     @State private var analyticsWindow: DesignAnalyticsWindow = .currentSession
     @State private var selectedRunReport: RunReportDetailSnapshot?
@@ -84,7 +84,7 @@ struct DesignRootHostView: View {
         .task { await observeFixPlanUpdates() }
         .task { await observeChromeUpdates() }
         .task { await observeBrowseUpdates() }
-        .task { await observeArtistCatalog() }
+        .task { await artistCatalogFeed.observe(dependencies.projectionStore) }
         .task(id: selectedRoute) { await observeAnalyticsUpdates() }
         .onChange(of: dependencies.config.processing.defaultUpdateBehavior) {
             applyWorkflowDefaults()
@@ -406,7 +406,8 @@ struct DesignRootHostView: View {
             releaseYearRestoreThresholdYears: configuration.processing.releaseYearRestoreThreshold,
             artistScope: ArtistCatalogAdapter.makeScope(
                 selected: configuration.development.testArtists,
-                projection: artistCatalogProjection
+                settingsRevision: configuration.revision,
+                projection: artistCatalogFeed.projection
             ),
             presentation: DesignSettingsSnapshot.Presentation(
                 appearanceMode: designAppearanceMode(from: appearanceMode),
@@ -623,12 +624,6 @@ struct DesignRootHostView: View {
         await refreshActivityProjection()
     }
 
-    private func observeArtistCatalog() async {
-        for await projection in await dependencies.projectionStore.artistCatalogUpdates() {
-            artistCatalogProjection = projection
-        }
-    }
-
     @discardableResult
     private func refreshActivityProjection() async -> ActivityProjection {
         // Workflow facts come through the registered provider — the
@@ -817,11 +812,8 @@ extension DesignRootHostView {
         } == .accepted
     }
 
-    private func setTestArtists(_ artists: [String]) -> Bool {
-        let normalizedArtists = ArtistAllowList.normalized(artists)
-        return mutateConfiguration(dependencies) { configuration in
-            configuration.development.testArtists = normalizedArtists
-        } == .accepted
+    private func setTestArtists(_ change: ArtistScopeChange) -> ArtistScopeSaveResult {
+        saveArtistScope(change, dependencies: dependencies)
     }
 
     private func setAppearanceMode(_ mode: DesignAppearanceMode) -> Bool {

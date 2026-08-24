@@ -5,15 +5,23 @@ import Testing
 struct ArtistScopeTests {
     @Test("toggles artists case-insensitively and exposes full-library selection")
     func togglesSelection() {
-        var draft = ArtistScopeDraft(selected: ["In Flames", "IN FLAMES", "  "])
+        var draft = ArtistScopeDraft(
+            selected: ["In Flames", "IN FLAMES", "  "],
+            settingsRevision: 42
+        )
 
         #expect(draft.selected == ["In Flames"])
-        #expect(!draft.hasChanges(comparedTo: ["IN FLAMES"]))
+        #expect(!draft.hasChanges)
 
         draft.toggle("Metallica")
         #expect(draft.contains("metallica"))
         #expect(!draft.isFullLibrary)
-        #expect(draft.hasChanges(comparedTo: ["In Flames"]))
+        #expect(draft.hasChanges)
+
+        #expect(draft.change == ArtistScopeChange(
+            selected: ["In Flames", "Metallica"],
+            expectedSettingsRevision: 42
+        ))
 
         draft.toggle("IN FLAMES")
         draft.toggle("METALLICA")
@@ -24,6 +32,7 @@ struct ArtistScopeTests {
     @Test("filters the full catalog with localized user-facing search")
     func filtersCatalog() {
         let scope = DesignArtistScope(
+            settingsRevision: 7,
             selected: ["In Flames"],
             options: [
                 DesignArtistOption(name: "Björk", trackCount: 42),
@@ -40,6 +49,7 @@ struct ArtistScopeTests {
     @Test("settings snapshot carries one coherent artist scope")
     func settingsCarriesScope() {
         let scope = DesignArtistScope(
+            settingsRevision: 7,
             selected: ["In Flames"],
             options: [DesignArtistOption(name: "In Flames", trackCount: 202)]
         )

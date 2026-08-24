@@ -2,19 +2,39 @@ import Foundation
 import SwiftUI
 
 struct ArtistScopeDraft: Equatable {
+    private let baseline: [String]
+    private let settingsRevision: UInt64
     private(set) var selected: [String]
 
     var isFullLibrary: Bool {
         selected.isEmpty
     }
 
-    init(selected: [String]) {
-        self.selected = []
+    var hasChanges: Bool {
+        comparisonKeys(for: selected) != comparisonKeys(for: baseline)
+    }
+
+    var change: ArtistScopeChange {
+        ArtistScopeChange(selected: selected, expectedSettingsRevision: settingsRevision)
+    }
+
+    var startedNarrowed: Bool {
+        !baseline.isEmpty
+    }
+
+    init(selected: [String], settingsRevision: UInt64) {
+        var normalizedSelection: [String] = []
         for artist in selected {
             let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedArtist.isEmpty, !contains(trimmedArtist) else { continue }
-            self.selected.append(trimmedArtist)
+            let isDuplicate = normalizedSelection.contains {
+                $0.localizedCaseInsensitiveCompare(trimmedArtist) == .orderedSame
+            }
+            guard !trimmedArtist.isEmpty, !isDuplicate else { continue }
+            normalizedSelection.append(trimmedArtist)
         }
+        baseline = normalizedSelection
+        self.settingsRevision = settingsRevision
+        self.selected = normalizedSelection
     }
 
     func contains(_ artist: String) -> Bool {
@@ -34,10 +54,6 @@ struct ArtistScopeDraft: Equatable {
         }
     }
 
-    func hasChanges(comparedTo artists: [String]) -> Bool {
-        comparisonKeys(for: selected) != comparisonKeys(for: artists)
-    }
-
     private func comparisonKeys(for artists: [String]) -> Set<String> {
         Set(artists.compactMap { artist in
             let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -49,7 +65,7 @@ struct ArtistScopeDraft: Equatable {
 /// A staged, searchable multi-select for narrowing runs to library artists.
 public struct ArtistScopePicker: View {
     let scope: DesignArtistScope
-    let apply: ([String]) -> Bool
+    let apply: (ArtistScopeChange) -> ArtistScopeSaveResult
 
     @State private var draft: ArtistScopeDraft
 
@@ -59,10 +75,13 @@ public struct ArtistScopePicker: View {
     @State private var saveIssue: String?
 
     /// Creates a picker whose changes remain local until `apply` accepts them.
-    public init(scope: DesignArtistScope, apply: @escaping ([String]) -> Bool) {
+    public init(scope: DesignArtistScope, apply: @escaping (ArtistScopeChange) -> ArtistScopeSaveResult) {
         self.scope = scope
         self.apply = apply
-        _draft = State(initialValue: ArtistScopeDraft(selected: scope.selected))
+        _draft = State(initialValue: ArtistScopeDraft(
+            selected: scope.selected,
+            settingsRevision: scope.settingsRevision
+        ))
     }
 
     public var body: some View {
@@ -78,7 +97,9 @@ public struct ArtistScopePicker: View {
         .background(Ayu.window)
         .modifier(PickerSizing())
         .alert("Use Full Library?", isPresented: $isFullScopePromptOpen) {
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) {
+                // Cancel has no effect; the user can continue to make selections or cancel the picker.
+            }
             Button("Use Full Library", role: .destructive, action: applySelection)
         } message: {
             Text("No test artists will remain selected. Future runs will process the full music library.")
@@ -195,7 +216,7 @@ public struct ArtistScopePicker: View {
             PrimaryButton(
                 title: "Apply",
                 symbol: "checkmark",
-                enabled: draft.hasChanges(comparedTo: scope.selected),
+                enabled: draft.hasChanges,
                 action: requestApply
             )
         }
@@ -276,8 +297,8 @@ public struct ArtistScopePicker: View {
     }
 
     private func requestApply() {
-        guard draft.hasChanges(comparedTo: scope.selected) else { return }
-        if draft.isFullLibrary, !scope.selected.isEmpty {
+        guard draft.hasChanges else { return }
+        if draft.isFullLibrary, draft.startedNarrowed {
             isFullScopePromptOpen = true
         } else {
             applySelection()
@@ -285,9 +306,12 @@ public struct ArtistScopePicker: View {
     }
 
     private func applySelection() {
-        if apply(draft.selected) {
+        switch apply(draft.change) {
+        case .accepted:
             dismiss()
-        } else {
+        case .stale:
+            saveIssue = "Settings changed elsewhere. Cancel and reopen to review the current selection."
+        case .failed:
             saveIssue = "Couldn’t save this scope. Your previous selection is unchanged."
         }
     }

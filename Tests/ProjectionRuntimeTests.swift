@@ -437,7 +437,7 @@ struct ProjectionRuntimeTests {
         let allowlist: Set = [
             "activityProjection", "reportsProjection", "fixPlanProjection",
             "chromeProjection", "browseProjection",
-            "artistCatalogProjection",
+            "artistCatalogFeed",
             "analyticsSnapshot", "analyticsWindow",
             "browseDesignArtists", "browseDesignScope", "browseRowIndex", "browseReadSource",
             "selectedRunReport", "runReportDetailRequestID",

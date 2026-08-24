@@ -1,4 +1,5 @@
 import Core
+import DesignUI
 import Foundation
 import Services
 import Testing
@@ -163,6 +164,28 @@ struct SettingsCommandsTests {
         #expect(second == .accepted)
         #expect(dependencies.config.revision == 2)
         #expect(dependencies.config.development.testArtists == ["Clutch"])
+    }
+
+    @Test("a stale artist picker cannot overwrite a newer imported scope")
+    func staleArtistPickerPreservesImportedScope() {
+        let saved = SavedConfigurations()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { saved.append($0) }
+        )
+        let stalePickerChange = ArtistScopeChange(
+            selected: ["In Flames"],
+            expectedSettingsRevision: dependencies.config.revision
+        )
+
+        mutateConfiguration(dependencies) {
+            $0.development.testArtists = ["Бумбокс"]
+        }
+        let result = saveArtistScope(stalePickerChange, dependencies: dependencies)
+
+        #expect(result == .stale)
+        #expect(dependencies.config.development.testArtists == ["Бумбокс"])
+        #expect(saved.configurations.count == 1)
     }
 
     @Test("the dispatcher mutates and persists before returning")

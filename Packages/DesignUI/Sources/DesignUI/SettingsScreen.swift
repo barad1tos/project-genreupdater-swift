@@ -6,7 +6,7 @@ struct SettingsScreen: View {
     var setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)?
     var setMinimumConfidenceAction: ((Double) -> Bool)?
     var setReleaseYearRestoreThresholdAction: ((Int) -> Bool)?
-    var setTestArtistsAction: (([String]) -> Bool)?
+    var setTestArtistsAction: ((ArtistScopeChange) -> ArtistScopeSaveResult)?
     var setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)?
     var setFastAnimationsAction: ((Bool) -> Bool)?
     @Environment(\.accessibilityReduceMotion) private var isReduceMotionEnabled
@@ -62,8 +62,10 @@ struct SettingsScreen: View {
             }
         }
         .sheet(isPresented: $isArtistPickerOpen) {
-            ArtistScopePicker(scope: settings.artistScope) { artists in
-                recordSave(setTestArtistsAction?(artists) ?? false)
+            ArtistScopePicker(scope: settings.artistScope) { change in
+                let result = setTestArtistsAction?(change) ?? .failed
+                recordSave(result == .accepted)
+                return result
             }
         }
     }

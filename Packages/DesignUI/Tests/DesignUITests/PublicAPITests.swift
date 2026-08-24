@@ -162,7 +162,7 @@ struct PublicAPITests {
             updateBehavior: .genreOnly,
             minimumConfidencePercent: 30,
             releaseYearRestoreThresholdYears: 5,
-            artistScope: DesignArtistScope(selected: [], options: []),
+            artistScope: DesignArtistScope(settingsRevision: 0, selected: [], options: []),
             isPostWriteVerificationRequired: true
         )
         let updatedSettings = DesignSettingsSnapshot(
@@ -170,6 +170,7 @@ struct PublicAPITests {
             minimumConfidencePercent: 80,
             releaseYearRestoreThresholdYears: 8,
             artistScope: DesignArtistScope(
+                settingsRevision: 1,
                 selected: ["Aphex Twin"],
                 options: [DesignArtistOption(name: "Aphex Twin", trackCount: 84)]
             ),

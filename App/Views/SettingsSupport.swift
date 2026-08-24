@@ -1,6 +1,7 @@
 // SettingsSupport.swift — shared settings bindings and display helpers.
 
 import Core
+import DesignUI
 import Services
 import SharedUI
 import SwiftUI
@@ -60,6 +61,33 @@ func mutateConfiguration(
     mutation(&edited)
     let target = SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision)
     return SettingsCommands.dispatch(edited, target: target, dependencies: dependencies)
+}
+
+@MainActor
+func saveArtistScope(
+    _ change: ArtistScopeChange,
+    dependencies: AppDependencies
+) -> ArtistScopeSaveResult {
+    var configuration = dependencies.config
+    configuration.development.testArtists = ArtistAllowList.normalized(change.selected)
+    let target = SettingsCommandTarget(expectedSettingsRevision: change.expectedSettingsRevision)
+
+    switch SettingsCommands.dispatch(configuration, target: target, dependencies: dependencies) {
+    case .accepted:
+        return .accepted
+    case .rejectedStale:
+        return .stale
+    case .alreadyCovered,
+         .blockedByPermission,
+         .blockedByRecovery,
+         .navigated,
+         .noOp,
+         .queued,
+         .rejectedInvalid,
+         .requiresAttention,
+         .temporaryUnavailable:
+        return .failed
+    }
 }
 
 // MARK: - Display Names
