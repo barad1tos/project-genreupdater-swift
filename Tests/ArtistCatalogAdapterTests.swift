@@ -1,5 +1,6 @@
 import Core
 import DesignUI
+import Foundation
 import Services
 import Testing
 @testable import Genre_Updater
@@ -41,20 +42,24 @@ struct ArtistCatalogAdapterTests {
         #expect(scope.catalogIssue == "Mirror unavailable")
     }
 
-    @Test("refresh uses the full mirror and updates an open narrowed settings surface")
+    @Test("refresh uses an unscoped live read and updates an open narrowed settings surface")
     @MainActor
-    func refreshesFromFullMirror() async throws {
+    func refreshesFromFullLibrary() async throws {
         var configuration = AppConfiguration()
         configuration.development.testArtists = ["Björk"]
         let trackStore = try TrackDataStore.createInMemory()
         try await trackStore.initialize()
         try await trackStore.saveTracks([
             Core.Track(id: "BJORK-1", name: "Jóga", artist: "Björk", album: "Homogenic"),
+        ])
+        let provider = CatalogReadProvider(tracks: [
+            Core.Track(id: "BJORK-1", name: "Jóga", artist: "Björk", album: "Homogenic"),
             Core.Track(id: "BJORK-2", name: "Bachelorette", artist: "Björk", album: "Homogenic"),
             Core.Track(id: "BOOMBOX-1", name: "Вахтерам", artist: "Бумбокс", album: "Меломанія"),
         ])
         let dependencies = AppDependencies(configurationLoader: { configuration })
         dependencies.configureLibraryPersistenceForTesting(trackStore: trackStore)
+        dependencies.installTestLibraryReadProvider(provider)
         let feed = ArtistCatalogFeed()
         let observation = Task { await feed.observe(dependencies.projectionStore) }
         defer { observation.cancel() }
@@ -67,9 +72,13 @@ struct ArtistCatalogAdapterTests {
                 ArtistCatalogEntry(name: "Бумбокс", trackCount: 1),
             ])
         }
+        #expect(await provider.capturedRequests() == [LibraryReadRequest()])
 
-        try await trackStore.saveTracks([
-            Core.Track(id: "IN-FLAMES-1", name: "Cloud Connected", artist: "In Flames", album: "Reroute to Remain")
+        await provider.replaceTracks([
+            Core.Track(id: "BJORK-1", name: "Jóga", artist: "Björk", album: "Homogenic"),
+            Core.Track(id: "BJORK-2", name: "Bachelorette", artist: "Björk", album: "Homogenic"),
+            Core.Track(id: "BOOMBOX-1", name: "Вахтерам", artist: "Бумбокс", album: "Меломанія"),
+            Core.Track(id: "IN-FLAMES-1", name: "Cloud Connected", artist: "In Flames", album: "Reroute to Remain"),
         ])
         _ = await dependencies.refreshArtistCatalog()
 
@@ -77,6 +86,7 @@ struct ArtistCatalogAdapterTests {
             guard case let .available(entries) = feed.projection.state else { return false }
             return entries.map(\.name) == ["Björk", "In Flames", "Бумбокс"]
         }
+        #expect(await provider.capturedRequests() == [LibraryReadRequest(), LibraryReadRequest()])
     }
 
     @MainActor
@@ -88,5 +98,27 @@ struct ArtistCatalogAdapterTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         Issue.record("The open settings surface did not receive the refreshed artist catalog")
+    }
+}
+
+private actor CatalogReadProvider: LibraryReadProvider {
+    private var tracks: [Core.Track]
+    private var requests: [LibraryReadRequest] = []
+
+    init(tracks: [Core.Track]) {
+        self.tracks = tracks
+    }
+
+    func loadLibrarySnapshot(request: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+        requests.append(request)
+        return LibraryReadSnapshot(tracks: tracks, scannedAt: Date(timeIntervalSince1970: 1_700_000_000))
+    }
+
+    func replaceTracks(_ tracks: [Core.Track]) {
+        self.tracks = tracks
+    }
+
+    func capturedRequests() -> [LibraryReadRequest] {
+        requests
     }
 }

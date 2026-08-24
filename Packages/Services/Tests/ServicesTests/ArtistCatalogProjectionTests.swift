@@ -19,6 +19,18 @@ struct ArtistCatalogProjectionTests {
         ]))
     }
 
+    @Test("groups names with the same allow-list identity")
+    func groupsLocalizedCaseVariants() {
+        let projection = ArtistCatalogBuilder.makeProjection(tracks: [
+            Track(id: "1", name: "First", artist: "Straße", album: "Album"),
+            Track(id: "2", name: "Second", artist: "STRASSE", album: "Album"),
+        ])
+
+        #expect(projection.state == .available([
+            ArtistCatalogEntry(name: "Straße", trackCount: 2),
+        ]))
+    }
+
     @Test("projection store rejects an older catalog generation")
     func rejectsOlderGeneration() async {
         let store = ProjectionStore()

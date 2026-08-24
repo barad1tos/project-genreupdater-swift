@@ -46,21 +46,28 @@ extension AppDependencies {
     func refreshArtistCatalog() async -> ArtistCatalogProjection {
         let generation = await projectionStore.claimArtistCatalogGeneration()
         let projection: ArtistCatalogProjection
-
-        guard let trackStore else {
-            projection = .init(
-                revision: .initial,
-                state: .unavailable(reason: "Artist catalog isn’t ready yet.")
-            )
-            return await projectionStore.replaceArtistCatalog(projection, inputGeneration: generation)
-        }
+        let provider = LibraryTrackLoader.liveProvider(from: self)
 
         do {
-            projection = try await ArtistCatalogBuilder.makeProjection(tracks: trackStore.loadAllTracks())
+            let tracks: [Core.Track]
+            if let provider {
+                tracks = try await provider.loadLibrarySnapshot(request: LibraryReadRequest()).tracks
+            } else if let trackStore {
+                tracks = try await trackStore.loadAllTracks()
+            } else {
+                return await projectionStore.replaceArtistCatalog(
+                    .init(
+                        revision: .initial,
+                        state: .unavailable(reason: "Artist catalog isn’t ready yet.")
+                    ),
+                    inputGeneration: generation
+                )
+            }
+            projection = ArtistCatalogBuilder.makeProjection(tracks: tracks)
         } catch {
             projection = .init(
                 revision: .initial,
-                state: .unavailable(reason: "Couldn’t load artists from the library mirror.")
+                state: .unavailable(reason: "Couldn’t load artists from the full music library.")
             )
         }
 

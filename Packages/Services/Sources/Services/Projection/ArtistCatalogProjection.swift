@@ -38,7 +38,7 @@ public struct ArtistCatalogProjection: Equatable, Sendable {
     }
 }
 
-/// Pure assembly of artist catalog truth from the persisted track mirror.
+/// Pure assembly of artist catalog truth from a complete library track snapshot.
 public enum ArtistCatalogBuilder {
     /// Groups tracks by effective artist with deterministic display ordering.
     public static func makeProjection(tracks: [Track]) -> ArtistCatalogProjection {
@@ -47,7 +47,7 @@ public enum ArtistCatalogBuilder {
         for track in tracks {
             guard let artist = ArtistAllowList.normalizedName(track.effectiveArtist) else { continue }
 
-            let key = artist.lowercased(with: .current)
+            let key = entryKey(for: artist, in: entries)
             let trackCount = (entries[key]?.trackCount ?? 0) + 1
             entries[key] = ArtistCatalogEntry(name: entries[key]?.name ?? artist, trackCount: trackCount)
         }
@@ -56,5 +56,17 @@ public enum ArtistCatalogBuilder {
             $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
         return ArtistCatalogProjection(revision: .initial, state: .available(sortedEntries))
+    }
+
+    private static func entryKey(
+        for artist: String,
+        in entries: [String: ArtistCatalogEntry]
+    ) -> String {
+        let directKey = artist.lowercased(with: .current)
+        guard entries[directKey] == nil else { return directKey }
+
+        return entries.first { _, entry in
+            ArtistAllowList.containsNormalized(artist, in: [entry.name])
+        }?.key ?? directKey
     }
 }
