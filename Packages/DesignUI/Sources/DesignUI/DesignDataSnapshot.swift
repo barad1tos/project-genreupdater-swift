@@ -209,6 +209,7 @@ public struct DesignArtistOption: Identifiable, Equatable, Sendable {
 
 /// A staged artist selection anchored to the settings revision the user saw.
 public struct ArtistScopeChange: Equatable, Sendable {
+    /// Selected test artists, or an empty array to remove the restriction and use the full library.
     public let selected: [String]
     public let expectedSettingsRevision: UInt64
 
@@ -221,13 +222,16 @@ public struct ArtistScopeChange: Equatable, Sendable {
 /// Outcome of committing a staged artist scope against its settings revision.
 public enum ArtistScopeSaveResult: Equatable, Sendable {
     case accepted
+    /// The captured settings revision is no longer current; the persisted scope is unchanged.
     case stale
+    /// The scope could not be persisted; the persisted scope is unchanged.
     case failed
 }
 
 /// The selected test scope paired with the full searchable library catalog.
 public struct DesignArtistScope: Equatable, Sendable {
     public let settingsRevision: UInt64
+    /// Selected test artists, or an empty array when runs are unrestricted to the full library.
     public let selected: [String]
     public let options: [DesignArtistOption]
     public let catalogIssue: String?
