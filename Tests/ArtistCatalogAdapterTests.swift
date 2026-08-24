@@ -1,3 +1,4 @@
+import Core
 import DesignUI
 import Services
 import Testing
@@ -40,23 +41,41 @@ struct ArtistCatalogAdapterTests {
         #expect(scope.catalogIssue == "Mirror unavailable")
     }
 
-    @Test("an open settings surface receives a refreshed artist catalog")
+    @Test("refresh uses the full mirror and updates an open narrowed settings surface")
     @MainActor
-    func observesCatalogRefresh() async throws {
-        let store = ProjectionStore()
+    func refreshesFromFullMirror() async throws {
+        var configuration = AppConfiguration()
+        configuration.development.testArtists = ["Björk"]
+        let trackStore = try TrackDataStore.createInMemory()
+        try await trackStore.initialize()
+        try await trackStore.saveTracks([
+            Core.Track(id: "BJORK-1", name: "Jóga", artist: "Björk", album: "Homogenic"),
+            Core.Track(id: "BJORK-2", name: "Bachelorette", artist: "Björk", album: "Homogenic"),
+            Core.Track(id: "BOOMBOX-1", name: "Вахтерам", artist: "Бумбокс", album: "Меломанія"),
+        ])
+        let dependencies = AppDependencies(configurationLoader: { configuration })
+        dependencies.configureLibraryPersistenceForTesting(trackStore: trackStore)
         let feed = ArtistCatalogFeed()
-        let observation = Task { await feed.observe(store) }
+        let observation = Task { await feed.observe(dependencies.projectionStore) }
         defer { observation.cancel() }
 
-        _ = await store.replaceArtistCatalog(
-            ArtistCatalogProjection(
-                revision: .initial,
-                state: .available([ArtistCatalogEntry(name: "Бумбокс", trackCount: 31)])
-            )
-        )
+        _ = await dependencies.refreshArtistCatalog()
 
         try await waitUntil {
-            feed.projection.state == .available([ArtistCatalogEntry(name: "Бумбокс", trackCount: 31)])
+            feed.projection.state == .available([
+                ArtistCatalogEntry(name: "Björk", trackCount: 2),
+                ArtistCatalogEntry(name: "Бумбокс", trackCount: 1),
+            ])
+        }
+
+        try await trackStore.saveTracks([
+            Core.Track(id: "IN-FLAMES-1", name: "Cloud Connected", artist: "In Flames", album: "Reroute to Remain")
+        ])
+        _ = await dependencies.refreshArtistCatalog()
+
+        try await waitUntil {
+            guard case let .available(entries) = feed.projection.state else { return false }
+            return entries.map(\.name) == ["Björk", "In Flames", "Бумбокс"]
         }
     }
 

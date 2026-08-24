@@ -62,26 +62,85 @@ struct ArtistScopeDraft: Equatable {
     }
 }
 
+enum ArtistScopeAction: Equatable {
+    case none
+    case dismiss
+}
+
+struct ArtistScopeFlow {
+    private(set) var draft: ArtistScopeDraft
+    private(set) var isFullScopePromptOpen = false
+    private(set) var saveIssue: String?
+
+    init(scope: DesignArtistScope) {
+        draft = ArtistScopeDraft(
+            selected: scope.selected,
+            settingsRevision: scope.settingsRevision
+        )
+    }
+
+    mutating func toggle(_ artist: String) {
+        draft.toggle(artist)
+        saveIssue = nil
+    }
+
+    func cancel() -> ArtistScopeAction {
+        .dismiss
+    }
+
+    mutating func requestApply(
+        apply: (ArtistScopeChange) -> ArtistScopeSaveResult
+    ) -> ArtistScopeAction {
+        guard draft.hasChanges else { return .none }
+        if draft.isFullLibrary, draft.startedNarrowed {
+            isFullScopePromptOpen = true
+            return .none
+        }
+        return finish(apply(draft.change))
+    }
+
+    mutating func confirmFullLibrary(
+        apply: (ArtistScopeChange) -> ArtistScopeSaveResult
+    ) -> ArtistScopeAction {
+        guard isFullScopePromptOpen else { return .none }
+        isFullScopePromptOpen = false
+        return finish(apply(draft.change))
+    }
+
+    mutating func cancelFullLibrary() {
+        isFullScopePromptOpen = false
+    }
+
+    private mutating func finish(_ result: ArtistScopeSaveResult) -> ArtistScopeAction {
+        switch result {
+        case .accepted:
+            saveIssue = nil
+            return .dismiss
+        case .stale:
+            saveIssue = "Settings changed elsewhere. Cancel and reopen to review the current selection."
+            return .none
+        case .failed:
+            saveIssue = "Couldn’t save this scope. Your previous selection is unchanged."
+            return .none
+        }
+    }
+}
+
 /// A staged, searchable multi-select for narrowing runs to library artists.
 public struct ArtistScopePicker: View {
     let scope: DesignArtistScope
     let apply: (ArtistScopeChange) -> ArtistScopeSaveResult
 
-    @State private var draft: ArtistScopeDraft
+    @State private var flow: ArtistScopeFlow
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
-    @State private var isFullScopePromptOpen = false
-    @State private var saveIssue: String?
 
     /// Creates a picker whose changes remain local until `apply` accepts them.
     public init(scope: DesignArtistScope, apply: @escaping (ArtistScopeChange) -> ArtistScopeSaveResult) {
         self.scope = scope
         self.apply = apply
-        _draft = State(initialValue: ArtistScopeDraft(
-            selected: scope.selected,
-            settingsRevision: scope.settingsRevision
-        ))
+        _flow = State(initialValue: ArtistScopeFlow(scope: scope))
     }
 
     public var body: some View {
@@ -96,11 +155,13 @@ public struct ArtistScopePicker: View {
         }
         .background(Ayu.window)
         .modifier(PickerSizing())
-        .alert("Use Full Library?", isPresented: $isFullScopePromptOpen) {
+        .alert("Use Full Library?", isPresented: fullLibraryPrompt) {
             Button("Cancel", role: .cancel) {
-                // Cancel has no effect; the user can continue to make selections or cancel the picker.
+                flow.cancelFullLibrary()
             }
-            Button("Use Full Library", role: .destructive, action: applySelection)
+            Button("Use Full Library", role: .destructive) {
+                handle(flow.confirmFullLibrary(apply: apply))
+            }
         } message: {
             Text("No test artists will remain selected. Future runs will process the full music library.")
         }
@@ -145,9 +206,9 @@ public struct ArtistScopePicker: View {
 
     private var scopeSummary: some View {
         HStack(spacing: 12) {
-            Image(systemName: draft.isFullLibrary ? "music.note.house" : "person.2.fill")
+            Image(systemName: flow.draft.isFullLibrary ? "music.note.house" : "person.2.fill")
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(draft.isFullLibrary ? Ayu.warning : Ayu.fg2)
+                .foregroundStyle(flow.draft.isFullLibrary ? Ayu.warning : Ayu.fg2)
                 .frame(width: 34, height: 34)
                 .background(Ayu.controlFillStrong, in: Circle())
 
@@ -157,7 +218,7 @@ public struct ArtistScopePicker: View {
                     .foregroundStyle(Ayu.fg)
                 Text(scopeDetail)
                     .font(.system(size: 12))
-                    .foregroundStyle(draft.isFullLibrary ? Ayu.warning : Ayu.fg2)
+                    .foregroundStyle(flow.draft.isFullLibrary ? Ayu.warning : Ayu.fg2)
             }
 
             Spacer()
@@ -168,9 +229,9 @@ public struct ArtistScopePicker: View {
 
     private var artistList: some View {
         List {
-            if !draft.selected.isEmpty {
+            if !flow.draft.selected.isEmpty {
                 Section("Selected") {
-                    ForEach(draft.selected, id: \.self) { artist in
+                    ForEach(flow.draft.selected, id: \.self) { artist in
                         artistRow(name: artist, trackCount: trackCount(for: artist), isSelected: true)
                     }
                 }
@@ -200,11 +261,11 @@ public struct ArtistScopePicker: View {
 
     private var actionBar: some View {
         HStack(spacing: 12) {
-            if let saveIssue {
+            if let saveIssue = flow.saveIssue {
                 Label(saveIssue, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Ayu.warning)
-            } else if draft.isFullLibrary {
+            } else if flow.draft.isFullLibrary {
                 Label("Full Library is a much broader processing scope", systemImage: "exclamationmark.triangle")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Ayu.warning)
@@ -212,11 +273,13 @@ public struct ArtistScopePicker: View {
 
             Spacer()
 
-            BorderedButton(title: "Cancel", action: dismiss.callAsFunction)
+            BorderedButton(title: "Cancel") {
+                handle(flow.cancel())
+            }
             PrimaryButton(
                 title: "Apply",
                 symbol: "checkmark",
-                enabled: draft.hasChanges,
+                enabled: flow.draft.hasChanges,
                 action: requestApply
             )
         }
@@ -225,15 +288,15 @@ public struct ArtistScopePicker: View {
     }
 
     private var availableOptions: [DesignArtistOption] {
-        scope.options(matching: query).filter { !draft.contains($0.name) }
+        scope.options(matching: query).filter { !flow.draft.contains($0.name) }
     }
 
     private var scopeTitle: String {
-        draft.isFullLibrary ? "Full Library" : "\(draft.selected.count) selected"
+        flow.draft.isFullLibrary ? "Full Library" : "\(flow.draft.selected.count) selected"
     }
 
     private var scopeDetail: String {
-        if draft.isFullLibrary {
+        if flow.draft.isFullLibrary {
             return "Every artist can be processed on the next run."
         }
         return "Only these artists will be included in test runs."
@@ -264,8 +327,7 @@ public struct ArtistScopePicker: View {
 
     private func artistRow(name: String, trackCount: Int?, isSelected: Bool) -> some View {
         Button {
-            draft.toggle(name)
-            saveIssue = nil
+            flow.toggle(name)
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
@@ -297,22 +359,23 @@ public struct ArtistScopePicker: View {
     }
 
     private func requestApply() {
-        guard draft.hasChanges else { return }
-        if draft.isFullLibrary, draft.startedNarrowed {
-            isFullScopePromptOpen = true
-        } else {
-            applySelection()
-        }
+        handle(flow.requestApply(apply: apply))
     }
 
-    private func applySelection() {
-        switch apply(draft.change) {
-        case .accepted:
+    private var fullLibraryPrompt: Binding<Bool> {
+        Binding(
+            get: { flow.isFullScopePromptOpen },
+            set: { isPresented in
+                if !isPresented {
+                    flow.cancelFullLibrary()
+                }
+            }
+        )
+    }
+
+    private func handle(_ action: ArtistScopeAction) {
+        if action == .dismiss {
             dismiss()
-        case .stale:
-            saveIssue = "Settings changed elsewhere. Cancel and reopen to review the current selection."
-        case .failed:
-            saveIssue = "Couldn’t save this scope. Your previous selection is unchanged."
         }
     }
 }
