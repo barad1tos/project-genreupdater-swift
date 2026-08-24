@@ -42,31 +42,31 @@ public struct ArtistCatalogProjection: Equatable, Sendable {
 public enum ArtistCatalogBuilder {
     /// Groups tracks by effective artist with deterministic display ordering.
     public static func makeProjection(tracks: [Track]) -> ArtistCatalogProjection {
-        var entries: [String: ArtistCatalogEntry] = [:]
-
-        for track in tracks {
-            guard let artist = ArtistAllowList.normalizedName(track.effectiveArtist) else { continue }
-
-            let key = entryKey(for: artist, in: entries)
-            let trackCount = (entries[key]?.trackCount ?? 0) + 1
-            entries[key] = ArtistCatalogEntry(name: entries[key]?.name ?? artist, trackCount: trackCount)
+        let artists = tracks.enumerated().compactMap { index, track -> (index: Int, name: String)? in
+            guard let name = ArtistAllowList.normalizedName(track.effectiveArtist) else { return nil }
+            return (index, name)
+        }.sorted { first, second in
+            let comparison = first.name.localizedCaseInsensitiveCompare(second.name)
+            if comparison == .orderedSame {
+                return first.index < second.index
+            }
+            return comparison == .orderedAscending
         }
 
-        let sortedEntries = entries.values.sorted {
+        var entries: [ArtistCatalogEntry] = []
+        for artist in artists {
+            if let lastIndex = entries.indices.last,
+               entries[lastIndex].name.localizedCaseInsensitiveCompare(artist.name) == .orderedSame {
+                let entry = entries[lastIndex]
+                entries[lastIndex] = ArtistCatalogEntry(name: entry.name, trackCount: entry.trackCount + 1)
+            } else {
+                entries.append(ArtistCatalogEntry(name: artist.name, trackCount: 1))
+            }
+        }
+
+        entries.sort {
             $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
-        return ArtistCatalogProjection(revision: .initial, state: .available(sortedEntries))
-    }
-
-    private static func entryKey(
-        for artist: String,
-        in entries: [String: ArtistCatalogEntry]
-    ) -> String {
-        let directKey = artist.lowercased(with: .current)
-        guard entries[directKey] == nil else { return directKey }
-
-        return entries.first { _, entry in
-            ArtistAllowList.containsNormalized(artist, in: [entry.name])
-        }?.key ?? directKey
+        return ArtistCatalogProjection(revision: .initial, state: .available(entries))
     }
 }
