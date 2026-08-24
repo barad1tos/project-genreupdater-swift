@@ -32,6 +32,7 @@ struct PrimaryButton: View {
     var enabled: Bool = true
     let action: () -> Void
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
         Button(action: action) {
             HStack(spacing: 7) {
                 if let symbol {
@@ -41,11 +42,11 @@ struct PrimaryButton: View {
             }
             .font(.system(size: 13, weight: .semibold))
             .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(Ayu.accent, in: RoundedRectangle(cornerRadius: 8))
-            .foregroundStyle(Ayu.onAccent)
+            .background(enabled ? Ayu.accent : Ayu.controlFillStrong, in: shape)
+            .overlay(shape.strokeBorder(enabled ? Color.clear : Ayu.glassBorderStrong))
+            .foregroundStyle(enabled ? Ayu.onAccent : Ayu.fgMuted)
         }
         .buttonStyle(.plain)
-        .opacity(enabled ? 1 : 0.55)
         .disabled(!enabled)
     }
 }

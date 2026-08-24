@@ -66,18 +66,16 @@ public struct ArtistScopePicker: View {
     }
 
     public var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                scopeSummary
-                Divider().overlay(Ayu.glassBorder)
-                artistList
-                Divider().overlay(Ayu.glassBorder)
-                actionBar
-            }
-            .background(Ayu.window)
-            .navigationTitle("Choose Test Artists")
-            .searchable(text: $query, placement: .toolbar, prompt: "Search your library")
+        VStack(spacing: 0) {
+            pickerHeader
+            Divider().overlay(Ayu.glassBorder)
+            scopeSummary
+            Divider().overlay(Ayu.glassBorder)
+            artistList
+            Divider().overlay(Ayu.glassBorder)
+            actionBar
         }
+        .background(Ayu.window)
         .modifier(PickerSizing())
         .alert("Use Full Library?", isPresented: $isFullScopePromptOpen) {
             Button("Cancel", role: .cancel) {}
@@ -87,13 +85,50 @@ public struct ArtistScopePicker: View {
         }
     }
 
+    private var pickerHeader: some View {
+        HStack(spacing: 16) {
+            Text("Choose Test Artists")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Ayu.fg)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Ayu.fgMuted)
+
+                TextField("Search your library", text: $query)
+                    .textFieldStyle(.plain)
+
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Ayu.fgMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear search")
+                }
+            }
+            .font(.system(size: 12))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Ayu.controlFillStrong, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Ayu.glassBorderStrong))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(Ayu.surfaceRaised)
+    }
+
     private var scopeSummary: some View {
         HStack(spacing: 12) {
             Image(systemName: draft.isFullLibrary ? "music.note.house" : "person.2.fill")
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(draft.isFullLibrary ? Ayu.warning : Ayu.purple)
+                .foregroundStyle(draft.isFullLibrary ? Ayu.warning : Ayu.fg2)
                 .frame(width: 34, height: 34)
-                .background((draft.isFullLibrary ? Ayu.warning : Ayu.purple).opacity(0.13), in: Circle())
+                .background(Ayu.controlFillStrong, in: Circle())
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(scopeTitle)
@@ -107,6 +142,7 @@ public struct ArtistScopePicker: View {
             Spacer()
         }
         .padding(18)
+        .background(Ayu.surfaceRaised)
     }
 
     private var artistList: some View {
@@ -151,10 +187,6 @@ public struct ArtistScopePicker: View {
                 Label("Full Library is a much broader processing scope", systemImage: "exclamationmark.triangle")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Ayu.warning)
-            } else {
-                Text("Changes take effect only after you apply them.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Ayu.fg2)
             }
 
             Spacer()
@@ -168,6 +200,7 @@ public struct ArtistScopePicker: View {
             )
         }
         .padding(18)
+        .background(Ayu.surfaceRaised)
     }
 
     private var availableOptions: [DesignArtistOption] {
@@ -238,6 +271,7 @@ public struct ArtistScopePicker: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .listRowBackground(isSelected ? Ayu.controlFillStrong : Color.clear)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
     }
 
