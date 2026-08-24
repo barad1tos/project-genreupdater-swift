@@ -27,6 +27,7 @@ struct DesignRootHostView: View {
     @State private var browseRowIndex: [String: [BrowseTrackRow]] = [:]
     @State private var browseReadSource: BrowseReadSource = .cachedMirror(scannedAt: nil)
     @State private var browseNoticeMessage: String?
+    @State private var artistCatalogFeed = ArtistCatalogFeed()
     @State private var analyticsSnapshot: DesignAnalyticsSnapshot = .empty
     @State private var analyticsWindow: DesignAnalyticsWindow = .currentSession
     @State private var selectedRunReport: RunReportDetailSnapshot?
@@ -83,6 +84,7 @@ struct DesignRootHostView: View {
         .task { await observeFixPlanUpdates() }
         .task { await observeChromeUpdates() }
         .task { await observeBrowseUpdates() }
+        .task { await artistCatalogFeed.observe(dependencies.projectionStore) }
         .task(id: selectedRoute) { await observeAnalyticsUpdates() }
         .onChange(of: dependencies.config.processing.defaultUpdateBehavior) {
             applyWorkflowDefaults()
@@ -402,7 +404,11 @@ struct DesignRootHostView: View {
             ) ?? .both,
             minimumConfidencePercent: configuration.yearRetrieval.logic.minConfidenceForNewYear,
             releaseYearRestoreThresholdYears: configuration.processing.releaseYearRestoreThreshold,
-            testArtists: ArtistAllowList.normalized(configuration.development.testArtists),
+            artistScope: ArtistCatalogAdapter.makeScope(
+                selected: configuration.development.testArtists,
+                settingsRevision: configuration.revision,
+                projection: artistCatalogFeed.projection
+            ),
             presentation: DesignSettingsSnapshot.Presentation(
                 appearanceMode: designAppearanceMode(from: appearanceMode),
                 isFastAnimationsEnabled: fastAnimations,
@@ -605,11 +611,15 @@ struct DesignRootHostView: View {
         }
         dependencies.onLibraryLoadApplied = { _ in
             refreshWorkflowScopePreview()
+            Task { @MainActor in
+                _ = await dependencies.refreshArtistCatalog()
+            }
         }
         ensureWorkflowViewModel()
         if await dependencies.ensureRecoveryHold() {
             _ = await workflowViewModel?.stopForRecoveryHold()
         }
+        _ = await dependencies.refreshArtistCatalog()
         await dependencies.loadLibrary()
         await refreshActivityProjection()
     }
@@ -802,11 +812,8 @@ extension DesignRootHostView {
         } == .accepted
     }
 
-    private func setTestArtists(_ artists: [String]) -> Bool {
-        let normalizedArtists = ArtistAllowList.normalized(artists)
-        return mutateConfiguration(dependencies) { configuration in
-            configuration.development.testArtists = normalizedArtists
-        } == .accepted
+    private func setTestArtists(_ change: ArtistScopeChange) -> ArtistScopeSaveResult {
+        saveArtistScope(change, dependencies: dependencies)
     }
 
     private func setAppearanceMode(_ mode: DesignAppearanceMode) -> Bool {

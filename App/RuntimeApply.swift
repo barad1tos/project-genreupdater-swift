@@ -46,7 +46,6 @@ extension AppDependencies {
         let librarySyncRuntimeConfiguration: LibrarySyncRuntimeConfiguration
         let batchProcessingConfiguration: BatchProcessingConfiguration
         let libraryPath: String
-        let testArtists: [String]
         let analytics: AnalyticsConfig
         let cleaning: CleaningConfig
         let cacheConfiguration: AppConfiguration
@@ -61,7 +60,6 @@ extension AppDependencies {
         await cacheService?.updatePolicy(configuration: handoff.cacheConfiguration)
         await applescriptBridge?.updateConfiguration(handoff.appleScriptConfiguration)
         await applescriptBridge?.updateLibraryPath(handoff.libraryPath)
-        await musicReader?.updateTestArtists(handoff.testArtists)
         await librarySyncService?.updateRuntimeConfiguration(
             handoff.librarySyncRuntimeConfiguration,
             librarySnapshotService: handoff.snapshotService,

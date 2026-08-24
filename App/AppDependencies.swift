@@ -265,9 +265,7 @@ final class AppDependencies {
             recoveryObservationClient = bridge
             recoveryAvailability = RecoveryAvailability(checks: .live(installer: installer))
 
-            let reader = MusicLibraryReader(
-                testArtists: config.development.testArtists
-            )
+            let reader = MusicLibraryReader()
             musicReader = reader
             libraryReadProvider = MusicKitReadProvider(reader: reader)
 
@@ -705,7 +703,6 @@ extension AppDependencies {
             librarySyncRuntimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config),
             batchProcessingConfiguration: BatchProcessingConfiguration(configuration: config),
             libraryPath: config.paths.musicLibraryPath,
-            testArtists: config.development.testArtists,
             analytics: cacheConfiguration.analytics,
             cleaning: config.cleaning,
             cacheConfiguration: cacheConfiguration

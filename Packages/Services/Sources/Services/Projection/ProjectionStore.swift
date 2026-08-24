@@ -30,6 +30,11 @@ public actor ProjectionStore {
     private var appliedBrowseGeneration: UInt64
     private var browseContinuations: [UUID: AsyncStream<BrowseProjection>.Continuation]
 
+    private var currentArtistCatalog: ArtistCatalogProjection
+    private var issuedArtistCatalogGeneration: UInt64
+    private var appliedArtistCatalogGeneration: UInt64
+    private var artistCatalogContinuations: [UUID: AsyncStream<ArtistCatalogProjection>.Continuation]
+
     public init() {
         currentActivityProjection = .empty()
         latestIssuedActivityProjectionInputGeneration = 0
@@ -59,6 +64,11 @@ public actor ProjectionStore {
         issuedBrowseGeneration = 0
         appliedBrowseGeneration = 0
         browseContinuations = [:]
+
+        currentArtistCatalog = .empty()
+        issuedArtistCatalogGeneration = 0
+        appliedArtistCatalogGeneration = 0
+        artistCatalogContinuations = [:]
     }
 
     public func activityProjection() -> ActivityProjection {
@@ -571,5 +581,86 @@ public actor ProjectionStore {
 
     private func removeBrowseContinuation(id: UUID) {
         browseContinuations[id] = nil
+    }
+
+    /// Subscribes to the current catalog followed by revision advances.
+    public func artistCatalogUpdates() -> AsyncStream<ArtistCatalogProjection> {
+        let subscriptionID = UUID()
+        let (stream, continuation) = AsyncStream<ArtistCatalogProjection>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+
+        registerArtistCatalogContinuation(continuation, id: subscriptionID)
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeArtistCatalogContinuation(id: subscriptionID)
+            }
+        }
+
+        return stream
+    }
+
+    /// Claims ordering before a potentially suspending mirror read.
+    public func claimArtistCatalogGeneration() -> UInt64 {
+        issuedArtistCatalogGeneration += 1
+        return issuedArtistCatalogGeneration
+    }
+
+    /// Publishes only newer catalog input and deduplicates identical content.
+    @discardableResult
+    public func replaceArtistCatalog(
+        _ projection: ArtistCatalogProjection,
+        inputGeneration: UInt64? = nil
+    ) -> ArtistCatalogProjection {
+        if let inputGeneration {
+            guard inputGeneration > appliedArtistCatalogGeneration else {
+                return currentArtistCatalog
+            }
+            issuedArtistCatalogGeneration = max(issuedArtistCatalogGeneration, inputGeneration)
+            appliedArtistCatalogGeneration = inputGeneration
+        }
+
+        let comparableProjection = projection.withRevision(currentArtistCatalog.revision)
+        guard comparableProjection != currentArtistCatalog else {
+            return currentArtistCatalog
+        }
+
+        let storedProjection = projection.withRevision(currentArtistCatalog.revision.advanced())
+        currentArtistCatalog = storedProjection
+        broadcastArtistCatalog(storedProjection)
+        return storedProjection
+    }
+
+    private func registerArtistCatalogContinuation(
+        _ continuation: AsyncStream<ArtistCatalogProjection>.Continuation,
+        id: UUID
+    ) {
+        if case .terminated = continuation.yield(currentArtistCatalog) {
+            return
+        }
+        artistCatalogContinuations[id] = continuation
+    }
+
+    private func broadcastArtistCatalog(_ projection: ArtistCatalogProjection) {
+        var terminatedContinuationIDs: [UUID] = []
+
+        for (id, continuation) in artistCatalogContinuations {
+            switch continuation.yield(projection) {
+            case .enqueued, .dropped:
+                break
+            case .terminated:
+                terminatedContinuationIDs.append(id)
+            @unknown default:
+                break
+            }
+        }
+
+        for id in terminatedContinuationIDs {
+            artistCatalogContinuations[id] = nil
+        }
+    }
+
+    private func removeArtistCatalogContinuation(id: UUID) {
+        artistCatalogContinuations[id] = nil
     }
 }

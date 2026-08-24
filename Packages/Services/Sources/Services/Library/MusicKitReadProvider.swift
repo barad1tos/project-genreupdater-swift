@@ -1,23 +1,35 @@
 import Core
 import Foundation
 
+public protocol MusicLibrarySnapshotReader: Actor {
+    func fetchAllTracks(
+        artist: String?,
+        testArtists: [String],
+        ignoreTestFilter: Bool
+    ) async throws -> [Track]
+}
+
+extension MusicLibraryReader: MusicLibrarySnapshotReader {}
+
 public actor MusicKitReadProvider: LibraryReadProvider {
-    private let reader: MusicLibraryReader
+    private let snapshotReader: any MusicLibrarySnapshotReader
     private let currentDate: @Sendable () -> Date
 
     public init(
-        reader: MusicLibraryReader,
+        reader: any MusicLibrarySnapshotReader,
         currentDate: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.reader = reader
+        snapshotReader = reader
         self.currentDate = currentDate
     }
 
     public func loadLibrarySnapshot(request: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        try await reader.requestAuthorization()
         try Task.checkCancellation()
-        await reader.updateTestArtists(request.testArtists)
-        let tracks = try await reader.fetchAllTracks()
+        let tracks = try await snapshotReader.fetchAllTracks(
+            artist: nil,
+            testArtists: request.testArtists,
+            ignoreTestFilter: false
+        )
         return LibraryReadSnapshot(tracks: tracks, scannedAt: currentDate())
     }
 }

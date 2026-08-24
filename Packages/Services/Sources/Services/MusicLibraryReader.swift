@@ -60,17 +60,8 @@ public actor MusicLibraryReader {
         let libraryAddedDate: Date?
     }
 
-    private var testArtists: [String]
-
-    /// - Parameter testArtists: When non-empty, `fetchAllTracks` returns
-    ///   only tracks whose `effectiveArtist` matches one of these names
-    ///   (case-insensitive). Pass an empty array to disable filtering.
-    public init(testArtists: [String] = []) {
-        self.testArtists = testArtists
-    }
-
-    public func updateTestArtists(_ testArtists: [String]) {
-        self.testArtists = testArtists
+    public init() {
+        // Artist scope is request-local, so the reader has no state to initialize.
     }
 
     /// Request access to the user's music library.
@@ -102,12 +93,15 @@ public actor MusicLibraryReader {
     /// Fetch all tracks from the user's library.
     public func fetchAllTracks(
         artist: String? = nil,
+        testArtists: [String] = [],
         ignoreTestFilter: Bool = false
     ) async throws -> [Core.Track] {
+        let artistScope = ArtistAllowList.normalized(testArtists)
         guard isAuthorized else {
             try await requestAuthorization()
             return try await fetchAllTracks(
                 artist: artist,
+                testArtists: artistScope,
                 ignoreTestFilter: ignoreTestFilter
             )
         }
@@ -119,7 +113,7 @@ public actor MusicLibraryReader {
             var tracks: [Core.Track] = []
             let targets = Self.fetchTargets(
                 requestedArtist: artist,
-                testArtists: testArtists,
+                testArtists: artistScope,
                 ignoreTestFilter: ignoreTestFilter
             )
 
@@ -131,7 +125,7 @@ public actor MusicLibraryReader {
             if !ignoreTestFilter {
                 tracks = Self.filterByTestArtists(
                     tracks,
-                    testArtists: testArtists
+                    testArtists: artistScope
                 )
             }
 

@@ -162,14 +162,18 @@ struct PublicAPITests {
             updateBehavior: .genreOnly,
             minimumConfidencePercent: 30,
             releaseYearRestoreThresholdYears: 5,
-            testArtists: [],
+            artistScope: DesignArtistScope(settingsRevision: 0, selected: [], options: []),
             isPostWriteVerificationRequired: true
         )
         let updatedSettings = DesignSettingsSnapshot(
             updateBehavior: .yearOnly,
             minimumConfidencePercent: 80,
             releaseYearRestoreThresholdYears: 8,
-            testArtists: ["Aphex Twin"],
+            artistScope: DesignArtistScope(
+                settingsRevision: 1,
+                selected: ["Aphex Twin"],
+                options: [DesignArtistOption(name: "Aphex Twin", trackCount: 84)]
+            ),
             isPostWriteVerificationRequired: true
         )
         let model = AppModel(data: makeSnapshot(safetyMode: .preview, settings: initialSettings))
@@ -179,7 +183,7 @@ struct PublicAPITests {
         #expect(model.data.settings.updateBehavior == .yearOnly)
         #expect(model.data.settings.minimumConfidencePercent == 80)
         #expect(model.data.settings.releaseYearRestoreThresholdYears == 8)
-        #expect(model.data.settings.testArtists == ["Aphex Twin"])
+        #expect(model.data.settings.artistScope.selected == ["Aphex Twin"])
     }
 
     private func makeSnapshot(totalTracks: Int, syncStatusText: String, deltaCount: Int) -> DesignDataSnapshot {

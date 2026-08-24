@@ -12,7 +12,7 @@ public struct RootView<UpdateContent: View>: View {
     private let setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)?
     private let setMinimumConfidenceAction: ((Double) -> Bool)?
     private let setReleaseYearRestoreThresholdAction: ((Int) -> Bool)?
-    private let setTestArtistsAction: (([String]) -> Bool)?
+    private let setTestArtistsAction: ((ArtistScopeChange) -> ArtistScopeSaveResult)?
     private let setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)?
     private let setFastAnimationsAction: ((Bool) -> Bool)?
     private let browseTrackRows: ((Album.ID) -> [DesignBrowseTrackRow])?
@@ -37,7 +37,7 @@ public struct RootView<UpdateContent: View>: View {
         setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)? = nil,
         setMinimumConfidenceAction: ((Double) -> Bool)? = nil,
         setReleaseYearRestoreThresholdAction: ((Int) -> Bool)? = nil,
-        setTestArtistsAction: (([String]) -> Bool)? = nil,
+        setTestArtistsAction: ((ArtistScopeChange) -> ArtistScopeSaveResult)? = nil,
         setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)? = nil,
         setFastAnimationsAction: ((Bool) -> Bool)? = nil,
         browseTrackRows: ((Album.ID) -> [DesignBrowseTrackRow])? = nil,

@@ -1,3 +1,5 @@
+import Foundation
+
 /// Shell-zone severity mirrored from the Chrome projection (ADR 0012).
 public enum DesignChromeSeverity: String, Equatable, Sendable {
     case nominal
@@ -190,6 +192,70 @@ public enum DesignDiscogsState: Equatable, Sendable {
     case unverified
 }
 
+/// One artist choice projected for settings, including its mirror track count.
+public struct DesignArtistOption: Identifiable, Equatable, Sendable {
+    public var id: String {
+        name
+    }
+
+    public let name: String
+    public let trackCount: Int
+
+    public init(name: String, trackCount: Int) {
+        self.name = name
+        self.trackCount = trackCount
+    }
+}
+
+/// A staged artist selection anchored to the settings revision the user saw.
+public struct ArtistScopeChange: Equatable, Sendable {
+    /// Selected test artists, or an empty array to remove the restriction and use the full library.
+    public let selected: [String]
+    public let expectedSettingsRevision: UInt64
+
+    public init(selected: [String], expectedSettingsRevision: UInt64) {
+        self.selected = selected
+        self.expectedSettingsRevision = expectedSettingsRevision
+    }
+}
+
+/// Outcome of committing a staged artist scope against its settings revision.
+public enum ArtistScopeSaveResult: Equatable, Sendable {
+    case accepted
+    /// The captured settings revision is no longer current; the persisted scope is unchanged.
+    case stale
+    /// The scope could not be persisted; the persisted scope is unchanged.
+    case failed
+}
+
+/// The selected test scope paired with the full searchable library catalog.
+public struct DesignArtistScope: Equatable, Sendable {
+    public let settingsRevision: UInt64
+    /// Selected test artists, or an empty array when runs are unrestricted to the full library.
+    public let selected: [String]
+    public let options: [DesignArtistOption]
+    public let catalogIssue: String?
+
+    public init(
+        settingsRevision: UInt64,
+        selected: [String],
+        options: [DesignArtistOption],
+        catalogIssue: String? = nil
+    ) {
+        self.settingsRevision = settingsRevision
+        self.selected = selected
+        self.options = options
+        self.catalogIssue = catalogIssue
+    }
+
+    /// Returns catalog options matching a localized user-entered query.
+    public func options(matching query: String) -> [DesignArtistOption] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return options }
+        return options.filter { $0.name.localizedStandardContains(trimmedQuery) }
+    }
+}
+
 public struct DesignSettingsSnapshot: Equatable, Sendable {
     /// Presentation-only facts grouped below the parameter ceiling.
     public struct Presentation: Equatable, Sendable {
@@ -214,7 +280,14 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         updateBehavior: .both,
         minimumConfidencePercent: 70,
         releaseYearRestoreThresholdYears: 5,
-        testArtists: ["Aphex Twin", "Boards of Canada"],
+        artistScope: DesignArtistScope(
+            settingsRevision: 0,
+            selected: ["Aphex Twin", "Boards of Canada"],
+            options: [
+                DesignArtistOption(name: "Aphex Twin", trackCount: 84),
+                DesignArtistOption(name: "Boards of Canada", trackCount: 63),
+            ]
+        ),
         isPostWriteVerificationRequired: true,
         discogsState: .connected
     )
@@ -222,7 +295,7 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
     public let updateBehavior: DesignUpdateBehavior
     public let minimumConfidencePercent: Double
     public let releaseYearRestoreThresholdYears: Int
-    public let testArtists: [String]
+    public let artistScope: DesignArtistScope
     public let presentation: Presentation
     public let isPostWriteVerificationRequired: Bool
     public let discogsState: DesignDiscogsState
@@ -241,7 +314,7 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         updateBehavior: DesignUpdateBehavior,
         minimumConfidencePercent: Double,
         releaseYearRestoreThresholdYears: Int,
-        testArtists: [String],
+        artistScope: DesignArtistScope,
         presentation: Presentation = Presentation(),
         isPostWriteVerificationRequired: Bool,
         discogsState: DesignDiscogsState = .unverified
@@ -249,7 +322,7 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         self.updateBehavior = updateBehavior
         self.minimumConfidencePercent = minimumConfidencePercent
         self.releaseYearRestoreThresholdYears = releaseYearRestoreThresholdYears
-        self.testArtists = testArtists
+        self.artistScope = artistScope
         self.presentation = presentation
         self.isPostWriteVerificationRequired = isPostWriteVerificationRequired
         self.discogsState = discogsState

@@ -1,6 +1,7 @@
 // SettingsSupport.swift — shared settings bindings and display helpers.
 
 import Core
+import DesignUI
 import Services
 import SharedUI
 import SwiftUI
@@ -46,10 +47,8 @@ func configBinding<Value>(
     )
 }
 
-/// The one write path for UI settings mutations: copy-with-edit against
-/// the live config, CAS target from the live revision, dispatched through
-/// the command's synchronous acceptance head — the mutation is visible to
-/// SwiftUI on the same render turn (controlled TextFields depend on it).
+/// Applies an immediate UI settings mutation against the live revision.
+/// Synchronous command acceptance keeps controlled fields in the same render turn.
 @MainActor
 @discardableResult
 func mutateConfiguration(
@@ -60,6 +59,35 @@ func mutateConfiguration(
     mutation(&edited)
     let target = SettingsCommandTarget(expectedSettingsRevision: dependencies.config.revision)
     return SettingsCommands.dispatch(edited, target: target, dependencies: dependencies)
+}
+
+/// Saves a staged artist scope against the revision captured when the picker opened.
+/// Stale and failed results leave the persisted scope unchanged.
+@MainActor
+func saveArtistScope(
+    _ change: ArtistScopeChange,
+    dependencies: AppDependencies
+) -> ArtistScopeSaveResult {
+    var configuration = dependencies.config
+    configuration.development.testArtists = ArtistAllowList.normalized(change.selected)
+    let target = SettingsCommandTarget(expectedSettingsRevision: change.expectedSettingsRevision)
+
+    switch SettingsCommands.dispatch(configuration, target: target, dependencies: dependencies) {
+    case .accepted:
+        return .accepted
+    case .rejectedStale:
+        return .stale
+    case .alreadyCovered,
+         .blockedByPermission,
+         .blockedByRecovery,
+         .navigated,
+         .noOp,
+         .queued,
+         .rejectedInvalid,
+         .requiresAttention,
+         .temporaryUnavailable:
+        return .failed
+    }
 }
 
 // MARK: - Display Names
