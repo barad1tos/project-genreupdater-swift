@@ -32,7 +32,7 @@ struct LibraryReadProviderTests {
             Track(id: "2", name: "Cloud Connected", artist: "In Flames", album: "Reroute to Remain"),
         ])
         let provider = MusicKitReadProvider(
-            snapshotReader: reader,
+            reader: reader,
             currentDate: { Date(timeIntervalSince1970: 1_800_000_000) }
         )
 

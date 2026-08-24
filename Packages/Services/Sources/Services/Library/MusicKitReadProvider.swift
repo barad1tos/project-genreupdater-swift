@@ -1,7 +1,7 @@
 import Core
 import Foundation
 
-protocol MusicLibrarySnapshotReader: Actor {
+public protocol MusicLibrarySnapshotReader: Actor {
     func fetchAllTracks(
         artist: String?,
         testArtists: [String],
@@ -16,18 +16,10 @@ public actor MusicKitReadProvider: LibraryReadProvider {
     private let currentDate: @Sendable () -> Date
 
     public init(
-        reader: MusicLibraryReader,
+        reader: any MusicLibrarySnapshotReader,
         currentDate: @escaping @Sendable () -> Date = { Date() }
     ) {
         snapshotReader = reader
-        self.currentDate = currentDate
-    }
-
-    init(
-        snapshotReader: any MusicLibrarySnapshotReader,
-        currentDate: @escaping @Sendable () -> Date
-    ) {
-        self.snapshotReader = snapshotReader
         self.currentDate = currentDate
     }
 

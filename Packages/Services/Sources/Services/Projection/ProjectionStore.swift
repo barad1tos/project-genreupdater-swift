@@ -583,11 +583,6 @@ public actor ProjectionStore {
         browseContinuations[id] = nil
     }
 
-    /// Returns the latest complete artist catalog projection.
-    public func artistCatalog() -> ArtistCatalogProjection {
-        currentArtistCatalog
-    }
-
     /// Subscribes to the current catalog followed by revision advances.
     public func artistCatalogUpdates() -> AsyncStream<ArtistCatalogProjection> {
         let subscriptionID = UUID()
