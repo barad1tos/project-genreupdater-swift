@@ -701,7 +701,7 @@ actor FinishRecorder {
     }
 }
 
-private actor TestSleeper {
+actor TestSleeper {
     private struct Wait {
         let delay: Duration
         let continuation: CheckedContinuation<Void, Error>
@@ -756,7 +756,7 @@ private actor TestSleeper {
     }
 }
 
-private final class TestDate: @unchecked Sendable {
+final class TestDate: @unchecked Sendable {
     private let lock = NSLock()
     private var value: Date
 

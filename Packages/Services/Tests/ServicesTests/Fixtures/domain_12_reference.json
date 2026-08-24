@@ -1,0 +1,341 @@
+{
+  "cases": [
+    {
+      "description": "Five independent artist-album units complete out of order under a limit of two",
+      "divergences": [],
+      "expected": {
+        "pythonMaximumActive": 2,
+        "pythonProposalOrder": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "swiftDisposition": "continue",
+        "swiftMaximumActive": 2
+      },
+      "id": "reverse_completion",
+      "input": {
+        "limits": {
+          "artist": 2,
+          "musicApp": 3,
+          "provider": 4
+        },
+        "units": [
+          {
+            "album": "Debut",
+            "artist": "Björk",
+            "delayMilliseconds": 80,
+            "failureKind": null,
+            "id": "A"
+          },
+          {
+            "album": "Mezzanine",
+            "artist": "Massive Attack",
+            "delayMilliseconds": 10,
+            "failureKind": null,
+            "id": "B"
+          },
+          {
+            "album": "Dummy",
+            "artist": "Portishead",
+            "delayMilliseconds": 60,
+            "failureKind": null,
+            "id": "C"
+          },
+          {
+            "album": "Maxinquaye",
+            "artist": "Tricky",
+            "delayMilliseconds": 5,
+            "failureKind": null,
+            "id": "D"
+          },
+          {
+            "album": "Felt Mountain",
+            "artist": "Goldfrapp",
+            "delayMilliseconds": 20,
+            "failureKind": null,
+            "id": "E"
+          }
+        ]
+      },
+      "kind": "concurrency"
+    },
+    {
+      "description": "One failed unit does not suppress unrelated metadata proposals",
+      "divergences": [
+        {
+          "field": "maximumActive",
+          "pythonValue": "3",
+          "reason": "Swift plan units cover genre and year determination, so admission uses the tightest configured artist, Music.app, and provider limit.",
+          "swiftValue": "2"
+        }
+      ],
+      "expected": {
+        "pythonMaximumActive": 3,
+        "pythonProposalOrder": [
+          "F",
+          "H"
+        ],
+        "swiftDisposition": "continue",
+        "swiftMaximumActive": 2
+      },
+      "id": "isolated_failure",
+      "input": {
+        "limits": {
+          "artist": 3,
+          "musicApp": 2,
+          "provider": 4
+        },
+        "units": [
+          {
+            "album": "Fever Ray",
+            "artist": "Fever Ray",
+            "delayMilliseconds": 30,
+            "failureKind": null,
+            "id": "F"
+          },
+          {
+            "album": "Timeless",
+            "artist": "Goldie",
+            "delayMilliseconds": 5,
+            "failureKind": "writeEligibility",
+            "id": "G"
+          },
+          {
+            "album": "A New Stereophonic Sound Spectacular",
+            "artist": "Hooverphonic",
+            "delayMilliseconds": 15,
+            "failureKind": null,
+            "id": "H"
+          }
+        ]
+      },
+      "kind": "concurrency"
+    },
+    {
+      "description": "An unclassified unit failure remains visible instead of saving a partial plan",
+      "divergences": [
+        {
+          "field": "maximumActive",
+          "pythonValue": "3",
+          "reason": "Swift plan units cover genre and year determination, so admission uses the tightest configured artist, Music.app, and provider limit.",
+          "swiftValue": "2"
+        },
+        {
+          "field": "failureDisposition",
+          "pythonValue": "continue",
+          "reason": "Python logs and drops arbitrary unit errors; Swift only isolates classified write-eligibility failures and aborts unknown plan errors.",
+          "swiftValue": "abort"
+        }
+      ],
+      "expected": {
+        "pythonMaximumActive": 3,
+        "pythonProposalOrder": [
+          "I",
+          "K"
+        ],
+        "swiftDisposition": "abort",
+        "swiftMaximumActive": 2
+      },
+      "id": "unclassified_failure",
+      "input": {
+        "limits": {
+          "artist": 3,
+          "musicApp": 2,
+          "provider": 4
+        },
+        "units": [
+          {
+            "album": "Kin",
+            "artist": "Iamamiwhoami",
+            "delayMilliseconds": 30,
+            "failureKind": null,
+            "id": "I"
+          },
+          {
+            "album": "Devotion",
+            "artist": "Jessie Ware",
+            "delayMilliseconds": 5,
+            "failureKind": "unclassified",
+            "id": "J"
+          },
+          {
+            "album": "Inner Song",
+            "artist": "Kelly Lee Owens",
+            "delayMilliseconds": 15,
+            "failureKind": null,
+            "id": "K"
+          }
+        ]
+      },
+      "kind": "concurrency"
+    },
+    {
+      "description": "A manual preview runs the full metadata pipeline without writing",
+      "divergences": [],
+      "id": "manual_preview",
+      "input": {
+        "automation": "manualOnly",
+        "pythonDryRun": true,
+        "swiftMode": "preview",
+        "trigger": "manualCheck"
+      },
+      "kind": "orchestration",
+      "pythonExpected": {
+        "dryRunMode": "dry_run",
+        "force": false,
+        "fresh": false,
+        "pipelineRuns": 1
+      },
+      "swiftExpected": {
+        "persistedIntents": [
+          "previewFixes"
+        ],
+        "terminalIntent": "previewFixes",
+        "writeCount": 0
+      }
+    },
+    {
+      "description": "A manual write request runs the full metadata pipeline",
+      "divergences": [],
+      "id": "manual_write",
+      "input": {
+        "automation": "manualOnly",
+        "pythonDryRun": false,
+        "swiftMode": "autoFix",
+        "trigger": "manualCheck"
+      },
+      "kind": "orchestration",
+      "pythonExpected": {
+        "dryRunMode": null,
+        "force": false,
+        "fresh": false,
+        "pipelineRuns": 1
+      },
+      "swiftExpected": {
+        "persistedIntents": [
+          "previewFixes",
+          "writeFixes"
+        ],
+        "terminalIntent": "writeFixes",
+        "writeCount": 1
+      }
+    },
+    {
+      "description": "A scheduled preview produces a full plan without writing",
+      "divergences": [
+        {
+          "field": "mode",
+          "reason": "Python launchd runs write by default; Swift preserves the user's explicit automation preview mode."
+        }
+      ],
+      "id": "scheduled_preview",
+      "input": {
+        "automation": "scheduled",
+        "pythonDryRun": false,
+        "swiftMode": "preview",
+        "trigger": "backgroundSync"
+      },
+      "kind": "orchestration",
+      "pythonExpected": {
+        "dryRunMode": null,
+        "force": false,
+        "fresh": false,
+        "pipelineRuns": 1
+      },
+      "swiftExpected": {
+        "persistedIntents": [
+          "previewFixes"
+        ],
+        "terminalIntent": "previewFixes",
+        "writeCount": 0
+      }
+    },
+    {
+      "description": "A scheduled Auto-fix run applies its full plan",
+      "divergences": [],
+      "id": "scheduled_write",
+      "input": {
+        "automation": "scheduled",
+        "pythonDryRun": false,
+        "swiftMode": "autoFix",
+        "trigger": "backgroundSync"
+      },
+      "kind": "orchestration",
+      "pythonExpected": {
+        "dryRunMode": null,
+        "force": false,
+        "fresh": false,
+        "pipelineRuns": 1
+      },
+      "swiftExpected": {
+        "persistedIntents": [
+          "previewFixes",
+          "writeFixes"
+        ],
+        "terminalIntent": "writeFixes",
+        "writeCount": 1
+      }
+    },
+    {
+      "description": "A library-change preview produces a full plan without writing",
+      "divergences": [
+        {
+          "field": "mode",
+          "reason": "Python launchd runs write by default; Swift preserves the user's explicit automation preview mode."
+        }
+      ],
+      "id": "watch_preview",
+      "input": {
+        "automation": "libraryChange",
+        "pythonDryRun": false,
+        "swiftMode": "preview",
+        "trigger": "fileSystemEvent"
+      },
+      "kind": "orchestration",
+      "pythonExpected": {
+        "dryRunMode": null,
+        "force": false,
+        "fresh": false,
+        "pipelineRuns": 1
+      },
+      "swiftExpected": {
+        "persistedIntents": [
+          "previewFixes"
+        ],
+        "terminalIntent": "previewFixes",
+        "writeCount": 0
+      }
+    },
+    {
+      "description": "A library-change Auto-fix run applies its full plan",
+      "divergences": [],
+      "id": "watch_write",
+      "input": {
+        "automation": "libraryChange",
+        "pythonDryRun": false,
+        "swiftMode": "autoFix",
+        "trigger": "fileSystemEvent"
+      },
+      "kind": "orchestration",
+      "pythonExpected": {
+        "dryRunMode": null,
+        "force": false,
+        "fresh": false,
+        "pipelineRuns": 1
+      },
+      "swiftExpected": {
+        "persistedIntents": [
+          "previewFixes",
+          "writeFixes"
+        ],
+        "terminalIntent": "writeFixes",
+        "writeCount": 1
+      }
+    }
+  ],
+  "pythonBaseline": "0f6dca1f36eab74a6899a0f770511927b68d3e15",
+  "schemaVersion": 1
+}
