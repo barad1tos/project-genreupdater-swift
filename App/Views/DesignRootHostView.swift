@@ -27,6 +27,7 @@ struct DesignRootHostView: View {
     @State private var browseRowIndex: [String: [BrowseTrackRow]] = [:]
     @State private var browseReadSource: BrowseReadSource = .cachedMirror(scannedAt: nil)
     @State private var browseNoticeMessage: String?
+    @State private var artistCatalogProjection: ArtistCatalogProjection = .empty()
     @State private var analyticsSnapshot: DesignAnalyticsSnapshot = .empty
     @State private var analyticsWindow: DesignAnalyticsWindow = .currentSession
     @State private var selectedRunReport: RunReportDetailSnapshot?
@@ -83,6 +84,7 @@ struct DesignRootHostView: View {
         .task { await observeFixPlanUpdates() }
         .task { await observeChromeUpdates() }
         .task { await observeBrowseUpdates() }
+        .task { await observeArtistCatalog() }
         .task(id: selectedRoute) { await observeAnalyticsUpdates() }
         .onChange(of: dependencies.config.processing.defaultUpdateBehavior) {
             applyWorkflowDefaults()
@@ -402,7 +404,10 @@ struct DesignRootHostView: View {
             ) ?? .both,
             minimumConfidencePercent: configuration.yearRetrieval.logic.minConfidenceForNewYear,
             releaseYearRestoreThresholdYears: configuration.processing.releaseYearRestoreThreshold,
-            testArtists: ArtistAllowList.normalized(configuration.development.testArtists),
+            artistScope: ArtistCatalogAdapter.makeScope(
+                selected: configuration.development.testArtists,
+                projection: artistCatalogProjection
+            ),
             presentation: DesignSettingsSnapshot.Presentation(
                 appearanceMode: designAppearanceMode(from: appearanceMode),
                 isFastAnimationsEnabled: fastAnimations,
@@ -605,13 +610,23 @@ struct DesignRootHostView: View {
         }
         dependencies.onLibraryLoadApplied = { _ in
             refreshWorkflowScopePreview()
+            Task { @MainActor in
+                _ = await dependencies.refreshArtistCatalog()
+            }
         }
         ensureWorkflowViewModel()
         if await dependencies.ensureRecoveryHold() {
             _ = await workflowViewModel?.stopForRecoveryHold()
         }
+        _ = await dependencies.refreshArtistCatalog()
         await dependencies.loadLibrary()
         await refreshActivityProjection()
+    }
+
+    private func observeArtistCatalog() async {
+        for await projection in await dependencies.projectionStore.artistCatalogUpdates() {
+            artistCatalogProjection = projection
+        }
     }
 
     @discardableResult

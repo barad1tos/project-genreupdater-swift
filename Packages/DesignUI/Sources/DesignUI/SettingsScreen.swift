@@ -9,10 +9,11 @@ struct SettingsScreen: View {
     var setTestArtistsAction: (([String]) -> Bool)?
     var setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)?
     var setFastAnimationsAction: ((Bool) -> Bool)?
+    @Environment(\.accessibilityReduceMotion) private var isReduceMotionEnabled
     @State private var tab = "general"
     @State private var stagedMinimumConfidencePercent: Double?
-    @State private var newTestArtist = ""
-    @State private var testArtistsMessage: String?
+    @State private var isArtistPickerOpen = false
+    @State private var saveStatus = SettingsSaveStatus.automatic
     @State private var isEditingMinimumConfidence = false
     @State private var minimumConfidenceCommitTask: Task<Void, Never>?
 
@@ -30,6 +31,8 @@ struct SettingsScreen: View {
                 }
                 .pickerStyle(.segmented)
                 .fixedSize(horizontal: true, vertical: false)
+                Spacer()
+                saveStatusView
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -58,6 +61,11 @@ struct SettingsScreen: View {
                 tab = "general"
             }
         }
+        .sheet(isPresented: $isArtistPickerOpen) {
+            ArtistScopePicker(scope: settings.artistScope) { artists in
+                recordSave(setTestArtistsAction?(artists) ?? false)
+            }
+        }
     }
 
     private var settings: DesignSettingsSnapshot {
@@ -74,7 +82,7 @@ struct SettingsScreen: View {
         } set: { isDryRun in
             let previousValue = model.dryRun
             model.dryRun = isDryRun
-            let accepted = setDryRunAction?(isDryRun) ?? true
+            let accepted = recordSave(setDryRunAction?(isDryRun) ?? false)
             if !accepted {
                 model.dryRun = previousValue
             }
@@ -85,7 +93,7 @@ struct SettingsScreen: View {
         Binding {
             settings.updateBehavior
         } set: { behavior in
-            _ = setUpdateBehaviorAction?(behavior)
+            recordSave(setUpdateBehaviorAction?(behavior) ?? false)
         }
     }
 
@@ -104,7 +112,7 @@ struct SettingsScreen: View {
         Binding {
             settings.releaseYearRestoreThresholdYears
         } set: { years in
-            _ = setReleaseYearRestoreThresholdAction?(years)
+            recordSave(setReleaseYearRestoreThresholdAction?(years) ?? false)
         }
     }
 
@@ -112,7 +120,7 @@ struct SettingsScreen: View {
         Binding {
             DesignAppearanceMode.supportedModes.contains(settings.appearanceMode) ? settings.appearanceMode : .dark
         } set: { mode in
-            _ = setAppearanceModeAction?(mode)
+            recordSave(setAppearanceModeAction?(mode) ?? false)
         }
     }
 
@@ -120,41 +128,7 @@ struct SettingsScreen: View {
         Binding {
             settings.isFastAnimationsEnabled
         } set: { isEnabled in
-            _ = setFastAnimationsAction?(isEnabled)
-        }
-    }
-
-    private var trimmedTestArtist: String {
-        newTestArtist.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func addTestArtist() {
-        guard !trimmedTestArtist.isEmpty else { return }
-        let alreadyExists = settings.testArtists.contains { artist in
-            artist.trimmingCharacters(in: .whitespacesAndNewlines)
-                .localizedCaseInsensitiveCompare(trimmedTestArtist) == .orderedSame
-        }
-        guard !alreadyExists else {
-            testArtistsMessage = "Artist already exists"
-            return
-        }
-
-        guard setTestArtistsAction?(settings.testArtists + [trimmedTestArtist]) ?? false else {
-            testArtistsMessage = "Could not save artist scope"
-            return
-        }
-        newTestArtist = ""
-        testArtistsMessage = nil
-    }
-
-    private func removeTestArtist(_ artist: String) {
-        guard let artistIndex = settings.testArtists.firstIndex(of: artist) else { return }
-        var updatedArtists = settings.testArtists
-        updatedArtists.remove(at: artistIndex)
-        if setTestArtistsAction?(updatedArtists) ?? false {
-            testArtistsMessage = nil
-        } else {
-            testArtistsMessage = "Could not save artist scope"
+            recordSave(setFastAnimationsAction?(isEnabled) ?? false)
         }
     }
 
@@ -173,6 +147,7 @@ struct SettingsScreen: View {
                 }
                 row("Safe mode (dry-run)", "Always preview proposed changes before any tag is written.") {
                     Toggle("", isOn: dryRunBinding).labelsHidden().tint(Ayu.accent)
+                        .disabled(setDryRunAction == nil)
                 }
                 row(
                     "Minimum confidence for missing years",
@@ -203,47 +178,35 @@ struct SettingsScreen: View {
             group("Test artists scope", "music.note.list", .purple) {
                 row("Limit runs to these artists", "Leave empty to process the full library.") {
                     VStack(alignment: .trailing, spacing: 8) {
-                        if settings.testArtists.isEmpty {
+                        if settings.artistScope.selected.isEmpty {
                             TagPill(text: "Full library", tone: .neutral)
                         } else {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 7) {
-                                    ForEach(settings.testArtists, id: \.self) { artist in
-                                        testArtistToken(artist)
+                                    ForEach(settings.artistScope.selected, id: \.self) { artist in
+                                        TagPill(text: artist, tone: .purple)
                                     }
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .trailing)
                         }
 
-                        HStack(spacing: 8) {
-                            TextField("Artist", text: $newTestArtist)
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 12, weight: .medium))
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 6)
-                                .background(Ayu.controlFill, in: .rect(cornerRadius: 8))
-                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Ayu.glassBorder))
-                                .frame(minWidth: 120, idealWidth: 220, maxWidth: .infinity)
-                                .onSubmit(addTestArtist)
-
-                            Button(action: addTestArtist) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 12, weight: .bold))
+                        HStack(spacing: 10) {
+                            if let catalogIssue = settings.artistScope.catalogIssue {
+                                Label(catalogIssue, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(Ayu.warning)
+                            } else {
+                                Text("\(settings.artistScope.options.count) artists in your library")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Ayu.fg2)
                             }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(Ayu.onAccent)
-                            .frame(width: 28, height: 28)
-                            .background(Ayu.accent, in: Circle())
-                            .disabled(trimmedTestArtist.isEmpty || setTestArtistsAction == nil)
-                            .opacity(trimmedTestArtist.isEmpty || setTestArtistsAction == nil ? 0.45 : 1)
-                            .help("Add artist")
-                        }
-
-                        if let testArtistsMessage {
-                            Text(testArtistsMessage)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(Ayu.warning)
+                            BorderedButton(
+                                title: "Choose artists",
+                                symbol: "person.2",
+                                enabled: setTestArtistsAction != nil,
+                                action: openArtistPicker
+                            )
                         }
                     }
                 }
@@ -275,31 +238,26 @@ struct SettingsScreen: View {
         guard force || !isEditingMinimumConfidence, let stagedMinimumConfidencePercent else { return }
         minimumConfidenceCommitTask?.cancel()
         minimumConfidenceCommitTask = nil
-        _ = setMinimumConfidenceAction?(stagedMinimumConfidencePercent)
+        recordSave(setMinimumConfidenceAction?(stagedMinimumConfidencePercent) ?? false)
         self.stagedMinimumConfidencePercent = nil
     }
 
-    private func testArtistToken(_ artist: String) -> some View {
-        HStack(spacing: 5) {
-            Text(artist)
-                .lineLimit(1)
-            Button {
-                removeTestArtist(artist)
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 10, weight: .bold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Ayu.fg2)
-            .disabled(setTestArtistsAction == nil)
-            .help("Remove \(artist)")
-        }
-        .font(.system(size: 11, weight: .bold))
-        .foregroundStyle(Ayu.purple)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Ayu.purple.opacity(0.14), in: Capsule())
-        .overlay(Capsule().strokeBorder(Ayu.purple.opacity(0.34)))
+    private var saveStatusView: some View {
+        Label(saveStatus.label, systemImage: saveStatus.symbol)
+            .font(.system(size: 11.5, weight: .medium))
+            .foregroundStyle(saveStatus.tone.color)
+            .contentTransition(.symbolEffect(.replace))
+            .animation(isReduceMotionEnabled ? nil : .easeOut(duration: 0.2), value: saveStatus)
+    }
+
+    private func openArtistPicker() {
+        isArtistPickerOpen = true
+    }
+
+    @discardableResult
+    private func recordSave(_ accepted: Bool) -> Bool {
+        saveStatus = accepted ? .saved : .failed
+        return accepted
     }
 
     private var api: some View {
@@ -449,6 +407,36 @@ struct SettingsScreen: View {
                     enabled: false
                 )
             }
+        }
+    }
+}
+
+private enum SettingsSaveStatus {
+    case automatic
+    case saved
+    case failed
+
+    var label: String {
+        switch self {
+        case .automatic: "Changes save automatically"
+        case .saved: "Saved"
+        case .failed: "Couldn’t save"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .automatic: "arrow.trianglehead.2.clockwise.rotate.90"
+        case .saved: "checkmark.circle.fill"
+        case .failed: "exclamationmark.triangle.fill"
+        }
+    }
+
+    var tone: Tone {
+        switch self {
+        case .automatic: .neutral
+        case .saved: .success
+        case .failed: .warning
         }
     }
 }

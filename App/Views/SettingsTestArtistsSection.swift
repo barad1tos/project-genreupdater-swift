@@ -1,51 +1,36 @@
 // SettingsTestArtistsSection.swift — batch artist-list controls.
 
 import AppKit
+import Core
+import DesignUI
+import Services
 import SwiftUI
 
 struct SettingsTestArtistsSection: View {
     let dependencies: AppDependencies
 
-    @State private var newTestArtist = ""
+    @State private var artistCatalog: ArtistCatalogProjection = .empty()
     @State private var importStatus = ""
+    @State private var isArtistPickerOpen = false
 
     var body: some View {
         Section {
             if dependencies.config.development.testArtists.isEmpty {
-                Text("No test artists configured")
+                Label("Full Library", systemImage: "music.note.house")
                     .foregroundStyle(.secondary)
                     .font(.callout)
             }
 
             ForEach(dependencies.config.development.testArtists, id: \.self) { artist in
-                HStack {
-                    Text(artist)
-
-                    Spacer()
-
-                    Button {
-                        removeTestArtist(artist)
-                    } label: {
-                        Image(systemName: "trash")
-                            .accessibilityLabel("Remove \(artist)")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.red)
-                    .help("Remove \(artist)")
-                }
-            }
-            .onDelete { offsets in
-                mutateConfiguration(dependencies) {
-                    $0.development.testArtists.remove(atOffsets: offsets)
-                }
+                Text(artist)
             }
 
             HStack {
-                TextField("Artist", text: $newTestArtist)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(addTestArtist)
-                Button("Add") { addTestArtist() }
-                    .disabled(trimmedTestArtist.isEmpty)
+                Button {
+                    isArtistPickerOpen = true
+                } label: {
+                    Label("Choose Artists…", systemImage: "person.2")
+                }
                 Button {
                     importTestArtistsFromFile()
                 } label: {
@@ -57,6 +42,9 @@ struct SettingsTestArtistsSection: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text("When configured, library refreshes are limited to these artists for safer test-mode runs.")
+                if let catalogIssue = artistScope.catalogIssue {
+                    Text(catalogIssue)
+                }
                 if !importStatus.isEmpty {
                     Text(importStatus)
                 }
@@ -64,36 +52,27 @@ struct SettingsTestArtistsSection: View {
             .font(.caption2)
             .foregroundStyle(.tertiary)
         }
-    }
-
-    private var trimmedTestArtist: String {
-        newTestArtist.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func addTestArtist() {
-        switch addTestArtists([trimmedTestArtist]) {
-        case .added:
-            newTestArtist = ""
-            importStatus = ""
-        case .nothingNew:
-            newTestArtist = ""
-            importStatus = "Artist already exists"
-        case .saveFailed:
-            importStatus = "Could not save the artist list"
+        .task {
+            artistCatalog = await dependencies.refreshArtistCatalog()
+        }
+        .sheet(isPresented: $isArtistPickerOpen) {
+            ArtistScopePicker(scope: artistScope, apply: applyTestArtists)
         }
     }
 
-    private func removeTestArtist(_ artist: String) {
-        let hasMatch = dependencies.config.development.testArtists.contains { existing in
-            existing.localizedCaseInsensitiveCompare(artist) == .orderedSame
+    private var artistScope: DesignArtistScope {
+        ArtistCatalogAdapter.makeScope(
+            selected: dependencies.config.development.testArtists,
+            projection: artistCatalog
+        )
+    }
+
+    private func applyTestArtists(_ artists: [String]) -> Bool {
+        let status = mutateConfiguration(dependencies) { configuration in
+            configuration.development.testArtists = ArtistAllowList.normalized(artists)
         }
-        guard hasMatch else { return }
-        importStatus = ""
-        mutateConfiguration(dependencies) {
-            $0.development.testArtists.removeAll { existing in
-                existing.localizedCaseInsensitiveCompare(artist) == .orderedSame
-            }
-        }
+        importStatus = status == .accepted ? "Saved" : "Could not save the artist list"
+        return status == .accepted
     }
 
     private func importTestArtistsFromFile() {
