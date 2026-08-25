@@ -8,38 +8,24 @@ private struct YearCheckpointPayload: Codable {
     let recoveryOriginYear: Int?
 }
 
-struct RevertWriteHooks {
-    let prepareWrite: ((PreparedWrite) async throws -> Void)?
-    let prepareDispatch: ((PreparedWrite) async throws -> Void)?
-    let restorePreparedWrite: ((PreparedWrite) async throws -> Void)?
-    let prepareMirror: ((PreparedWrite, MusicWriteResult) async throws -> Void)?
-
-    init(
-        prepareWrite: ((PreparedWrite) async throws -> Void)? = nil,
-        prepareDispatch: ((PreparedWrite) async throws -> Void)? = nil,
-        restorePreparedWrite: ((PreparedWrite) async throws -> Void)? = nil,
-        prepareMirror: ((PreparedWrite, MusicWriteResult) async throws -> Void)? = nil
-    ) {
-        self.prepareWrite = prepareWrite
-        self.prepareDispatch = prepareDispatch
-        self.restorePreparedWrite = restorePreparedWrite
-        self.prepareMirror = prepareMirror
-    }
-}
-
 extension UndoCoordinator {
     func performRevertWrite(
         change: ProposedChange,
         property: MusicTrackProperty,
         value: String,
         recoveryOrigin: String? = nil,
-        hooks: RevertWriteHooks = .init()
+        attemptHooks: (
+            prepareWrite: ((PreparedWrite) async throws -> Void)?,
+            prepareDispatch: ((PreparedWrite) async throws -> Void)?,
+            restorePreparedWrite: ((PreparedWrite) async throws -> Void)?
+        ) = (nil, nil, nil),
+        prepareMirror: ((PreparedWrite, MusicWriteResult) async throws -> Void)? = nil
     ) async throws -> (result: MusicWriteResult, entry: ChangeLogEntry) {
         let preparedWrite = try await prepareRevert(change, property: property, value: value)
 
         do {
-            try await hooks.prepareWrite?(preparedWrite)
-            try await hooks.prepareDispatch?(preparedWrite)
+            try await attemptHooks.prepareWrite?(preparedWrite)
+            try await attemptHooks.prepareDispatch?(preparedWrite)
             let attemptState = WriteAttemptState()
             let result: MusicWriteResult
             do {
@@ -49,7 +35,7 @@ extension UndoCoordinator {
                 )
             } catch {
                 if !attemptState.hasAttempted {
-                    try await hooks.restorePreparedWrite?(preparedWrite)
+                    try await attemptHooks.restorePreparedWrite?(preparedWrite)
                 }
                 throw error
             }
@@ -59,7 +45,7 @@ extension UndoCoordinator {
                 recoveryOrigin: recoveryOrigin
             )
             do {
-                try await hooks.prepareMirror?(preparedWrite, result)
+                try await prepareMirror?(preparedWrite, result)
                 try await trackStore?.persistAppliedChange(entry)
             } catch {
                 await invalidateCaches(for: preparedWrite.change)

@@ -204,7 +204,7 @@ public actor UndoCoordinator {
             property: .year,
             value: String(targetYear),
             recoveryOrigin: String(recoveryOriginYear),
-            hooks: RevertWriteHooks(
+            attemptHooks: (
                 prepareWrite: { preparedWrite in
                     guard pending == nil else { return }
                     try saveCheckpoint(.prepared, preparedWrite)
@@ -214,12 +214,12 @@ public actor UndoCoordinator {
                 },
                 restorePreparedWrite: { preparedWrite in
                     try saveCheckpoint(.prepared, preparedWrite)
-                },
-                prepareMirror: { preparedWrite, result in
-                    let phase: BackupRestorePhase = result == .changed ? .changed : .noChange
-                    try saveCheckpoint(phase, preparedWrite)
                 }
-            )
+            ),
+            prepareMirror: { preparedWrite, result in
+                let phase: BackupRestorePhase = result == .changed ? .changed : .noChange
+                try saveCheckpoint(phase, preparedWrite)
+            }
         )
         try await finishYearUndo(
             write.entry,
@@ -544,7 +544,7 @@ public actor UndoCoordinator {
             property: .year,
             value: String(targetYear),
             recoveryOrigin: String(targetYear),
-            hooks: RevertWriteHooks(
+            attemptHooks: (
                 prepareWrite: { [self] preparedWrite in
                     try saveBackupPhase(.prepared, for: preparedWrite, when: pendingCheckpoint == nil)
                 },
@@ -561,16 +561,16 @@ public actor UndoCoordinator {
                         for: preparedWrite,
                         when: pendingCheckpoint == nil || pendingCheckpoint?.metadata.phase == .prepared
                     )
-                },
-                prepareMirror: { [self] preparedWrite, result in
-                    try await finalizeBackupCheckpoint(
-                        pendingCheckpoint,
-                        databaseID: preparedWrite.databaseID,
-                        change: preparedWrite.change,
-                        result: result
-                    )
                 }
-            )
+            ),
+            prepareMirror: { [self] preparedWrite, result in
+                try await finalizeBackupCheckpoint(
+                    pendingCheckpoint,
+                    databaseID: preparedWrite.databaseID,
+                    change: preparedWrite.change,
+                    result: result
+                )
+            }
         )
         _ = try backupCheckpoint(for: databaseID.rawValue, shouldRemove: true)
         return write.result
