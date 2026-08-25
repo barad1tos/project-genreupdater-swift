@@ -42,6 +42,71 @@ struct FixPlanWriteTests {
         }
     }
 
+    @Test("reviewed write rejects a reused database ID")
+    func rejectsReusedDatabaseID() async throws {
+        let verifier = WriteIDScriptSpy()
+        let mapper = TrackIDMapper()
+        let change = ProposedChange(
+            track: musicKitTrack(index: 1),
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Metal",
+            confidence: 90,
+            source: "review-test"
+        )
+        await verifier.setTracks([
+            Track(
+                id: "AS-1",
+                name: "Replacement Track",
+                artist: "Different Artist",
+                album: "Different Album",
+                appleScriptID: "AS-1"
+            ),
+        ])
+
+        await #expect(throws: FixPlanWrite.Failure.self) {
+            try await FixPlanWrite.prepareWriteIDs(
+                for: [change],
+                mapper: mapper,
+                verifier: verifier
+            )
+        }
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-1") == nil)
+    }
+
+    @Test("reviewed write rejects a reused database ID with another album artist")
+    func rejectsReusedDatabaseIDByAlbumArtist() async throws {
+        let verifier = WriteIDScriptSpy()
+        let mapper = TrackIDMapper()
+        let change = ProposedChange(
+            track: musicKitTrack(index: 1, albumArtist: "Artist"),
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Metal",
+            confidence: 90,
+            source: "review-test"
+        )
+        await verifier.setTracks([
+            Track(
+                id: "AS-1",
+                name: change.track.name,
+                artist: change.track.artist,
+                album: change.track.album,
+                albumArtist: "Compilation Artist",
+                appleScriptID: "AS-1"
+            ),
+        ])
+
+        await #expect(throws: FixPlanWrite.Failure.self) {
+            try await FixPlanWrite.prepareWriteIDs(
+                for: [change],
+                mapper: mapper,
+                verifier: verifier
+            )
+        }
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-1") == nil)
+    }
+
     @Test("reviewed write maps decision verdicts")
     func mapsDecisionVerdicts() throws {
         let firstItem = fixPlanItem(id: UUID(), index: 1)
@@ -178,12 +243,13 @@ private actor WriteIDScriptSpy: MusicAppVerifying {
     }
 }
 
-private func musicKitTrack(index: Int) -> Track {
+private func musicKitTrack(index: Int, albumArtist: String? = nil) -> Track {
     Track(
         id: "MK-\(index)",
         name: "Track \(index)",
         artist: "Artist",
         album: "Album",
+        albumArtist: albumArtist,
         appleScriptID: "AS-\(index)"
     )
 }
@@ -194,6 +260,7 @@ private func appleScriptTrack(from track: Track) -> Track {
         name: track.name,
         artist: track.artist,
         album: track.album,
+        albumArtist: track.albumArtist,
         appleScriptID: track.appleScriptID
     )
 }

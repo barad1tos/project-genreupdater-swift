@@ -7,16 +7,33 @@ import Foundation
 public struct ObservedWorkOutcome: Equatable, Sendable {
     public let outcome: WorkOutcome
     public let observedValue: String?
+    private let detailOverride: String?
 
     public init(outcome: WorkOutcome, observedValue: String?) {
         self.outcome = outcome
         self.observedValue = observedValue
+        detailOverride = nil
+    }
+
+    static let identityMismatch = Self(
+        outcome: .needsReview,
+        observedValue: nil,
+        detailOverride: "Music.app track identity changed since the write was planned"
+    )
+
+    private init(outcome: WorkOutcome, observedValue: String?, detailOverride: String?) {
+        self.outcome = outcome
+        self.observedValue = observedValue
+        self.detailOverride = detailOverride
     }
 
     /// Audit note recorded on the closed work item, phrased per outcome so a
     /// closed ledger reads unambiguously.
     var detail: String? {
-        switch outcome {
+        if let detailOverride {
+            return detailOverride
+        }
+        return switch outcome {
         case .written:
             observedValue.map { "Verified in Music.app: \($0)" }
         case .failed:

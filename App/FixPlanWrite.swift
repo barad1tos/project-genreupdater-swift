@@ -24,6 +24,7 @@ enum FixPlanWrite {
         case noAcceptedItems
         case invalidDecisionItems(FixPlanID)
         case missingWriteTracks(Int)
+        case changedWriteTracks(Int)
 
         var errorDescription: String? {
             switch self {
@@ -41,6 +42,8 @@ enum FixPlanWrite {
                 "Review decision items do not match fix plan \(planID.description)"
             case let .missingWriteTracks(count):
                 "Could not refresh \(count) reviewed write tracks from Music.app"
+            case let .changedWriteTracks(count):
+                "\(count) reviewed write track(s) changed identity in Music.app; review a new fix plan"
             }
         }
     }
@@ -137,7 +140,11 @@ enum FixPlanWrite {
         verifier: any MusicAppVerifying
     ) async throws {
         let log = AppLogger.make(category: "dependencies")
-        var targetsByReadID: [String: (track: Track, databaseID: MusicDatabaseTrackID)] = [:]
+        var targetsByReadID: [String: (
+            track: Track,
+            identity: FixPlanItemIdentity,
+            databaseID: MusicDatabaseTrackID
+        )] = [:]
         var unmappedCount = 0
         for change in changes {
             guard let databaseID = change.track.databaseID else {
@@ -150,7 +157,18 @@ enum FixPlanWrite {
                 """)
                 continue
             }
-            targetsByReadID[change.track.id] = (change.track, databaseID)
+            targetsByReadID[change.track.id] = (
+                track: change.track,
+                identity: FixPlanItemIdentity(
+                    readID: change.track.id,
+                    appleScriptID: change.track.appleScriptID,
+                    artist: change.track.artist,
+                    album: change.track.album,
+                    trackName: change.track.name,
+                    albumArtist: change.track.albumArtist
+                ),
+                databaseID: databaseID
+            )
         }
         if unmappedCount > 0 {
             log.warning("Write seeding skipped \(unmappedCount, privacy: .public) unmapped change(s)")
@@ -166,14 +184,30 @@ enum FixPlanWrite {
         }
         let entries = targetsByReadID.values.compactMap { target in
             currentTracksByID[target.databaseID].map { currentTrack in
-                (musicKitTrack: target.track, appleScriptTrack: currentTrack)
+                (
+                    musicKitTrack: target.track,
+                    identity: target.identity,
+                    appleScriptTrack: currentTrack
+                )
             }
         }
         guard entries.count == targetsByReadID.count else {
             throw Failure.missingWriteTracks(targetsByReadID.count - entries.count)
         }
+        let changedTrackCount = identityMismatchCount(in: entries)
+        guard changedTrackCount == 0 else {
+            throw Failure.changedWriteTracks(changedTrackCount)
+        }
 
-        await mapper.seedKnownMappings(entries)
+        await mapper.seedKnownMappings(entries.map { entry in
+            (musicKitTrack: entry.musicKitTrack, appleScriptTrack: entry.appleScriptTrack)
+        })
+    }
+
+    private static func identityMismatchCount(
+        in entries: [(musicKitTrack: Track, identity: FixPlanItemIdentity, appleScriptTrack: Track)]
+    ) -> Int {
+        entries.count { !$0.identity.matchesCurrentTrack($0.appleScriptTrack) }
     }
 
     static func makeRunner(

@@ -80,6 +80,7 @@ private func uncertainWorkItem(
     oldValue: String?,
     newValue: String?,
     changeType: ChangeType = .genreUpdate,
+    capturedAlbumArtist: String? = nil,
     albumArtistChange: AlbumArtistChange? = nil,
     writeChange: WorkChange? = nil
 ) -> RunWorkItem {
@@ -89,7 +90,8 @@ private func uncertainWorkItem(
         appleScriptID: "persistent-1",
         artist: "Artist",
         album: "Album",
-        trackName: "Track"
+        trackName: "Track",
+        albumArtist: capturedAlbumArtist
     ))
     let change = WorkChange(
         changeType: changeType,
@@ -119,6 +121,7 @@ func uncertainRunRecord(
     oldValue: String? = "Rock",
     newValue: String? = "Stoner Rock",
     changeType: ChangeType = .genreUpdate,
+    capturedAlbumArtist: String? = nil,
     albumArtistChange: AlbumArtistChange? = nil,
     writeChange: WorkChange? = nil
 ) -> (record: RunRecord, item: RunWorkItem) {
@@ -134,6 +137,7 @@ func uncertainRunRecord(
         oldValue: oldValue,
         newValue: newValue,
         changeType: changeType,
+        capturedAlbumArtist: capturedAlbumArtist,
         albumArtistChange: albumArtistChange,
         writeChange: writeChange
     )

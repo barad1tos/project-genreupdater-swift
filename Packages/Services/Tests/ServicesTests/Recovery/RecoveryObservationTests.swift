@@ -145,6 +145,55 @@ struct RecoveryObservationServiceTests {
         #expect(try await client.fetchMetadataCalls() == [[#require(MusicDatabaseTrackID(rawValue: "persistent-1"))]])
     }
 
+    @Test("reused database identity cannot clear recovery")
+    func reusedDatabaseIDNeedsReview() async throws {
+        let attempted = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
+        let client = MusicAppTestAccess()
+        await client.setFetchedTracks([
+            observedTrack(id: "persistent-1", name: "Replacement Track", genre: "Stoner Rock"),
+        ])
+        let service = RecoveryObservationService(verifier: client)
+
+        let outcome = try #require(try await service.observeOutcomes(for: [attempted])[attempted.id])
+
+        #expect(outcome.outcome == .needsReview)
+        #expect(outcome.detail == "Music.app track identity changed since the write was planned")
+    }
+
+    @Test("reused database identity with another album artist cannot clear recovery")
+    func reusedDatabaseIDByAlbumArtistNeedsReview() async throws {
+        let change = WorkChange(
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Stoner Rock",
+            confidence: 92,
+            source: "MusicBrainz"
+        )
+        let attempted = RunWorkItem(
+            id: UUID(),
+            target: .track(FixPlanItemIdentity(
+                readID: "music-kit-1",
+                appleScriptID: "persistent-1",
+                artist: "Artist",
+                album: "Album",
+                trackName: "Track",
+                albumArtist: "Artist"
+            )),
+            change: change,
+            state: .attempted
+        )
+        let client = MusicAppTestAccess()
+        await client.setFetchedTracks([
+            observedTrack(id: "persistent-1", genre: "Stoner Rock", albumArtist: "Compilation Artist"),
+        ])
+        let service = RecoveryObservationService(verifier: client)
+
+        let outcome = try #require(try await service.observeOutcomes(for: [attempted])[attempted.id])
+
+        #expect(outcome.outcome == .needsReview)
+        #expect(outcome.detail == "Music.app track identity changed since the write was planned")
+    }
+
     @Test("two properties of one track classify independently")
     func classifiesTwoPropertiesOfOneTrack() async throws {
         let genreItem = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
@@ -283,6 +332,7 @@ struct RecoveryObservationServiceTests {
 
 private func observedTrack(
     id: String,
+    name: String = "Track",
     genre: String = "Rock",
     year: Int? = nil,
     artist: String = "Artist",
@@ -290,7 +340,7 @@ private func observedTrack(
 ) -> Track {
     Track(
         id: id,
-        name: "Track",
+        name: name,
         artist: artist,
         album: "Album",
         genre: genre,

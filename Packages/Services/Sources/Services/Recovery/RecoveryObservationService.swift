@@ -53,6 +53,12 @@ public struct RecoveryObservationService: Sendable {
                 outcomes[itemID] = ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
                 continue
             }
+            guard case let .track(identity) = item.target,
+                  identity.matchesCurrentTrack(track, allowing: item.effectiveChange)
+            else {
+                outcomes[itemID] = .identityMismatch
+                continue
+            }
             outcomes[itemID] = RecoveryObservation.outcome(for: item, observedTrack: track)
         }
         return outcomes

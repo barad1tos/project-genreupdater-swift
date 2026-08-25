@@ -30,6 +30,38 @@ public struct FixPlanItemIdentity: Codable, Equatable, Sendable {
         self.trackName = trackName
         self.albumArtist = albumArtist
     }
+
+    /// Confirms that a freshly read Music.app row still names the track captured by this plan.
+    public func matchesCurrentTrack(_ track: Track, allowing change: WorkChange? = nil) -> Bool {
+        matches(track.name, captured: trackName, property: .trackCleaning, allowing: change)
+            && matches(track.artist, captured: artist, property: .artistRename, allowing: change)
+            && matches(track.album, captured: album, property: .albumCleaning, allowing: change)
+            && matchesAlbumArtist(track.albumArtist, allowing: change)
+    }
+
+    private func matches(
+        _ currentValue: String,
+        captured: String,
+        property: ChangeType,
+        allowing change: WorkChange?
+    ) -> Bool {
+        guard change?.changeType == property else {
+            return currentValue == captured
+        }
+        return [captured, change?.oldValue, change?.newValue]
+            .compactMap(\.self)
+            .contains(currentValue)
+    }
+
+    private func matchesAlbumArtist(_ currentValue: String?, allowing change: WorkChange?) -> Bool {
+        guard change?.changeType == .artistRename,
+              let albumArtistChange = change?.albumArtistChange
+        else {
+            return currentValue == albumArtist
+        }
+        return [albumArtist, albumArtistChange.oldValue, albumArtistChange.newValue]
+            .contains(currentValue)
+    }
 }
 
 /// One proposed metadata change captured into an immutable fix plan (ADR 0017).

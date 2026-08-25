@@ -117,6 +117,7 @@ struct RecoveryClearTests {
             oldValue: "Artist",
             newValue: "Renamed Artist",
             changeType: .artistRename,
+            capturedAlbumArtist: "Various Artists",
             albumArtistChange: AlbumArtistChange(
                 oldValue: "Artist",
                 newValue: "Renamed Artist"
