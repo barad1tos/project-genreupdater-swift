@@ -117,8 +117,8 @@ struct LibrarySyncRepairTests {
         #expect(await fixture.store.updates.isEmpty)
     }
 
-    @Test("Repair target collision fails closed")
-    func rejectsCanonicalTargetCollision() async throws {
+    @Test("Canonical row converges a legacy repair")
+    func convergesCanonicalTargetCollision() async throws {
         let fixture = try makeFixture(
             stored: [
                 legacyTrack(sourceID: "MK1", databaseID: "AS1"),
@@ -128,13 +128,10 @@ struct LibrarySyncRepairTests {
             rows: [row(id: "AS1")]
         )
 
-        await #expect(throws: LibrarySyncObservationError.repairTargetCollision(
-            sourceID: "MK1",
-            targetID: "AS1"
-        )) {
-            _ = try await fixture.service.synchronizeNow()
-        }
-        #expect(await fixture.store.updates.isEmpty)
+        _ = try await fixture.service.synchronizeNow()
+
+        #expect(await fixture.store.stored.map(\.id) == ["AS1"])
+        #expect(await fixture.store.updates.count == 1)
     }
 
     @Test("Two legacy rows cannot claim one repair target")
@@ -438,7 +435,11 @@ private actor RepairMirrorStore: TrackStateStore {
         updates.append(update)
         for repair in update.repairs {
             stored.removeAll { $0.id == repair.sourceID }
-            stored.append(repair.target)
+            if let index = stored.firstIndex(where: { $0.id == repair.target.id }) {
+                stored[index] = repair.target
+            } else {
+                stored.append(repair.target)
+            }
         }
         let deletionIDs = Set(update.deletions.map(\.rawValue))
         stored.removeAll { deletionIDs.contains($0.id) }

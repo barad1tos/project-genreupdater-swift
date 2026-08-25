@@ -159,4 +159,20 @@ extension PersistedTrack {
         trackID = databaseID.rawValue
         updateMirror(from: track, databaseID: databaseID)
     }
+
+    func mergeRepair(_ source: PersistedTrack, with track: Core.Track, databaseID: MusicDatabaseTrackID) {
+        updateMirror(from: track, databaseID: databaseID)
+        genreUpdated = genreUpdated || source.genreUpdated
+        yearUpdated = yearUpdated || source.yearUpdated
+        processedDate = [processedDate, source.processedDate].compactMap(\.self).max()
+        lastError = lastError ?? source.lastError
+        originalArtist = originalArtist ?? source.originalArtist
+        originalAlbum = originalAlbum ?? source.originalAlbum
+        yearBeforeMGU = yearBeforeMGU ?? source.yearBeforeMGU
+        yearSetByMGU = yearSetByMGU ?? source.yearSetByMGU
+    }
+
+    func isCanonical(databaseID: MusicDatabaseTrackID) -> Bool {
+        trackID == databaseID.rawValue && appleScriptID == databaseID.rawValue
+    }
 }

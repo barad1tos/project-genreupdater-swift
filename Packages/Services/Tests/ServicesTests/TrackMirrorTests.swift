@@ -407,13 +407,86 @@ struct TrackMirrorTests {
         #expect(history.count == 2)
         #expect(history.allSatisfy { $0.trackID == "database-id" })
         #expect(history.first { $0.entryID == linked.entryID }?.track?.persistentModelID == persistentID)
-        #expect(history.first { $0.entryID == unlinked.entryID }?.track == nil)
+        #expect(history.first { $0.entryID == unlinked.entryID }?.track?.persistentModelID == persistentID)
+    }
+
+    @Test("Mirror repair converges canonical and legacy state with all history")
+    func mirrorRepairConvergesExistingCanonicalTarget() async throws {
+        let container = try makeMemoryContainer()
+        let context = ModelContext(container)
+        let earlier = Date(timeIntervalSince1970: 1_700_000_000)
+        let later = Date(timeIntervalSince1970: 1_800_000_000)
+        let canonical = PersistedTrack(
+            trackID: "AS1", appleScriptID: "AS1", name: "Stored", artist: "Stored", album: "Stored",
+            genreUpdated: true, processedDate: earlier, lastError: "canonical error", originalArtist: "Stored Artist"
+        )
+        let legacy = PersistedTrack(
+            trackID: "MK1", appleScriptID: "AS1", name: "Legacy", artist: "Legacy", album: "Legacy",
+            yearUpdated: true, processedDate: later, lastError: "legacy error", originalAlbum: "Legacy Album",
+            yearBeforeMGU: 1998, yearSetByMGU: 1999
+        )
+        let canonicalHistory = PersistedChangeLogEntry(
+            entryID: UUID(), timestamp: .now, changeTypeRaw: ChangeType.genreUpdate.rawValue,
+            trackID: "AS1", artist: "Stored", trackName: "Stored", albumName: "Stored"
+        )
+        canonicalHistory.track = canonical
+        let linkedLegacyHistory = PersistedChangeLogEntry(
+            entryID: UUID(), timestamp: .now, changeTypeRaw: ChangeType.yearUpdate.rawValue,
+            trackID: "MK1", artist: "Legacy", trackName: "Legacy", albumName: "Legacy"
+        )
+        linkedLegacyHistory.track = legacy
+        let unlinkedLegacyHistory = PersistedChangeLogEntry(
+            entryID: UUID(), timestamp: .now, changeTypeRaw: ChangeType.artistRename.rawValue,
+            trackID: "MK1", artist: "Legacy", trackName: "Legacy", albumName: "Legacy"
+        )
+        context.insert(canonical)
+        context.insert(legacy)
+        context.insert(canonicalHistory)
+        context.insert(linkedLegacyHistory)
+        context.insert(unlinkedLegacyHistory)
+        try context.save()
+
+        let live = Track(
+            id: "AS1", name: "Live", artist: "Live", album: "Live", appleScriptID: "AS1"
+        )
+        let update = TrackMirrorUpdate(
+            repairs: [TrackMirrorRepair(sourceID: "MK1", target: live)], upserts: [], deletions: []
+        )
+        let store = TrackDataStore(modelContainer: container)
+
+        try await store.applyMirror(update)
+        try await store.applyMirror(update)
+
+        let verification = ModelContext(container)
+        let tracks = try verification.fetch(FetchDescriptor<PersistedTrack>())
+        let history = try verification.fetch(FetchDescriptor<PersistedChangeLogEntry>())
+        let merged = try #require(tracks.first)
+        #expect(tracks.count == 1)
+        #expect(merged.trackID == "AS1")
+        #expect(merged.name == "Live")
+        #expect((merged.artist, merged.album) == ("Live", "Live"))
+        #expect(merged.genreUpdated)
+        #expect(merged.yearUpdated)
+        #expect(merged.processedDate == later)
+        #expect(merged.lastError == "canonical error")
+        #expect(merged.originalArtist == "Stored Artist")
+        #expect(merged.originalAlbum == "Legacy Album")
+        #expect(merged.yearBeforeMGU == 1998)
+        #expect(merged.yearSetByMGU == 1999)
+        #expect(history.count == 3)
+        #expect(history.allSatisfy { $0.trackID == "AS1" && $0.track?.trackID == "AS1" })
     }
 
     @Test("Mirror repair validation leaves stored state unchanged")
     func mirrorRepairValidationIsAtomic() async throws {
-        let store = try makeStore()
-        try await store.seedMirror([sampleTrack(id: "legacy"), mirrorTrack(id: "occupied")])
+        let container = try makeMemoryContainer()
+        let context = ModelContext(container)
+        context.insert(PersistedTrack(
+            trackID: "legacy", appleScriptID: "legacy", name: "Legacy", artist: "Artist", album: "Album"
+        ))
+        context.insert(PersistedTrack(trackID: "occupied", name: "Occupied", artist: "Artist", album: "Album"))
+        try context.save()
+        let store = TrackDataStore(modelContainer: container)
         let before = try await store.loadAllTracks()
         let target = mirrorTrack(id: "target")
         let occupied = mirrorTrack(id: "occupied")
@@ -444,9 +517,9 @@ struct TrackMirrorTests {
                 upserts: [target], deletions: []
             ), .identityOverlap(ids: [databaseID("target")])),
             (TrackMirrorUpdate(
-                repairs: [TrackMirrorRepair(sourceID: "occupied", target: occupied)],
+                repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "legacy"))],
                 upserts: [], deletions: []
-            ), .redundantRepair(id: databaseID("occupied"))),
+            ), .redundantRepair(id: databaseID("legacy"))),
         ]
 
         for (update, expectedError) in cases {
@@ -493,8 +566,12 @@ struct TrackMirrorTests {
         do {
             let container = try makeContainer(at: url)
             let context = ModelContext(container)
+            let canonical = PersistedTrack(
+                trackID: "canonical", appleScriptID: "canonical", name: "Stored", artist: "Artist", album: "Album",
+                lastError: "stored error", originalArtist: "Stored Artist"
+            )
             let legacy = PersistedTrack(
-                trackID: "legacy", name: "Legacy", artist: "Artist", album: "Album",
+                trackID: "legacy", appleScriptID: "canonical", name: "Legacy", artist: "Artist", album: "Album",
                 genreUpdated: true, originalArtist: "Original"
             )
             let entry = PersistedChangeLogEntry(
@@ -502,6 +579,7 @@ struct TrackMirrorTests {
                 trackID: "legacy", artist: "Artist", trackName: "Legacy", albumName: "Album"
             )
             entry.track = legacy
+            context.insert(canonical)
             context.insert(legacy)
             context.insert(entry)
             try context.save()
@@ -513,11 +591,14 @@ struct TrackMirrorTests {
 
         let relaunched = try makeContainer(at: url)
         let context = ModelContext(relaunched)
-        let track = try #require(context.fetch(FetchDescriptor<PersistedTrack>()).first)
+        let tracks = try context.fetch(FetchDescriptor<PersistedTrack>())
+        let track = try #require(tracks.first)
         let entry = try #require(context.fetch(FetchDescriptor<PersistedChangeLogEntry>()).first)
+        #expect(tracks.count == 1)
         #expect(track.trackID == "canonical")
         #expect(track.genreUpdated)
-        #expect(track.originalArtist == "Original")
+        #expect(track.lastError == "stored error")
+        #expect(track.originalArtist == "Stored Artist")
         #expect(entry.entryID == entryID)
         #expect(entry.trackID == "canonical")
         #expect(entry.track?.trackID == "canonical")

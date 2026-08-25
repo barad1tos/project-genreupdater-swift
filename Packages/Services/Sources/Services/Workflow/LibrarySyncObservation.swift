@@ -63,8 +63,7 @@ extension LibrarySyncService {
 
         let repair = try planRepair(
             legacyTracks: scopedLegacy,
-            observation: observation,
-            canonicalStored: canonicalStored
+            observation: observation
         )
         var mirrorBaseline = canonicalStored
         mirrorBaseline.merge(repair.baseline) { existing, _ in existing }
@@ -102,8 +101,7 @@ extension LibrarySyncService {
 
     private func planRepair(
         legacyTracks: [Track],
-        observation: LibraryObservation,
-        canonicalStored: [MusicDatabaseTrackID: Track]
+        observation: LibraryObservation
     ) throws -> MirrorRepair {
         guard !legacyTracks.isEmpty else {
             return MirrorRepair(repairs: [], baseline: [:])
@@ -148,8 +146,7 @@ extension LibrarySyncService {
 
         try validateRepairTargets(
             repairTargets: repairTargets,
-            legacyTracks: legacyTracks,
-            canonicalStored: canonicalStored
+            legacyTracks: legacyTracks
         )
 
         var repairs: [TrackMirrorRepair] = []
@@ -169,8 +166,7 @@ extension LibrarySyncService {
 
     private func validateRepairTargets(
         repairTargets: [String: MusicDatabaseTrackID],
-        legacyTracks: [Track],
-        canonicalStored: [MusicDatabaseTrackID: Track]
+        legacyTracks: [Track]
     ) throws {
         var repairClaims: [MusicDatabaseTrackID: [String]] = [:]
         for (sourceID, targetID) in repairTargets {
@@ -191,9 +187,8 @@ extension LibrarySyncService {
         let sourceIDs = Set(legacyTracks.map(\.id))
         for sourceID in repairTargets.keys.sorted() {
             guard let targetID = repairTargets[sourceID] else { continue }
-            let collidesWithCanonical = canonicalStored[targetID] != nil
             let collidesWithLegacy = targetID.rawValue != sourceID && sourceIDs.contains(targetID.rawValue)
-            guard !collidesWithCanonical, !collidesWithLegacy else {
+            guard !collidesWithLegacy else {
                 throw LibrarySyncObservationError.repairTargetCollision(
                     sourceID: sourceID,
                     targetID: targetID.rawValue

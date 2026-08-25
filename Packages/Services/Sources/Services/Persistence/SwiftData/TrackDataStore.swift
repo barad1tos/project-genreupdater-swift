@@ -67,14 +67,9 @@ public actor TrackDataStore: TrackStateStore {
                 let storedTracks = try modelContext.fetch(FetchDescriptor<PersistedTrack>())
                 let storedState = try Self.validateStored(transactionPlan, tracks: storedTracks)
                 let history = try modelContext.fetch(FetchDescriptor<PersistedChangeLogEntry>())
-                let historyByID = Dictionary(grouping: history, by: \.trackID)
 
                 for repair in transactionPlan.repairs {
-                    let persistedTrack = try Self.repairSource(repair, in: storedState)
-                    persistedTrack.repairMirror(with: repair.track, databaseID: repair.targetID)
-                    for entry in historyByID[repair.sourceID, default: []] {
-                        entry.trackID = repair.targetID.rawValue
-                    }
+                    try Self.applyRepair(repair, state: storedState, history: history, modelContext: modelContext)
                 }
 
                 for (track, databaseID) in zip(update.upserts, transactionPlan.upsertIDs) {
@@ -251,14 +246,16 @@ public actor TrackDataStore: TrackStateStore {
     private static func validateStored(_ plan: MirrorPlan, tracks: [PersistedTrack]) throws -> StoredMirrorState {
         let byID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.trackID, $0) })
         for repair in plan.repairs {
-            guard let source = byID[repair.sourceID] else {
+            let source = byID[repair.sourceID]
+            let target = byID[repair.targetID.rawValue]
+            guard source != nil || target?.isCanonical(databaseID: repair.targetID) == true else {
                 throw TrackStoreError.missingSource(id: repair.sourceID)
             }
-            if repair.sourceID == repair.targetID.rawValue {
+            if let source, repair.sourceID == repair.targetID.rawValue {
                 guard source.appleScriptID != source.trackID else {
                     throw TrackStoreError.redundantRepair(id: repair.targetID)
                 }
-            } else if byID[repair.targetID.rawValue] != nil {
+            } else if let target, !target.isCanonical(databaseID: repair.targetID) {
                 throw TrackStoreError.targetExists(id: repair.targetID)
             }
         }
@@ -268,11 +265,42 @@ public actor TrackDataStore: TrackStateStore {
         return StoredMirrorState(byID: byID, canonicalByID: canonicalByID)
     }
 
-    private static func repairSource(_ repair: ValidatedRepair, in state: StoredMirrorState) throws -> PersistedTrack {
-        guard let source = state.byID[repair.sourceID] else {
+    private static func applyRepair(
+        _ repair: ValidatedRepair,
+        state: StoredMirrorState,
+        history: [PersistedChangeLogEntry],
+        modelContext: ModelContext
+    ) throws {
+        let source = state.byID[repair.sourceID]
+        let target = state.canonicalByID[repair.targetID]
+        let sourceHistory = history.filter { entry in
+            entry.trackID == repair.sourceID || entry.track === source
+        }
+        let persistedTrack: PersistedTrack
+        let sourceToDelete: PersistedTrack?
+        if let source, let target, source !== target {
+            target.mergeRepair(source, with: repair.track, databaseID: repair.targetID)
+            persistedTrack = target
+            sourceToDelete = source
+        } else if let source {
+            source.repairMirror(with: repair.track, databaseID: repair.targetID)
+            persistedTrack = source
+            sourceToDelete = nil
+        } else if let target {
+            target.updateMirror(from: repair.track, databaseID: repair.targetID)
+            persistedTrack = target
+            sourceToDelete = nil
+        } else {
             throw TrackStoreError.missingSource(id: repair.sourceID)
         }
-        return source
+        for entry in sourceHistory {
+            entry.trackID = repair.targetID.rawValue
+            entry.track = persistedTrack
+        }
+        if let sourceToDelete {
+            sourceToDelete.changeLog.removeAll()
+            modelContext.delete(sourceToDelete)
+        }
     }
 
     private static func indexCanonicalTracks(
