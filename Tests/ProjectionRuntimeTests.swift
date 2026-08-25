@@ -106,7 +106,12 @@ struct ProjectionRuntimeTests {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         fixture.dependencies.configureLibraryPersistenceForTesting(
             trackStore: MirrorTrackStoreStub(tracks: [
-                Core.Track(id: "live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+                canonicalMirrorTrack(Core.Track(
+                    id: "live",
+                    name: "Song",
+                    artist: "Clutch",
+                    album: "Blast Tyrant"
+                )),
             ]),
             librarySnapshotService: fixture.snapshotService,
             runRecordStore: RunRecordStoreStub()

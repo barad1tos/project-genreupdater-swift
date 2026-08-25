@@ -55,8 +55,7 @@ actor MusicKitCatalogAdapter: MusicKitCatalogSource {
 
     static func makeSnapshot(
         from metadata: [MusicKitTrackMetadata],
-        testArtists: [String],
-        observedAt: Date
+        testArtists: [String]
     ) -> CatalogSnapshot {
         let allowedArtists = ArtistAllowList.normalized(testArtists)
         var seenIDs = Set<CatalogTrackID>()
@@ -73,7 +72,7 @@ actor MusicKitCatalogAdapter: MusicKitCatalogSource {
             tracks.append(track)
         }
 
-        return CatalogSnapshot(tracks: tracks, observedAt: observedAt, freshness: .live)
+        return CatalogSnapshot(tracks: tracks)
     }
 
     static func makeTrack(from metadata: MusicKitTrackMetadata) -> CatalogTrack? {
@@ -97,7 +96,7 @@ actor MusicKitCatalogAdapter: MusicKitCatalogSource {
             title: song.title,
             artist: song.artistName,
             album: song.albumTitle,
-            albumArtist: nil,
+            albumArtist: song.albums?.first?.artistName,
             genres: song.genreNames,
             releaseDate: song.releaseDate,
             dateAdded: song.libraryAddedDate

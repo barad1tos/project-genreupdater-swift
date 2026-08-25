@@ -19,11 +19,7 @@ actor MirrorTrackStoreStub: TrackStateStore {
         tracks: [Track] = [],
         beforeLoad: (@Sendable () async throws -> Void)? = nil
     ) {
-        self.tracks = tracks.map { track in
-            var canonical = track
-            canonical.appleScriptID = canonical.id
-            return canonical
-        }
+        self.tracks = tracks
         self.beforeLoad = beforeLoad
     }
 
@@ -318,11 +314,7 @@ actor SnapshotServiceSpy: LibrarySnapshotService {
     private var seededSnapshot: [Track]?
 
     func installSnapshot(_ tracks: [Track]) {
-        seededSnapshot = tracks.map { track in
-            var canonical = track
-            canonical.appleScriptID = canonical.id
-            return canonical
-        }
+        seededSnapshot = tracks
     }
 
     func loadSnapshot() async throws -> [Track]? {
@@ -362,4 +354,10 @@ actor SnapshotServiceSpy: LibrarySnapshotService {
     func savedTrackIDs() -> [String] {
         savedTracks.map(\.id)
     }
+}
+
+func canonicalMirrorTrack(_ track: Track) -> Track {
+    var canonical = track
+    canonical.appleScriptID = canonical.id
+    return canonical
 }

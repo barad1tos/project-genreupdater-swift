@@ -31,19 +31,13 @@ public enum MusicLibraryError: Error, LocalizedError {
 /// Reads the user's MusicKit presentation catalog without creating processing tracks.
 public actor MusicLibraryReader: MusicCatalogReading {
     private let source: any MusicKitCatalogSource
-    private let currentDate: @Sendable () -> Date
 
     public init() {
         source = MusicKitCatalogAdapter()
-        currentDate = Date.init
     }
 
-    init(
-        source: any MusicKitCatalogSource,
-        currentDate: @escaping @Sendable () -> Date = Date.init
-    ) {
+    init(source: any MusicKitCatalogSource) {
         self.source = source
-        self.currentDate = currentDate
     }
 
     public var isAuthorized: Bool {
@@ -69,8 +63,7 @@ public actor MusicLibraryReader: MusicCatalogReading {
             let metadata = try await source.loadTracks()
             let snapshot = MusicKitCatalogAdapter.makeSnapshot(
                 from: metadata,
-                testArtists: testArtists,
-                observedAt: currentDate()
+                testArtists: testArtists
             )
             log.info("Fetched \(snapshot.tracks.count, privacy: .public) catalog tracks from MusicKit")
             return snapshot

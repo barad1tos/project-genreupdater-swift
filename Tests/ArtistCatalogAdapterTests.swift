@@ -140,11 +140,7 @@ private actor CatalogProbe: MusicCatalogReading {
 
     func loadCatalog(testArtists: [String]) async throws -> CatalogSnapshot {
         scopes.append(testArtists)
-        return CatalogSnapshot(
-            tracks: tracks,
-            observedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            freshness: .live
-        )
+        return CatalogSnapshot(tracks: tracks)
     }
 
     func trackCount() async throws -> Int {

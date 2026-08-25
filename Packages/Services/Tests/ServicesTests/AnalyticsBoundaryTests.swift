@@ -8,11 +8,7 @@ struct AnalyticsBoundaryTests {
     @Test("MusicKit snapshot loading records one successful fetch without changing its result")
     func musicKitFetch() async throws {
         let analytics = InstrumentationAnalytics()
-        let expected = CatalogSnapshot(
-            tracks: [instrumentationCatalogTrack(id: "T1")],
-            observedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            freshness: .live
-        )
+        let expected = CatalogSnapshot(tracks: [instrumentationCatalogTrack(id: "T1")])
         let catalog = MeasuredMusicCatalog(
             base: AnalyticsMusicCatalog(snapshot: expected),
             analytics: analytics

@@ -25,12 +25,14 @@ enum LibraryTrackLoader {
         from dependencies: AppDependencies,
         scopedArtists: [String],
         forceRefresh: Bool
-    ) async throws -> LibraryCachedTrackLoad? {
+    ) async -> LibraryCachedTrackLoad? {
         guard !forceRefresh, let cachedTracks = await dependencies.loadLibrarySnapshot() else {
             return nil
         }
 
-        let scopedCachedTracks = try canonicalTracks(cachedTracks, scopedArtists: scopedArtists)
+        guard let scopedCachedTracks = try? canonicalTracks(cachedTracks, scopedArtists: scopedArtists) else {
+            return nil
+        }
         return LibraryCachedTrackLoad(tracks: scopedCachedTracks)
     }
 

@@ -48,20 +48,10 @@ public struct CatalogTrack: Equatable, Sendable {
 /// One in-memory presentation snapshot of the MusicKit song catalog.
 public struct CatalogSnapshot: Equatable, Sendable {
     public let tracks: [CatalogTrack]
-    public let observedAt: Date
-    public let freshness: CatalogFreshness
 
-    public init(tracks: [CatalogTrack], observedAt: Date, freshness: CatalogFreshness) {
+    public init(tracks: [CatalogTrack]) {
         self.tracks = tracks
-        self.observedAt = observedAt
-        self.freshness = freshness
     }
-}
-
-/// Whether a presentation snapshot came from a current enumeration or a cache.
-public enum CatalogFreshness: Equatable, Sendable {
-    case live
-    case cached
 }
 
 /// Narrow read capability for MusicKit-backed presentation catalog operations.

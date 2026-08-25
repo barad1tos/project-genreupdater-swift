@@ -1,4 +1,3 @@
-import Foundation
 import Testing
 @testable import Services
 
@@ -8,8 +7,7 @@ struct LibraryFilterTests {
     func keepsAllUnscoped() {
         let snapshot = MusicKitCatalogAdapter.makeSnapshot(
             from: library,
-            testArtists: [],
-            observedAt: Date(timeIntervalSince1970: 100)
+            testArtists: []
         )
 
         #expect(snapshot.tracks.count == library.count)
@@ -19,8 +17,7 @@ struct LibraryFilterTests {
     func usesAlbumArtistHint() {
         let snapshot = MusicKitCatalogAdapter.makeSnapshot(
             from: library,
-            testArtists: ["beatles"],
-            observedAt: Date(timeIntervalSince1970: 100)
+            testArtists: ["beatles"]
         )
 
         #expect(snapshot.tracks.map(\.id.displayValue) == ["1"])
@@ -30,8 +27,7 @@ struct LibraryFilterTests {
     func retainsAllowedArtists() {
         let snapshot = MusicKitCatalogAdapter.makeSnapshot(
             from: library,
-            testArtists: ["Beatles", "Queen"],
-            observedAt: Date(timeIntervalSince1970: 100)
+            testArtists: ["Beatles", "Queen"]
         )
 
         #expect(snapshot.tracks.map(\.id.displayValue) == ["1", "2"])

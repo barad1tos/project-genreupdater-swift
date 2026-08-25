@@ -58,8 +58,7 @@ struct MusicLibraryReaderTests {
                 Self.metadata(id: "MK-1", title: "Battery"),
                 Self.metadata(id: "MK-1", title: "Battery (duplicate row)"),
             ],
-            testArtists: [],
-            observedAt: Date(timeIntervalSince1970: 100)
+            testArtists: []
         )
 
         #expect(snapshot.tracks.count == 1)
@@ -73,8 +72,7 @@ struct MusicLibraryReaderTests {
                 Self.metadata(id: "MK-1", title: "Battery"),
                 Self.metadata(id: "MK-2", title: "Battery"),
             ],
-            testArtists: [],
-            observedAt: Date(timeIntervalSince1970: 100)
+            testArtists: []
         )
 
         #expect(snapshot.tracks.map(\.id.displayValue) == ["MK-1", "MK-2"])
@@ -87,14 +85,11 @@ struct MusicLibraryReaderTests {
             Self.metadata(id: "MK-2", artist: "Metallica"),
             Self.metadata(id: "MK-3", artist: "Björk"),
         ])
-        let observedAt = Date(timeIntervalSince1970: 1_800_000_000)
-        let reader = MusicLibraryReader(source: source, currentDate: { observedAt })
+        let reader = MusicLibraryReader(source: source)
 
         let snapshot = try await reader.loadCatalog(testArtists: ["In Flames", "Metallica"])
 
         #expect(snapshot.tracks.map(\.id.displayValue) == ["MK-1", "MK-2"])
-        #expect(snapshot.observedAt == observedAt)
-        #expect(snapshot.freshness == .live)
         #expect(await source.loadCount() == 1)
     }
 

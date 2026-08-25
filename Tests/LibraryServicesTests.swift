@@ -121,13 +121,13 @@ struct LibraryServicesTests {
     func genreEditEntersScope() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         await fixture.snapshotService.installSnapshot([
-            Core.Track(
+            canonicalMirrorTrack(Core.Track(
                 id: "live",
                 name: "Song",
                 artist: "Clutch",
                 album: "Blast Tyrant",
                 genre: "Metal"
-            ),
+            )),
         ])
         try await fixture.trackStore.seedMirror([
             Core.Track(

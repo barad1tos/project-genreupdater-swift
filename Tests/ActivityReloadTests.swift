@@ -181,7 +181,12 @@ struct ActivityReloadTests {
     private func installMenuMirror(on dependencies: AppDependencies) {
         dependencies.configureLibraryPersistenceForTesting(
             trackStore: MirrorTrackStoreStub(tracks: [
-                Core.Track(id: "menu-live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+                canonicalMirrorTrack(Core.Track(
+                    id: "menu-live",
+                    name: "Song",
+                    artist: "Clutch",
+                    album: "Blast Tyrant"
+                )),
             ]),
             runRecordStore: RunRecordStoreStub()
         )

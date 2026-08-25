@@ -81,25 +81,12 @@ extension AppDependencies {
 
         let scopedArtists = LibraryTrackLoader.scopedArtists(from: self)
         let loadStart = ContinuousClock.now
-        let hasCachedTracks: Bool
-        do {
-            hasCachedTracks = try await applyCachedLibraryLoad(
-                token: token,
-                scopedArtists: scopedArtists,
-                loadStart: loadStart,
-                forceRefresh: forceRefresh
-            )
-        } catch {
-            await handleLibraryLoadFailure(
-                error,
-                hasCachedTracks: false,
-                token: token,
-                loadStart: loadStart
-            )
-            finishLibraryLoadIfCurrent(token)
-            await republishActivityProjection()
-            return
-        }
+        let hasCachedTracks = await applyCachedLibraryLoad(
+            token: token,
+            scopedArtists: scopedArtists,
+            loadStart: loadStart,
+            forceRefresh: forceRefresh
+        )
         guard libraryLoadGate.isCurrent(token) else { return }
 
         guard let trackStore else {
@@ -168,8 +155,8 @@ extension AppDependencies {
         scopedArtists: [String],
         loadStart: ContinuousClock.Instant,
         forceRefresh: Bool
-    ) async throws -> Bool {
-        guard let cachedLoad = try await LibraryTrackLoader.cachedSnapshot(
+    ) async -> Bool {
+        guard let cachedLoad = await LibraryTrackLoader.cachedSnapshot(
             from: self,
             scopedArtists: scopedArtists,
             forceRefresh: forceRefresh

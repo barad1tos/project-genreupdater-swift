@@ -11,7 +11,14 @@ struct ProjectionRuntimeLibraryTests {
     func backendLoadPublishesLibraryFacts() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         await fixture.snapshotService.installSnapshot([
-            Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant", genre: "Rock", year: 2004),
+            canonicalMirrorTrack(Core.Track(
+                id: "t",
+                name: "Song",
+                artist: "Clutch",
+                album: "Blast Tyrant",
+                genre: "Rock",
+                year: 2004
+            )),
         ])
         var appliedCounts: [Int] = []
         fixture.dependencies.onLibraryLoadApplied = { tracks in
@@ -43,7 +50,7 @@ struct ProjectionRuntimeLibraryTests {
     func scopeChangeEmptiesLibraryTruth() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         await fixture.snapshotService.installSnapshot([
-            Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+            canonicalMirrorTrack(Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")),
         ])
         await fixture.dependencies.loadLibrary()
         #expect(!fixture.dependencies.libraryTracks.isEmpty)
@@ -65,7 +72,12 @@ struct ProjectionRuntimeLibraryTests {
         let gate = LibraryReadGate()
         fixture.dependencies.configureLibraryPersistenceForTesting(
             trackStore: MirrorTrackStoreStub(
-                tracks: [Core.Track(id: "stale", name: "Old Scope", artist: "Stale", album: "Stale")],
+                tracks: [canonicalMirrorTrack(Core.Track(
+                    id: "stale",
+                    name: "Old Scope",
+                    artist: "Stale",
+                    album: "Stale"
+                ))],
                 beforeLoad: { await gate.hold() }
             ),
             librarySnapshotService: fixture.snapshotService,
@@ -87,7 +99,7 @@ struct ProjectionRuntimeLibraryTests {
     func workflowOnlyRefreshPreservesLibraryTruth() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         await fixture.snapshotService.installSnapshot([
-            Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+            canonicalMirrorTrack(Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")),
         ])
         await fixture.dependencies.loadLibrary()
 
@@ -105,7 +117,12 @@ struct ProjectionRuntimeLibraryTests {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         fixture.dependencies.configureLibraryPersistenceForTesting(
             trackStore: MirrorTrackStoreStub(tracks: [
-                Core.Track(id: "live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+                canonicalMirrorTrack(Core.Track(
+                    id: "live",
+                    name: "Song",
+                    artist: "Clutch",
+                    album: "Blast Tyrant"
+                )),
             ]),
             librarySnapshotService: fixture.snapshotService,
             runRecordStore: RunRecordStoreStub()
@@ -127,7 +144,12 @@ struct ProjectionRuntimeLibraryTests {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         let analytics = try await installAnalytics(on: fixture.dependencies)
         await fixture.snapshotService.installSnapshot([
-            Core.Track(id: "cached", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+            canonicalMirrorTrack(Core.Track(
+                id: "cached",
+                name: "Song",
+                artist: "Clutch",
+                album: "Blast Tyrant"
+            )),
         ])
         fixture.dependencies.configureLibraryPersistenceForTesting(
             trackStore: MirrorTrackStoreStub(beforeLoad: { throw CancellationError() }),
@@ -153,7 +175,12 @@ struct ProjectionRuntimeLibraryTests {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         let analytics = try await installAnalytics(on: fixture.dependencies)
         await fixture.snapshotService.installSnapshot([
-            Core.Track(id: "cached", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
+            canonicalMirrorTrack(Core.Track(
+                id: "cached",
+                name: "Song",
+                artist: "Clutch",
+                album: "Blast Tyrant"
+            )),
         ])
         fixture.dependencies.configureLibraryPersistenceForTesting(
             trackStore: MirrorTrackStoreStub(beforeLoad: {
@@ -174,6 +201,58 @@ struct ProjectionRuntimeLibraryTests {
         #expect(row.calls == 2)
         #expect(row.succeeded == 1)
         #expect(row.failed == 1)
+    }
+
+    @Test("a contaminated cache is ignored when the current mirror is canonical")
+    func contaminatedCacheDoesNotBlockCurrentMirror() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        await fixture.snapshotService.installSnapshot([
+            Core.Track(id: "cached-contamination", name: "Cached", artist: "Clutch", album: "Blast Tyrant"),
+        ])
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(tracks: [
+                canonicalMirrorTrack(Core.Track(
+                    id: "current",
+                    name: "Current",
+                    artist: "Clutch",
+                    album: "Blast Tyrant"
+                )),
+            ]),
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
+        var browsedTrackIDs: [[String]] = []
+        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
+            browsedTrackIDs.append(tracks.map(\.id))
+        }
+
+        await fixture.dependencies.loadLibrary()
+
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["current"])
+        #expect(fixture.dependencies.libraryLoadError == nil)
+        #expect(fixture.dependencies.isLibraryReadyForUpdates)
+        #expect(browsedTrackIDs == [["current"]])
+    }
+
+    @Test("current contamination remains explicit when the cache is also contaminated")
+    func currentContaminationWinsOverCachedContamination() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        await fixture.snapshotService.installSnapshot([
+            Core.Track(id: "cached-contamination", name: "Cached", artist: "Clutch", album: "Blast Tyrant"),
+        ])
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(tracks: [
+                Core.Track(id: "current-contamination", name: "Current", artist: "Clutch", album: "Blast Tyrant"),
+            ]),
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
+
+        await fixture.dependencies.loadLibrary()
+
+        #expect(fixture.dependencies.libraryTracks.isEmpty)
+        #expect(fixture.dependencies.libraryLoadError == .nonCanonicalMirror(trackID: "current-contamination"))
+        #expect(!fixture.dependencies.isLibraryReadyForUpdates)
     }
 
     @Test("request tokens invalidate across begins")
