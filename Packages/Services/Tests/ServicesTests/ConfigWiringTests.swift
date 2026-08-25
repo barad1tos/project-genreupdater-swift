@@ -103,9 +103,6 @@ struct ConfigWiringTests {
         #expect(updateRuntime.idsBatchSize == 22)
 
         let syncRuntime = LibrarySyncRuntimeConfiguration(configuration: configuration)
-        #expect(syncRuntime.idsBatchSize == 22)
-        #expect(syncRuntime.fullLibraryFetchTimeout == .seconds(321))
-        #expect(syncRuntime.idsBatchFetchTimeout == .seconds(45))
         #expect(syncRuntime.testArtists == ["Паліндром"])
 
         let sourcePriority = APISourcePriorityConfiguration(configuration: configuration)
@@ -121,10 +118,9 @@ struct ConfigWiringTests {
         #expect(batchProcessing.adaptiveDelay == false)
     }
 
-    @Test("Runtime ID batches stay within the script boundary")
-    func runtimeIDBatchBoundary() {
+    @Test("Update runtime ID batches stay within the script boundary")
+    func updateRuntimeIDBatchBoundary() {
         #expect(UpdateRuntimeConfiguration(idsBatchSize: 5000).idsBatchSize == 1000)
-        #expect(LibrarySyncRuntimeConfiguration(idsBatchSize: 5000).idsBatchSize == 1000)
     }
 
     @Test("API orchestrator config maps year-retrieval and runtime settings")

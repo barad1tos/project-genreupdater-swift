@@ -152,7 +152,13 @@ struct MutationMetadataTests {
             }
         )
         let viewModel = fixture.viewModel
-        let track = Track(id: "accepted", name: "Track accepted", artist: "Artist", album: "Album")
+        let track = Track(
+            id: "accepted",
+            name: "Track accepted",
+            artist: "Artist",
+            album: "Album",
+            appleScriptID: "accepted"
+        )
         viewModel.phase = .review
         viewModel.previewOnly = false
         viewModel.proposedChanges = [
@@ -189,7 +195,7 @@ struct MutationMetadataTests {
             Issue.record("Expected done phase, got \(viewModel.phase)")
             return
         }
-        #expect(await fixture.scriptClient.updatedProperties().map(\.property).sorted() == ["genre", "year"])
+        #expect(await fixture.scriptClient.updatedProperties().map(\.property.rawValue).sorted() == ["genre", "year"])
     }
 
     @Test("preparation failure surfaces workflow error")

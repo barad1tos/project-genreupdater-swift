@@ -4,6 +4,33 @@ import OSLog
 
 private let log = AppLogger.make(category: "TrackIDScan")
 
+/// Complete Music database membership captured in one stable library generation.
+struct TrackIDCensus: Equatable, Sendable {
+    let ids: [MusicDatabaseTrackID]
+    let totalCount: Int
+    let generation: LibraryGeneration
+
+    init(
+        ids: [MusicDatabaseTrackID],
+        totalCount: Int,
+        generation: LibraryGeneration
+    ) throws {
+        guard ids.count == totalCount else {
+            throw TrackIDCensusError.countMismatch(expected: totalCount, actual: ids.count)
+        }
+        var seenIDs = Set<MusicDatabaseTrackID>()
+        for databaseID in ids where !seenIDs.insert(databaseID).inserted {
+            throw TrackIDCensusError.duplicateID(databaseID)
+        }
+        guard ids == ids.sorted(by: { $0.rawValue < $1.rawValue }) else {
+            throw TrackIDCensusError.unsorted
+        }
+        self.ids = ids
+        self.totalCount = totalCount
+        self.generation = generation
+    }
+}
+
 struct TrackIDScan {
     private static let maxRestarts = 3
 
@@ -19,7 +46,7 @@ struct TrackIDScan {
         self.fetch = fetch
     }
 
-    func run() async throws -> [String] {
+    func run() async throws -> TrackIDCensus {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
         var restartCount = 0
@@ -47,7 +74,7 @@ struct TrackIDScan {
     private func scan(
         clock: ContinuousClock,
         deadline: ContinuousClock.Instant
-    ) async throws -> [String] {
+    ) async throws -> TrackIDCensus {
         var trackIDs: [String] = []
         var seenIDs: Set<String> = []
         var expectedCount: Int?
@@ -81,7 +108,21 @@ struct TrackIDScan {
             offset = nextOffset
         }
 
-        return trackIDs
+        guard let totalCount = expectedCount,
+              let generationValue = expectedGeneration,
+              let generation = LibraryGeneration(sourceValue: generationValue)
+        else {
+            throw parseError("ID scan completed without census evidence")
+        }
+        let typedIDs = trackIDs.compactMap(MusicDatabaseTrackID.init(rawValue:))
+        guard typedIDs.count == totalCount else {
+            throw parseError("ID census count does not match its rows")
+        }
+        return try TrackIDCensus(
+            ids: typedIDs.sorted { $0.rawValue < $1.rawValue },
+            totalCount: totalCount,
+            generation: generation
+        )
     }
 
     private func parseBatch(
@@ -156,6 +197,12 @@ struct TrackIDScan {
     private func changingLibraryError(restartCount: Int) -> AppleScriptBridgeError {
         .libraryChanged(detail: "Library generation kept changing after \(restartCount) scan restarts")
     }
+}
+
+enum TrackIDCensusError: Error, Equatable {
+    case countMismatch(expected: Int, actual: Int)
+    case duplicateID(MusicDatabaseTrackID)
+    case unsorted
 }
 
 private enum TrackIDScanChange: Error {

@@ -258,19 +258,19 @@ struct ProviderAdmissionTests {
         apiOrchestrator: APIOrchestrator,
         pendingVerificationService: (any PendingVerificationService)? = nil
     ) -> UpdateCoordinator {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProviderAdmissionTests-\(UUID().uuidString)")
         return UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: apiOrchestrator,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
                     trackStore: MockTrackStore(),
                     cache: MockCacheService()
                 ),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: bridge,
+                    musicApp: bridge,
                     directory: directory
                 ),
                 idMapper: nil,

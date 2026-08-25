@@ -7,7 +7,7 @@ import Testing
 struct UndoArtistTests {
     @Test("Revert restores both artist fields together")
     func revertCoupledArtistRename() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setFetchedTracks([
             Track(
                 id: "T1",
@@ -17,22 +17,26 @@ struct UndoArtistTests {
                 albumArtist: "Massive Attack"
             ),
         ])
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeDirectory())
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeDirectory()
+        )
         let entry = makeEntry()
         try await coordinator.recordChange(entry)
 
         try await coordinator.revertChange(entry)
 
         #expect(await bridge.batchUpdates == [[
-            TrackPropertyUpdate(trackID: "T1", property: "artist", value: "Massive"),
-            TrackPropertyUpdate(trackID: "T1", property: "album_artist", value: "Massive"),
+            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .artist, value: "Massive"),
+            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .albumArtist, value: "Massive"),
         ]])
         #expect(await coordinator.getHistory().isEmpty)
     }
 
     @Test("Revert preserves an album artist changed after the original rename")
     func revertPreservesDistinctAlbumArtist() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let currentTrack = Track(
             id: "T1",
             name: "Teardrop",
@@ -42,7 +46,7 @@ struct UndoArtistTests {
             albumArtist: "Various Artists"
         )
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             idMapper: MetadataUndoTrackIDMapper(
                 mapping: ["T1": "AS1"],
                 metadata: ["T1": currentTrack]
@@ -56,7 +60,7 @@ struct UndoArtistTests {
 
         #expect(await bridge.batchUpdates.isEmpty)
         #expect(await bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: "AS1", property: "artist", value: "Massive"),
+            MusicTrackUpdate(databaseID: testDatabaseID("AS1"), property: .artist, value: "Massive"),
         ])
         #expect(await coordinator.getHistory().isEmpty)
     }

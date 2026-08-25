@@ -46,8 +46,8 @@ struct ScopeWorkflowTests {
         let writes = await fixture.scriptClient.updatedProperties()
         let write = try #require(writes.first)
         #expect(writes.count == 1)
-        #expect(write.trackID == "accepted")
-        #expect(write.property == "genre")
+        #expect(write.databaseID.rawValue == "accepted")
+        #expect(write.property == .genre)
         #expect(write.value == "Rock")
         #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
         #expect(viewModel.result?.entries.count == 1)
@@ -369,8 +369,8 @@ struct ScopeWorkflowTests {
         let missingGenreDate = Date(timeIntervalSince1970: 2000)
 
         viewModel.start(tracks: [
-            Track(
-                id: "missing-genre",
+            makeWritableTrack(
+                "missing-genre",
                 name: "Only for the Weak",
                 artist: "In Flames",
                 album: "Clayman",
@@ -394,8 +394,8 @@ struct ScopeWorkflowTests {
         }
         let writes = await fixture.scriptClient.updatedProperties()
         #expect(writes.contains {
-            $0.trackID == "missing-genre"
-                && $0.property == "genre"
+            $0.databaseID.rawValue == "missing-genre"
+                && $0.property == .genre
                 && $0.value == "Melodic Death Metal"
         })
     }
@@ -412,8 +412,8 @@ struct ScopeWorkflowTests {
         viewModel.cleanAlbumNames = false
 
         viewModel.start(tracks: [
-            Track(
-                id: "missing-genre",
+            makeWritableTrack(
+                "missing-genre",
                 name: "Only for the Weak",
                 artist: "In Flames",
                 album: "Clayman",
@@ -458,7 +458,7 @@ struct ScopeWorkflowTests {
         viewModel.cleanAlbumNames = false
 
         viewModel.start(tracks: [
-            Track(id: "missing-year", name: "Track", artist: "In Flames", album: "Clayman", year: 1999),
+            makeWritableTrack("missing-year", name: "Track", artist: "In Flames", album: "Clayman", year: 1999),
         ])
 
         try await waitForWorkflowToLeaveScanning(viewModel)
@@ -482,8 +482,8 @@ struct ScopeWorkflowTests {
         viewModel.cleanTrackNames = false
         viewModel.cleanAlbumNames = false
         let tracks = [
-            Track(
-                id: "target-track",
+            makeWritableTrack(
+                "target-track",
                 name: "Only for the Weak",
                 artist: "In Flames",
                 album: "Clayman",
@@ -544,8 +544,8 @@ struct ScopeWorkflowTests {
         viewModel.cleanTrackNames = false
         viewModel.cleanAlbumNames = false
         let tracks = [
-            Track(id: "unchanged-year", name: "Track A", artist: "In Flames", album: "Clayman", year: 1999),
-            Track(id: "failed-year", name: "Track B", artist: "In Flames", album: "Clayman", year: 1998),
+            makeWritableTrack("unchanged-year", name: "Track A", artist: "In Flames", album: "Clayman", year: 1999),
+            makeWritableTrack("failed-year", name: "Track B", artist: "In Flames", album: "Clayman", year: 1998),
         ]
 
         viewModel.start(tracks: tracks)
@@ -624,13 +624,9 @@ struct ScopeWorkflowTests {
         viewModel.releaseYearRestoreThreshold = 5
 
         viewModel.start(tracks: [
-            Track(
-                id: "plainsong",
-                name: "Plainsong",
-                artist: "The Cure",
-                album: "Disintegration",
-                year: 2025,
-                releaseYear: 1989
+            makeWritableTrack(
+                "plainsong", name: "Plainsong", artist: "The Cure", album: "Disintegration",
+                year: 2025, releaseYear: 1989
             ),
         ])
         await viewModel.processingTask?.value
@@ -647,8 +643,8 @@ struct ScopeWorkflowTests {
         viewModel.releaseYearRestoreThreshold = 5
 
         viewModel.start(tracks: [
-            Track(
-                id: "restore-failed",
+            makeWritableTrack(
+                "restore-failed",
                 name: "Failed Restore",
                 artist: "The Cure",
                 album: "Wish",
@@ -677,8 +673,8 @@ struct ScopeWorkflowTests {
         viewModel.releaseYearRestoreThreshold = 5
 
         viewModel.start(tracks: [
-            Track(
-                id: "restore-reset",
+            makeWritableTrack(
+                "restore-reset",
                 name: "Delayed Restore",
                 artist: "The Cure",
                 album: "Wish",

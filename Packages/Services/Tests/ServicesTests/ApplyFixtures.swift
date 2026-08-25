@@ -4,7 +4,7 @@ import Foundation
 
 struct AcceptedApplyFixture {
     let coordinator: UpdateCoordinator
-    let bridge: MockAppleScriptClient
+    let bridge: MusicAppTestAccess
     let cache: MockCacheService
     let snapshot: MockLibrarySnapshotService
     let trackStore: MockTrackStore
@@ -33,7 +33,7 @@ func makeCoordinator(
     idMapper: (any TrackIDMapping)? = nil,
     analytics: (any AnalyticsService)? = nil
 ) async -> AcceptedApplyFixture {
-    let bridge = MockAppleScriptClient()
+    let bridge = MusicAppTestAccess()
     let apiService = MockAPIService()
     let orchestrator = makeAPIOrchestrator(
         musicBrainz: apiService,
@@ -44,12 +44,12 @@ func makeCoordinator(
         .appendingPathComponent("ApplyAcceptedTests-\(UUID().uuidString)")
     let cache = MockCacheService()
     let snapshot = MockLibrarySnapshotService()
-    let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
+    let undo = UndoCoordinator(musicApp: bridge, directory: undoDir)
     let trackStore = MockTrackStore()
     let coordinator = UpdateCoordinator(
         dependencies: UpdateDependencies(
             apiOrchestrator: orchestrator,
-            scriptBridge: bridge,
+            writer: bridge,
             stores: .init(
                 trackStore: trackStore,
                 cache: cache
@@ -87,8 +87,32 @@ func makeEditableTrack(
         album: album,
         genre: genre,
         year: year,
-        trackStatus: TrackKind.subscription.rawValue
+        trackStatus: TrackKind.subscription.rawValue,
+        appleScriptID: id
     )
+}
+
+func acceptedProposals(for track: Track) -> [ProposedChange] {
+    [
+        ProposedChange(
+            track: track,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Stoner Rock",
+            confidence: 90,
+            source: "Library",
+            isAccepted: true
+        ),
+        ProposedChange(
+            track: track,
+            changeType: .yearUpdate,
+            oldValue: "1999",
+            newValue: "2001",
+            confidence: 95,
+            source: "MusicBrainz",
+            isAccepted: true
+        ),
+    ]
 }
 
 func ignoreAcceptedChangeProgress(_ update: ProgressUpdate) {

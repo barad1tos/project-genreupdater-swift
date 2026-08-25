@@ -19,7 +19,7 @@ struct FixPlanIdentityTests {
             appleScriptID: "AS-1"
         )
         let mapper = TrackIDMapper()
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setFetchedTracks([appleScriptTrack])
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("FixPlanIdentity-\(UUID().uuidString)")
@@ -101,7 +101,7 @@ struct FixPlanIdentityTests {
                 yearScores: [2020: 100]
             )
         )
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let scopeProbe = YearScopeProbe()
         let directory = FileManager.default.temporaryDirectory
@@ -151,7 +151,7 @@ struct FixPlanIdentityTests {
 
     private func makeScopeCoordinator(
         apiService: UpdateAPIDouble,
-        bridge: MockAppleScriptClient,
+        bridge: MusicAppTestAccess,
         cache: MockCacheService,
         directory: URL
     ) -> UpdateCoordinator {
@@ -164,9 +164,9 @@ struct FixPlanIdentityTests {
                     cache: cache,
                     disabledSources: [.discogs, .itunes]
                 ),
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(trackStore: MockTrackStore(), cache: cache),
-                undoCoordinator: UndoCoordinator(scriptBridge: bridge, directory: directory)
+                undoCoordinator: UndoCoordinator(musicApp: bridge, directory: directory)
             ),
             genreDeterminator: GenreDeterminator()
         )
@@ -210,7 +210,7 @@ struct FixPlanIdentityTests {
     private func makeProducer(
         track: Track,
         mapper: TrackIDMapper,
-        bridge: MockAppleScriptClient,
+        bridge: MusicAppTestAccess,
         coordinator: UpdateCoordinator,
         capture: PlanCapture
     ) -> FixPlanProducer {
@@ -221,10 +221,7 @@ struct FixPlanIdentityTests {
                     refreshIdentity: { tracks, _ in
                         _ = try await mapper.refreshMapping(
                             musicKitTracks: tracks,
-                            appleScriptClient: bridge,
-                            batchSize: 50,
-                            allTrackIDsTimeout: .seconds(5),
-                            tracksByIDsTimeout: .seconds(5),
+                            identitySource: bridge,
                             mergeExisting: true
                         )
                     },
@@ -253,7 +250,7 @@ struct FixPlanIdentityTests {
 
     private func makeCoordinator(
         mapper: TrackIDMapper,
-        bridge: MockAppleScriptClient,
+        bridge: MusicAppTestAccess,
         directory: URL
     ) -> UpdateCoordinator {
         let result = YearResult(year: 2020, confidence: 90, yearScores: [2020: 90])
@@ -267,10 +264,10 @@ struct FixPlanIdentityTests {
                     appleMusic: service,
                     cache: cache
                 ),
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(trackStore: MockTrackStore(), cache: cache),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: bridge,
+                    musicApp: bridge,
                     directory: directory
                 ),
                 idMapper: mapper

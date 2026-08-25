@@ -43,9 +43,9 @@ struct AnalyticsBoundaryTests {
             _ = try await bridge.runScript(name: "missing")
         }
         await #expect(throws: CancellationError.self) {
-            try await bridge.batchUpdateTracks(
-                [TrackPropertyUpdate(trackID: "T1", property: "genre", value: "Rock")],
-                onAttempt: nil,
+            try await bridge.update(
+                [MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .genre, value: "Rock")],
+                onAttempt: {},
                 execute: { _ in throw CancellationError() }
             )
         }
@@ -69,7 +69,7 @@ struct AnalyticsBoundaryTests {
 
         let ids = try await bridge.scanTrackIDs(timeout: .seconds(1)) { _, _, _ in "BATCH:0:0:G1:" }
 
-        #expect(ids.isEmpty)
+        #expect(ids.ids.isEmpty)
         #expect(await analytics.results == [
             InstrumentationResult(operation: .appleScriptFetchIDs, outcome: .succeeded),
         ])
@@ -234,16 +234,16 @@ private func makeInstrumentationCoordinator(
         confidence: 90,
         yearScores: [2001: 90]
     ))
-    let bridge = MockAppleScriptClient()
+    let bridge = MusicAppTestAccess()
     let undo = UndoCoordinator(
-        scriptBridge: bridge,
+        musicApp: bridge,
         directory: FileManager.default.temporaryDirectory
             .appendingPathComponent("AnalyticsCoordinator-\(UUID().uuidString)")
     )
     return UpdateCoordinator(
         dependencies: UpdateDependencies(
             apiOrchestrator: makeAPIOrchestrator(musicBrainz: api, discogs: api, appleMusic: api),
-            scriptBridge: bridge,
+            writer: bridge,
             stores: .init(trackStore: MockTrackStore(), cache: MockCacheService()),
             undoCoordinator: undo,
             analytics: analytics

@@ -49,7 +49,7 @@ struct ArtistCatalogAdapterTests {
         configuration.development.testArtists = ["Björk"]
         let trackStore = try TrackDataStore.createInMemory()
         try await trackStore.initialize()
-        try await trackStore.saveTracks([
+        try await trackStore.seedMirror([
             Core.Track(id: "BJORK-1", name: "Jóga", artist: "Björk", album: "Homogenic"),
         ])
         let provider = CatalogReadProvider(tracks: [

@@ -35,9 +35,9 @@ actor RuntimeProbe {
     }
 }
 
-actor ScriptSpy: AppleScriptClient {
+actor ScriptSpy: MusicAppMutating, MusicAppVerifying {
     private var tracksByID: [String: Track] = [:]
-    private(set) var fetchCalls: [ScriptFetchCall] = []
+    private(set) var metadataFetches: [[MusicDatabaseTrackID]] = []
     private var shouldReturnUnknown = false
     private var shouldReturnChanged = false
 
@@ -45,36 +45,26 @@ actor ScriptSpy: AppleScriptClient {
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
     }
 
-    func initialize() async throws {
-        // This in-memory client requires no setup.
+    func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Track] {
+        metadataFetches.append(databaseIDs)
+        return databaseIDs.compactMap { tracksByID[$0.rawValue] }
     }
 
-    func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
-        nil
-    }
-
-    func fetchTracksByIDs(
-        _ trackIDs: [String],
-        batchSize: Int,
-        timeout: Duration?
-    ) async throws -> [Track] {
-        fetchCalls.append(ScriptFetchCall(trackIDs: trackIDs, batchSize: batchSize, timeout: timeout))
-        return trackIDs.compactMap { tracksByID[$0] }
-    }
-
-    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
-        Array(tracksByID.keys)
-    }
-
-    func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws
-        -> AppleScriptWriteResult {
+    func update(
+        _: MusicTrackUpdate,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> MusicWriteResult {
+        try await onAttempt()
         if shouldReturnUnknown {
             throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
         }
         return shouldReturnChanged ? .changed : .noChange
     }
 
-    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
+    func update(
+        _: [MusicTrackUpdate],
+        onAttempt _: @escaping WriteAttemptHook
+    ) async throws {
         // Factory tests only exercise single-track writes.
     }
 
@@ -130,12 +120,8 @@ actor FactoryTrackStore: TrackStateStore {
         []
     }
 
-    func saveTracks(_: [Track]) async throws {
+    func applyMirror(_: TrackMirrorUpdate) async throws {
         // Factory tests do not persist track state.
-    }
-
-    func deleteTrackIDs(_: [String]) async throws -> Int {
-        0
     }
 
     func getTrack(byID _: String) async throws -> Track? {

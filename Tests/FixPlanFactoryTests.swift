@@ -108,7 +108,7 @@ struct FixPlanFactoryTests {
             _ = try await fixture.run(input)
         }
         #expect(await fixture.runtime.callCount == 0)
-        #expect(await fixture.script.fetchCalls.isEmpty)
+        #expect(await fixture.script.metadataFetches.isEmpty)
     }
 
     @Test("background automatic input rechecks the live automation entitlement")
@@ -196,7 +196,7 @@ struct FixPlanFactoryTests {
             _ = try await fixture.run(fixture.input)
         }
         #expect(await fixture.runtime.callCount == 0)
-        #expect(await fixture.script.fetchCalls.isEmpty)
+        #expect(await fixture.script.metadataFetches.isEmpty)
     }
 
     @Test("Fix plan writer enforces recovery admission")
@@ -208,20 +208,20 @@ struct FixPlanFactoryTests {
         await #expect(throws: WriteAdmissionError.self) {
             _ = try await fixture.run(fixture.input)
         }
-        #expect(await fixture.script.fetchCalls.isEmpty)
+        #expect(await fixture.script.metadataFetches.isEmpty)
 
         await fixture.script.returnUnknownOutcome()
         await #expect(throws: AppleScriptOutcomeError.self) {
             _ = try await fixture.run(fixture.input)
         }
-        #expect(await fixture.script.fetchCalls.map(\.batchSize) == [7])
-        #expect(await fixture.script.fetchCalls.map(\.timeout) == [.seconds(45)])
+        let databaseID = try #require(MusicDatabaseTrackID(rawValue: "AS-1"))
+        #expect(await fixture.script.metadataFetches == [[databaseID]])
         let recoveryID = try #require(await fixture.processor.recoveryHoldID())
-        let fetchCount = await fixture.script.fetchCalls.count
+        let fetchCount = await fixture.script.metadataFetches.count
         await #expect(throws: BatchProcessorError.self) {
             _ = try await fixture.run(fixture.input)
         }
-        #expect(await fixture.script.fetchCalls.count == fetchCount)
+        #expect(await fixture.script.metadataFetches.count == fetchCount)
         try await fixture.processor.clearRecovery(batchID: recoveryID)
     }
 
@@ -247,7 +247,7 @@ struct FixPlanFactoryTests {
             Issue.record("Expected FixPlanWrite.Failure, got \(error)")
         }
         #expect(await fixture.runtime.callCount == 0)
-        #expect(await fixture.script.fetchCalls.isEmpty)
+        #expect(await fixture.script.metadataFetches.isEmpty)
     }
 
     @Test("a landed write attributes its entries to the run it received")
@@ -294,7 +294,7 @@ struct FixPlanFactoryTests {
             $0.state == .outcome(.failed)
         } == true)
         #expect(await fixture.runtime.callCount == 0)
-        #expect(await fixture.script.fetchCalls.isEmpty)
+        #expect(await fixture.script.metadataFetches.isEmpty)
     }
 }
 
@@ -427,7 +427,7 @@ private func makeWriteFixture(
             #expect(configuration == plan.configuration)
             #expect(scope == plan.scope)
             await runtime.record()
-            return FixPlanWrite.Runtime(coordinator: coordinator, scripts: script)
+            return FixPlanWrite.Runtime(coordinator: coordinator, verifier: script)
         },
         hasRunRecovery: { await recovery.check() }
     ))
@@ -476,10 +476,10 @@ private func makeCoordinator(
                 discogs: api,
                 appleMusic: api
             )),
-            scriptBridge: script,
+            writer: script,
             stores: .init(trackStore: FactoryTrackStore(), cache: FactoryCache()),
             undoCoordinator: UndoCoordinator(
-                scriptBridge: script,
+                musicApp: script,
                 directory: directory
             ),
             idMapper: mapper

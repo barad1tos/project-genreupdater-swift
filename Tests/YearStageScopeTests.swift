@@ -118,8 +118,8 @@ struct YearStageScopeTests {
 
         let writes = await fixture.scriptClient.updatedProperties()
         #expect(writes.count == 1)
-        #expect(writes.first?.trackID == "old-missing-year")
-        #expect(writes.first?.property == "year")
+        #expect(writes.first?.databaseID.rawValue == "old-missing-year")
+        #expect(writes.first?.property == .year)
         #expect(writes.first?.value == "2004")
         #expect(viewModel.result?.updatedTrackCount == 1)
         #expect(viewModel.processedCount == 5)
@@ -141,7 +141,8 @@ struct YearStageScopeTests {
                 artist: "Clutch",
                 album: "Blast Tyrant",
                 genre: "Stoner Rock",
-                year: nil
+                year: nil,
+                appleScriptID: "old-missing-year"
             ),
             Track(
                 id: "old-year-1",

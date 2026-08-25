@@ -91,7 +91,7 @@ struct AdmissionTransitionTests {
             _ = try await fixture.processor.performRecoverableWrite(
                 trackCount: 2,
                 requiredFeature: nil,
-                appliedTrackIDs: { (_: AppleScriptWriteResult) in [] },
+                appliedTrackIDs: { (_: MusicWriteResult) in [] },
                 partialTrackIDs: { error in
                     (error as? TransitionPartialError)?.trackIDs ?? []
                 },

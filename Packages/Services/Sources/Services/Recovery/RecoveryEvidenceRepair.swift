@@ -10,13 +10,13 @@ public enum RecoveryEvidenceRepair {
     /// recorded, or nil when the item carries no write identity.
     public static func changeLogEntry(for item: RunWorkItem) -> ChangeLogEntry? {
         guard case let .track(identity) = item.target,
-              let trackID = identity.appleScriptID,
-              !trackID.isEmpty
+              let rawDatabaseID = identity.appleScriptID,
+              let databaseID = MusicDatabaseTrackID(rawValue: rawDatabaseID)
         else { return nil }
         let change = item.effectiveChange
         var entry = ChangeLogEntry(
             changeType: change.changeType,
-            trackID: identity.readID,
+            trackID: databaseID.rawValue,
             artist: identity.artist,
             trackName: identity.trackName,
             albumName: identity.album
@@ -58,7 +58,7 @@ public enum RecoveryEvidenceRepair {
     }
 
     /// Returns missing canonical entries for written items. A same-run legacy
-    /// AppleScript-ID entry is rewritten to the read ID while preserving its
+    /// read-ID entry is rewritten to the Music.app database ID while preserving its
     /// event identity; entries owned by another run are never rewritten.
     public static func missingEntries(
         for items: [RunWorkItem],
@@ -70,9 +70,9 @@ public enum RecoveryEvidenceRepair {
                   !existing.contains(where: { matches($0, candidate) })
             else { return nil }
             guard case let .track(identity) = item.target,
-                  identity.appleScriptID != candidate.trackID,
+                  identity.readID != candidate.trackID,
                   let legacy = existing.first(where: {
-                      $0.trackID == identity.appleScriptID
+                      $0.trackID == identity.readID
                           && $0.runID == runID
                           && matchesChange($0, candidate)
                   })

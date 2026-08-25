@@ -24,14 +24,78 @@ public protocol PersistentCacheService: CacheService {
     func setPersistent(key: String, value: some Codable & Sendable) async
 }
 
-public enum TrackStoreError: LocalizedError, Sendable {
+public enum TrackStoreError: LocalizedError, Sendable, Equatable {
     case missingTrack(id: String)
+    case missingDatabaseID(trackID: String)
+    case nonCanonicalTrack(trackID: String, databaseID: MusicDatabaseTrackID)
+    case emptySource
+    case duplicateRepairSources(ids: [String])
+    case duplicateRepairTargets(ids: [MusicDatabaseTrackID])
+    case redundantRepair(id: MusicDatabaseTrackID)
+    case missingSource(id: String)
+    case targetExists(id: MusicDatabaseTrackID)
+    case duplicateUpserts(ids: [MusicDatabaseTrackID])
+    case duplicateDeletions(ids: [MusicDatabaseTrackID])
+    case identityOverlap(ids: [MusicDatabaseTrackID])
+    case identityCollisions(ids: [MusicDatabaseTrackID])
 
     public var errorDescription: String? {
         switch self {
         case let .missingTrack(id):
             "Track state store has no track with ID \(id)"
+        case let .missingDatabaseID(trackID):
+            "Track mirror upsert has no Music database ID for track ID \(trackID)"
+        case let .nonCanonicalTrack(trackID, databaseID):
+            "Track mirror upsert ID \(trackID) does not match Music database ID \(databaseID.rawValue)"
+        case .emptySource:
+            "Track mirror repair has an empty legacy source ID"
+        case let .duplicateRepairSources(ids):
+            "Track mirror update contains duplicate repair sources: \(ids.joined(separator: ", "))"
+        case let .duplicateRepairTargets(ids):
+            "Track mirror update contains duplicate repair targets: \(ids.map(\.rawValue).joined(separator: ", "))"
+        case let .redundantRepair(id):
+            "Track mirror repair target \(id.rawValue) is already canonical"
+        case let .missingSource(id):
+            "Track mirror repair has no stored source with ID \(id)"
+        case let .targetExists(id):
+            "Track mirror repair target already exists with ID \(id.rawValue)"
+        case let .duplicateUpserts(ids):
+            "Track mirror update contains duplicate upsert IDs: \(ids.map(\.rawValue).joined(separator: ", "))"
+        case let .duplicateDeletions(ids):
+            "Track mirror update contains duplicate deletion IDs: \(ids.map(\.rawValue).joined(separator: ", "))"
+        case let .identityOverlap(ids):
+            "Track mirror update contains overlapping operation IDs: \(ids.map(\.rawValue).joined(separator: ", "))"
+        case let .identityCollisions(ids):
+            "Track mirror upserts collide with noncanonical stored IDs: \(ids.map(\.rawValue).joined(separator: ", "))"
         }
+    }
+}
+
+/// Repairs one legacy persisted row to its authoritative Music database identity.
+public struct TrackMirrorRepair: Sendable {
+    public let sourceID: String
+    public let target: Track
+
+    public init(sourceID: String, target: Track) {
+        self.sourceID = sourceID
+        self.target = target
+    }
+}
+
+/// One coherent mutation of the persisted Music library mirror.
+public struct TrackMirrorUpdate: Sendable {
+    public let repairs: [TrackMirrorRepair]
+    public let upserts: [Track]
+    public let deletions: [MusicDatabaseTrackID]
+
+    public init(
+        repairs: [TrackMirrorRepair],
+        upserts: [Track],
+        deletions: [MusicDatabaseTrackID]
+    ) {
+        self.repairs = repairs
+        self.upserts = upserts
+        self.deletions = deletions
     }
 }
 
@@ -39,9 +103,8 @@ public enum TrackStoreError: LocalizedError, Sendable {
 public protocol TrackStateStore: Actor {
     func initialize() async throws
     func loadAllTracks() async throws -> [Track]
-    func saveTracks(_ tracks: [Track]) async throws
-    @discardableResult
-    func deleteTrackIDs(_ ids: [String]) async throws -> Int
+    /// Atomically applies one coherent metadata-mirror update.
+    func applyMirror(_ update: TrackMirrorUpdate) async throws
     func getTrack(byID id: String) async throws -> Track?
     /// Atomically persists metadata and processing flags for a change whose
     /// track ID is the canonical library read ID, never an AppleScript ID.
@@ -237,7 +300,6 @@ public protocol ChangeLogStore: Actor {
 public protocol TrackIDMapping: Sendable {
     func appleScriptID(forMusicKitID musicKitID: String) async -> String?
     func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track?
-    func refreshMapping(musicKitTracks: [Track], appleScriptTracks: [Track]) async
     func hasMappingFor(musicKitID: String) async -> Bool
 }
 

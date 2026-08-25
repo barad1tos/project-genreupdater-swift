@@ -220,10 +220,6 @@ actor WorkflowTrackIDMapper: TrackIDMapping {
         enrichedTracks[musicKitTrack.id]
     }
 
-    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
-        // These tests seed mappings directly.
-    }
-
     func seed(
         enrichedTracks newEnrichedTracks: [Track],
         appleScriptIDsByMusicKitID newAppleScriptIDs: [String: String]

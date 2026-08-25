@@ -87,11 +87,10 @@ public final class PersistedTrack {
 // MARK: - Conversion to/from Core.Track
 
 extension PersistedTrack {
-    /// Create a persisted track from a domain track.
-    public convenience init(from track: Core.Track) {
+    convenience init(mirror track: Core.Track, databaseID: MusicDatabaseTrackID) {
         self.init(
-            trackID: track.id,
-            appleScriptID: track.appleScriptID,
+            trackID: databaseID.rawValue,
+            appleScriptID: databaseID.rawValue,
             name: track.name,
             artist: track.artist,
             album: track.album,
@@ -100,10 +99,6 @@ extension PersistedTrack {
             dateAdded: track.dateAdded,
             albumArtist: track.albumArtist,
             trackStatus: track.trackStatus,
-            originalArtist: track.originalArtist,
-            originalAlbum: track.originalAlbum,
-            yearBeforeMGU: track.yearBeforeMGU,
-            yearSetByMGU: track.yearSetByMGU,
             releaseYear: track.releaseYear
         )
     }
@@ -145,5 +140,23 @@ extension PersistedTrack {
         yearBeforeMGU = yearBeforeMGU ?? track.yearBeforeMGU
         yearSetByMGU = track.yearSetByMGU ?? yearSetByMGU
         releaseYear = MusicAppYear.normalized(track.releaseYear)
+    }
+
+    func updateMirror(from track: Core.Track, databaseID: MusicDatabaseTrackID) {
+        name = track.name
+        artist = track.artist
+        album = track.album
+        genre = track.genre
+        year = MusicAppYear.normalized(track.year)
+        appleScriptID = databaseID.rawValue
+        dateAdded = track.dateAdded
+        albumArtist = track.albumArtist
+        trackStatus = track.trackStatus
+        releaseYear = MusicAppYear.normalized(track.releaseYear)
+    }
+
+    func repairMirror(with track: Core.Track, databaseID: MusicDatabaseTrackID) {
+        trackID = databaseID.rawValue
+        updateMirror(from: track, databaseID: databaseID)
     }
 }

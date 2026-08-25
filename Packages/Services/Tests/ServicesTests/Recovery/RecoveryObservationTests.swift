@@ -111,7 +111,7 @@ struct RecoveryObservationTests {
 
     @Test("every change type observes its own AppleScript property")
     func mapsChangeTypesToProperties() {
-        let expectations: [(ChangeType, AppleScriptTrackProperty)] = [
+        let expectations: [(ChangeType, MusicTrackProperty)] = [
             (.genreUpdate, .genre),
             (.yearUpdate, .year),
             (.yearRevert, .year),
@@ -120,8 +120,7 @@ struct RecoveryObservationTests {
             (.artistRename, .artist),
         ]
         for (changeType, property) in expectations {
-            #expect(AppleScriptTrackProperty(changeType: changeType) == property)
-            #expect(UpdateCoordinator.appleScriptProperty(for: changeType) == property.rawValue)
+            #expect(MusicTrackProperty(changeType: changeType) == property)
         }
     }
 }
@@ -132,17 +131,18 @@ struct RecoveryObservationServiceTests {
     func observesUncertainItems() async throws {
         let landed = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
         let external = makeWorkItem(state: .attempting, oldValue: "Pop", newValue: "Synthpop")
-        let client = MockAppleScriptClient()
+        let client = MusicAppTestAccess()
         await client.setFetchedTracks([
             observedTrack(id: "persistent-1", genre: "Stoner Rock"),
         ])
-        let service = RecoveryObservationService(scriptClient: client)
+        let service = RecoveryObservationService(verifier: client)
 
         let outcomes = try await service.observeOutcomes(for: [landed, external])
 
         #expect(outcomes[landed.id]?.outcome == .written)
         #expect(outcomes[external.id]?.outcome == .needsReview)
         #expect(outcomes[external.id]?.observedValue == "Stoner Rock")
+        #expect(try await client.fetchMetadataCalls() == [[#require(MusicDatabaseTrackID(rawValue: "persistent-1"))]])
     }
 
     @Test("two properties of one track classify independently")
@@ -154,11 +154,11 @@ struct RecoveryObservationServiceTests {
             oldValue: "1999",
             newValue: "2001"
         )
-        let client = MockAppleScriptClient()
+        let client = MusicAppTestAccess()
         await client.setFetchedTracks([
             observedTrack(id: "persistent-1", genre: "Stoner Rock", year: 1999),
         ])
-        let service = RecoveryObservationService(scriptClient: client)
+        let service = RecoveryObservationService(verifier: client)
 
         let outcomes = try await service.observeOutcomes(for: [genreItem, yearItem])
 
@@ -185,7 +185,7 @@ struct RecoveryObservationServiceTests {
                 albumArtistChange: albumArtistChange
             )
         )
-        let client = MockAppleScriptClient()
+        let client = MusicAppTestAccess()
         await client.setFetchedTracks([
             observedTrack(
                 id: "persistent-1",
@@ -194,7 +194,7 @@ struct RecoveryObservationServiceTests {
             ),
         ])
 
-        let outcomes = try await RecoveryObservationService(scriptClient: client).observeOutcomes(for: [item])
+        let outcomes = try await RecoveryObservationService(verifier: client).observeOutcomes(for: [item])
 
         #expect(outcomes[item.id]?.outcome == .needsReview)
         #expect(outcomes[item.id]?.observedValue == "Massive Attack (album artist: Massive)")
@@ -219,8 +219,8 @@ struct RecoveryObservationServiceTests {
                 albumArtistChange: albumArtistChange
             )
         )
-        let client = MockAppleScriptClient()
-        let service = RecoveryObservationService(scriptClient: client)
+        let client = MusicAppTestAccess()
+        let service = RecoveryObservationService(verifier: client)
 
         await client.setFetchedTracks([
             observedTrack(id: "persistent-1", artist: "Massive Attack", albumArtist: "Massive Attack"),
@@ -236,20 +236,20 @@ struct RecoveryObservationServiceTests {
     @Test("prepared items skip without observation")
     func skipsPreparedWithoutFetch() async throws {
         let prepared = makeWorkItem(state: .prepared)
-        let client = MockAppleScriptClient()
-        let service = RecoveryObservationService(scriptClient: client)
+        let client = MusicAppTestAccess()
+        let service = RecoveryObservationService(verifier: client)
 
         let outcomes = try await service.observeOutcomes(for: [prepared])
 
         #expect(outcomes[prepared.id]?.outcome == .skipped)
-        #expect(await client.fetchTracksByIDsCalls().isEmpty)
+        #expect(await client.fetchMetadataCalls().isEmpty)
     }
 
     @Test("terminal items are not observed")
     func ignoresTerminalItems() async throws {
         let terminal = makeWorkItem(state: .outcome(.written))
-        let client = MockAppleScriptClient()
-        let service = RecoveryObservationService(scriptClient: client)
+        let client = MusicAppTestAccess()
+        let service = RecoveryObservationService(verifier: client)
 
         let outcomes = try await service.observeOutcomes(for: [terminal])
 
@@ -259,9 +259,9 @@ struct RecoveryObservationServiceTests {
     @Test("fetch failure propagates and blocks clearance")
     func propagatesFetchFailure() async {
         let attempted = makeWorkItem(state: .attempted)
-        let client = MockAppleScriptClient()
+        let client = MusicAppTestAccess()
         await client.setFetchThrowMode(true)
-        let service = RecoveryObservationService(scriptClient: client)
+        let service = RecoveryObservationService(verifier: client)
 
         await #expect(throws: MockScriptError.self) {
             _ = try await service.observeOutcomes(for: [attempted])
@@ -271,8 +271,8 @@ struct RecoveryObservationServiceTests {
     @Test("a fully deleted selection classifies as reviewable, not blocked")
     func classifiesDeletedSelection() async throws {
         let attempted = makeWorkItem(state: .attempted)
-        let client = MockAppleScriptClient()
-        let service = RecoveryObservationService(scriptClient: client)
+        let client = MusicAppTestAccess()
+        let service = RecoveryObservationService(verifier: client)
 
         let outcomes = try await service.observeOutcomes(for: [attempted])
 
@@ -295,7 +295,8 @@ private func observedTrack(
         album: "Album",
         genre: genre,
         year: year,
-        albumArtist: albumArtist
+        albumArtist: albumArtist,
+        appleScriptID: id
     )
 }
 

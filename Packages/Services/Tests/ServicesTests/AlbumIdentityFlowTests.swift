@@ -345,7 +345,7 @@ struct AlbumIdentityFlowTests {
 
     @Test("Year write batching groups tracks by album identity")
     func yearWriteBatchingGroupsTracksByAlbumIdentity() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let coordinator = makeCoordinator(
             script: bridge,
             runtimeConfiguration: UpdateRuntimeConfiguration(
@@ -375,13 +375,13 @@ struct AlbumIdentityFlowTests {
 
         let batches = await bridge.batchUpdates
         #expect(batches.count == 1)
-        #expect(batches.first?.map(\.trackID) == ["ram-1", "ram-2"])
+        #expect(batches.first?.map(\.databaseID.rawValue) == ["ram-1", "ram-2"])
         #expect(result.entries.map(\.trackID) == ["ram-1", "ram-2"])
     }
 
     @Test("Default update context groups collaboration tracks by album identity")
     func defaultUpdateContextGroupsCollaborationTracksByAlbumIdentity() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let coordinator = makeCoordinator(
             script: bridge,
             runtimeConfiguration: UpdateRuntimeConfiguration(
@@ -399,14 +399,14 @@ struct AlbumIdentityFlowTests {
         )
 
         let writes = await bridge.writtenProperties
-        #expect(writes.map(\.trackID) == ["ram-1"])
+        #expect(writes.map(\.databaseID.rawValue) == ["ram-1"])
         #expect(writes.first?.value == "2013")
         #expect(result.entries.map(\.trackID) == ["ram-1"])
     }
 
     @Test("Default update context keeps shared guest aliases in separate album identities")
     func defaultUpdateContextKeepsSharedGuestAliasesInSeparateAlbumIdentities() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let coordinator = makeCoordinator(script: bridge)
         let firstTrack = makeTrack(
             id: "first-guest",
@@ -436,7 +436,7 @@ struct AlbumIdentityFlowTests {
 
     @Test("Album context helper enriches MusicKit tracks before grouping")
     func albumContextHelperEnrichesMusicKitTracksBeforeGrouping() async {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let mapper = TrackIDMapper()
         let coordinator = makeCoordinator(script: bridge, idMapper: mapper)
         let firstMusicKitTrack = makeTrack(
@@ -480,7 +480,7 @@ struct AlbumIdentityFlowTests {
 
     @Test("Default update context groups tracks after AppleScript album artist enrichment")
     func defaultUpdateContextGroupsTracksAfterAppleScriptAlbumArtistEnrichment() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let mapper = TrackIDMapper()
         let coordinator = makeCoordinator(script: bridge, idMapper: mapper)
         let tracks = enrichedTracks()
@@ -496,16 +496,16 @@ struct AlbumIdentityFlowTests {
         )
 
         let writes = await bridge.writtenProperties
-        #expect(writes.map(\.trackID) == ["as-1"])
+        #expect(writes.map(\.databaseID.rawValue) == ["as-1"])
         #expect(writes.first?.value == "2001")
-        #expect(result.entries.map(\.trackID) == ["mk-1"])
+        #expect(result.entries.map(\.trackID) == ["as-1"])
     }
 
     @Test("Write invalidation clears canonical and legacy album keys")
     func writeInvalidationClearsCanonicalAndLegacyAlbumKeys() async throws {
         let cache = MockCacheService()
         await seedAlbumIdentityInvalidationCache(cache)
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let coordinator = makeCoordinator(script: bridge, cache: cache)
         let track = makeTrack(
             id: "ram-1",
@@ -543,7 +543,7 @@ struct AlbumIdentityFlowTests {
     func albumCleaningInvalidatesIdentityAliasesWithCleanedAlbum() async throws {
         let cache = MockCacheService()
         await seedOriginalArtistCleanedAlbumCache(cache)
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let coordinator = makeCoordinator(script: bridge, cache: cache)
         let track = makeTrack(
             id: "ram-clean",
@@ -606,7 +606,7 @@ struct AlbumIdentityFlowTests {
 
     func makeCoordinator(
         apiService: any ExternalAPIService = MockAPIService(),
-        script: MockAppleScriptClient = MockAppleScriptClient(),
+        script: MusicAppTestAccess = MusicAppTestAccess(),
         cache: MockCacheService = MockCacheService(),
         idMapper: (any TrackIDMapping)? = nil,
         pendingVerification: (any PendingVerificationService)? = nil,
@@ -625,13 +625,13 @@ struct AlbumIdentityFlowTests {
         return UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: api,
-                scriptBridge: script,
+                writer: script,
                 stores: .init(
                     trackStore: MockTrackStore(),
                     cache: cache
                 ),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: script,
+                    musicApp: script,
                     directory: undoDirectory
                 ),
                 idMapper: idMapper,
@@ -667,7 +667,8 @@ struct AlbumIdentityFlowTests {
             trackStatus: trackStatus,
             originalArtist: metadata.originalArtist,
             releaseYear: metadata.releaseYear,
-            albumArtist: metadata.albumArtist
+            albumArtist: metadata.albumArtist,
+            appleScriptID: id
         )
     }
 

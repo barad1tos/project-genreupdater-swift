@@ -107,10 +107,10 @@ extension UpdateCoordinator {
         }
 
         let reconciledWrites = preparedWrites.map { write in
-            guard let currentTrack = currentTracksByID[write.trackID] else { return write }
+            guard let currentTrack = currentTracksByID[write.databaseID] else { return write }
             return PreparedWrite(
                 change: Self.reconciledArtistRename(write.change, with: currentTrack),
-                trackID: write.trackID,
+                databaseID: write.databaseID,
                 property: write.property,
                 value: write.value
             )
@@ -140,7 +140,7 @@ extension UpdateCoordinator {
 
     private func executeBatchWrite(
         _ preparedWrites: [PreparedWrite],
-        currentTracksByID: [String: Track],
+        currentTracksByID: [MusicDatabaseTrackID: Track],
         preflight: ReviewedBatchPreflight,
         checkpoint: WorkCheckpointSink?
     ) async throws -> BatchFinalization {
@@ -156,7 +156,7 @@ extension UpdateCoordinator {
                 attemptedIndexes: preflight.writeIndexes,
                 checkpoint: checkpoint
             )
-        } catch let error as AppleScriptBatchVerificationError {
+        } catch let error as MusicBatchVerificationError {
             return try await verifyBatchAfterFailure(
                 preparedWrites,
                 currentTracksByID: currentTracksByID,
@@ -183,7 +183,7 @@ extension UpdateCoordinator {
     ) async throws {
         let itemIDs = writesToApply.map(\.change.id)
         do {
-            try await scriptBridge.batchUpdateTracks(
+            try await mutationAccess().update(
                 writesToApply.flatMap(\.updates),
                 onAttempt: {
                     attemptState.markAttempted()
@@ -214,7 +214,7 @@ extension UpdateCoordinator {
         } catch let error as AppleScriptOutcomeError {
             await invalidateBatchCaches(preparedWrites, indexes: attemptedIndexes)
             throw error
-        } catch let error as AppleScriptBatchVerificationError {
+        } catch let error as MusicBatchVerificationError {
             throw error
         } catch let error where attemptState.hasAttempted {
             await invalidateBatchCaches(preparedWrites, indexes: attemptedIndexes)
@@ -238,11 +238,11 @@ extension UpdateCoordinator {
 
     private func reviewedBatchPreflight(
         _ preparedWrites: [PreparedWrite],
-        currentTracksByID: [String: Track],
+        currentTracksByID: [MusicDatabaseTrackID: Track],
         isReviewedChange: Bool
     ) throws -> ReviewedBatchPreflight {
         for preparedWrite in preparedWrites {
-            guard let currentTrack = currentTracksByID[preparedWrite.trackID] else { continue }
+            guard let currentTrack = currentTracksByID[preparedWrite.databaseID] else { continue }
             try Self.validateMutationEligibility(
                 for: currentTrack,
                 requiresKnownStatus: true,
@@ -261,7 +261,7 @@ extension UpdateCoordinator {
         var noOpIndexes = Set<Int>()
         var failures: [Int: UpdateCoordinatorError] = [:]
         for (index, preparedWrite) in preparedWrites.enumerated() {
-            guard let currentTrack = currentTracksByID[preparedWrite.trackID] else {
+            guard let currentTrack = currentTracksByID[preparedWrite.databaseID] else {
                 continue
             }
             do {
@@ -290,9 +290,9 @@ extension UpdateCoordinator {
 
     private func verifyBatchAfterFailure(
         _ preparedWrites: [PreparedWrite],
-        currentTracksByID: [String: Track],
+        currentTracksByID: [MusicDatabaseTrackID: Track],
         preflight: ReviewedBatchPreflight,
-        error: AppleScriptBatchVerificationError,
+        error: MusicBatchVerificationError,
         checkpoint: WorkCheckpointSink?
     ) async throws -> BatchFinalization {
         do {
@@ -354,16 +354,29 @@ extension UpdateCoordinator {
         }
     }
 
-    private func fetchBatchWriteTracks(_ preparedWrites: [PreparedWrite]) async throws -> [String: Track]? {
-        let trackIDs = Array(Set(preparedWrites.map(\.trackID)))
-        let fetchedTracks = try await scriptBridge.fetchTracksByIDs(
-            trackIDs,
-            batchSize: runtimeConfiguration.idsBatchSize,
-            timeout: nil
-        )
-        let fetchedTracksByID = Dictionary(uniqueKeysWithValues: fetchedTracks.map { ($0.id, $0) })
-        let hasAllTracks = trackIDs.allSatisfy { fetchedTracksByID[$0] != nil }
-        return hasAllTracks ? fetchedTracksByID : nil
+    private func fetchBatchWriteTracks(
+        _ preparedWrites: [PreparedWrite]
+    ) async throws -> [MusicDatabaseTrackID: Track]? {
+        let expectedIDs = Set(preparedWrites.map(\.databaseID))
+        let databaseIDs = Array(expectedIDs)
+        let fetchedTracks = try await mutationAccess().fetchMetadata(for: databaseIDs)
+        return indexFetchedTracks(fetchedTracks, expectedIDs: expectedIDs)
+    }
+
+    private func indexFetchedTracks(
+        _ tracks: [Track],
+        expectedIDs: Set<MusicDatabaseTrackID>
+    ) -> [MusicDatabaseTrackID: Track]? {
+        var tracksByID: [MusicDatabaseTrackID: Track] = [:]
+        for track in tracks {
+            guard let databaseID = track.databaseID,
+                  expectedIDs.contains(databaseID),
+                  tracksByID.updateValue(track, forKey: databaseID) == nil
+            else {
+                return nil
+            }
+        }
+        return tracksByID.count == expectedIDs.count ? tracksByID : nil
     }
 
     private func verifiedIndexes(
@@ -377,13 +390,12 @@ extension UpdateCoordinator {
         var appliedIndexes = Set<Int>()
         for (index, preparedWrite) in preparedWrites.enumerated() {
             guard attemptedIndexes.contains(index) else { continue }
-            guard let refreshedTrack = refreshedTracksByID[preparedWrite.trackID] else {
+            guard let refreshedTrack = refreshedTracksByID[preparedWrite.databaseID] else {
                 continue
             }
             let hasExpectedValues = preparedWrite.updates.allSatisfy { update in
-                guard let property = AppleScriptTrackProperty(rawValue: update.property) else { return false }
-                return property.comparisonValue(property.currentValue(in: refreshedTrack))
-                    == property.comparisonValue(update.value)
+                update.property.comparisonValue(update.property.currentValue(in: refreshedTrack))
+                    == update.property.comparisonValue(update.value)
             }
             if hasExpectedValues {
                 appliedIndexes.insert(index)

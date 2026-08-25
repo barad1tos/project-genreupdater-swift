@@ -1,11 +1,12 @@
 import Foundation
 import Testing
 @testable import Core
+@testable import Services
 
-@Suite("Track.fromAppleScriptOutput — AppleScript field parsing")
-struct TrackAppleScriptTests {
+@Suite("Music.app track wire behavior")
+struct TrackWireBehaviorTests {
     /// ASCII Record Separator used between fields.
-    private let fs = String(Track.fieldSeparator)
+    private let fs = String(TrackWireCodec.fieldSeparator)
 
     // MARK: - Full Record Parsing
 
@@ -26,7 +27,7 @@ struct TrackAppleScriptTests {
             "", // [11] empty placeholder
         ]
         let raw = fields.joined(separator: fs)
-        let track = Track.fromAppleScriptOutput(raw)
+        let track = decode(raw)
 
         #expect(track != nil)
         #expect(track?.id == "12345")
@@ -44,7 +45,7 @@ struct TrackAppleScriptTests {
 
     @Test("AppleScript parsing records AppleScript ID as mutation metadata")
     func appleScriptParsingRecordsAppleScriptIDAsMutationMetadata() throws {
-        let fieldSeparator = String(Track.fieldSeparator)
+        let fieldSeparator = String(TrackWireCodec.fieldSeparator)
         let raw = [
             "AS-123",
             "Battery",
@@ -60,7 +61,7 @@ struct TrackAppleScriptTests {
             "",
         ].joined(separator: fieldSeparator)
 
-        let track = try #require(Track.fromAppleScriptOutput(raw))
+        let track = try #require(decode(raw))
 
         #expect(track.id == "AS-123")
         #expect(track.appleScriptID == "AS-123")
@@ -68,26 +69,17 @@ struct TrackAppleScriptTests {
 
     // MARK: - Minimal Record
 
-    @Test("Parses minimal 5-field record (id, name, artist, albumArtist, album)")
-    func parseMinimalRecord() {
+    @Test("Rejects partial records even when identity fields are present")
+    func rejectsPartialRecord() {
         let raw = ["99999", "Song", "Artist", "Album Artist", "Album"].joined(separator: fs)
-        let track = Track.fromAppleScriptOutput(raw)
 
-        #expect(track != nil)
-        #expect(track?.id == "99999")
-        #expect(track?.name == "Song")
-        #expect(track?.artist == "Artist")
-        #expect(track?.albumArtist == "Album Artist")
-        #expect(track?.album == "Album")
-        #expect(track?.genre == nil)
-        #expect(track?.year == nil)
-        #expect(track?.releaseYear == nil)
+        #expect(decode(raw) == nil)
     }
 
     @Test("Rejects record with fewer than 5 fields")
     func rejectTooFewFields() {
         let raw = ["12345", "Song", "Artist", "AlbumArtist"].joined(separator: fs)
-        #expect(Track.fromAppleScriptOutput(raw) == nil)
+        #expect(decode(raw) == nil)
     }
 
     @Test("Rejects full-width record with missing AppleScript ID")
@@ -98,7 +90,7 @@ struct TrackAppleScriptTests {
             "matched", "2024", "2024", "",
         ].joined(separator: fs)
 
-        #expect(Track.fromAppleScriptOutput(raw) == nil)
+        #expect(decode(raw) == nil)
     }
 
     // MARK: - Empty Optional Fields
@@ -120,7 +112,7 @@ struct TrackAppleScriptTests {
             "", // placeholder
         ]
         let raw = fields.joined(separator: fs)
-        let track = Track.fromAppleScriptOutput(raw)
+        let track = decode(raw)
 
         #expect(track != nil)
         #expect(track?.albumArtist == nil)
@@ -144,7 +136,7 @@ struct TrackAppleScriptTests {
             "subscription", "2020", "2019", "",
         ]
         let raw = fields.joined(separator: fs)
-        let track = try #require(Track.fromAppleScriptOutput(raw))
+        let track = try #require(decode(raw))
 
         #expect(track.artist == "ArtistX")
         #expect(track.albumArtist == "AlbumArtistY")
@@ -164,7 +156,7 @@ struct TrackAppleScriptTests {
             "", "", "", "",
         ]
         let raw = fields.joined(separator: fs)
-        let track = try #require(Track.fromAppleScriptOutput(raw))
+        let track = try #require(decode(raw))
 
         #expect(track.dateAdded != nil)
         #expect(track.lastModified != nil)
@@ -185,7 +177,7 @@ struct TrackAppleScriptTests {
             "", "", "", "", "2023", "", "",
         ]
         let raw = fields.joined(separator: fs)
-        let track = Track.fromAppleScriptOutput(raw)
+        let track = decode(raw)
 
         #expect(track?.year == 2023)
     }
@@ -197,7 +189,7 @@ struct TrackAppleScriptTests {
             "", "", "", "", "0", "", "",
         ]
         let raw = fields.joined(separator: fs)
-        let track = Track.fromAppleScriptOutput(raw)
+        let track = decode(raw)
 
         #expect(track?.year == nil)
     }
@@ -209,7 +201,7 @@ struct TrackAppleScriptTests {
             "", "", "", "", "unknown", "", "",
         ]
         let raw = fields.joined(separator: fs)
-        let track = Track.fromAppleScriptOutput(raw)
+        let track = decode(raw)
 
         #expect(track?.year == nil)
     }
@@ -223,7 +215,7 @@ struct TrackAppleScriptTests {
             "", "", "", "", "2023", "2020", "",
         ]
         let raw = fields.joined(separator: fs)
-        let track = Track.fromAppleScriptOutput(raw)
+        let track = decode(raw)
 
         #expect(track?.year == 2023)
         #expect(track?.releaseYear == 2020)
@@ -236,7 +228,7 @@ struct TrackAppleScriptTests {
             "", "", "", "", "2023", "0", "",
         ]
         let raw = fields.joined(separator: fs)
-        let track = Track.fromAppleScriptOutput(raw)
+        let track = decode(raw)
 
         #expect(track?.year == 2023)
         #expect(track?.releaseYear == nil)
@@ -249,7 +241,7 @@ struct TrackAppleScriptTests {
             "", "", "", "", "2023", "2001-07-24 00:00:00", "",
         ]
         let raw = fields.joined(separator: fs)
-        let track = Track.fromAppleScriptOutput(raw)
+        let track = decode(raw)
 
         #expect(track?.year == 2023)
         #expect(track?.releaseYear == 2001)
@@ -266,8 +258,8 @@ struct TrackAppleScriptTests {
         let fetchTracksRecord = (baseFields + ["1991", ""]).joined(separator: fs)
         let fetchByIDsRecord = (baseFields + ["1991-08-12 00:00:00", ""]).joined(separator: fs)
 
-        let fetchTracksTrack = try #require(Track.fromAppleScriptOutput(fetchTracksRecord))
-        let fetchByIDsTrack = try #require(Track.fromAppleScriptOutput(fetchByIDsRecord))
+        let fetchTracksTrack = try #require(decode(fetchTracksRecord))
+        let fetchByIDsTrack = try #require(decode(fetchByIDsRecord))
 
         for track in [fetchTracksTrack, fetchByIDsTrack] {
             #expect(track.id == "48291")
@@ -296,7 +288,7 @@ struct TrackAppleScriptTests {
             "matched", "1991", "1991", "",
         ].joined(separator: fs)
 
-        let track = try #require(Track.fromAppleScriptOutput(raw))
+        let track = try #require(decode(raw))
 
         #expect(track.id == "48291")
         #expect(track.name == "Nothing Else Matters")
@@ -315,9 +307,13 @@ struct TrackAppleScriptTests {
             "1", "Song (Live)", "Artist", "", "Album (Deluxe Edition)",
             "", "", "", "", "", "", "",
         ].joined(separator: fs)
-        let track = Track.fromAppleScriptOutput(raw)
+        let track = decode(raw)
 
         #expect(track?.name == "Song (Live)")
         #expect(track?.album == "Album (Deluxe Edition)")
+    }
+
+    private func decode(_ output: String) -> Track? {
+        try? TrackWireCodec.decodeRecords(output, scriptName: "fetch_tracks").first
     }
 }

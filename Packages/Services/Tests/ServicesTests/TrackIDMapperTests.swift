@@ -37,6 +37,42 @@ func makeTrack(
 
 @Suite("TrackIDMapper — MusicKit ↔ AppleScript ID mapping")
 struct TrackIDMapperTests {
+    @Test("Pure resolution does not mutate mapper state")
+    func pureResolutionDoesNotMutateState() async {
+        let mapper = TrackIDMapper()
+        let source = makeTrack(id: "MK1", name: "Song", artist: "Artist", album: "Album")
+        let target = makeTrack(id: "AS1", name: "Song", artist: "Artist", album: "Album")
+
+        let resolution = TrackIDMapper.resolve(
+            sourceTracks: [source],
+            targetTracks: [target]
+        )
+
+        #expect(resolution.matches["MK1"]?.id == "AS1")
+        #expect(resolution.ambiguous.isEmpty)
+        #expect(resolution.unresolved.isEmpty)
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK1") == nil)
+    }
+
+    @Test("Pure resolution reports deterministic ambiguity and unresolved sources")
+    func pureResolutionReportsFailures() {
+        let ambiguous = makeTrack(id: "MK1", name: "Song", artist: "Artist", album: "Album")
+        let unresolved = makeTrack(id: "MK2", name: "Missing", artist: "Artist", album: "Album")
+        let targets = [
+            makeTrack(id: "AS2", name: "Song", artist: "Artist", album: "Album"),
+            makeTrack(id: "AS1", name: "Song", artist: "Artist", album: "Album")
+        ]
+
+        let resolution = TrackIDMapper.resolve(
+            sourceTracks: [unresolved, ambiguous],
+            targetTracks: targets
+        )
+
+        #expect(resolution.matches.isEmpty)
+        #expect(resolution.ambiguous == ["MK1": ["AS1", "AS2"]])
+        #expect(resolution.unresolved == ["MK2"])
+    }
+
     @Test("Matches tracks by name, artist, album")
     func refreshMappingMatchesByNameArtistAlbum() async {
         let mapper = TrackIDMapper()
@@ -157,7 +193,7 @@ struct TrackIDMapperTests {
     func emptyInputProducesEmptyMapping() async {
         let mapper = TrackIDMapper()
 
-        await mapper.refreshMapping(musicKitTracks: [], appleScriptTracks: [])
+        await mapper.refreshMapping(musicKitTracks: [], appleScriptTracks: [], mergeExisting: false)
 
         let result = await mapper.appleScriptID(forMusicKitID: "any")
         #expect(result == nil)

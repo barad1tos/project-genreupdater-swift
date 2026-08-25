@@ -1,0 +1,80 @@
+import Foundation
+import Testing
+@testable import Core
+@testable import Services
+
+@Suite("Music.app track wire codec")
+struct TrackWireCodecTests {
+    @Test("Decodes canonical identity and writable metadata from a complete record")
+    func decodesCompleteRecord() throws {
+        let output = record(
+            id: "AS-123",
+            name: "Battery (Live)",
+            artist: "Metallica",
+            albumArtist: "Metallica",
+            album: "Master of Puppets (Remastered)",
+            genre: "Metal",
+            dateAdded: "2024-02-21 13:45:00",
+            lastModified: "2024-03-01 10:00:00",
+            status: "local only",
+            year: "1986",
+            release: "1986-03-03 00:00:00"
+        )
+
+        let track = try #require(TrackWireCodec.decodeRecords(output, scriptName: "fetch_tracks").first)
+
+        #expect(track.databaseID?.rawValue == "AS-123")
+        #expect(track.name == "Battery (Live)")
+        #expect(track.album == "Master of Puppets (Remastered)")
+        #expect(track.year == 1986)
+        #expect(track.releaseYear == 1986)
+        #expect(track.dateAdded != nil)
+        #expect(track.lastModified != nil)
+    }
+
+    @Test("Rejects malformed records without exposing user metadata")
+    func rejectsMalformedRecordPrivately() {
+        let secret = "SECRET_TRACK_NAME"
+        let output = [secret, "artist", "album"].joined(separator: String(TrackWireCodec.fieldSeparator))
+
+        do {
+            _ = try TrackWireCodec.decodeRecords(output, scriptName: "fetch_tracks")
+            Issue.record("Expected a wire decode error")
+        } catch let error as TrackWireError {
+            #expect(!error.detail.contains(secret))
+            #expect(error.detail.contains("got 3"))
+        } catch {
+            Issue.record("Expected TrackWireError, got \(error)")
+        }
+    }
+
+    @Test("Treats zero year fields as missing")
+    func treatsZeroYearsAsMissing() throws {
+        let track = try #require(TrackWireCodec.decodeRecords(
+            record(id: "AS-0", year: "0", release: "0"),
+            scriptName: "fetch_tracks"
+        ).first)
+
+        #expect(track.year == nil)
+        #expect(track.releaseYear == nil)
+    }
+
+    private func record(
+        id: String,
+        name: String = "Song",
+        artist: String = "Artist",
+        albumArtist: String = "Artist",
+        album: String = "Album",
+        genre: String = "Rock",
+        dateAdded: String = "",
+        lastModified: String = "",
+        status: String = "matched",
+        year: String = "1999",
+        release: String = "2001"
+    ) -> String {
+        [
+            id, name, artist, albumArtist, album, genre,
+            dateAdded, lastModified, status, year, release, "",
+        ].joined(separator: String(TrackWireCodec.fieldSeparator))
+    }
+}

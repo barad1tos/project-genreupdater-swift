@@ -63,12 +63,8 @@ public struct DatabaseVerificationResult: Sendable, Equatable {
     }
 }
 
-/// Runtime settings for library reads and AppleScript-backed enrichment.
+/// Runtime policy for library sync scope, refresh cadence, and verification logs.
 public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
-    public let idsBatchSize: Int
-    public let fullLibraryFetchTimeout: Duration
-    public let idsBatchFetchTimeout: Duration
-    public let databaseVerificationBatchSize: Int
     public let databaseVerificationIntervalDays: Int
     public let forceMetadataScanIntervalDays: Int
     public let logsBaseDirectory: String
@@ -79,10 +75,6 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
     public let albumTargetIdentity: AlbumIdentity?
 
     public init(
-        idsBatchSize: Int = BatchProcessingConfig().idsBatchSize,
-        fullLibraryFetchTimeout: Duration = AppleScriptTimeouts().fullLibraryFetch,
-        idsBatchFetchTimeout: Duration = AppleScriptTimeouts().idsBatchFetch,
-        databaseVerificationBatchSize: Int = DatabaseVerificationConfig().batchSize,
         databaseVerificationIntervalDays: Int = DatabaseVerificationConfig().autoVerifyDays,
         forceMetadataScanIntervalDays: Int = 7,
         logsBaseDirectory: String = PathsConfig().logsBaseDirectory,
@@ -90,10 +82,6 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         testArtists: [String] = [],
         albumTargetIdentity: AlbumIdentity? = nil
     ) {
-        self.idsBatchSize = BatchProcessingConfig.clampIDBatch(idsBatchSize)
-        self.fullLibraryFetchTimeout = fullLibraryFetchTimeout
-        self.idsBatchFetchTimeout = idsBatchFetchTimeout
-        self.databaseVerificationBatchSize = max(1, databaseVerificationBatchSize)
         self.databaseVerificationIntervalDays = max(0, databaseVerificationIntervalDays)
         self.forceMetadataScanIntervalDays = max(0, forceMetadataScanIntervalDays)
         self.logsBaseDirectory = logsBaseDirectory
@@ -104,10 +92,6 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
 
     public init(configuration: AppConfiguration, albumTargetIdentity: AlbumIdentity? = nil) {
         self.init(
-            idsBatchSize: configuration.applescript.batchProcessing.idsBatchSize,
-            fullLibraryFetchTimeout: configuration.applescript.timeouts.fullLibraryFetch,
-            idsBatchFetchTimeout: configuration.applescript.timeouts.idsBatchFetch,
-            databaseVerificationBatchSize: configuration.databaseVerification.batchSize,
             databaseVerificationIntervalDays: configuration.databaseVerification.autoVerifyDays,
             logsBaseDirectory: configuration.paths.effectiveLogsBaseDirectory,
             lastDatabaseVerifyLog: configuration.logging.lastDatabaseVerifyLog,

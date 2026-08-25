@@ -47,7 +47,7 @@ struct WorkflowRecoveryTests {
         viewModel.proposedChanges = [makeProposedChange(id: "safe", isAccepted: true)]
         viewModel.applyAccepted()
         await viewModel.processingTask?.value
-        #expect(await fixture.scriptClient.updatedProperties().map(\.trackID) == ["safe"])
+        #expect(await fixture.scriptClient.updatedProperties().map(\.databaseID.rawValue) == ["safe"])
     }
 
     @Test("Fallback marker blocks a restarted workflow")

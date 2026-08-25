@@ -33,7 +33,7 @@ struct TrackIDBridgeTests {
         )
 
         do {
-            _ = try await bridge.fetchAllTrackIDs()
+            _ = try await bridge.fetchTrackIDCensus()
             Issue.record("Expected a missing library path to fail")
         } catch let error as AppleScriptBridgeError {
             guard case .invalidLibraryPath = error else {
@@ -58,12 +58,14 @@ struct TrackIDBridgeTests {
         )
         let log = ScanRequestLog()
 
-        let trackIDs = try await bridge.scanTrackIDs(timeout: .seconds(1)) { offset, limit, remaining in
+        let census = try await bridge.scanTrackIDs(timeout: .seconds(1)) { offset, limit, remaining in
             await log.fetch(offset: offset, limit: limit, remaining: remaining)
         }
 
         let requests = await log.requests
-        #expect(trackIDs == ["A", "B", "C"])
+        #expect(census.ids.map(\.rawValue) == ["A", "B", "C"])
+        #expect(census.totalCount == 3)
+        #expect(census.generation.rawValue == "G1")
         #expect(requests.map(\.offset) == [1, 3])
         #expect(requests.map(\.limit) == [2, 2])
         #expect(requests.allSatisfy { $0.remaining > .zero && $0.remaining <= .seconds(1) })

@@ -94,7 +94,13 @@ struct BatchRunAppTests {
         viewModel.updateGenre = false
         viewModel.updateYear = true
 
-        viewModel.startBatchProcessing(tracks: [batchYearTrack(id: "unknown-batch")])
+        viewModel.startBatchProcessing(tracks: [makeWritableTrack(
+            "unknown-batch",
+            name: "Batch Year",
+            artist: "Clutch",
+            album: "Pure Rock Fury",
+            year: 1999
+        )])
         await viewModel.processingTask?.value
 
         guard case .error = viewModel.phase else {

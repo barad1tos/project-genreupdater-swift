@@ -3,6 +3,13 @@ import Testing
 @testable import Core
 @testable import Services
 
+func testDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {
+    guard let databaseID = MusicDatabaseTrackID(rawValue: rawValue) else {
+        preconditionFailure("Invalid test database ID: \(rawValue)")
+    }
+    return databaseID
+}
+
 // MARK: - APIOrchestrator Test Factory
 
 func makeAPIOrchestrator(
@@ -139,6 +146,17 @@ actor PendingRecorder: PendingVerificationService {
 
 // MARK: - MockTrackStore
 
+extension TrackStateStore {
+    func seedMirror(_ tracks: [Track]) async throws {
+        let canonicalTracks = tracks.map { track in
+            var canonical = track
+            canonical.appleScriptID = canonical.id
+            return canonical
+        }
+        try await applyMirror(TrackMirrorUpdate(repairs: [], upserts: canonicalTracks, deletions: []))
+    }
+}
+
 struct AppliedTrackUpdate {
     let id: String
     let genreUpdated: Bool?
@@ -174,15 +192,16 @@ actor MockTrackStore: TrackStateStore {
         tracks
     }
 
-    func saveTracks(_ newTracks: [Track]) async throws {
-        tracks = newTracks
-    }
-
-    func deleteTrackIDs(_ ids: [String]) async throws -> Int {
-        let idsToDelete = Set(ids)
-        let originalCount = tracks.count
-        tracks.removeAll { idsToDelete.contains($0.id) }
-        return originalCount - tracks.count
+    func applyMirror(_ update: TrackMirrorUpdate) async throws {
+        let deletionIDs = Set(update.deletions.map(\.rawValue))
+        tracks.removeAll { deletionIDs.contains($0.id) }
+        for track in update.upserts {
+            if let index = tracks.firstIndex(where: { $0.id == track.id }) {
+                tracks[index] = track
+            } else {
+                tracks.append(track)
+            }
+        }
     }
 
     func getTrack(byID id: String) async throws -> Track? {

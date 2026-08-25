@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 private struct BackupRecoveryFixture {
-    let bridge: MockAppleScriptClient
+    let bridge: MusicAppTestAccess
     let historyStore: MockChangeLogStore
     let trackStore: MockTrackStore
     let directory: URL
@@ -12,7 +12,7 @@ private struct BackupRecoveryFixture {
     let csv: String
 
     static func make(liveYear: Int = 1998) async throws -> Self {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let historyStore = MockChangeLogStore()
         let trackStore = MockTrackStore()
         let directory = FileManager.default.temporaryDirectory
@@ -26,7 +26,7 @@ private struct BackupRecoveryFixture {
         )
         var liveTrack = staleMirror
         liveTrack.year = liveYear
-        try await trackStore.saveTracks([staleMirror])
+        try await trackStore.seedMirror([staleMirror])
         await bridge.setFetchedTracks([liveTrack])
         return Self(
             bridge: bridge,
@@ -43,7 +43,8 @@ private struct BackupRecoveryFixture {
 
     func coordinator() -> UndoCoordinator {
         UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
@@ -206,7 +207,7 @@ struct BackupRecoveryTests {
 
     @Test("A write error with recovery evidence stops later targets")
     func writeErrorStopsBackupBatch() async {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setWriteError(MockScriptError.intentional, for: "T1")
         let tracks = [
             Track(id: "T1", name: "Angel", artist: "Massive Attack", album: "Mezzanine", year: 2019),
@@ -214,7 +215,8 @@ struct BackupRecoveryTests {
         ]
         await bridge.setFetchedTracks(tracks)
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("BackupRecoveryTests-\(UUID().uuidString)")
         )

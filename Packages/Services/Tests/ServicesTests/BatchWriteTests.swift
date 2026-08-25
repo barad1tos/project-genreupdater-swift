@@ -17,9 +17,9 @@ struct BatchWriteTests {
         )
 
         #expect(await fixture.bridge.batchUpdates == [[
-            TrackPropertyUpdate(trackID: "T1", property: "artist", value: "Massive Attack"),
-            TrackPropertyUpdate(trackID: "T1", property: "album_artist", value: "Massive Attack"),
-            TrackPropertyUpdate(trackID: "T1", property: "genre", value: "Trip-Hop"),
+            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .artist, value: "Massive Attack"),
+            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .albumArtist, value: "Massive Attack"),
+            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .genre, value: "Trip-Hop"),
         ]])
         #expect(result.entries.count == 2)
         #expect(result.entries.first?.albumArtistChange?.newValue == "Massive Attack")
@@ -39,8 +39,8 @@ struct BatchWriteTests {
         )
 
         #expect(await fixture.bridge.batchUpdates == [[
-            TrackPropertyUpdate(trackID: "T1", property: "artist", value: "Massive Attack"),
-            TrackPropertyUpdate(trackID: "T1", property: "genre", value: "Trip-Hop"),
+            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .artist, value: "Massive Attack"),
+            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .genre, value: "Trip-Hop"),
         ]])
         #expect(result.entries.first?.albumArtistChange == nil)
         let prepared = await checkpoints.values.first
@@ -124,9 +124,10 @@ struct BatchWriteTests {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
         await fixture.bridge.setFetchedTracksClearedAfterBatchUpdate(true)
         await fixture.bridge.setSingleWriteResult(.noChange)
-        let track = makeTrack(id: "MK1", genre: "Rock", year: 1999)
+        let track = makeTrack(id: "MK1", databaseID: "AS1", genre: "Rock", year: 1999)
+        let observedTrack = makeTrack(id: "observed-AS1", databaseID: "AS1", genre: "Rock", year: 1999)
         await fixture.cache.storeAlbumYear(artist: track.artist, album: track.album, year: 1999, confidence: 80)
-        await fixture.bridge.setFetchedTracks([track])
+        await fixture.bridge.setFetchedTracks([observedTrack])
         let proposals = acceptedProposals(for: track)
 
         await #expect(throws: AppleScriptOutcomeError.self) {
@@ -138,8 +139,13 @@ struct BatchWriteTests {
 
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
+        let databaseID = try #require(MusicDatabaseTrackID(rawValue: "AS1"))
         #expect(batches.count == 1)
         #expect(written.isEmpty)
+        #expect(await fixture.bridge.fetchMetadataCalls() == [
+            [databaseID],
+            [databaseID],
+        ])
         #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
         #expect(await fixture.snapshot.wasCleared())
     }
@@ -216,7 +222,7 @@ struct BatchWriteTests {
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
-        #expect(batches.first?.map(\.trackID) == ["AS1", "AS1"])
+        #expect(batches.first?.map(\.databaseID.rawValue) == ["AS1", "AS1"])
         #expect(written.isEmpty)
     }
 
@@ -280,7 +286,7 @@ struct BatchWriteTests {
 
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
-        #expect(batches.map { $0.map(\.property) } == [["year"]])
+        #expect(batches.map { $0.map(\.property) } == [[.year]])
         #expect(written.isEmpty)
         #expect(result.entries.map(\.changeType) == [.yearUpdate])
         #expect(result.noOpEntries.isEmpty)
@@ -327,7 +333,7 @@ struct BatchWriteTests {
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
-        #expect(written.map(\.property) == ["genre", "year"])
+        #expect(written.map(\.property) == [.genre, .year])
         #expect(result.entries.map(\.changeType) == expectedEntries)
         #expect(result.noOpEntries.map(\.changeType) == expectedNoOpEntries)
         #expect(!result.hasPartialFailures)
@@ -455,12 +461,12 @@ struct BatchWriteTests {
         batchUpdatesEnabled: Bool,
         idMapper: (any TrackIDMapping)? = nil
     ) async -> BatchWriteFixture {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let snapshot = MockLibrarySnapshotService()
         let undoDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("BatchWriteTests-\(UUID().uuidString)")
-        let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
+        let undo = UndoCoordinator(musicApp: bridge, directory: undoDir)
         let apiService = MockAPIService(yearResult: YearResult(
             year: 2001,
             confidence: 95,
@@ -473,7 +479,7 @@ struct BatchWriteTests {
                     discogs: apiService,
                     appleMusic: apiService
                 ),
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(trackStore: MockTrackStore(), cache: cache),
                 undoCoordinator: undo,
                 idMapper: idMapper,
@@ -504,7 +510,8 @@ struct BatchWriteTests {
             album: "Mezzanine",
             genre: "Rock",
             trackStatus: TrackKind.subscription.rawValue,
-            albumArtist: currentAlbumArtist
+            albumArtist: currentAlbumArtist,
+            appleScriptID: "T1"
         )
         let reviewedTrack = Track(
             id: currentTrack.id,
@@ -513,7 +520,8 @@ struct BatchWriteTests {
             album: currentTrack.album,
             genre: currentTrack.genre,
             trackStatus: currentTrack.trackStatus,
-            albumArtist: "Massive Attack"
+            albumArtist: "Massive Attack",
+            appleScriptID: currentTrack.appleScriptID
         )
         return (currentTrack, [
             ProposedChange(
@@ -588,6 +596,7 @@ struct BatchWriteTests {
 
     private func makeTrack(
         id: String,
+        databaseID: String? = nil,
         name: String = "Come Together",
         genre: String?,
         year: Int?
@@ -599,7 +608,8 @@ struct BatchWriteTests {
             album: "Abbey Road",
             genre: genre,
             year: year,
-            trackStatus: TrackKind.subscription.rawValue
+            trackStatus: TrackKind.subscription.rawValue,
+            appleScriptID: databaseID ?? id
         )
     }
 }
@@ -610,7 +620,7 @@ private func ignoreProgress(_ update: ProgressUpdate) {
 
 private struct BatchWriteFixture {
     let coordinator: UpdateCoordinator
-    let bridge: MockAppleScriptClient
+    let bridge: MusicAppTestAccess
     let cache: MockCacheService
     let snapshot: MockLibrarySnapshotService
     let undo: UndoCoordinator

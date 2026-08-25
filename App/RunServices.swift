@@ -2,10 +2,32 @@ import Core
 import Foundation
 import Services
 
-struct RunServices {
-    let scripts: any AppleScriptClient
+struct RunMusicAccess {
+    let identifier: any MusicAppIdentifying
+    let writer: any MusicAppMutating & MusicAppVerifying
+    let observer: any MusicAppReading
+}
+
+private struct RunServices {
+    let identifier: any MusicAppIdentifying
+    let writer: any MusicAppMutating & MusicAppVerifying
+    let observer: any MusicAppReading
     let pendingVerification: (any PendingVerificationService)?
-    let readProvider: (any LibraryReadProvider)?
+}
+
+struct RunObservationServices {
+    let observer: any MusicAppReading
+    let pendingVerification: (any PendingVerificationService)?
+}
+
+struct RunPreviewServices {
+    let identifier: any MusicAppIdentifying
+    let pendingVerification: (any PendingVerificationService)?
+}
+
+struct RunWriteServices {
+    let writer: any MusicAppMutating & MusicAppVerifying
+    let pendingVerification: (any PendingVerificationService)?
 }
 
 /// Caches one serialized run between sync and preview; TriggerArbiter prevents run interleaving.
@@ -16,37 +38,50 @@ actor RunServiceFactory {
         let services: RunServices
     }
 
-    private let makeScripts: @Sendable (AppConfiguration) async throws -> any AppleScriptClient
+    private let makeMusicAccess: @Sendable (AppConfiguration) async throws -> RunMusicAccess
     private let makePendingVerification: @Sendable (AppConfiguration) async throws
         -> (any PendingVerificationService)?
-    private let makeReadProvider: @Sendable (AppConfiguration) -> (any LibraryReadProvider)?
     private var preparedRun: PreparedRun?
 
     init(
-        makeScripts: @escaping @Sendable (AppConfiguration) async throws -> any AppleScriptClient,
+        makeMusicAccess: @escaping @Sendable (AppConfiguration) async throws -> RunMusicAccess,
         makePendingVerification: @escaping @Sendable (AppConfiguration) async throws
-            -> (any PendingVerificationService)?,
-        makeReadProvider: @escaping @Sendable (AppConfiguration) -> (any LibraryReadProvider)? = { _ in nil }
+            -> (any PendingVerificationService)?
     ) {
-        self.makeScripts = makeScripts
+        self.makeMusicAccess = makeMusicAccess
         self.makePendingVerification = makePendingVerification
-        self.makeReadProvider = makeReadProvider
     }
 
-    func prepare(id: UUID, configuration: AppConfiguration) async throws -> RunServices {
+    func prepareObservation(id: UUID, configuration: AppConfiguration) async throws -> RunObservationServices {
         let encodedConfiguration = try encode(configuration)
         if let preparedRun,
            preparedRun.id == id,
            preparedRun.configuration == encodedConfiguration {
-            return preparedRun.services
+            return observationServices(preparedRun.services)
         }
 
         let services = try await build(configuration: configuration)
         preparedRun = PreparedRun(id: id, configuration: encodedConfiguration, services: services)
-        return services
+        return observationServices(services)
     }
 
-    func consume(id: UUID, configuration: AppConfiguration) async throws -> RunServices {
+    func consumePreview(id: UUID, configuration: AppConfiguration) async throws -> RunPreviewServices {
+        let services = try await consume(id: id, configuration: configuration)
+        return RunPreviewServices(
+            identifier: services.identifier,
+            pendingVerification: services.pendingVerification
+        )
+    }
+
+    func consumeWrite(id: UUID, configuration: AppConfiguration) async throws -> RunWriteServices {
+        let services = try await consume(id: id, configuration: configuration)
+        return RunWriteServices(
+            writer: services.writer,
+            pendingVerification: services.pendingVerification
+        )
+    }
+
+    private func consume(id: UUID, configuration: AppConfiguration) async throws -> RunServices {
         let encodedConfiguration = try encode(configuration)
         if let preparedRun,
            preparedRun.id == id,
@@ -69,12 +104,20 @@ actor RunServiceFactory {
     }
 
     private func build(configuration: AppConfiguration) async throws -> RunServices {
-        let scripts = try await makeScripts(configuration)
+        let musicAccess = try await makeMusicAccess(configuration)
         let pendingVerification = try await makePendingVerification(configuration)
         return RunServices(
-            scripts: scripts,
-            pendingVerification: pendingVerification,
-            readProvider: makeReadProvider(configuration)
+            identifier: musicAccess.identifier,
+            writer: musicAccess.writer,
+            observer: musicAccess.observer,
+            pendingVerification: pendingVerification
+        )
+    }
+
+    private func observationServices(_ services: RunServices) -> RunObservationServices {
+        RunObservationServices(
+            observer: services.observer,
+            pendingVerification: services.pendingVerification
         )
     }
 

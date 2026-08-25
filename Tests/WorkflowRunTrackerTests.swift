@@ -24,7 +24,14 @@ struct WorkflowRunTrackerTests {
         viewModel.updateYear = true
 
         viewModel.start(tracks: [
-            Track(id: "missing-year", name: "Track", artist: "Clutch", album: "Pure Rock Fury", year: 1999),
+            Track(
+                id: "missing-year",
+                name: "Track",
+                artist: "Clutch",
+                album: "Pure Rock Fury",
+                year: 1999,
+                appleScriptID: "missing-year"
+            ),
         ])
 
         try await waitForWorkflowToLeaveScanning(viewModel)
@@ -50,7 +57,14 @@ struct WorkflowRunTrackerTests {
         viewModel.updateYear = true
 
         viewModel.start(tracks: [
-            Track(id: "missing-year", name: "Track", artist: "Clutch", album: "Pure Rock Fury", year: 1999),
+            Track(
+                id: "missing-year",
+                name: "Track",
+                artist: "Clutch",
+                album: "Pure Rock Fury",
+                year: 1999,
+                appleScriptID: "missing-year"
+            ),
         ])
 
         try await waitForWorkflowToLeaveScanning(viewModel)
@@ -77,7 +91,14 @@ struct WorkflowRunTrackerTests {
         viewModel.updateYear = true
 
         viewModel.start(tracks: [
-            Track(id: "missing-year", name: "Track", artist: "Clutch", album: "Pure Rock Fury", year: 1999),
+            Track(
+                id: "missing-year",
+                name: "Track",
+                artist: "Clutch",
+                album: "Pure Rock Fury",
+                year: 1999,
+                appleScriptID: "missing-year"
+            ),
         ])
 
         try await waitForWorkflowToLeaveScanning(viewModel)
@@ -111,7 +132,14 @@ struct WorkflowRunTrackerTests {
         viewModel.forceYearLookup = true
 
         viewModel.start(tracks: [
-            Track(id: "stale-year", name: "Track", artist: "Clutch", album: "Pure Rock Fury", year: 1999),
+            Track(
+                id: "stale-year",
+                name: "Track",
+                artist: "Clutch",
+                album: "Pure Rock Fury",
+                year: 1999,
+                appleScriptID: "stale-year"
+            ),
         ])
 
         try await waitForWorkflowToLeaveScanning(viewModel)
@@ -149,8 +177,22 @@ struct WorkflowRunTrackerTests {
 
     @Test("full-library year stage includes tracks outside incremental candidates")
     func yearStageIncludesAllTracks() async throws {
-        let oldTrack = Track(id: "old-track", name: "Old", artist: "Clutch", album: "Old Album", year: 1999)
-        let newTrack = Track(id: "new-track", name: "New", artist: "Clutch", album: "New Album", year: 1999)
+        let oldTrack = Track(
+            id: "old-track",
+            name: "Old",
+            artist: "Clutch",
+            album: "Old Album",
+            year: 1999,
+            appleScriptID: "old-track"
+        )
+        let newTrack = Track(
+            id: "new-track",
+            name: "New",
+            artist: "Clutch",
+            album: "New Album",
+            year: 1999,
+            appleScriptID: "new-track"
+        )
         let fixture = makeWorkflowFixture(
             apiService: DashboardStateAPIService(year: 2001, confidence: 90),
             resolveIncrementalTracks: { tracks, _ in
@@ -168,8 +210,8 @@ struct WorkflowRunTrackerTests {
         try await waitForWorkflowToLeaveScanning(viewModel)
         let writes = await fixture.scriptClient.updatedProperties()
 
-        #expect(Set(writes.map(\.trackID)) == Set([oldTrack.id, newTrack.id]))
-        #expect(writes.allSatisfy { $0.property == "year" && $0.value == "2001" })
+        #expect(Set(writes.map(\.databaseID.rawValue)) == Set([oldTrack.id, newTrack.id]))
+        #expect(writes.allSatisfy { $0.property == .year && $0.value == "2001" })
         #expect(viewModel.scopeTrackCount == 2)
     }
 
@@ -188,7 +230,8 @@ struct WorkflowRunTrackerTests {
             name: "Only for the Weak",
             artist: "In Flames",
             album: "Clayman",
-            dateAdded: Date(timeIntervalSince1970: 2000)
+            dateAdded: Date(timeIntervalSince1970: 2000),
+            appleScriptID: "missing-genre"
         )
         let fixture = makeWorkflowFixture(
             resolveIncrementalTracks: { tracks, _ in
@@ -206,12 +249,12 @@ struct WorkflowRunTrackerTests {
         try await waitForWorkflowToLeaveScanning(viewModel)
         let writes = await fixture.scriptClient.updatedProperties()
         let updatedMissingGenre = writes.contains { write in
-            write.trackID == missingGenre.id
-                && write.property == "genre"
+            write.databaseID.rawValue == missingGenre.id
+                && write.property == .genre
                 && write.value == "Melodic Death Metal"
         }
         let onlyMissingGenreUpdated = writes.allSatisfy { write in
-            write.trackID == missingGenre.id
+            write.databaseID.rawValue == missingGenre.id
         }
 
         #expect(updatedMissingGenre)
@@ -234,7 +277,8 @@ struct WorkflowRunTrackerTests {
             artist: "The Clash",
             album: "Second Album",
             genre: "Pop",
-            dateAdded: Date(timeIntervalSince1970: 200)
+            dateAdded: Date(timeIntervalSince1970: 200),
+            appleScriptID: "genre-mismatch"
         )
         let fixture = makeWorkflowFixture(
             resolveIncrementalTracks: { tracks, _ in
@@ -253,8 +297,8 @@ struct WorkflowRunTrackerTests {
         let writes = await fixture.scriptClient.updatedProperties()
 
         #expect(writes.contains { write in
-            write.trackID == mismatch.id
-                && write.property == "genre"
+            write.databaseID.rawValue == mismatch.id
+                && write.property == .genre
                 && write.value == "Punk"
         })
     }

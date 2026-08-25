@@ -365,11 +365,11 @@ extension AppDependencies {
            case let .blocked(blocker) = await recoveryAvailability.status() {
             throw AppDependencyServiceError.recoveryObservationBlocked(blocker)
         }
-        guard let recoveryObservationClient else {
+        guard let recoveryVerifier else {
             recoveryLog.error("Recovery observation skipped: no observation client available")
             return nil
         }
-        return try await RecoveryObservationService(scriptClient: recoveryObservationClient)
+        return try await RecoveryObservationService(verifier: recoveryVerifier)
             .observeOutcomes(for: record.workItems)
     }
 

@@ -117,9 +117,9 @@ final class AppDependencies {
     private(set) var musicReader: MusicLibraryReader?
     private(set) var libraryReadProvider: (any LibraryReadProvider)?
     private(set) var applescriptBridge: AppleScriptBridge?
-    /// Client used to re-read attempted work during recovery clearance;
+    /// Verifier used to re-read attempted work during recovery clearance;
     /// production wiring points it at the AppleScript bridge.
-    private(set) var recoveryObservationClient: (any AppleScriptClient)?
+    var recoveryVerifier: (any MusicAppVerifying)?
     /// Availability probe consulted before recovery observation so a blocked
     /// environment surfaces an actionable reason instead of a generic failure.
     private(set) var recoveryAvailability: RecoveryAvailability?
@@ -262,7 +262,7 @@ final class AppDependencies {
             )
             try await bridge.initialize()
             applescriptBridge = bridge
-            recoveryObservationClient = bridge
+            recoveryVerifier = bridge
             recoveryAvailability = RecoveryAvailability(checks: .live(installer: installer))
 
             let reader = MusicLibraryReader()
@@ -512,7 +512,7 @@ final class AppDependencies {
         trackIDMapper = mapper
 
         let undo = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             idMapper: mapper,
             stores: Self.makeUndoStores(changeLogStore: logStore, trackStore: store, cache: cache),
             librarySnapshotService: librarySnapshotService,
@@ -524,7 +524,7 @@ final class AppDependencies {
         updateCoordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(trackStore: store, cache: cache),
                 undoCoordinator: undo,
                 idMapper: mapper,
@@ -568,13 +568,12 @@ final class AppDependencies {
         cache: any CacheService
     ) -> LibrarySyncService {
         LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
             pendingVerificationService: pendingVerificationService,
             librarySnapshotService: librarySnapshotService,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config),
-            readProvider: libraryReadProvider
+            observer: MusicAppObserver(bridge: bridge)
         )
     }
 
@@ -753,10 +752,6 @@ extension AppDependencies {
     func installTestOrchestrator(_ orchestrator: RunOrchestrator) async {
         runOrchestrator = orchestrator
         await lifecycleRelay.attach(to: orchestrator)
-    }
-
-    func installTestObservationClient(_ client: any AppleScriptClient) {
-        recoveryObservationClient = client
     }
 
     func installTestFeatureGate(_ gate: FeatureGate) {

@@ -12,19 +12,15 @@ import Foundation
 /// trail. Fetch failures propagate so recovery clearance stays blocked while
 /// the physical state cannot be checked (fail closed).
 public struct RecoveryObservationService: Sendable {
-    private let scriptClient: any AppleScriptClient
-    private let batchSize: Int
+    private let verifier: any MusicAppVerifying
 
-    /// - Parameter batchSize: forwarded to the bridge's batched lookup; the
-    ///   bridge clamps oversized values, so the default only bounds one call.
-    public init(scriptClient: any AppleScriptClient, batchSize: Int = 50) {
-        self.scriptClient = scriptClient
-        self.batchSize = batchSize
+    public init(verifier: any MusicAppVerifying) {
+        self.verifier = verifier
     }
 
     public func observeOutcomes(for items: [RunWorkItem]) async throws -> [UUID: ObservedWorkOutcome] {
         var outcomes: [UUID: ObservedWorkOutcome] = [:]
-        var observationIDs: [UUID: String] = [:]
+        var observationIDs: [UUID: MusicDatabaseTrackID] = [:]
         for item in items {
             switch item.state {
             case .outcome:
@@ -33,9 +29,8 @@ public struct RecoveryObservationService: Sendable {
                 outcomes[item.id] = ObservedWorkOutcome(outcome: .skipped, observedValue: nil)
             case .attempting, .attempted:
                 if case let .track(identity) = item.target,
-                   let appleScriptID = identity.appleScriptID,
-                   !appleScriptID.isEmpty {
-                    observationIDs[item.id] = appleScriptID
+                   let databaseID = identity.appleScriptID.flatMap(MusicDatabaseTrackID.init(rawValue:)) {
+                    observationIDs[item.id] = databaseID
                 } else {
                     outcomes[item.id] = ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
                 }
@@ -46,19 +41,15 @@ public struct RecoveryObservationService: Sendable {
         }
 
         let uniqueIDs = Array(Set(observationIDs.values))
-        let tracks = try await scriptClient.fetchTracksByIDs(
-            uniqueIDs,
-            batchSize: batchSize,
-            timeout: nil
-        )
+        let tracks = try await verifier.fetchMetadata(for: uniqueIDs)
         let tracksByID = Dictionary(
-            tracks.map { ($0.appleScriptID ?? $0.id, $0) },
+            tracks.compactMap { track in track.databaseID.map { ($0, track) } },
             uniquingKeysWith: { first, _ in first }
         )
         let itemsByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        for (itemID, scriptID) in observationIDs {
+        for (itemID, databaseID) in observationIDs {
             guard let item = itemsByID[itemID] else { continue }
-            guard let track = tracksByID[scriptID] else {
+            guard let track = tracksByID[databaseID] else {
                 outcomes[itemID] = ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
                 continue
             }

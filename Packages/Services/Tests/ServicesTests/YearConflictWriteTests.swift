@@ -9,7 +9,7 @@ struct YearConflictWriteTests {
     func forceLookupKeepsReleaseYearConflictSafety() async throws {
         let target = subRosaTrack()
         let peer = subRosaTrack(id: "subrosa-2", name: "Crucible")
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let coordinator = makeCoordinator(bridge: bridge)
 
         let changes = try await coordinator.updateTrack(
@@ -37,7 +37,7 @@ struct YearConflictWriteTests {
         )
     }
 
-    private func makeCoordinator(bridge: MockAppleScriptClient) -> UpdateCoordinator {
+    private func makeCoordinator(bridge: MusicAppTestAccess) -> UpdateCoordinator {
         let api = makeAPIOrchestrator(
             musicBrainz: MockAPIService(releaseCandidates: [
                 ReleaseCandidate(
@@ -56,13 +56,13 @@ struct YearConflictWriteTests {
         return UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: api,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
                     trackStore: MockTrackStore(),
                     cache: MockCacheService()
                 ),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: bridge,
+                    musicApp: bridge,
                     directory: undoDirectory
                 )
             ),

@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 private struct YearUndoFixture {
-    let bridge = MockAppleScriptClient()
+    let bridge = MusicAppTestAccess()
     let historyStore = MockChangeLogStore()
     let trackStore = MockTrackStore()
     let directory = FileManager.default.temporaryDirectory
@@ -12,10 +12,10 @@ private struct YearUndoFixture {
     let idMapper: (any TrackIDMapping)?
     let entry: ChangeLogEntry
 
-    init(idMapper: (any TrackIDMapping)? = nil) {
+    init(idMapper: (any TrackIDMapping)? = nil, trackID: String = "T1") {
         var entry = ChangeLogEntry(
             changeType: .yearUpdate,
-            trackID: "T1",
+            trackID: trackID,
             artist: "Massive Attack",
             trackName: "Angel",
             albumName: "Mezzanine"
@@ -32,7 +32,7 @@ private struct YearUndoFixture {
 
     func coordinator() -> UndoCoordinator {
         UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             idMapper: idMapper,
             stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
@@ -41,7 +41,7 @@ private struct YearUndoFixture {
 
     func prepare() async throws {
         let track = makeTrack(year: 2019)
-        try await trackStore.saveTracks([track])
+        try await trackStore.seedMirror([track])
         await bridge.setFetchedTracks([track])
         try await coordinator().recordChange(entry)
     }
@@ -61,7 +61,7 @@ private struct YearUndoFixture {
             newYear: 2020
         )
         let track = makeTrack(year: 2020)
-        try await trackStore.saveTracks([track])
+        try await trackStore.seedMirror([track])
         await bridge.setFetchedTracks([track])
         try await coordinator().recordChanges([oldestEntry, latestEntry])
         return latestEntry
@@ -73,11 +73,12 @@ private struct YearUndoFixture {
 
     private func makeTrack(year: Int?) -> Track {
         Track(
-            id: "T1",
+            id: entry.trackID,
             name: "Angel",
             artist: "Massive Attack",
             album: "Mezzanine",
-            year: year
+            year: year,
+            appleScriptID: entry.trackID
         )
     }
 }
@@ -93,7 +94,7 @@ struct YearUndoRecoveryTests {
         try await coordinator.revertChange(fixture.entry)
 
         #expect(await fixture.bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: "T1", property: "year", value: "0"),
+            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .year, value: "0"),
         ])
         #expect(await coordinator.getHistory().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
@@ -109,9 +110,10 @@ struct YearUndoRecoveryTests {
             name: "Angel",
             artist: "Massive Attack",
             album: "Mezzanine",
-            year: 2019
+            year: 2019,
+            appleScriptID: "T1"
         )
-        try await fixture.trackStore.saveTracks([currentTrack])
+        try await fixture.trackStore.seedMirror([currentTrack])
         await fixture.bridge.setFetchedTracks([currentTrack])
         let coordinator = fixture.coordinator()
         try await coordinator.recordChange(entry)
@@ -119,7 +121,7 @@ struct YearUndoRecoveryTests {
         try await coordinator.revertChange(entry)
 
         #expect(await fixture.bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: "T1", property: "year", value: "0"),
+            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .year, value: "0"),
         ])
         #expect(await coordinator.getHistory().isEmpty)
     }
@@ -175,7 +177,7 @@ struct YearUndoRecoveryTests {
         try await fixture.coordinator().revertChange(fixture.entry)
 
         #expect(await fixture.bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: "T1", property: "year", value: "0"),
+            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .year, value: "0"),
         ])
         #expect(await fixture.historyStore.entries.isEmpty)
     }
@@ -300,7 +302,7 @@ struct YearUndoRecoveryTests {
         #expect(await relaunched.getHistory().isEmpty)
         #expect(await fixture.historyStore.entries.isEmpty)
         #expect(await fixture.bridge.writtenProperties.count == 1)
-        #expect(await fixture.bridge.fetchTracksByIDsCalls().isEmpty)
+        #expect(await fixture.bridge.fetchMetadataCalls().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
     }
 
@@ -379,7 +381,7 @@ struct YearUndoRecoveryTests {
         #expect(await coordinator.getHistory().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
         #expect(await fixture.bridge.writtenProperties.isEmpty)
-        #expect(await fixture.bridge.fetchTracksByIDsCalls().isEmpty)
+        #expect(await fixture.bridge.fetchMetadataCalls().isEmpty)
     }
 
     @Test("Observation failure reports an unknown undo outcome")
@@ -439,9 +441,10 @@ struct YearUndoRecoveryTests {
             name: "Angel",
             artist: "Massive Attack",
             album: "Mezzanine",
-            year: 2020
+            year: 2020,
+            appleScriptID: "T1"
         )
-        try await fixture.trackStore.saveTracks([staleTrack])
+        try await fixture.trackStore.seedMirror([staleTrack])
         var checkpointEntry = ChangeLogEntry(
             changeType: .yearRevert,
             trackID: fixture.entry.trackID,
@@ -470,19 +473,19 @@ struct YearUndoRecoveryTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
     }
 
-    @Test("Relaunch resolves orphan recovery from the durable AppleScript ID")
+    @Test("Relaunch resolves orphan recovery from the canonical database ID")
     func usesStoredIDForOrphan() async throws {
         let mapper = TrackIDMapper()
-        let fixture = YearUndoFixture(idMapper: mapper)
+        let fixture = YearUndoFixture(idMapper: mapper, trackID: "AS1")
         let storedTrack = Track(
-            id: "T1",
+            id: fixture.entry.trackID,
             name: "Angel",
             artist: "Massive Attack",
             album: "Mezzanine",
             year: 2020,
             appleScriptID: "AS1"
         )
-        try await fixture.trackStore.saveTracks([storedTrack])
+        try await fixture.trackStore.seedMirror([storedTrack])
         var checkpointEntry = fixture.entry
         checkpointEntry.oldYear = 2020
         checkpointEntry.newYear = 2019
@@ -502,27 +505,27 @@ struct YearUndoRecoveryTests {
 
         await fixture.coordinator().initialize()
 
-        let mirrored = try await fixture.trackStore.getTrack(byID: "T1")
+        let mirrored = try await fixture.trackStore.getTrack(byID: "AS1")
         #expect(mirrored?.year == 2019)
         #expect(mirrored?.yearBeforeMGU == MusicAppYear.missingValue)
         #expect(mirrored?.yearSetByMGU == 2019)
-        #expect(await fixture.bridge.fetchTracksByIDsCalls().map(\.trackIDs) == [["AS1"]])
+        #expect(try await fixture.bridge.fetchMetadataCalls() == [[#require(MusicDatabaseTrackID(rawValue: "AS1"))]])
         #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
     }
 
     @Test("Durable ID lookup cancellation remains retryable")
     func retriesStoredIDAfterCancellation() async throws {
         let mapper = TrackIDMapper()
-        let fixture = YearUndoFixture(idMapper: mapper)
+        let fixture = YearUndoFixture(idMapper: mapper, trackID: "AS1")
         let storedTrack = Track(
-            id: "T1",
+            id: fixture.entry.trackID,
             name: "Angel",
             artist: "Massive Attack",
             album: "Mezzanine",
             year: 2019,
             appleScriptID: "AS1"
         )
-        try await fixture.trackStore.saveTracks([storedTrack])
+        try await fixture.trackStore.seedMirror([storedTrack])
         try await fixture.historyStore.saveEntry(fixture.entry)
         var checkpointEntry = fixture.entry
         checkpointEntry.newYear = MusicAppYear.missingValue
@@ -557,16 +560,16 @@ struct YearUndoRecoveryTests {
     @Test("Cancelled startup observation retries in the same session")
     func retriesStartupObservation() async throws {
         let mapper = TrackIDMapper()
-        let fixture = YearUndoFixture(idMapper: mapper)
+        let fixture = YearUndoFixture(idMapper: mapper, trackID: "AS1")
         let storedTrack = Track(
-            id: "T1",
+            id: fixture.entry.trackID,
             name: "Angel",
             artist: "Massive Attack",
             album: "Mezzanine",
             year: 2020,
             appleScriptID: "AS1"
         )
-        try await fixture.trackStore.saveTracks([storedTrack])
+        try await fixture.trackStore.seedMirror([storedTrack])
         var checkpointEntry = fixture.entry
         checkpointEntry.oldYear = 2020
         checkpointEntry.newYear = 2019
@@ -592,7 +595,7 @@ struct YearUndoRecoveryTests {
         await fixture.bridge.setFetchCancellationMode(false)
         await coordinator.initialize()
 
-        let mirrored = try await fixture.trackStore.getTrack(byID: "T1")
+        let mirrored = try await fixture.trackStore.getTrack(byID: "AS1")
         #expect(mirrored?.year == 2019)
         #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
     }

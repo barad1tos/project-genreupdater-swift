@@ -8,17 +8,18 @@ struct SyncForceScanTests {
     private static let baseDate = Date(timeIntervalSince1970: 1_800_000_000)
 
     @Test("Fast mode skips metadata fetch for common tracks")
-    func fastModeSkipsMetadataFetchForCommonTracks() async throws {
+    func usesFastObservationForCommonTracks() async throws {
         let fixture = await Self.makeFixture()
 
-        let result = try await fixture.service.detectChanges()
+        let result = try await fixture.service.detectObservation().result
+        let requests = await fixture.bridge.recordedObservationRequests()
 
         #expect(!result.hasChanges)
-        #expect(await fixture.bridge.fetchTracksRequestCount() == 0)
+        #expect(requests.map(\.refresh) == [.fast])
     }
 
-    @Test("Force mode fetches common tracks and records force scan timestamp")
-    func forceModeFetchesCommonTracksAndRecordsTimestamp() async throws {
+    @Test("Force sync commits metadata and records force scan timestamp")
+    func commitsForcedRefresh() async throws {
         let scanDate = Self.baseDate
         let oldDate = scanDate.addingTimeInterval(-3600)
         let fixture = await Self.makeFixture(
@@ -28,16 +29,19 @@ struct SyncForceScanTests {
             metadata: Self.metadata(timestamp: oldDate)
         )
 
-        let result = try await fixture.service.detectChanges(forceMetadataRefresh: true)
+        let result = try await fixture.service.synchronizeNow(forceMetadataRefresh: true)
+        let requests = await fixture.bridge.recordedObservationRequests()
         let metadata = await fixture.snapshotService.getSnapshotMetadata()
+        let persisted = try #require(await fixture.store.getTrack(byID: "T1"))
 
         #expect(result.modifiedTracks.map(\.id) == ["T1"])
-        #expect(await fixture.bridge.fetchedTrackIDSets() == [Set(["T1"])])
+        #expect(requests.map(\.refresh) == [.force])
+        #expect(persisted.genre == "Changed")
         #expect(metadata?.lastForceScanDate == scanDate)
     }
 
-    @Test("Stale force scan timestamp triggers metadata refresh")
-    func staleForceScanTimestampTriggersMetadataRefresh() async throws {
+    @Test("Stale timestamp triggers a committed metadata refresh")
+    func refreshesStaleMetadata() async throws {
         let now = Self.baseDate
         let staleForceScanDate = now.addingTimeInterval(-8 * 86400)
         let fixture = await Self.makeFixture(
@@ -48,32 +52,34 @@ struct SyncForceScanTests {
             )
         )
 
-        let result = try await fixture.service.detectChanges()
+        let result = try await fixture.service.synchronizeNow()
+        let requests = await fixture.bridge.recordedObservationRequests()
         let metadata = await fixture.snapshotService.getSnapshotMetadata()
 
         #expect(result.modifiedTracks.map(\.id) == ["T1"])
-        #expect(await fixture.bridge.fetchTracksRequestCount() == 1)
+        #expect(requests.map(\.refresh) == [.force])
         #expect(metadata?.lastForceScanDate == now)
     }
 
     @Test("Missing force scan timestamp stays in fast mode")
-    func missingForceScanTimestampStaysInFastMode() async throws {
+    func keepsUnseededScanFast() async throws {
         let now = Self.baseDate
         let fixture = await Self.makeFixture(
             now: now,
             metadata: Self.metadata(timestamp: now.addingTimeInterval(-3600))
         )
 
-        let result = try await fixture.service.detectChanges()
+        let result = try await fixture.service.detectObservation().result
+        let requests = await fixture.bridge.recordedObservationRequests()
         let metadata = await fixture.snapshotService.getSnapshotMetadata()
 
         #expect(!result.hasChanges)
-        #expect(await fixture.bridge.fetchTracksRequestCount() == 0)
-        #expect(metadata?.lastForceScanDate == now)
+        #expect(requests.map(\.refresh) == [.fast])
+        #expect(metadata?.lastForceScanDate == nil)
     }
 
-    @Test("Seeded force scan timestamp allows later scheduled metadata refresh")
-    func seededForceScanTimestampAllowsLaterScheduledMetadataRefresh() async throws {
+    @Test("Completed force scan enables later scheduled metadata refresh")
+    func enablesScheduledRefresh() async throws {
         let firstSyncDate = Self.baseDate
         let secondSyncDate = firstSyncDate.addingTimeInterval(8 * 86400)
         let dateProvider = SyncDateProvider(firstSyncDate)
@@ -82,14 +88,21 @@ struct SyncForceScanTests {
             currentDate: dateProvider.now
         )
 
-        let firstResult = try await fixture.service.detectChanges()
+        let firstResult = try await fixture.service.synchronizeNow(forceMetadataRefresh: true)
         dateProvider.set(secondSyncDate)
-        let secondResult = try await fixture.service.detectChanges()
+        await fixture.bridge.setLibrary(
+            ids: ["T1"],
+            tracks: ["T1": Self.track(name: "Changed Again")]
+        )
+        let secondResult = try await fixture.service.synchronizeNow()
+        let requests = await fixture.bridge.recordedObservationRequests()
         let metadata = await fixture.snapshotService.getSnapshotMetadata()
+        let persisted = try #require(await fixture.store.getTrack(byID: "T1"))
 
-        #expect(!firstResult.hasChanges)
+        #expect(firstResult.modifiedTracks.map(\.id) == ["T1"])
         #expect(secondResult.modifiedTracks.map(\.id) == ["T1"])
-        #expect(await fixture.bridge.fetchTracksRequestCount() == 1)
+        #expect(requests.map(\.refresh) == [.force, .force])
+        #expect(persisted.genre == "Changed Again")
         #expect(metadata?.lastForceScanDate == secondSyncDate)
     }
 
@@ -124,16 +137,21 @@ struct SyncForceScanTests {
             currentDate: dateProvider.now
         )
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             librarySnapshotService: syncSnapshotService,
-            currentDate: dateProvider.now
+            currentDate: dateProvider.now,
+            observer: bridge
         )
 
-        let result = try await service.detectChanges()
+        let result = try await service.synchronizeNow()
+        let requests = await bridge.recordedObservationRequests()
+        let metadataAfterSync = await syncSnapshotService.getSnapshotMetadata()
+        let persisted = try #require(await store.getTrack(byID: "T1"))
 
         #expect(result.modifiedTracks.map(\.id) == ["T1"])
-        #expect(await bridge.fetchTracksRequestCount() == 1)
+        #expect(requests.map(\.refresh) == [.force])
+        #expect(persisted.genre == "Alternative")
+        #expect(metadataAfterSync?.lastForceScanDate == refreshDate)
     }
 
     private static func makeFixture(
@@ -159,13 +177,14 @@ struct SyncForceScanTests {
         }
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             librarySnapshotService: snapshotService,
-            currentDate: dateProvider
+            currentDate: dateProvider,
+            observer: bridge
         )
         return ForceScanFixture(
             bridge: bridge,
+            store: store,
             snapshotService: snapshotService,
             service: service
         )
@@ -198,6 +217,7 @@ struct SyncForceScanTests {
 
 private struct ForceScanFixture {
     let bridge: SyncMockScriptClient
+    let store: SyncMockTrackStore
     let snapshotService: SyncMockLibrarySnapshotService
     let service: LibrarySyncService
 }

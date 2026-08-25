@@ -100,11 +100,7 @@ struct PreviewPlanTests {
     func refreshesTestArtistScope() async throws {
         let mapper = TrackIDMapper()
         let script = PreviewScriptClient(tracks: [appleScriptTrack(id: "AS-TRACK")])
-        let refresher = WriteIdentityRefresher(mapper: mapper, client: script)
-        var config = AppleScriptConfig()
-        config.timeouts.fullLibraryFetch = .seconds(91)
-        config.timeouts.singleArtistFetch = .seconds(37)
-        config.timeouts.idsBatchFetch = .seconds(7)
+        let refresher = WriteIdentityRefresher(mapper: mapper, source: script)
         let scope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: ["probe artist"],
             knownTrackCount: 1,
@@ -114,12 +110,10 @@ struct PreviewPlanTests {
 
         try await refresher.refresh(
             tracks: [musicKitTrack(id: "MK-TRACK")],
-            scope: scope,
-            config: config
+            scope: scope
         )
 
-        #expect(await script.artistScopes() == ["probe artist"])
-        #expect(await script.artistTimeouts() == [.seconds(37)])
+        #expect(await script.identityScopes() == [["probe artist"]])
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-TRACK") == "AS-TRACK")
     }
 
@@ -131,10 +125,7 @@ struct PreviewPlanTests {
             appleScriptTracks: [appleScriptTrack(id: "AS-OLD", name: "Old")]
         )
         let script = PreviewScriptClient(tracks: [appleScriptTrack(id: "AS-NEW", name: "New")])
-        let refresher = WriteIdentityRefresher(mapper: mapper, client: script)
-        var config = AppleScriptConfig()
-        config.timeouts.fullLibraryFetch = .seconds(91)
-        config.timeouts.idsBatchFetch = .seconds(7)
+        let refresher = WriteIdentityRefresher(mapper: mapper, source: script)
         let scope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
             knownTrackCount: 1,
@@ -144,12 +135,10 @@ struct PreviewPlanTests {
 
         try await refresher.refresh(
             tracks: [musicKitTrack(id: "MK-NEW", name: "New")],
-            scope: scope,
-            config: config
+            scope: scope
         )
 
-        #expect(await script.allTrackIDFetchCount() == 1)
-        #expect(await script.trackTimeouts() == [.seconds(7)])
+        #expect(await script.identityScopes() == [[]])
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-OLD") == "AS-OLD")
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-NEW") == "AS-NEW")
     }

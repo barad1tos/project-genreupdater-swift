@@ -15,8 +15,8 @@ struct RecoveryClearTests {
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, item) = uncertainRunRecord(recoveryID: recoveryID)
         try await setup.store.upsert(record)
-        try await setup.trackStore.saveTracks([Track(
-            id: "read-1",
+        try await setup.trackStore.seedMirror([Track(
+            id: "persistent-1",
             name: "Track",
             artist: "Artist",
             album: "Album",
@@ -27,15 +27,16 @@ struct RecoveryClearTests {
             isMusicAppRunning: { true },
             areScriptsInstalled: { true }
         )))
-        setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: [
+        setup.dependencies.recoveryVerifier = RecoveryScriptStub(tracks: [
             Track(
                 id: "persistent-1",
                 name: "Track",
                 artist: "Artist",
                 album: "Album",
-                genre: "Stoner Rock"
+                genre: "Stoner Rock",
+                appleScriptID: "persistent-1"
             ),
-        ]))
+        ])
         let stored = try #require(await setup.store.record(for: record.runID))
         await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
 
@@ -48,7 +49,7 @@ struct RecoveryClearTests {
         #expect(closed.workItems.first?.id == item.id)
         #expect(closed.workItems.first?.detail == "Verified in Music.app: Stoner Rock")
         #expect(await setup.processor.recoveryHoldID() == nil)
-        let mirrored = try #require(try await setup.trackStore.getTrack(byID: "read-1"))
+        let mirrored = try #require(try await setup.trackStore.getTrack(byID: "persistent-1"))
         #expect(mirrored.genre == "Stoner Rock")
         let persisted = try ModelContext(setup.persistenceContainer)
             .fetch(FetchDescriptor<PersistedTrack>())
@@ -62,8 +63,8 @@ struct RecoveryClearTests {
         let recoveryID = await setup.processor.beginRecoveryHold()
         let (record, _) = uncertainRunRecord(recoveryID: recoveryID)
         try await setup.store.upsert(record)
-        try await setup.trackStore.saveTracks([Track(
-            id: "read-1",
+        try await setup.trackStore.seedMirror([Track(
+            id: "persistent-1",
             name: "Track",
             artist: "Artist",
             album: "Album",
@@ -74,15 +75,16 @@ struct RecoveryClearTests {
             isMusicAppRunning: { true },
             areScriptsInstalled: { true }
         )))
-        setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: [
+        setup.dependencies.recoveryVerifier = RecoveryScriptStub(tracks: [
             Track(
                 id: "persistent-1",
                 name: "Track",
                 artist: "Artist",
                 album: "Album",
-                genre: "Stoner Rock"
+                genre: "Stoner Rock",
+                appleScriptID: "persistent-1"
             ),
-        ]))
+        ])
         let stored = try #require(await setup.store.record(for: record.runID))
         await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
         #expect(await setup.undo.getHistory().isEmpty)
@@ -90,11 +92,11 @@ struct RecoveryClearTests {
         try await setup.dependencies.clearRecoveryHold(id: recoveryID)
 
         let history = await setup.undo.getHistory()
-        #expect(history.map(\.trackID) == ["read-1"])
+        #expect(history.map(\.trackID) == ["persistent-1"])
         #expect(history.first?.changeType == .genreUpdate)
         #expect(history.first?.newGenre == "Stoner Rock")
         let durable = try await setup.changeLog.loadAll()
-        #expect(durable.map(\.trackID) == ["read-1"])
+        #expect(durable.map(\.trackID) == ["persistent-1"])
         // Repaired evidence must attribute to the repaired run, or the entry
         // becomes a permanent nil-runID row that run retention never prunes.
         #expect(durable.first?.runID == record.runID.rawValue)
@@ -140,7 +142,7 @@ struct RecoveryClearTests {
         #expect(durable.first?.albumArtistChange == nil)
         #expect(durable.first?.runID == record.runID.rawValue)
         #expect(await setup.undo.getHistory() == durable)
-        let mirrored = try #require(try await setup.trackStore.getTrack(byID: "read-1"))
+        let mirrored = try #require(try await setup.trackStore.getTrack(byID: "persistent-1"))
         #expect(mirrored.artist == "Renamed Artist")
         #expect(mirrored.albumArtist == "Various Artists")
         let report = RunReportDetailBuilder.makeDetail(from: closed, now: Date())
@@ -160,8 +162,8 @@ struct RecoveryClearTests {
             itemState: .outcome(.written)
         )
         try await setup.store.upsert(record)
-        try await setup.trackStore.saveTracks([Track(
-            id: "read-1",
+        try await setup.trackStore.seedMirror([Track(
+            id: "persistent-1",
             name: "Track",
             artist: "Artist",
             album: "Album",
@@ -199,8 +201,8 @@ struct RecoveryClearTests {
             itemState: .outcome(.written)
         )
         try await setup.store.upsert(record)
-        try await setup.trackStore.saveTracks([Track(
-            id: "read-1",
+        try await setup.trackStore.seedMirror([Track(
+            id: "persistent-1",
             name: "Track",
             artist: "Artist",
             album: "Album",
@@ -217,14 +219,14 @@ struct RecoveryClearTests {
         #expect(durable.first?.runID == record.runID.rawValue)
         let persisted = try ModelContext(setup.persistenceContainer)
             .fetch(FetchDescriptor<PersistedTrack>())
-        #expect(persisted.map(\.trackID) == ["read-1"])
+        #expect(persisted.map(\.trackID) == ["persistent-1"])
         #expect(persisted.map(\.genre) == ["Stoner Rock"])
         #expect(persisted.map(\.genreUpdated) == [true])
         #expect(await setup.processor.recoveryHoldID() == nil)
     }
 
-    @Test("Recovery migrates legacy AppleScript history to read identity")
-    func migratesLegacyHistory() async throws {
+    @Test("Recovery preserves canonical AppleScript history identity")
+    func preservesCanonicalHistory() async throws {
         let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
@@ -233,8 +235,8 @@ struct RecoveryClearTests {
             itemState: .outcome(.written)
         )
         try await setup.store.upsert(record)
-        try await setup.trackStore.saveTracks([Track(
-            id: "read-1",
+        try await setup.trackStore.seedMirror([Track(
+            id: "persistent-1",
             name: "Track",
             artist: "Artist",
             album: "Album",
@@ -263,9 +265,9 @@ struct RecoveryClearTests {
         let durable = try await setup.changeLog.loadAll()
         #expect(durable.count == 1)
         #expect(durable.first?.id == legacyID)
-        #expect(durable.first?.trackID == "read-1")
+        #expect(durable.first?.trackID == "persistent-1")
         #expect(durable.first?.runID == record.runID.rawValue)
-        #expect(await setup.undo.getHistory().map(\.trackID) == ["read-1"])
+        #expect(await setup.undo.getHistory().map(\.trackID) == ["persistent-1"])
     }
 
     @Test("Recovery retry reuses migrated history after mirror failure")
@@ -302,10 +304,10 @@ struct RecoveryClearTests {
         var durable = try await setup.changeLog.loadAll()
         #expect(durable.count == 1)
         #expect(durable.first?.id == legacyID)
-        #expect(durable.first?.trackID == "read-1")
+        #expect(durable.first?.trackID == "persistent-1")
 
-        try await setup.trackStore.saveTracks([Track(
-            id: "read-1",
+        try await setup.trackStore.seedMirror([Track(
+            id: "persistent-1",
             name: "Track",
             artist: "Artist",
             album: "Album",
@@ -317,8 +319,8 @@ struct RecoveryClearTests {
         durable = try await setup.changeLog.loadAll()
         #expect(durable.count == 1)
         #expect(durable.first?.id == legacyID)
-        #expect(await setup.undo.getHistory().map(\.trackID) == ["read-1"])
-        #expect(try await setup.trackStore.getTrack(byID: "read-1")?.genre == "Stoner Rock")
+        #expect(await setup.undo.getHistory().map(\.trackID) == ["persistent-1"])
+        #expect(try await setup.trackStore.getTrack(byID: "persistent-1")?.genre == "Stoner Rock")
         #expect(await setup.processor.recoveryHoldID() == nil)
     }
 
@@ -332,8 +334,8 @@ struct RecoveryClearTests {
             itemState: .outcome(.written)
         )
         try await setup.store.upsert(record)
-        try await setup.trackStore.saveTracks([Track(
-            id: "read-1",
+        try await setup.trackStore.seedMirror([Track(
+            id: "persistent-1",
             name: "Track",
             artist: "Artist",
             album: "Album",
@@ -342,7 +344,7 @@ struct RecoveryClearTests {
         )])
         var phantom = ChangeLogEntry(
             changeType: .genreUpdate,
-            trackID: "read-1",
+            trackID: "persistent-1",
             artist: "Artist",
             trackName: "Track",
             albumName: "Album"
@@ -364,10 +366,10 @@ struct RecoveryClearTests {
 
         let durable = try await setup.changeLog.loadAll()
         #expect(durable.count == 1)
-        #expect(durable.first?.trackID == "read-1")
+        #expect(durable.first?.trackID == "persistent-1")
         #expect(durable.first?.runID == record.runID.rawValue)
         #expect(await setup.undo.getHistory().count == 1)
-        #expect(try await setup.trackStore.getTrack(byID: "read-1")?.genre == "Stoner Rock")
+        #expect(try await setup.trackStore.getTrack(byID: "persistent-1")?.genre == "Stoner Rock")
         #expect(await setup.processor.recoveryHoldID() == nil)
     }
 
@@ -431,7 +433,7 @@ struct RecoveryClearTests {
             isMusicAppRunning: { false },
             areScriptsInstalled: { true }
         )))
-        setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: []))
+        setup.dependencies.recoveryVerifier = RecoveryScriptStub(tracks: [])
         let stored = try #require(await setup.store.record(for: record.runID))
         await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
 
@@ -498,7 +500,7 @@ struct RecoveryClearTests {
             isMusicAppRunning: { true },
             areScriptsInstalled: { true }
         )))
-        setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: []))
+        setup.dependencies.recoveryVerifier = RecoveryScriptStub(tracks: [])
 
         #expect(await setup.dependencies.ensureRecoveryHold())
         let firstHold = await setup.processor.recoveryHoldID()

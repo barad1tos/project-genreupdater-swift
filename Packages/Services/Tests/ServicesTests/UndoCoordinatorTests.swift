@@ -91,10 +91,6 @@ struct MissingUndoTrackIDMapper: TrackIDMapping {
         nil
     }
 
-    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
-        await Task.yield()
-    }
-
     func hasMappingFor(musicKitID _: String) async -> Bool {
         false
     }
@@ -113,10 +109,6 @@ struct FixedUndoTrackIDMapper: TrackIDMapping {
         return enrichedTrack
     }
 
-    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
-        await Task.yield()
-    }
-
     func hasMappingFor(musicKitID: String) async -> Bool {
         mapping[musicKitID] != nil
     }
@@ -132,10 +124,6 @@ struct MetadataUndoTrackIDMapper: TrackIDMapping {
 
     func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track? {
         metadata[musicKitTrack.id] ?? musicKitTrack
-    }
-
-    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
-        await Task.yield()
     }
 
     func hasMappingFor(musicKitID: String) async -> Bool {
@@ -161,7 +149,7 @@ struct UndoCoordinatorTests {
         let store = MockChangeLogStore()
         await store.failSaves()
         let coordinator = UndoCoordinator(
-            scriptBridge: MockAppleScriptClient(),
+            musicApp: MusicAppTestAccess(),
             stores: .init(changeLog: store),
             directory: makeTempDirectory()
         )
@@ -180,7 +168,7 @@ struct UndoCoordinatorTests {
         let store = MockChangeLogStore()
         await store.failSaves()
         let coordinator = UndoCoordinator(
-            scriptBridge: MockAppleScriptClient(),
+            musicApp: MusicAppTestAccess(),
             stores: .init(changeLog: store),
             directory: makeTempDirectory()
         )
@@ -195,8 +183,12 @@ struct UndoCoordinatorTests {
 
     @Test("Record and get history")
     func recordAndGetHistory() async throws {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeTempDirectory()
+        )
 
         let entry1 = makeGenreEntry(trackID: "T1")
         let entry2 = makeYearEntry(trackID: "T2")
@@ -210,8 +202,12 @@ struct UndoCoordinatorTests {
 
     @Test("Revert single genre change writes old value")
     func revertSingleGenre() async throws {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeTempDirectory()
+        )
 
         let entry = makeGenreEntry(trackID: "T1", oldGenre: "Rock", newGenre: "Pop")
         try await coordinator.recordChange(entry)
@@ -219,8 +215,8 @@ struct UndoCoordinatorTests {
 
         let written = await bridge.writtenProperties
         #expect(written.count == 1)
-        #expect(written[0].trackID == "T1")
-        #expect(written[0].property == "genre")
+        #expect(written[0].databaseID.rawValue == "T1")
+        #expect(written[0].property == .genre)
         #expect(written[0].value == "Rock")
 
         let history = await coordinator.getHistory()
@@ -229,8 +225,12 @@ struct UndoCoordinatorTests {
 
     @Test("Revert single year change writes old value")
     func revertSingleYear() async throws {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeTempDirectory()
+        )
 
         let entry = makeYearEntry(trackID: "T1", oldYear: 1984)
         try await coordinator.recordChange(entry)
@@ -238,17 +238,18 @@ struct UndoCoordinatorTests {
 
         let written = await bridge.writtenProperties
         #expect(written.count == 1)
-        #expect(written[0].property == "year")
+        #expect(written[0].property == .year)
         #expect(written[0].value == "1984")
     }
 
     @Test("Revert invalidates album API and snapshot caches")
     func revertInvalidatesAlbumAPIAndSnapshotCaches() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let snapshotService = MockUndoLibrarySnapshotService()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             cache: cache,
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
@@ -274,11 +275,11 @@ struct UndoCoordinatorTests {
 
     @Test("Revert invalidates enriched album artist cache aliases")
     func revertInvalidatesEnrichedAlbumArtistCacheAliases() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let snapshotService = MockUndoLibrarySnapshotService()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             idMapper: MetadataUndoTrackIDMapper(
                 mapping: ["MK1": "AS1"],
                 metadata: [
@@ -323,10 +324,11 @@ struct UndoCoordinatorTests {
 
     @Test("Revert invalidates cleaned album cache aliases")
     func revertInvalidatesCleanedAlbumCacheAliases() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(cache: cache),
             cleaning: CleaningConfig(),
             directory: makeTempDirectory()
@@ -357,11 +359,12 @@ struct UndoCoordinatorTests {
 
     @Test("Album cleaning revert invalidates current and restored album caches")
     func albumCleaningRevertInvalidatesCurrentAndRestoredAlbumCaches() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let snapshotService = MockUndoLibrarySnapshotService()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(cache: cache),
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
@@ -406,31 +409,11 @@ struct UndoCoordinatorTests {
         #expect(await snapshotService.wasCleared())
     }
 
-    @Test("Revert writes resolved AppleScript ID when mapper is present")
-    func revertWritesResolvedAppleScriptID() async throws {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
-            idMapper: FixedUndoTrackIDMapper(mapping: ["MK1": "AS1"]),
-            directory: makeTempDirectory()
-        )
-        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
-        try await coordinator.recordChange(entry)
-
-        try await coordinator.revertChange(entry)
-
-        let written = await bridge.writtenProperties
-        #expect(written.count == 1)
-        #expect(written[0].trackID == "AS1")
-        #expect(written[0].property == "year")
-        #expect(written[0].value == "1984")
-    }
-
     @Test("Revert refuses missing AppleScript ID mapping")
     func revertRefusesMissingAppleScriptIDMapping() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             idMapper: MissingUndoTrackIDMapper(),
             directory: makeTempDirectory()
         )
@@ -461,9 +444,9 @@ struct UndoCoordinatorTests {
 
     @Test("Batch revert missing AppleScript ID failure is public-safe")
     func batchRevertMissingAppleScriptIDFailureIsPublicSafe() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             idMapper: MissingUndoTrackIDMapper(),
             directory: makeTempDirectory()
         )
@@ -494,9 +477,13 @@ struct UndoCoordinatorTests {
 
     @Test("Batch revert write failure description is public-safe")
     func batchRevertWriteFailureDescriptionIsPublicSafe() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setCustomWriteError(RawTrackIDWriteError(trackID: "MK1"))
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeTempDirectory()
+        )
         let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
         try await coordinator.recordChange(entry)
 
@@ -519,9 +506,13 @@ struct UndoCoordinatorTests {
 
     @Test("Batch revert domain failure description is public-safe")
     func batchRevertDomainFailureDescriptionIsPublicSafe() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setCustomWriteError(UndoCoordinatorError.revertFailed(trackID: "MK1", reason: "boom"))
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeTempDirectory()
+        )
         let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
         try await coordinator.recordChange(entry)
 
@@ -544,14 +535,18 @@ struct UndoCoordinatorTests {
 
     @Test("Batch revert preserves safe AppleScript setup failure description")
     func batchRevertPreservesSafeAppleScriptSetupFailureDescription() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setCustomWriteError(
             AppleScriptBridgeError.scriptNotFound(
                 name: "update_property",
                 searchPath: FileManager.default.temporaryDirectory
             )
         )
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeTempDirectory()
+        )
         let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
         try await coordinator.recordChange(entry)
 
@@ -574,8 +569,12 @@ struct UndoCoordinatorTests {
 
     @Test("Revert single artist rename writes old artist")
     func revertSingleArtistRename() async throws {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeTempDirectory()
+        )
 
         let entry = makeArtistRenameEntry(trackID: "T1", oldArtist: "Old Artist", newArtist: "New Artist")
         try await coordinator.recordChange(entry)
@@ -583,15 +582,19 @@ struct UndoCoordinatorTests {
 
         let written = await bridge.writtenProperties
         #expect(written.count == 1)
-        #expect(written[0].trackID == "T1")
-        #expect(written[0].property == "artist")
+        #expect(written[0].databaseID.rawValue == "T1")
+        #expect(written[0].property == .artist)
         #expect(written[0].value == "Old Artist")
     }
 
     @Test("Batch revert processes all entries")
     func batchRevert() async throws {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeTempDirectory()
+        )
 
         let entries = [
             makeGenreEntry(trackID: "T1"),
@@ -606,8 +609,12 @@ struct UndoCoordinatorTests {
 
     @Test("Batch revert on empty list throws noChangesToRevert")
     func batchRevertEmpty() async {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeTempDirectory()
+        )
 
         await #expect(throws: UndoCoordinatorError.self) {
             try await coordinator.revertBatch([])
@@ -616,8 +623,12 @@ struct UndoCoordinatorTests {
 
     @Test("Partial revert failure reports failed counts")
     func partialRevertFailure() async throws {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeTempDirectory()
+        )
 
         let entry1 = makeGenreEntry(trackID: "T1")
         let entry2 = makeYearEntry(trackID: "T2")
@@ -641,8 +652,8 @@ struct UndoCoordinatorTests {
 
     @Test("Clear history removes all entries")
     func clearHistory() async throws {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(musicApp: bridge, directory: makeTempDirectory())
 
         try await coordinator.recordChange(makeGenreEntry())
         try await coordinator.recordChange(makeYearEntry())
@@ -654,8 +665,12 @@ struct UndoCoordinatorTests {
 
     @Test("Selective revert only reverts specified entries")
     func selectiveRevert() async throws {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeTempDirectory()
+        )
 
         let entry1 = makeGenreEntry(trackID: "T1")
         let entry2 = makeYearEntry(trackID: "T2")
@@ -667,8 +682,8 @@ struct UndoCoordinatorTests {
 
         let written = await bridge.writtenProperties
         #expect(written.count == 1)
-        #expect(written[0].trackID == "T2")
-        #expect(written[0].property == "year")
+        #expect(written[0].databaseID.rawValue == "T2")
+        #expect(written[0].property == .year)
 
         // entry2 removed from history, entries 1 and 3 remain
         let history = await coordinator.getHistory()
@@ -677,8 +692,8 @@ struct UndoCoordinatorTests {
 
     @Test("History limit returns only N most recent entries")
     func historyLimit() async throws {
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeTempDirectory())
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(musicApp: bridge, directory: makeTempDirectory())
 
         for i in 0 ..< 5 {
             try await coordinator.recordChange(makeGenreEntry(trackID: "T\(i)"))
@@ -696,16 +711,16 @@ struct UndoCoordinatorPersistenceTests {
     @Test("History survives round-trip through new coordinator instance")
     func persistenceRoundTrip() async throws {
         let directory = makeTempDirectory()
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let container = try ModelContainerFactory.createInMemory()
         let store1 = ChangeLogDataStore(modelContainer: container)
 
-        let coordinator1 = UndoCoordinator(scriptBridge: bridge, stores: .init(changeLog: store1), directory: directory)
+        let coordinator1 = UndoCoordinator(musicApp: bridge, stores: .init(changeLog: store1), directory: directory)
         try await coordinator1.recordChange(makeGenreEntry(trackID: "T1"))
         try await coordinator1.recordChange(makeYearEntry(trackID: "T2"))
 
         let store2 = ChangeLogDataStore(modelContainer: container)
-        let coordinator2 = UndoCoordinator(scriptBridge: bridge, stores: .init(changeLog: store2), directory: directory)
+        let coordinator2 = UndoCoordinator(musicApp: bridge, stores: .init(changeLog: store2), directory: directory)
         let history = await coordinator2.getHistory()
         #expect(history.count == 2)
 
@@ -721,8 +736,8 @@ struct UndoCoordinatorPersistenceTests {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? Data("not valid json".utf8).write(to: historyURL)
 
-        let bridge = MockAppleScriptClient()
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: directory)
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(musicApp: bridge, directory: directory)
         let history = await coordinator.getHistory()
         #expect(history.isEmpty)
     }
@@ -731,7 +746,7 @@ struct UndoCoordinatorPersistenceTests {
     func legacyJSONImportsIntoSwiftData() async throws {
         let directory = makeTempDirectory()
         let historyURL = directory.appendingPathComponent("undo-history.json")
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let container = try ModelContainerFactory.createInMemory()
         let store = ChangeLogDataStore(modelContainer: container)
         let legacyEntries = [
@@ -744,7 +759,7 @@ struct UndoCoordinatorPersistenceTests {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(legacyEntries).write(to: historyURL, options: .atomic)
 
-        let coordinator = UndoCoordinator(scriptBridge: bridge, stores: .init(changeLog: store), directory: directory)
+        let coordinator = UndoCoordinator(musicApp: bridge, stores: .init(changeLog: store), directory: directory)
         let history = await coordinator.getHistory()
         let stored = try await store.loadAll()
 
@@ -756,11 +771,11 @@ struct UndoCoordinatorPersistenceTests {
     func clearHistoryDeletesLegacyFile() async {
         let directory = makeTempDirectory()
         let historyURL = directory.appendingPathComponent("undo-history.json")
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
 
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? Data("[]".utf8).write(to: historyURL)
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: directory)
+        let coordinator = UndoCoordinator(musicApp: bridge, directory: directory)
         #expect(FileManager.default.fileExists(atPath: historyURL.path))
 
         await coordinator.clearHistory()

@@ -139,7 +139,7 @@ struct FreshYearTests {
         let cache = MockCacheService()
         let coordinator = makeCoordinator(
             api: makeAPI(staleAPIYear: staleAPIYear, isDefinitive: isDefinitive),
-            bridge: MockAppleScriptClient(),
+            bridge: MusicAppTestAccess(),
             cache: cache,
             pendingVerificationService: pendingVerification
         )
@@ -173,7 +173,7 @@ struct FreshYearTests {
                 discogs: discogs ?? musicBrainz,
                 appleMusic: appleMusic ?? musicBrainz
             ),
-            bridge: MockAppleScriptClient(),
+            bridge: MusicAppTestAccess(),
             cache: cache,
             pendingVerificationService: pendingVerification
         )
@@ -218,7 +218,7 @@ struct FreshYearTests {
 
     private func makeCoordinator(
         api: APIOrchestrator,
-        bridge: MockAppleScriptClient,
+        bridge: MusicAppTestAccess,
         cache: MockCacheService,
         pendingVerificationService: any PendingVerificationService
     ) -> UpdateCoordinator {
@@ -227,13 +227,13 @@ struct FreshYearTests {
         return UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: api,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
                     trackStore: MockTrackStore(),
                     cache: cache
                 ),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: bridge,
+                    musicApp: bridge,
                     directory: undoDirectory
                 ),
                 librarySnapshotService: nil,

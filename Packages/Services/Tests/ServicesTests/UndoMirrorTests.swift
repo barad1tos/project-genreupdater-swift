@@ -8,11 +8,11 @@ import Testing
 struct UndoMirrorTests {
     @Test("A verified undo persists the restored value before removing history")
     func revertPersistsMirror() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let trackStore = try TrackDataStore.createInMemory()
-        try await trackStore.saveTracks([currentTrack()])
+        try await trackStore.seedMirror([currentTrack()])
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             stores: .init(tracks: trackStore),
             directory: makeDirectory()
         )
@@ -28,12 +28,12 @@ struct UndoMirrorTests {
 
     @Test("A mirror failure keeps undo evidence after the physical write lands")
     func mirrorFailureKeepsUndo() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let trackStore = MockTrackStore()
-        try await trackStore.saveTracks([currentTrack()])
+        try await trackStore.seedMirror([currentTrack()])
         await trackStore.failAppliedUpdates()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             stores: .init(tracks: trackStore),
             directory: makeDirectory()
         )
@@ -58,13 +58,13 @@ struct UndoMirrorTests {
 
     @Test("Batch undo stops after a verified write cannot update the mirror")
     func batchStopsAtMirrorFailure() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setFetchedTracks([currentTrack(genre: "Electronic")])
         let trackStore = MockTrackStore()
-        try await trackStore.saveTracks([currentTrack(genre: "Electronic")])
+        try await trackStore.seedMirror([currentTrack(genre: "Electronic")])
         await trackStore.failAppliedUpdates()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             stores: .init(tracks: trackStore),
             directory: makeDirectory()
         )
@@ -98,10 +98,11 @@ struct UndoMirrorTests {
 
     @Test("Artist undo invalidates caches for current and restored identities")
     func artistUndoInvalidatesBothIdentities() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(cache: cache),
             directory: makeDirectory()
         )
@@ -139,23 +140,25 @@ struct UndoMirrorTests {
             let container = try makeContainer(at: storeURL)
             let trackStore = TrackDataStore(modelContainer: container)
             let changeLogStore = ChangeLogDataStore(modelContainer: container)
-            try await trackStore.saveTracks([Track(
+            try await trackStore.seedMirror([Track(
                 id: entry.trackID,
                 name: entry.trackName,
                 artist: entry.newArtist ?? "",
                 album: entry.albumName,
-                albumArtist: entry.albumArtistChange?.newValue
+                albumArtist: entry.albumArtistChange?.newValue,
+                appleScriptID: entry.trackID
             )])
-            let bridge = MockAppleScriptClient()
+            let bridge = MusicAppTestAccess()
             await bridge.setFetchedTracks([Track(
                 id: entry.trackID,
                 name: entry.trackName,
                 artist: entry.newArtist ?? "",
                 album: entry.albumName,
-                albumArtist: entry.albumArtistChange?.newValue
+                albumArtist: entry.albumArtistChange?.newValue,
+                appleScriptID: entry.trackID
             )])
             let coordinator = UndoCoordinator(
-                scriptBridge: bridge,
+                musicApp: bridge,
                 stores: .init(changeLog: changeLogStore, tracks: trackStore),
                 directory: makeDirectory()
             )
@@ -182,14 +185,15 @@ struct UndoMirrorTests {
 
         do {
             let trackStore = try makeStore(at: storeURL)
-            try await trackStore.saveTracks([Track(
+            try await trackStore.seedMirror([Track(
                 id: entry.trackID,
                 name: entry.trackName,
                 artist: entry.artist,
-                album: entry.newAlbumName ?? ""
+                album: entry.newAlbumName ?? "",
+                appleScriptID: entry.trackID
             )])
             let coordinator = UndoCoordinator(
-                scriptBridge: MockAppleScriptClient(),
+                musicApp: MusicAppTestAccess(),
                 stores: .init(tracks: trackStore),
                 directory: makeDirectory()
             )
@@ -211,15 +215,16 @@ struct UndoMirrorTests {
 
         do {
             let trackStore = try makeStore(at: storeURL)
-            try await trackStore.saveTracks([Track(
+            try await trackStore.seedMirror([Track(
                 id: entry.trackID,
                 name: entry.trackName,
                 artist: entry.artist,
                 album: entry.albumName,
-                year: entry.newYear
+                year: entry.newYear,
+                appleScriptID: entry.trackID
             )])
             let coordinator = UndoCoordinator(
-                scriptBridge: MockAppleScriptClient(),
+                musicApp: MusicAppTestAccess(),
                 stores: .init(tracks: trackStore),
                 directory: makeDirectory()
             )
@@ -238,7 +243,7 @@ struct UndoMirrorTests {
     func emptyUndoRelaunch() async throws {
         let storeURL = try makeStoreURL()
         defer { removeStore(at: storeURL) }
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let checkpointDirectory = makeDirectory()
         var entry = yearEntry()
         entry.oldYear = nil
@@ -252,12 +257,13 @@ struct UndoMirrorTests {
                 name: entry.trackName,
                 artist: entry.artist,
                 album: entry.albumName,
-                year: entry.newYear
+                year: entry.newYear,
+                appleScriptID: entry.trackID
             )
-            try await trackStore.saveTracks([current])
+            try await trackStore.seedMirror([current])
             await bridge.setFetchedTracks([current])
             let coordinator = UndoCoordinator(
-                scriptBridge: bridge,
+                musicApp: bridge,
                 stores: .init(changeLog: changeLogStore, tracks: trackStore),
                 directory: checkpointDirectory
             )
@@ -275,7 +281,7 @@ struct UndoMirrorTests {
         #expect(persistedTrack.yearSetByMGU == MusicAppYear.missingValue)
         #expect(try await relaunchedLog.loadAll().isEmpty)
         #expect(await bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: entry.trackID, property: "year", value: "0"),
+            MusicTrackUpdate(databaseID: testDatabaseID(entry.trackID), property: .year, value: "0"),
         ])
         #expect(!FileManager.default.fileExists(
             atPath: checkpointDirectory.appendingPathComponent("pending-year-revert.json").path
@@ -288,7 +294,8 @@ struct UndoMirrorTests {
             name: "Angel",
             artist: "Massive Attack",
             album: "Mezzanine",
-            genre: genre
+            genre: genre,
+            appleScriptID: "T1"
         )
     }
 

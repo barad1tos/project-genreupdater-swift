@@ -5,18 +5,18 @@ import Testing
 
 private struct ReleaseYearRestoreFixture {
     let coordinator: UpdateCoordinator
-    let bridge: MockAppleScriptClient
+    let bridge: MusicAppTestAccess
 }
 
 private func makeReleaseYearRestoreFixture(
     runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
 ) async -> ReleaseYearRestoreFixture {
-    let bridge = MockAppleScriptClient()
+    let bridge = MusicAppTestAccess()
     let store = MockTrackStore()
     let cache = MockCacheService()
     let undoDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent("ReleaseYearRestoreTests-\(UUID().uuidString)")
-    let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
+    let undo = UndoCoordinator(musicApp: bridge, directory: undoDirectory)
     let apiService = MockAPIService()
     let orchestrator = makeAPIOrchestrator(
         musicBrainz: apiService,
@@ -26,7 +26,7 @@ private func makeReleaseYearRestoreFixture(
     let coordinator = UpdateCoordinator(
         dependencies: UpdateDependencies(
             apiOrchestrator: orchestrator,
-            scriptBridge: bridge,
+            writer: bridge,
             stores: .init(trackStore: store, cache: cache),
             undoCoordinator: undo
         ),
@@ -53,7 +53,8 @@ private func makeReleaseYearTrack(
         year: year,
         trackStatus: trackStatus,
         releaseYear: releaseYear,
-        albumArtist: albumArtist
+        albumArtist: albumArtist,
+        appleScriptID: id
     )
 }
 
@@ -80,7 +81,7 @@ struct ReleaseYearRestoreTests {
         #expect(result.failedTrackIDs.isEmpty)
         #expect(result.entries.allSatisfy { $0.changeType == .yearRevert })
         #expect(written.count == 2)
-        #expect(written.allSatisfy { $0.property == "year" && $0.value == "1997" })
+        #expect(written.allSatisfy { $0.property == .year && $0.value == "1997" })
     }
 
     @Test("Does not restore when difference equals threshold")
@@ -169,7 +170,7 @@ struct ReleaseYearRestoreTests {
         #expect(result.entries.count == 1)
         #expect(result.entries.first?.trackID == "T2")
         #expect(written.count == 1)
-        #expect(written.first?.trackID == "T2")
+        #expect(written.first?.databaseID.rawValue == "T2")
         #expect(written.first?.value == "1997")
     }
 

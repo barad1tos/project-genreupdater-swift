@@ -2,6 +2,7 @@ import Core
 import Foundation
 
 public enum UpdateCoordinatorError: Error, LocalizedError {
+    case mutationUnavailable
     case trackNotEditable(trackID: String)
     case trackNotProcessable(trackID: String, status: String)
     case noChangesProduced
@@ -14,6 +15,8 @@ public enum UpdateCoordinatorError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
+        case .mutationUnavailable:
+            "Music.app mutation capability is unavailable"
         case let .trackNotEditable(trackID):
             "Track \(trackID) is not editable"
         case let .trackNotProcessable(trackID, status):

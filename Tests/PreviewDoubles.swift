@@ -1,6 +1,66 @@
 import Core
 import Foundation
-import Services
+import Testing
+@testable import Services
+
+actor MusicAppTestObserver: MusicAppReading {
+    private let tracks: [Track]
+
+    init(tracks: [Track]) {
+        self.tracks = tracks
+    }
+
+    func observe(_ request: LibraryObservationRequest) throws -> LibraryObservation {
+        let generation = try #require(LibraryGeneration(sourceValue: "root-test"))
+        let tracksByID = Dictionary(uniqueKeysWithValues: tracks.compactMap { track in
+            track.databaseID.map { ($0, track) }
+        })
+        let currentIDs = Set(tracksByID.keys)
+        let previousIDs = Set(request.previous.tracksByID.keys)
+        let requestedIDs: Set<MusicDatabaseTrackID> = switch request.refresh {
+        case .fast:
+            currentIDs.subtracting(previousIDs)
+        case .force:
+            currentIDs
+        case .membershipOnly:
+            []
+        }
+        let rows = requestedIDs.sorted { $0.rawValue < $1.rawValue }.compactMap { databaseID in
+            tracksByID[databaseID].map { row($0, databaseID: databaseID) }
+        }
+        return LibraryObservation(
+            tracks: rows,
+            censusIDs: currentIDs,
+            currentIDs: currentIDs,
+            scope: request.scope,
+            observedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            membership: request.scope.source == .fullLibrary ? .full : .scoped(unobservedIDs: []),
+            metadata: MetadataCompleteness(requestedIDs: requestedIDs, observedIDs: Set(rows.map(\.databaseID))),
+            generation: generation,
+            issues: []
+        )
+    }
+
+    private func row(_ track: Track, databaseID: MusicDatabaseTrackID) -> LibraryTrackRow {
+        LibraryTrackRow(
+            databaseID: databaseID,
+            metadata: LibraryTrackMetadata(
+                text: LibraryTrackText(
+                    name: .value(track.name),
+                    artist: .value(track.artist),
+                    album: .value(track.album),
+                    albumArtist: track.albumArtist.map(Observed.value) ?? .absent
+                ),
+                genre: track.genre.map(Observed.value) ?? .absent,
+                editableYear: track.year.map(Observed.value) ?? .absent,
+                releaseYear: track.releaseYear.map(Observed.value) ?? .absent,
+                dateAdded: track.dateAdded.map(Observed.value) ?? .absent,
+                lastModified: track.lastModified.map(Observed.value) ?? .absent,
+                status: track.trackStatus.map(Observed.value) ?? .absent
+            )
+        )
+    }
+}
 
 struct RunConfigSnapshot: Sendable {
     let libraryPaths: [String]
@@ -31,76 +91,40 @@ actor RunConfigProbe {
     }
 }
 
-actor ScopedReadProvider: LibraryReadProvider {
-    let artists: [String]
-
-    init(artists: [String]) {
-        self.artists = artists
-    }
-
-    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        LibraryReadSnapshot(tracks: [], scannedAt: Date(timeIntervalSince1970: 100))
-    }
-}
-
-actor PreviewScriptClient: AppleScriptClient {
+actor PreviewScriptClient: MusicAppIdentifying, MusicAppMutating, MusicAppVerifying {
     private let tracks: [Track]
-    private var fetchedArtistScopes: [String?] = []
-    private var fetchedArtistTimeouts: [Duration?] = []
-    private var fetchedTrackTimeouts: [Duration?] = []
-    private var allTrackIDFetches = 0
+    private var fetchedIdentityScopes: [[String]] = []
 
     init(tracks: [Track]) {
         self.tracks = tracks
     }
 
-    func initialize() async throws {
-        // This in-memory test client has no external resources to initialize.
+    func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Track] {
+        let requestedIDs = Set(databaseIDs.map(\.rawValue))
+        return tracks.filter { requestedIDs.contains($0.databaseID?.rawValue ?? $0.id) }
     }
 
-    func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
-        nil
+    func fetchIdentityMetadata(scopedTo artists: [String]) async throws -> [Track] {
+        fetchedIdentityScopes.append(artists)
+        return ArtistAllowList.filter(tracks, allowedArtists: artists)
     }
 
-    func fetchTracksByIDs(_ trackIDs: [String], batchSize _: Int, timeout: Duration?) async throws -> [Track] {
-        fetchedTrackTimeouts.append(timeout)
-        return tracks.filter { trackIDs.contains($0.id) }
-    }
-
-    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
-        allTrackIDFetches += 1
-        return tracks.map(\.id)
-    }
-
-    func fetchTracks(artist: String?, timeout: Duration?) async throws -> [Track] {
-        fetchedArtistScopes.append(artist)
-        fetchedArtistTimeouts.append(timeout)
-        return tracks
-    }
-
-    func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws
-        -> AppleScriptWriteResult {
+    func update(
+        _: MusicTrackUpdate,
+        onAttempt _: @escaping WriteAttemptHook
+    ) async throws -> MusicWriteResult {
         throw PreviewScriptError.unexpectedWrite
     }
 
-    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
+    func update(
+        _: [MusicTrackUpdate],
+        onAttempt _: @escaping WriteAttemptHook
+    ) async throws {
         throw PreviewScriptError.unexpectedWrite
     }
 
-    func artistScopes() -> [String?] {
-        fetchedArtistScopes
-    }
-
-    func artistTimeouts() -> [Duration?] {
-        fetchedArtistTimeouts
-    }
-
-    func trackTimeouts() -> [Duration?] {
-        fetchedTrackTimeouts
-    }
-
-    func allTrackIDFetchCount() -> Int {
-        allTrackIDFetches
+    func identityScopes() -> [[String]] {
+        fetchedIdentityScopes
     }
 }
 

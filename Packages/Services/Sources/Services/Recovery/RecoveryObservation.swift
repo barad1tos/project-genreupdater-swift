@@ -44,7 +44,7 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
 enum RecoveryObservation {
     static func outcome(for item: RunWorkItem, observedTrack: Track) -> ObservedWorkOutcome {
         let change = item.effectiveChange
-        let property = AppleScriptTrackProperty(changeType: change.changeType)
+        let property = MusicTrackProperty(changeType: change.changeType)
         let observedValue = property.currentValue(in: observedTrack)
         guard let albumArtistChange = change.albumArtistChange else {
             return classify(change, property: property, observedValue: observedValue)
@@ -64,7 +64,7 @@ enum RecoveryObservation {
 
     private static func classify(
         _ change: WorkChange,
-        property: AppleScriptTrackProperty,
+        property: MusicTrackProperty,
         observedValue: String?
     ) -> ObservedWorkOutcome {
         guard let observedValue else {

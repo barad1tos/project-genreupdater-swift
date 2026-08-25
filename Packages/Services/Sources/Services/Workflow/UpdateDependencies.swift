@@ -16,7 +16,7 @@ public struct UpdateDependencies {
     }
 
     let apiOrchestrator: APIOrchestrator
-    let scriptBridge: any AppleScriptClient
+    let writer: (any MusicAppMutating & MusicAppVerifying)?
     let stores: Stores
     let undoCoordinator: UndoCoordinator
     let idMapper: (any TrackIDMapping)?
@@ -26,7 +26,7 @@ public struct UpdateDependencies {
 
     public init(
         apiOrchestrator: APIOrchestrator,
-        scriptBridge: any AppleScriptClient,
+        writer: (any MusicAppMutating & MusicAppVerifying)? = nil,
         stores: Stores,
         undoCoordinator: UndoCoordinator,
         idMapper: (any TrackIDMapping)? = nil,
@@ -35,7 +35,7 @@ public struct UpdateDependencies {
         analytics: (any AnalyticsService)? = nil
     ) {
         self.apiOrchestrator = apiOrchestrator
-        self.scriptBridge = scriptBridge
+        self.writer = writer
         self.stores = stores
         self.undoCoordinator = undoCoordinator
         self.idMapper = idMapper
@@ -46,7 +46,7 @@ public struct UpdateDependencies {
 
     public init(
         apiOrchestrator: APIOrchestrator,
-        scriptBridge: any AppleScriptClient,
+        writer: (any MusicAppMutating & MusicAppVerifying)? = nil,
         trackStore: any TrackStateStore,
         cache: any CacheService,
         undoCoordinator: UndoCoordinator,
@@ -56,7 +56,7 @@ public struct UpdateDependencies {
     ) {
         self.init(
             apiOrchestrator: apiOrchestrator,
-            scriptBridge: scriptBridge,
+            writer: writer,
             stores: Stores(trackStore: trackStore, cache: cache),
             undoCoordinator: undoCoordinator,
             idMapper: idMapper,

@@ -9,6 +9,102 @@ private struct YearCheckpointPayload: Codable {
 }
 
 extension UndoCoordinator {
+    func performRevertWrite(
+        change: ProposedChange,
+        property: MusicTrackProperty,
+        value: String,
+        recoveryOrigin: String? = nil,
+        prepareWrite: ((PreparedWrite) async throws -> Void)? = nil,
+        prepareDispatch: ((PreparedWrite) async throws -> Void)? = nil,
+        restorePreparedWrite: ((PreparedWrite) async throws -> Void)? = nil,
+        prepareMirror: ((PreparedWrite, MusicWriteResult) async throws -> Void)? = nil
+    ) async throws -> (result: MusicWriteResult, entry: ChangeLogEntry) {
+        let preparedWrite = try await prepareRevert(change, property: property, value: value)
+
+        do {
+            try await prepareWrite?(preparedWrite)
+            try await prepareDispatch?(preparedWrite)
+            let attemptState = WriteAttemptState()
+            let result: MusicWriteResult
+            do {
+                result = try await preparedWrite.dispatch(
+                    using: musicApp,
+                    onAttempt: { attemptState.markAttempted() }
+                )
+            } catch {
+                if !attemptState.hasAttempted {
+                    try await restorePreparedWrite?(preparedWrite)
+                }
+                throw error
+            }
+            let entry = UpdateCoordinator.changeToLogEntry(
+                preparedWrite.change,
+                databaseID: preparedWrite.databaseID,
+                recoveryOrigin: recoveryOrigin
+            )
+            do {
+                try await prepareMirror?(preparedWrite, result)
+                try await trackStore?.persistAppliedChange(entry)
+            } catch {
+                await invalidateCaches(for: preparedWrite.change)
+                if let error = error as? UpdateCoordinatorError {
+                    throw error
+                }
+                throw UpdateCoordinatorError.writeFinalizationFailed(
+                    trackID: preparedWrite.databaseID.rawValue,
+                    effects: ["track mirror"]
+                )
+            }
+            await invalidateCaches(for: preparedWrite.change)
+            return (result, entry)
+        } catch {
+            switch error {
+            case is CancellationError, is UndoCoordinatorError, is UpdateCoordinatorError, is AppleScriptBridgeError:
+                throw error
+            case is AppleScriptOutcomeError:
+                await invalidateCaches(for: preparedWrite.change)
+                throw error
+            default:
+                throw UndoCoordinatorError.revertFailed(
+                    trackID: preparedWrite.databaseID.rawValue,
+                    reason: "AppleScript write failed"
+                )
+            }
+        }
+    }
+
+    private func prepareRevert(
+        _ change: ProposedChange,
+        property: MusicTrackProperty,
+        value: String
+    ) async throws -> PreparedWrite {
+        let mutation = try await mutationContext(for: change.track)
+        let albumArtistChange: AlbumArtistChange? = if let change = change.albumArtistChange,
+                                                       let current = mutation.track.albumArtist {
+            [change.oldValue, change.newValue]
+                .map(normalizeForMatching)
+                .contains(normalizeForMatching(current)) ? change : nil
+        } else {
+            nil
+        }
+        return PreparedWrite(
+            change: change.copy(track: mutation.track, albumArtistChange: albumArtistChange),
+            databaseID: mutation.databaseID,
+            property: property,
+            value: value
+        )
+    }
+
+    func invalidateCaches(for change: ProposedChange) async {
+        if let cache {
+            for target in UpdateCoordinator.cacheInvalidationTargets(for: change, cleaning: cleaning) {
+                await cache.invalidateAlbum(artist: target.artist, album: target.album)
+                await cache.invalidateCachedAPIResults(artist: target.artist, album: target.album)
+            }
+        }
+        await librarySnapshotService?.clearSnapshot()
+    }
+
     func yearRevertChange(
         for historyEntry: ChangeLogEntry,
         context: (change: ProposedChange, oldestEntry: ChangeLogEntry?),
@@ -25,26 +121,41 @@ extension UndoCoordinator {
         )
     }
 
-    func recoveryWriteID(for trackID: String) async throws -> String {
-        if let mappedID = await idMapper?.appleScriptID(forMusicKitID: trackID) {
-            return mappedID
+    func recoveryDatabaseID(for trackID: String) async throws -> MusicDatabaseTrackID {
+        if let stored = try await storedMutationContext(for: trackID) {
+            return stored.databaseID
         }
-        do {
-            if let storedID = try await trackStore?.getTrack(byID: trackID)?.appleScriptID {
-                return storedID
-            }
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw UndoCoordinatorError.recoveryStorageFailed(trackID: trackID)
+        if let mappedID = await idMapper?.appleScriptID(forMusicKitID: trackID),
+           let databaseID = MusicDatabaseTrackID(rawValue: mappedID) {
+            return databaseID
         }
-        guard idMapper == nil else {
-            throw UndoCoordinatorError.missingAppleScriptID(trackID: trackID)
-        }
-        return trackID
+        throw UndoCoordinatorError.missingAppleScriptID(trackID: trackID)
     }
 
-    func mutationContext(for track: Track) async throws -> (track: Track, writeID: String) {
+    func mutationContext(for track: Track) async throws -> (track: Track, databaseID: MusicDatabaseTrackID) {
+        func validateMutation(_ track: Track, requiresKnownStatus: Bool) throws {
+            do {
+                try UpdateCoordinator.validateMutationEligibility(
+                    for: track,
+                    requiresKnownStatus: requiresKnownStatus
+                )
+            } catch let error as UpdateCoordinatorError {
+                throw UndoCoordinatorError.revertFailed(
+                    trackID: track.id,
+                    reason: error.localizedDescription
+                )
+            }
+        }
+
+        if let stored = try await storedMutationContext(for: track.id) {
+            try validateMutation(stored.track, requiresKnownStatus: false)
+            return stored
+        }
+        if let databaseID = track.databaseID {
+            try validateMutation(track, requiresKnownStatus: false)
+            return (track, databaseID)
+        }
+
         let mutationTrack: Track
         if let idMapper {
             guard let enrichedTrack = await idMapper.trackWithAppleScriptMetadata(for: track) else {
@@ -54,22 +165,37 @@ extension UndoCoordinator {
         } else {
             mutationTrack = track
         }
-        do {
-            try UpdateCoordinator.validateMutationEligibility(
-                for: mutationTrack,
-                requiresKnownStatus: idMapper != nil
-            )
-        } catch let error as UpdateCoordinatorError {
-            throw UndoCoordinatorError.revertFailed(
-                trackID: mutationTrack.id,
-                reason: error.localizedDescription
-            )
-        }
-        guard let idMapper else { return (mutationTrack, mutationTrack.id) }
-        guard let writeID = await idMapper.appleScriptID(forMusicKitID: mutationTrack.id) else {
+        try validateMutation(mutationTrack, requiresKnownStatus: idMapper != nil)
+        guard let idMapper else {
             throw UndoCoordinatorError.missingAppleScriptID(trackID: mutationTrack.id)
         }
-        return (mutationTrack, writeID)
+        guard let mappedID = await idMapper.appleScriptID(forMusicKitID: mutationTrack.id),
+              let databaseID = MusicDatabaseTrackID(rawValue: mappedID)
+        else {
+            throw UndoCoordinatorError.missingAppleScriptID(trackID: mutationTrack.id)
+        }
+        return (mutationTrack, databaseID)
+    }
+
+    private func storedMutationContext(
+        for trackID: String
+    ) async throws -> (track: Track, databaseID: MusicDatabaseTrackID)? {
+        let storedTrack: Track?
+        do {
+            storedTrack = try await trackStore?.getTrack(byID: trackID)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw UndoCoordinatorError.recoveryStorageFailed(trackID: trackID)
+        }
+        guard let storedTrack,
+              storedTrack.id == trackID,
+              let databaseID = storedTrack.databaseID,
+              databaseID.rawValue == trackID
+        else {
+            return nil
+        }
+        return (storedTrack, databaseID)
     }
 
     func revertContext(for entry: ChangeLogEntry) -> (change: ProposedChange, oldestEntry: ChangeLogEntry?) {

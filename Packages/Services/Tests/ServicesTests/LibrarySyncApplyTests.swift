@@ -21,11 +21,11 @@ struct LibrarySyncApplyTests {
         await store.setStored([track])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store
+            trackStore: store,
+            observer: bridge
         )
 
-        let result = try await service.detectChanges()
+        let result = try await service.detectObservation().result
         #expect(!result.hasChanges)
     }
 
@@ -64,8 +64,8 @@ struct LibrarySyncApplyTests {
         ])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store
+            trackStore: store,
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -127,10 +127,10 @@ struct LibrarySyncApplyTests {
         await seedSyncCaches(cache, artist: "Gone Artist", album: "Gone Album")
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
-            librarySnapshotService: snapshotService
+            librarySnapshotService: snapshotService,
+            observer: bridge
         )
 
         _ = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -175,9 +175,9 @@ struct LibrarySyncApplyTests {
         await store.setStored([storedTrack])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
-            pendingVerificationService: pendingVerification
+            pendingVerificationService: pendingVerification,
+            observer: bridge
         )
         return PrereleaseFixture(
             store: store,

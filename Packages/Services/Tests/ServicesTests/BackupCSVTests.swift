@@ -44,10 +44,11 @@ struct BackupCSVTests {
 
     @Test("Revert backup CSV writes years and records revert history")
     func revertBackupCSVWritesYearsAndRecordsHistory() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let trackStore = try TrackDataStore.createInMemory()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(tracks: trackStore),
             directory: makeBackupTempDirectory()
         )
@@ -73,7 +74,7 @@ struct BackupCSVTests {
                 year: 2020
             ),
         ]
-        try await trackStore.saveTracks(tracks)
+        try await trackStore.seedMirror(tracks)
 
         let result = try await coordinator.revertYearsFromBackupCSV(
             csv,
@@ -88,12 +89,9 @@ struct BackupCSVTests {
 
         let written = await bridge.writtenProperties
         #expect(written.count == 2)
-        #expect(written[0].trackID == "T1")
-        #expect(written[0].property == "year")
-        #expect(written[0].value == "1998")
-        #expect(written[1].trackID == "T2")
-        #expect(written[1].property == "year")
-        #expect(written[1].value == "1998")
+        #expect(written.map(\.databaseID.rawValue) == ["T1", "T2"])
+        #expect(written.map(\.property) == [.year, .year])
+        #expect(written.map(\.value) == ["1998", "1998"])
 
         let history = await coordinator.getHistory()
         #expect(history.count == 2)
@@ -110,15 +108,64 @@ struct BackupCSVTests {
         #expect(secondTrack.yearSetByMGU == 1998)
     }
 
+    @Test("Mapped backup writes finalize and remove the checkpoint by canonical database ID")
+    func mappedBackupUsesDatabaseID() async throws {
+        let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
+        let directory = makeBackupTempDirectory()
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: MissingUndoTrackIDMapper(),
+            stores: .init(tracks: trackStore),
+            directory: directory
+        )
+        let sourceTrack = Track(
+            id: "MK1",
+            name: "Angel",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            year: 2019,
+            appleScriptID: "AS1"
+        )
+        let storedTrack = Track(
+            id: "AS1",
+            name: sourceTrack.name,
+            artist: sourceTrack.artist,
+            album: sourceTrack.album,
+            year: sourceTrack.year,
+            appleScriptID: "AS1"
+        )
+        try await trackStore.seedMirror([storedTrack])
+
+        let result = try await coordinator.revertYearsFromBackupCSV(
+            """
+            id,name,artist,album,year_before_mgu
+            MK1,Angel,Massive Attack,Mezzanine,1998
+            """,
+            artist: sourceTrack.artist,
+            album: sourceTrack.album,
+            currentTracks: [sourceTrack]
+        )
+
+        #expect(result.updatedCount == 1)
+        #expect(await bridge.writtenProperties.map(\.databaseID.rawValue) == ["AS1"])
+        #expect(await coordinator.getHistory().map(\.trackID) == ["AS1"])
+        #expect(try await trackStore.getTrack(byID: "AS1")?.year == 1998)
+        #expect(!FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("pending-year-revert.json").path
+        ))
+    }
+
     @Test("History failure preserves mirror evidence and retry finalizes once")
     func historyFailureRetryFinalizesOnce() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let store = MockChangeLogStore()
         await store.failSaves()
         let trackStore = MockTrackStore()
         let directory = makeBackupTempDirectory()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(changeLog: store, tracks: trackStore),
             directory: directory
         )
@@ -135,7 +182,7 @@ struct BackupCSVTests {
                 year: 2019
             ),
         ]
-        try await trackStore.saveTracks(tracks)
+        try await trackStore.seedMirror(tracks)
         await bridge.setFetchedTracks(tracks)
 
         await expectFinalizationFailure(effects: ["change history"]) {
@@ -148,15 +195,15 @@ struct BackupCSVTests {
         }
 
         let written = await bridge.writtenProperties
-        #expect(written.count == 1)
-        #expect(written.first?.value == "1998")
+        #expect(written.map(\.value) == ["1998"])
         #expect(await coordinator.getHistory().isEmpty)
         #expect(await store.entries.isEmpty)
         #expect(try await trackStore.getTrack(byID: "T1")?.year == 2019)
 
         await store.resumeSaves()
         let retryCoordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(changeLog: store, tracks: trackStore),
             directory: directory
         )
@@ -172,15 +219,14 @@ struct BackupCSVTests {
         #expect(retryResult.updatedCount == 1)
         #expect(retryResult.skippedCount == 0)
         #expect(await bridge.writtenProperties.count == 1)
-        #expect(await store.entries.count == 1)
-        #expect(await store.entries.first?.oldYear == 2019)
-        #expect(await store.entries.first?.newYear == 1998)
+        #expect(await store.entries.map(\.oldYear) == [2019])
+        #expect(await store.entries.map(\.newYear) == [1998])
         try await expectRestoredYear(in: trackStore)
     }
 
     @Test("Mirror failure retry preserves one durable backup history entry")
     func mirrorFailureRetryFinalizesOnce() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let historyStore = MockChangeLogStore()
         let trackStore = MockTrackStore()
         let directory = makeBackupTempDirectory()
@@ -193,11 +239,12 @@ struct BackupCSVTests {
                 year: 2019
             ),
         ]
-        try await trackStore.saveTracks(tracks)
+        try await trackStore.seedMirror(tracks)
         await trackStore.failAppliedUpdates()
         await bridge.setFetchedTracks(tracks)
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
@@ -220,7 +267,8 @@ struct BackupCSVTests {
 
         await trackStore.resumeAppliedUpdates()
         let retryCoordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
@@ -242,7 +290,7 @@ struct BackupCSVTests {
 
     @Test("Retry preserves distinct evidence for identical restores")
     func distinctRestoreEvidence() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let historyStore = MockChangeLogStore()
         let trackStore = MockTrackStore()
         let directory = makeBackupTempDirectory()
@@ -258,11 +306,12 @@ struct BackupCSVTests {
         T1,Angel,Massive Attack,Mezzanine,1998
         """
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
-        try await trackStore.saveTracks([track])
+        try await trackStore.seedMirror([track])
         await bridge.setFetchedTracks([track])
         _ = try await coordinator.revertYearsFromBackupCSV(
             csv,
@@ -270,7 +319,7 @@ struct BackupCSVTests {
             currentTracks: [track]
         )
 
-        try await trackStore.saveTracks([track])
+        try await trackStore.seedMirror([track])
         await bridge.setFetchedTracks([track])
         await historyStore.failSaves()
         await expectFinalizationFailure(effects: ["change history"]) {
@@ -285,7 +334,8 @@ struct BackupCSVTests {
         var restoredTrack = track
         restoredTrack.year = 1998
         let retryCoordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
@@ -302,7 +352,7 @@ struct BackupCSVTests {
 
     @Test("Checkpoint failure blocks a physical write before dispatch")
     func checkpointFailureBlocksWrite() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let historyStore = MockChangeLogStore()
         let trackStore = MockTrackStore()
         let directory = makeBackupTempDirectory()
@@ -319,11 +369,12 @@ struct BackupCSVTests {
         T1,Angel,Massive Attack,Mezzanine,1998
         """
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
-        try await trackStore.saveTracks([track])
+        try await trackStore.seedMirror([track])
         await bridge.setFetchedTracks([track])
 
         await expectFinalizationFailure(effects: ["backup recovery checkpoint"]) {
@@ -340,7 +391,8 @@ struct BackupCSVTests {
 
         try FileManager.default.removeItem(at: directory)
         let retryCoordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
@@ -360,7 +412,7 @@ struct BackupCSVTests {
 
     @Test("A stale recovery checkpoint blocks backup writes")
     func staleCheckpointBlocksWrite() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let directory = makeBackupTempDirectory()
         try FileManager.default.createDirectory(
             at: directory,
@@ -381,7 +433,8 @@ struct BackupCSVTests {
             to: directory.appendingPathComponent("pending-year-revert.json")
         )
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             directory: directory
         )
         let csv = """
@@ -409,7 +462,7 @@ struct BackupCSVTests {
 
     @Test("Corrupt recovery checkpoint blocks backup writes")
     func corruptCheckpointBlocksWrites() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let directory = makeBackupTempDirectory()
         try FileManager.default.createDirectory(
             at: directory,
@@ -419,7 +472,8 @@ struct BackupCSVTests {
             to: directory.appendingPathComponent("pending-year-revert.json")
         )
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             directory: directory
         )
         let csv = """
@@ -454,11 +508,12 @@ struct BackupCSVTests {
 
     @Test("Backup CSV revert invalidates album API and snapshot caches")
     func backupCSVRevertInvalidatesAlbumAPIAndSnapshotCaches() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let snapshotService = MockUndoLibrarySnapshotService()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(cache: cache),
             librarySnapshotService: snapshotService,
             directory: makeBackupTempDirectory()
@@ -507,11 +562,12 @@ struct BackupCSVTests {
 
     @Test("Backup CSV no-change rows are reported as skipped without history")
     func backupCSVNoChangeRowsAreReportedAsSkippedWithoutHistory() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setSingleWriteResult(.noChange)
         let trackStore = try TrackDataStore.createInMemory()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(tracks: trackStore),
             directory: makeBackupTempDirectory()
         )
@@ -528,7 +584,7 @@ struct BackupCSVTests {
                 year: 1998
             ),
         ]
-        try await trackStore.saveTracks([
+        try await trackStore.seedMirror([
             Track(
                 id: "T1",
                 name: "Angel",
@@ -554,9 +610,9 @@ struct BackupCSVTests {
 
     @Test("Backup CSV revert refuses missing AppleScript ID mapping")
     func backupCSVRevertRefusesMissingAppleScriptIDMapping() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             idMapper: MissingUndoTrackIDMapper(),
             directory: makeBackupTempDirectory()
         )
@@ -595,10 +651,11 @@ struct BackupCSVTests {
 
     @Test("Backup CSV write failure leaves terminal recovery evidence")
     func writeFailureKeepsCheckpoint() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setCustomWriteError(RawTrackIDWriteError(trackID: "MK1"))
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             directory: makeBackupTempDirectory()
         )
         let csv = """

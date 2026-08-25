@@ -2,12 +2,12 @@ import Core
 import Foundation
 
 extension UpdateCoordinator {
-    static func appleScriptProperty(for changeType: ChangeType) -> String {
-        AppleScriptTrackProperty(changeType: changeType).rawValue
+    static func musicProperty(for changeType: ChangeType) -> MusicTrackProperty {
+        MusicTrackProperty(changeType: changeType)
     }
 
-    static func value(forAppleScriptProperty property: String, in track: Track) -> String? {
-        AppleScriptTrackProperty(rawValue: property)?.currentValue(in: track)
+    static func value(for property: MusicTrackProperty, in track: Track) -> String? {
+        property.currentValue(in: track)
     }
 
     static func isTrackAvailableForProcessing(_ track: Track) -> Bool {

@@ -2,6 +2,24 @@ import Core
 import Foundation
 import Services
 
+extension TrackStateStore {
+    func seedMirror(_ tracks: [Track]) async throws {
+        let canonicalTracks = tracks.map { track in
+            var canonical = track
+            canonical.appleScriptID = canonical.id
+            return canonical
+        }
+        try await applyMirror(TrackMirrorUpdate(repairs: [], upserts: canonicalTracks, deletions: []))
+    }
+}
+
+func testMusicDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {
+    guard let databaseID = MusicDatabaseTrackID(rawValue: rawValue) else {
+        preconditionFailure("Invalid test database ID: \(rawValue)")
+    }
+    return databaseID
+}
+
 struct DashboardStateAPIService: ExternalAPIService {
     let year: Int?
     let confidence: Int
@@ -71,13 +89,13 @@ private enum LookupFixtureError: Error {
     case unavailable
 }
 
-actor DashboardStateScriptClient: AppleScriptClient {
+actor DashboardStateScriptClient: MusicAppMutating, MusicAppVerifying {
     private let failingTrackIDs: Set<String>
     private let cancellingTrackIDs: Set<String>
     private let outcomeTrackIDs: Set<String>
     private let noChangeTrackIDs: Set<String>
     private let writeHold: LiveBatchHold?
-    private var writes: [TrackPropertyUpdate] = []
+    private var writes: [MusicTrackUpdate] = []
 
     init(
         failingTrackIDs: Set<String> = [],
@@ -93,103 +111,65 @@ actor DashboardStateScriptClient: AppleScriptClient {
         self.writeHold = writeHold
     }
 
-    func initialize() async throws {
-        // Test double has no external resources to initialize.
-    }
-
-    func runScript(
-        name _: String,
-        arguments _: [String],
-        timeout _: Duration?
-    ) async throws -> String? {
-        nil
-    }
-
-    func fetchTracksByIDs(
-        _ trackIDs: [String],
-        batchSize _: Int,
-        timeout _: Duration?
-    ) async throws -> [Track] {
-        trackIDs.map {
+    func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Track] {
+        databaseIDs.map { databaseID in
             Track(
-                id: $0,
-                name: "Track \($0)",
+                id: databaseID.rawValue,
+                name: "Track \(databaseID.rawValue)",
                 artist: "Artist",
                 album: "Album",
-                trackStatus: TrackKind.subscription.rawValue
+                trackStatus: TrackKind.subscription.rawValue,
+                appleScriptID: databaseID.rawValue
             )
         }
     }
 
-    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
-        []
-    }
-
-    func updateTrackProperty(trackID: String, property: String, value: String) async throws -> AppleScriptWriteResult {
+    func update(
+        _ update: MusicTrackUpdate,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> MusicWriteResult {
+        let databaseID = update.databaseID.rawValue
         if let writeHold {
             await writeHold.holdOnce()
             try Task.checkCancellation()
         }
-        if cancellingTrackIDs.contains(trackID) {
+        if cancellingTrackIDs.contains(databaseID) {
             throw CancellationError()
         }
-        if outcomeTrackIDs.contains(trackID) {
+        if outcomeTrackIDs.contains(databaseID) {
+            try await onAttempt()
             throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
         }
-        if failingTrackIDs.contains(trackID) {
-            throw DashboardStateScriptWriteError(trackID: trackID)
+        if failingTrackIDs.contains(databaseID) {
+            throw DashboardStateScriptWriteError(trackID: databaseID)
         }
-        writes.append(TrackPropertyUpdate(trackID: trackID, property: property, value: value))
-        if noChangeTrackIDs.contains(trackID) {
+        writes.append(update)
+        try await onAttempt()
+        if noChangeTrackIDs.contains(databaseID) {
             return .noChange
         }
         return .changed
     }
 
-    func updateTrackProperty(
-        trackID: String,
-        property: String,
-        value: String,
-        onAttempt: @escaping WriteAttemptHook
-    ) async throws -> AppleScriptWriteResult {
-        let result: AppleScriptWriteResult
-        do {
-            result = try await updateTrackProperty(
-                trackID: trackID,
-                property: property,
-                value: value
-            )
-        } catch let error as AppleScriptOutcomeError {
-            try await onAttempt()
-            throw error
-        }
-        try await onAttempt()
-        return result
-    }
-
-    func batchUpdateTracks(_ updates: [TrackPropertyUpdate]) async throws {
-        for update in updates {
-            _ = try await updateTrackProperty(
-                trackID: update.trackID,
-                property: update.property,
-                value: update.value
-            )
-        }
-    }
-
-    func batchUpdateTracks(
-        _ updates: [TrackPropertyUpdate],
+    func update(
+        _ updates: [MusicTrackUpdate],
         onAttempt: @escaping WriteAttemptHook
     ) async throws {
         guard !updates.isEmpty else { return }
         var hasAttempted = false
         do {
             for update in updates {
-                _ = try await updateTrackProperty(
-                    trackID: update.trackID,
-                    property: update.property,
-                    value: update.value
-                )
+                let databaseID = update.databaseID.rawValue
+                if cancellingTrackIDs.contains(databaseID) {
+                    throw CancellationError()
+                }
+                if outcomeTrackIDs.contains(databaseID) {
+                    throw AppleScriptOutcomeError(scriptName: "batch_update_tracks", duration: .seconds(3))
+                }
+                if failingTrackIDs.contains(databaseID) {
+                    throw DashboardStateScriptWriteError(trackID: databaseID)
+                }
+                writes.append(update)
                 hasAttempted = true
             }
         } catch let error as AppleScriptOutcomeError {
@@ -204,7 +184,7 @@ actor DashboardStateScriptClient: AppleScriptClient {
         try await onAttempt()
     }
 
-    func updatedProperties() -> [TrackPropertyUpdate] {
+    func updatedProperties() -> [MusicTrackUpdate] {
         writes
     }
 }
@@ -226,12 +206,8 @@ actor DashboardStateTrackStore: TrackStateStore {
         []
     }
 
-    func saveTracks(_: [Track]) async throws {
+    func applyMirror(_: TrackMirrorUpdate) async throws {
         // These tests do not assert persisted track state.
-    }
-
-    func deleteTrackIDs(_: [String]) async throws -> Int {
-        0
     }
 
     func getTrack(byID _: String) async throws -> Track? {

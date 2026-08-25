@@ -24,7 +24,7 @@ extension AlbumTypeDetectionConfig {
 /// Supports single-track updates, batch processing, and dry-run previews.
 public actor UpdateCoordinator {
     var apiOrchestrator: APIOrchestrator
-    let scriptBridge: any AppleScriptClient
+    let writer: (any MusicAppMutating & MusicAppVerifying)?
     let trackStore: any TrackStateStore
     let cache: any CacheService
     let undoCoordinator: UndoCoordinator
@@ -49,7 +49,7 @@ public actor UpdateCoordinator {
         decisionDate: @escaping @Sendable () -> Date = { Date() }
     ) {
         apiOrchestrator = dependencies.apiOrchestrator
-        scriptBridge = dependencies.scriptBridge
+        writer = dependencies.writer
         trackStore = dependencies.stores.trackStore
         cache = dependencies.stores.cache
         undoCoordinator = dependencies.undoCoordinator
@@ -65,6 +65,13 @@ public actor UpdateCoordinator {
 
     public func setRunAttribution(_ runID: RunID?) {
         runAttributionID = runID
+    }
+
+    func mutationAccess() throws -> any MusicAppMutating & MusicAppVerifying {
+        guard let writer else {
+            throw UpdateCoordinatorError.mutationUnavailable
+        }
+        return writer
     }
 
     /// Test seam: the attribution is otherwise observable only through

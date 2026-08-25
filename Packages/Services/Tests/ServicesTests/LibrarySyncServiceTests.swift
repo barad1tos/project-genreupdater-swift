@@ -3,118 +3,109 @@ import Testing
 @testable import Core
 @testable import Services
 
-// MARK: - Configurable Mock Script Client
+// MARK: - Configurable Music.app Observer
 
-struct SyncFetchRequest {
-    let trackIDs: [String]
-    let batchSize: Int
-    let timeout: Duration?
-}
-
-actor SyncMockScriptClient: AppleScriptClient {
+actor SyncMockScriptClient: MusicAppReading {
     var libraryTrackIDs: [String] = []
     var tracksByID: [String: Track] = [:]
-    private var tracksByArtist: [String: [Track]] = [:]
     private var fetchAllTrackIDsError: AppleScriptBridgeError?
-    private var fetchTracksRequests: [SyncFetchRequest] = []
-    private var fetchAllTrackIDsTimeouts: [Duration?] = []
-    private var fetchTracksArtistRequests: [(artist: String?, timeout: Duration?)] = []
+    private var observationRequests: [LibraryObservationRequest] = []
 
-    func initialize() async throws {}
-
-    func runScript(
-        name: String,
-        arguments: [String],
-        timeout: Duration?
-    ) async throws -> String? {
-        guard name == "fetch_tracks" else { return nil }
-
-        let artist = arguments.first
-        fetchTracksArtistRequests.append((artist: artist, timeout: timeout))
-        let tracks = artist.flatMap { tracksByArtist[$0] } ?? Array(tracksByID.values)
-        guard !tracks.isEmpty else { return "NO_TRACKS_FOUND" }
-        return tracks.map(Self.appleScriptRecord).joined(separator: String(Track.recordSeparator))
-    }
-
-    func fetchTracksByIDs(
-        _ trackIDs: [String],
-        batchSize: Int,
-        timeout: Duration?
-    ) async throws -> [Track] {
-        fetchTracksRequests.append(SyncFetchRequest(
-            trackIDs: trackIDs,
-            batchSize: batchSize,
-            timeout: timeout
-        ))
-        return trackIDs.compactMap { tracksByID[$0] }
-    }
-
-    func fetchAllTrackIDs(timeout: Duration?) async throws -> [String] {
-        fetchAllTrackIDsTimeouts.append(timeout)
+    func observe(_ request: LibraryObservationRequest) async throws -> LibraryObservation {
+        observationRequests.append(request)
         if let fetchAllTrackIDsError {
             throw fetchAllTrackIDsError
         }
-        return libraryTrackIDs
+        let generation = try Self.generation()
+        let allIDs = try libraryTrackIDs
+            .map { rawValue -> MusicDatabaseTrackID in
+                guard let databaseID = MusicDatabaseTrackID(rawValue: rawValue) else {
+                    throw AppleScriptBridgeError.parseError(scriptName: "sync-mock", detail: "Invalid database ID")
+                }
+                return databaseID
+            }
+            .sorted { $0.rawValue < $1.rawValue }
+        let previousIDs: Set<MusicDatabaseTrackID> = switch request.previous {
+        case .initial:
+            []
+        case let .verified(mirror):
+            Set(mirror.tracksByID.keys)
+        }
+        let requestedIDs = request.refresh == .force
+            ? allIDs
+            : allIDs.filter { !previousIDs.contains($0) }
+        let rows = requestedIDs.compactMap { databaseID -> LibraryTrackRow? in
+            guard let track = tracksByID[databaseID.rawValue] else { return nil }
+            return Self.observationRow(track, databaseID: databaseID)
+        }
+        let scopedRows = rows.filter { row in
+            guard request.scope.source == .testArtists else { return true }
+            let artist = if case let .value(albumArtist) = row.albumArtist {
+                albumArtist
+            } else if case let .value(trackArtist) = row.artist {
+                trackArtist
+            } else {
+                ""
+            }
+            return ArtistAllowList.containsNormalized(artist, in: request.scope.normalizedTestArtists)
+        }
+        let currentIDs: Set<MusicDatabaseTrackID> = if request.scope.source == .fullLibrary {
+            Set(allIDs)
+        } else {
+            Set(scopedRows.map(\.databaseID))
+        }
+        let observedIDs = Set(rows.map(\.databaseID))
+        let missingIDs = Set(requestedIDs).subtracting(observedIDs)
+        return LibraryObservation(
+            tracks: scopedRows,
+            censusIDs: Set(allIDs),
+            currentIDs: currentIDs,
+            scope: request.scope,
+            observedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            membership: request.scope.source == .fullLibrary
+                ? .full
+                : .scoped(unobservedIDs: missingIDs),
+            metadata: MetadataCompleteness(
+                requestedIDs: Set(requestedIDs),
+                observedIDs: observedIDs
+            ),
+            generation: generation,
+            issues: []
+        )
     }
 
-    func updateTrackProperty(
-        trackID _: String,
-        property _: String,
-        value _: String
-    ) async throws -> AppleScriptWriteResult {
-        try Task.checkCancellation()
-        return .changed
+    func recordedObservationRequests() -> [LibraryObservationRequest] {
+        observationRequests
     }
 
-    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
-        try Task.checkCancellation()
+    private static func generation() throws -> LibraryGeneration {
+        guard let generation = LibraryGeneration(sourceValue: "sync-mock") else {
+            throw AppleScriptBridgeError.parseError(scriptName: "sync-mock", detail: "Missing generation")
+        }
+        return generation
     }
 
-    func lastFetchTracksRequest() -> (batchSize: Int, timeout: Duration?)? {
-        guard let request = fetchTracksRequests.last else { return nil }
-        return (batchSize: request.batchSize, timeout: request.timeout)
-    }
-
-    func fetchTracksRequestCount() -> Int {
-        fetchTracksRequests.count
-    }
-
-    func fetchedTrackIDSets() -> [Set<String>] {
-        fetchTracksRequests.map { Set($0.trackIDs) }
-    }
-
-    func lastFetchAllTrackIDsTimeout() -> Duration? {
-        guard let timeout = fetchAllTrackIDsTimeouts.last else { return nil }
-        return timeout
-    }
-
-    func fetchAllTrackIDsCallCount() -> Int {
-        fetchAllTrackIDsTimeouts.count
-    }
-
-    func fetchedArtists() -> [String?] {
-        fetchTracksArtistRequests.map(\.artist)
-    }
-
-    func setArtistTracks(_ tracks: [Track], for artist: String) {
-        tracksByArtist[artist] = tracks
-    }
-
-    private static func appleScriptRecord(_ track: Track) -> String {
-        [
-            track.appleScriptID ?? track.id,
-            track.name,
-            track.artist,
-            track.albumArtist ?? "",
-            track.album,
-            track.genre ?? "",
-            "",
-            "",
-            track.trackStatus ?? "",
-            track.year.map(String.init) ?? "",
-            track.releaseYear.map(String.init) ?? "",
-            ""
-        ].joined(separator: String(Track.fieldSeparator))
+    private static func observationRow(
+        _ track: Track,
+        databaseID: MusicDatabaseTrackID
+    ) -> LibraryTrackRow {
+        LibraryTrackRow(
+            databaseID: databaseID,
+            metadata: LibraryTrackMetadata(
+                text: LibraryTrackText(
+                    name: .value(track.name),
+                    artist: .value(track.artist),
+                    album: .value(track.album),
+                    albumArtist: track.albumArtist.map(Observed.value) ?? .absent
+                ),
+                genre: track.genre.map(Observed.value) ?? .absent,
+                editableYear: track.year.map(Observed.value) ?? .absent,
+                releaseYear: track.releaseYear.map(Observed.value) ?? .absent,
+                dateAdded: track.dateAdded.map(Observed.value) ?? .absent,
+                lastModified: track.lastModified.map(Observed.value) ?? .absent,
+                status: track.trackStatus.map(Observed.value) ?? .absent
+            )
+        )
     }
 }
 
@@ -129,21 +120,16 @@ actor SyncMockTrackStore: TrackStateStore {
         storedTracks
     }
 
-    func saveTracks(_ tracks: [Track]) async throws {
-        for track in tracks {
+    func applyMirror(_ update: TrackMirrorUpdate) async throws {
+        let deletionIDs = Set(update.deletions.map(\.rawValue))
+        storedTracks.removeAll { deletionIDs.contains($0.id) }
+        for track in update.upserts {
             if let index = storedTracks.firstIndex(where: { $0.id == track.id }) {
                 storedTracks[index] = track
             } else {
                 storedTracks.append(track)
             }
         }
-    }
-
-    func deleteTrackIDs(_ ids: [String]) async throws -> Int {
-        let idsToDelete = Set(ids)
-        let originalCount = storedTracks.count
-        storedTracks.removeAll { idsToDelete.contains($0.id) }
-        return originalCount - storedTracks.count
     }
 
     func getTrack(byID id: String) async throws -> Track? {
@@ -164,30 +150,6 @@ actor SyncMockTrackStore: TrackStateStore {
     }
 }
 
-actor SyncMockReadProvider: LibraryReadProvider {
-    var snapshot = LibraryReadSnapshot(
-        tracks: [],
-        scannedAt: Date(timeIntervalSince1970: 1_800_000_000)
-    )
-    private(set) var requests: [LibraryReadRequest] = []
-
-    func loadLibrarySnapshot(request: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        requests.append(request)
-        return snapshot
-    }
-
-    func setTracks(_ tracks: [Track]) {
-        snapshot = LibraryReadSnapshot(
-            tracks: tracks,
-            scannedAt: Date(timeIntervalSince1970: 1_800_000_000)
-        )
-    }
-
-    func requestCount() -> Int {
-        requests.count
-    }
-}
-
 // MARK: - Mock Helpers
 
 extension SyncMockScriptClient {
@@ -203,7 +165,13 @@ extension SyncMockScriptClient {
 
 extension SyncMockTrackStore {
     func setStored(_ tracks: [Track]) {
-        storedTracks = tracks
+        storedTracks = tracks.map { track in
+            var canonical = track
+            if canonical.appleScriptID == nil {
+                canonical.appleScriptID = canonical.id
+            }
+            return canonical
+        }
     }
 }
 

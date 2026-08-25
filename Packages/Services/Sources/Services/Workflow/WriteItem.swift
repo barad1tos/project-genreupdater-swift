@@ -4,8 +4,8 @@ import OSLog
 
 struct PreparedWrite {
     let change: ProposedChange
-    let trackID: String
-    let property: String
+    let databaseID: MusicDatabaseTrackID
+    let property: MusicTrackProperty
     let value: String
 
     var writeChange: WorkChange {
@@ -19,12 +19,12 @@ struct PreparedWrite {
         )
     }
 
-    var updates: [TrackPropertyUpdate] {
-        var updates = [TrackPropertyUpdate(trackID: trackID, property: property, value: value)]
+    var updates: [MusicTrackUpdate] {
+        var updates = [MusicTrackUpdate(databaseID: databaseID, property: property, value: value)]
         if let albumArtistChange = change.albumArtistChange {
-            updates.append(TrackPropertyUpdate(
-                trackID: trackID,
-                property: AppleScriptTrackProperty.albumArtist.rawValue,
+            updates.append(MusicTrackUpdate(
+                databaseID: databaseID,
+                property: .albumArtist,
                 value: albumArtistChange.newValue
             ))
         }
@@ -32,18 +32,13 @@ struct PreparedWrite {
     }
 
     func dispatch(
-        using scriptBridge: any AppleScriptClient,
+        using mutator: any MusicAppMutating,
         onAttempt: @escaping WriteAttemptHook
-    ) async throws -> AppleScriptWriteResult {
+    ) async throws -> MusicWriteResult {
         guard updates.count > 1 else {
-            return try await scriptBridge.updateTrackProperty(
-                trackID: trackID,
-                property: property,
-                value: value,
-                onAttempt: onAttempt
-            )
+            return try await mutator.update(updates[0], onAttempt: onAttempt)
         }
-        try await scriptBridge.batchUpdateTracks(updates, onAttempt: onAttempt)
+        try await mutator.update(updates, onAttempt: onAttempt)
         return .changed
     }
 }
@@ -159,18 +154,18 @@ extension UpdateCoordinator {
             await invalidateCaches(for: write.change)
             throw error
         }
-        let entry = try await recordAppliedChange(write.change)
+        let entry = try await recordAppliedChange(write.change, databaseID: write.databaseID)
         return (entry, nil)
     }
 
     private func dispatchWrite(
         _ write: PreparedWrite,
         checkpoint: WorkCheckpointSink?
-    ) async throws -> AppleScriptWriteResult {
+    ) async throws -> MusicWriteResult {
         let attemptState = WriteAttemptState()
         do {
             return try await write.dispatch(
-                using: scriptBridge,
+                using: mutationAccess(),
                 onAttempt: {
                     attemptState.markAttempted()
                     try await checkpoint?(.afterAttempt([write.change.id]))
@@ -202,8 +197,8 @@ extension UpdateCoordinator {
             )
         } catch {
             let writeFailure = UpdateCoordinatorError.writeFailed(
-                trackID: write.change.track.id,
-                property: write.property,
+                trackID: write.databaseID.rawValue,
+                property: write.property.rawValue,
                 reason: error.localizedDescription
             )
             try await checkpointFailedWrite(
@@ -233,7 +228,7 @@ extension UpdateCoordinator {
             for: mutationTrack,
             requiresKnownStatus: idMapper != nil
         )
-        let property = Self.appleScriptProperty(for: preparedChange.changeType)
+        let property = Self.musicProperty(for: preparedChange.changeType)
         if isReviewedChange,
            idMapper != nil,
            let albumArtistChange = preparedChange.albumArtistChange,
@@ -241,7 +236,7 @@ extension UpdateCoordinator {
            Self.valueMatches(
                albumArtistChange.newValue,
                in: mutationTrack,
-               property: AppleScriptTrackProperty.albumArtist.rawValue
+               property: .albumArtist
            ) {
             return .noOp(Self.noOpLogEntry(preparedChange))
         }
@@ -256,10 +251,10 @@ extension UpdateCoordinator {
             return .noOp(Self.noOpLogEntry(preparedChange))
         }
 
-        let writeID = try await writeID(for: mutationTrack)
+        let databaseID = try await databaseID(for: mutationTrack)
         return .write(PreparedWrite(
             change: preparedChange,
-            trackID: writeID,
+            databaseID: databaseID,
             property: property,
             value: newValue
         ))
@@ -294,7 +289,7 @@ extension UpdateCoordinator {
     func shouldWrite(
         _ change: ProposedChange,
         to mutationTrack: Track,
-        property: String,
+        property: MusicTrackProperty,
         staleTrackID: String? = nil
     ) throws -> Bool {
         if change.changeType == .yearUpdate, mutationTrack.hasBeenProcessed {
@@ -305,22 +300,32 @@ extension UpdateCoordinator {
         else {
             throw UpdateCoordinatorError.reviewedChangeStale(
                 trackID: staleTrackID ?? mutationTrack.id,
-                property: property
+                property: property.rawValue
             )
         }
         return true
     }
 
-    private func writeID(for track: Track) async throws -> String {
-        guard let idMapper else { return track.id }
-        guard let appleScriptID = await idMapper.appleScriptID(forMusicKitID: track.id) else {
+    private func databaseID(for track: Track) async throws -> MusicDatabaseTrackID {
+        guard let idMapper else {
+            guard let databaseID = track.databaseID else {
+                throw UpdateCoordinatorError.missingAppleScriptID(trackID: track.id)
+            }
+            return databaseID
+        }
+        guard let appleScriptID = await idMapper.appleScriptID(forMusicKitID: track.id),
+              let databaseID = MusicDatabaseTrackID(rawValue: appleScriptID)
+        else {
             throw UpdateCoordinatorError.missingAppleScriptID(trackID: track.id)
         }
-        return appleScriptID
+        return databaseID
     }
 
-    private static func valueMatches(_ expectedValue: String?, in track: Track, property: String) -> Bool {
-        guard let property = AppleScriptTrackProperty(rawValue: property) else { return false }
+    private static func valueMatches(
+        _ expectedValue: String?,
+        in track: Track,
+        property: MusicTrackProperty
+    ) -> Bool {
         let expected = property.comparisonValue(normalizedReviewedValue(expectedValue))
         let current = property.comparisonValue(normalizedReviewedValue(property.currentValue(in: track)))
         return expected == current
@@ -331,15 +336,18 @@ extension UpdateCoordinator {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
-    func recordAppliedChange(_ change: ProposedChange) async throws -> ChangeLogEntry {
-        let entry = attributed(Self.changeToLogEntry(change))
+    func recordAppliedChange(
+        _ change: ProposedChange,
+        databaseID: MusicDatabaseTrackID
+    ) async throws -> ChangeLogEntry {
+        let entry = attributed(Self.changeToLogEntry(change, databaseID: databaseID))
         var failedEffects: [String] = []
         do {
             try await undoCoordinator.recordChange(entry)
         } catch {
             failedEffects.append("change history")
             log.error("""
-            Failed to persist change history for track \(change.track.id, privacy: .private): \
+            Failed to persist change history for track \(databaseID.rawValue, privacy: .private): \
             \(error.localizedDescription, privacy: .private)
             """)
         }
@@ -348,19 +356,19 @@ extension UpdateCoordinator {
         } catch {
             failedEffects.append("track mirror")
             log.error("""
-            Failed to persist applied metadata for track \(change.track.id, privacy: .private): \
+            Failed to persist applied metadata for track \(databaseID.rawValue, privacy: .private): \
             \(error.localizedDescription, privacy: .private)
             """)
         }
         await invalidateCaches(for: change)
         guard failedEffects.isEmpty else {
             throw UpdateCoordinatorError.writeFinalizationFailed(
-                trackID: change.track.id,
+                trackID: databaseID.rawValue,
                 effects: failedEffects
             )
         }
         log.info(
-            "Applied \(change.changeType.rawValue, privacy: .public) to track \(change.track.id, privacy: .private)"
+            "Applied \(change.changeType.rawValue, privacy: .public) to track \(databaseID.rawValue, privacy: .private)"
         )
         return entry
     }

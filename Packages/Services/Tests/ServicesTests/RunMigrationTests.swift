@@ -30,7 +30,8 @@ struct RunMigrationTests {
             #expect(migratedTrack.yearSetByMGU == nil)
 
             let coordinator = UndoCoordinator(
-                scriptBridge: MockAppleScriptClient(),
+                musicApp: MusicAppTestAccess(),
+                idMapper: CanonicalUndoMapper(),
                 stores: .init(changeLog: changeLogStore, tracks: trackStore),
                 directory: storeURL.deletingLastPathComponent().appendingPathComponent("undo")
             )
@@ -79,7 +80,8 @@ struct RunMigrationTests {
             let trackStore = TrackDataStore(modelContainer: currentContainer)
             let changeLogStore = ChangeLogDataStore(modelContainer: currentContainer)
             let coordinator = UndoCoordinator(
-                scriptBridge: MockAppleScriptClient(),
+                musicApp: MusicAppTestAccess(),
+                idMapper: CanonicalUndoMapper(),
                 stores: .init(changeLog: changeLogStore, tracks: trackStore),
                 directory: storeURL.deletingLastPathComponent().appendingPathComponent("undo")
             )

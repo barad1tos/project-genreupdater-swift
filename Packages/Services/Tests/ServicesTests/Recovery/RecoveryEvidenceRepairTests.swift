@@ -11,7 +11,7 @@ struct RecoveryEvidenceRepairTests {
 
         let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: item))
 
-        #expect(entry.trackID == "music-kit-1")
+        #expect(entry.trackID == "persistent-1")
         #expect(entry.changeType == .genreUpdate)
         #expect(entry.oldGenre == "Rock")
         #expect(entry.newGenre == "Stoner Rock")
@@ -62,6 +62,27 @@ struct RecoveryEvidenceRepairTests {
         #expect(entry.oldArtist == "Massive")
         #expect(entry.newArtist == "Massive Attack")
         #expect(entry.albumArtistChange == item.albumArtistChange)
+    }
+
+    @Test("repair rejects a blank Music.app database ID")
+    func rejectsBlankDatabaseID() {
+        let item = FixPlanItem(
+            id: UUID(),
+            identity: FixPlanItemIdentity(
+                readID: "music-kit-1",
+                appleScriptID: "  \n",
+                artist: "Massive Attack",
+                album: "Mezzanine",
+                trackName: "Teardrop"
+            ),
+            changeType: .genreUpdate,
+            oldValue: "Electronic",
+            newValue: "Trip-Hop",
+            confidence: 100,
+            source: "Library"
+        )
+
+        #expect(RecoveryEvidenceRepair.changeLogEntry(for: RunWorkItem(item: item)) == nil)
     }
 
     @Test("repair uses the reconciled write effect instead of stale plan evidence")
@@ -151,6 +172,34 @@ struct RecoveryEvidenceRepairTests {
         #expect(second.isEmpty)
     }
 
+    @Test("same-run read identity is rewritten to the Music.app database ID")
+    func rewritesSameRunReadID() {
+        let runID = UUID()
+        let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
+        let legacyID = UUID()
+        var legacy = ChangeLogEntry(
+            id: legacyID,
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            changeType: .genreUpdate,
+            trackID: "music-kit-1",
+            artist: "Artist",
+            trackName: "Track",
+            albumName: "Album",
+            oldGenre: "Rock",
+            newGenre: "Stoner Rock"
+        )
+        legacy.runID = runID
+
+        let entries = RecoveryEvidenceRepair.missingEntries(
+            for: [landed],
+            existing: [legacy],
+            runID: runID
+        )
+
+        #expect(entries.map(\.id) == [legacyID])
+        #expect(entries.map(\.trackID) == ["persistent-1"])
+    }
+
     @Test("legacy history from another run is not migrated")
     func keepsForeignHistory() {
         let runID = UUID()
@@ -160,7 +209,7 @@ struct RecoveryEvidenceRepairTests {
             id: legacyID,
             timestamp: Date(timeIntervalSince1970: 1_700_000_000),
             changeType: .genreUpdate,
-            trackID: "persistent-1",
+            trackID: "music-kit-1",
             artist: "Artist",
             trackName: "Track",
             albumName: "Album",
@@ -177,14 +226,14 @@ struct RecoveryEvidenceRepairTests {
 
         #expect(entries.count == 1)
         #expect(entries.first?.id != legacyID)
-        #expect(entries.first?.trackID == "music-kit-1")
+        #expect(entries.first?.trackID == "persistent-1")
     }
 
     @Test("failed repaired save keeps legacy history until retry")
     func retriesFailedRepair() async throws {
         let store = MockChangeLogStore()
         let coordinator = UndoCoordinator(
-            scriptBridge: MockAppleScriptClient(),
+            musicApp: MusicAppTestAccess(),
             stores: .init(changeLog: store),
             directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("RecoveryRepair-\(UUID().uuidString)")

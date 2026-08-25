@@ -5,7 +5,8 @@ import Foundation
 /// persisted item stays a faithful snapshot even if the underlying track later
 /// changes (renamed, re-enriched, or removed from the library).
 public struct FixPlanItemIdentity: Codable, Equatable, Sendable {
-    /// `Track.id` — MusicKit read identity (ADR 0018).
+    /// Source/proposal identity captured from `Track.id`; it is neither guaranteed MusicKit identity nor a durable
+    /// processing-store key.
     public let readID: String
     /// Write identity when known at proposal time (ADR 0019).
     public let appleScriptID: String?
