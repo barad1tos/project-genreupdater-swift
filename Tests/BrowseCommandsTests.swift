@@ -42,7 +42,7 @@ struct BrowseCommandsTests {
                 )
             ),
             physicalTrackCount: nil,
-            readSource: .liveLibrary(scannedAt: Date(timeIntervalSince1970: 100)),
+            readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
             operationalIssues: []
         )
     }

@@ -23,14 +23,6 @@ public struct CatalogTrack: Equatable, Sendable {
     public let genres: [String]
     public let dates: CatalogDates
 
-    public var releaseYear: Int? {
-        dates.releaseYear
-    }
-
-    public var dateAdded: Date? {
-        dates.dateAdded
-    }
-
     public init(
         id: CatalogTrackID,
         title: String,

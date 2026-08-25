@@ -32,8 +32,8 @@ struct MusicLibraryReaderTests {
         #expect(track.album == "Foregone")
         #expect(track.albumArtist == "In Flames")
         #expect(track.genres == ["Melodic Death Metal"])
-        #expect(track.releaseYear == 2023)
-        #expect(track.dateAdded == dateAdded)
+        #expect(track.dates.releaseYear == 2023)
+        #expect(track.dates.dateAdded == dateAdded)
     }
 
     @Test("Blank catalog IDs are rejected")

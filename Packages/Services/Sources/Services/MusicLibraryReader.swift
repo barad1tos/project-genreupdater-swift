@@ -33,7 +33,7 @@ public actor MusicLibraryReader: MusicCatalogReading {
     private let source: any MusicKitCatalogSource
 
     public init() {
-        source = MusicKitCatalogAdapter()
+        self.init(source: MusicKitCatalogAdapter())
     }
 
     init(source: any MusicKitCatalogSource) {

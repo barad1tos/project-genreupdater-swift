@@ -37,7 +37,7 @@ struct BrowseAdapterAppTests {
                 reason: "adapter-test"
             ),
             physicalTrackCount: 40,
-            readSource: .liveLibrary(scannedAt: Date(timeIntervalSince1970: 100)),
+            readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
             previewUnavailableReason: nil
         ))
     }
@@ -72,7 +72,7 @@ struct BrowseAdapterAppTests {
                 reason: "adapter-test"
             ),
             physicalTrackCount: nil,
-            readSource: .liveLibrary(scannedAt: Date(timeIntervalSince1970: 100)),
+            readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
             previewUnavailableReason: nil
         ))
 
@@ -125,7 +125,7 @@ struct BrowseAdapterAppTests {
                     reason: "adapter-test"
                 ),
                 physicalTrackCount: nil,
-                readSource: .liveLibrary(scannedAt: Date(timeIntervalSince1970: 100)),
+                readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
                 previewUnavailableReason: nil
             )
         ))

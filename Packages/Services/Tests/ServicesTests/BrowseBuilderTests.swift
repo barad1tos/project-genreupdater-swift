@@ -33,7 +33,7 @@ private func makeInput(
     tracks: [Track],
     testArtists: [String] = [],
     physicalTrackCount: Int? = nil,
-    readSource: BrowseReadSource = .liveLibrary(scannedAt: Date(timeIntervalSince1970: 100)),
+    readSource: BrowseReadSource = .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
     previewUnavailableReason: String? = nil
 ) -> BrowseInput {
     BrowseInput(
@@ -320,7 +320,7 @@ struct BrowseBuilderScopeTests {
             tracks: [makeTrack(artist: "Anyone", album: "Anything")],
             scope: degenerateScope,
             physicalTrackCount: nil,
-            readSource: .liveLibrary(scannedAt: Date(timeIntervalSince1970: 100)),
+            readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
             previewUnavailableReason: nil
         ))
 
