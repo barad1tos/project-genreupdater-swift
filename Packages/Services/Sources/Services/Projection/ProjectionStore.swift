@@ -613,7 +613,8 @@ public actor ProjectionStore {
         inputGeneration: UInt64? = nil
     ) -> ArtistCatalogProjection {
         if let inputGeneration {
-            guard inputGeneration > appliedArtistCatalogGeneration else {
+            guard inputGeneration >= issuedArtistCatalogGeneration,
+                  inputGeneration > appliedArtistCatalogGeneration else {
                 return currentArtistCatalog
             }
             issuedArtistCatalogGeneration = max(issuedArtistCatalogGeneration, inputGeneration)

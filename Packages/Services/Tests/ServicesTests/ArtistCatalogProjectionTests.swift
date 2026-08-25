@@ -74,6 +74,60 @@ struct ArtistCatalogProjectionTests {
             ArtistCatalogEntry(name: "Björk", trackCount: 1),
         ]))
     }
+
+    @Test("an abandoned newer claim still rejects an older catalog result")
+    func rejectsSupersededGeneration() async {
+        let store = ProjectionStore()
+        let initial = await store.replaceArtistCatalog(
+            ArtistCatalogBuilder.makeProjection(tracks: [
+                catalogTrack(id: "current", artist: "Björk"),
+            ])
+        )
+        let olderGeneration = await store.claimArtistCatalogGeneration()
+        _ = await store.claimArtistCatalogGeneration()
+
+        let stored = await store.replaceArtistCatalog(
+            ArtistCatalogBuilder.makeProjection(tracks: [
+                catalogTrack(id: "stale", artist: "Cher"),
+            ]),
+            inputGeneration: olderGeneration
+        )
+
+        #expect(stored == initial)
+    }
+
+    @Test("an explicit future generation remains admissible")
+    func acceptsFutureGeneration() async {
+        let store = ProjectionStore()
+        let claimedGeneration = await store.claimArtistCatalogGeneration()
+
+        let stored = await store.replaceArtistCatalog(
+            ArtistCatalogBuilder.makeProjection(tracks: [
+                catalogTrack(id: "future", artist: "Björk"),
+            ]),
+            inputGeneration: claimedGeneration + 10
+        )
+
+        #expect(stored.state == .available([
+            ArtistCatalogEntry(name: "Björk", trackCount: 1),
+        ]))
+    }
+
+    @Test("an unversioned replacement remains admissible")
+    func acceptsUnversionedReplacement() async {
+        let store = ProjectionStore()
+        _ = await store.claimArtistCatalogGeneration()
+
+        let stored = await store.replaceArtistCatalog(
+            ArtistCatalogBuilder.makeProjection(tracks: [
+                catalogTrack(id: "unversioned", artist: "Björk"),
+            ])
+        )
+
+        #expect(stored.state == .available([
+            ArtistCatalogEntry(name: "Björk", trackCount: 1),
+        ]))
+    }
 }
 
 private func catalogTrack(id: String, artist: String, albumArtist: String? = nil) -> CatalogTrack {

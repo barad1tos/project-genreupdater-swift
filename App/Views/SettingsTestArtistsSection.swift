@@ -53,7 +53,7 @@ struct SettingsTestArtistsSection: View {
             .foregroundStyle(.tertiary)
         }
         .task {
-            _ = await dependencies.refreshArtistCatalog()
+            await dependencies.refreshArtistCatalog()
         }
         .task { await artistCatalogFeed.observe(dependencies.projectionStore) }
         .sheet(isPresented: $isArtistPickerOpen) {

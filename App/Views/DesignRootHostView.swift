@@ -613,14 +613,14 @@ struct DesignRootHostView: View {
         dependencies.onLibraryLoadApplied = { _ in
             refreshWorkflowScopePreview()
             Task { @MainActor in
-                _ = await dependencies.refreshArtistCatalog()
+                await dependencies.refreshArtistCatalog()
             }
         }
         ensureWorkflowViewModel()
         if await dependencies.ensureRecoveryHold() {
             _ = await workflowViewModel?.stopForRecoveryHold()
         }
-        _ = await dependencies.refreshArtistCatalog()
+        await dependencies.refreshArtistCatalog()
         await dependencies.loadLibrary()
         await refreshActivityProjection()
     }

@@ -57,7 +57,7 @@ struct ArtistCatalogAdapterTests {
         let observation = Task { await feed.observe(dependencies.projectionStore) }
         defer { observation.cancel() }
 
-        _ = await dependencies.refreshArtistCatalog()
+        await dependencies.refreshArtistCatalog()
 
         try await waitUntil {
             feed.projection.state == .available([
@@ -78,13 +78,53 @@ struct ArtistCatalogAdapterTests {
                 album: "Reroute to Remain"
             ),
         ])
-        _ = await dependencies.refreshArtistCatalog()
+        await dependencies.refreshArtistCatalog()
 
         try await waitUntil {
             guard case let .available(entries) = feed.projection.state else { return false }
             return entries.map(\.name) == ["Björk", "In Flames", "Бумбокс"]
         }
         #expect(await catalog.capturedScopes() == [[], []])
+    }
+
+    @Test("cancellation preserves the last available catalog")
+    @MainActor
+    func keepsCatalogOnCancellation() async throws {
+        let catalog = CatalogProbe(tracks: [
+            catalogTrack(id: "BJORK-1", title: "Jóga", artist: "Björk", album: "Homogenic"),
+        ])
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            musicCatalog: catalog
+        )
+
+        await dependencies.refreshArtistCatalog()
+        let availableProjection = try await currentArtistCatalog(in: dependencies.projectionStore)
+        #expect(availableProjection.state == .available([ArtistCatalogEntry(name: "Björk", trackCount: 1)]))
+
+        await catalog.replaceFailure(.cancellation)
+        await dependencies.refreshArtistCatalog()
+        let projectionAfterCancellation = try await currentArtistCatalog(in: dependencies.projectionStore)
+
+        #expect(projectionAfterCancellation == availableProjection)
+    }
+
+    @Test(
+        "authorization failures publish their actionable localized reason",
+        arguments: [CatalogFailure.authorizationDenied, .authorizationRestricted]
+    )
+    @MainActor
+    func showsAuthorizationReasons(failure: CatalogFailure) async throws {
+        let catalog = CatalogProbe(tracks: [], failure: failure)
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            musicCatalog: catalog
+        )
+
+        await dependencies.refreshArtistCatalog()
+        let projection = try await currentArtistCatalog(in: dependencies.projectionStore)
+
+        #expect(projection.state == .unavailable(reason: failure.localizedReason))
     }
 
     @Test("catalog authorization and count do not require processing permission")
@@ -116,16 +156,28 @@ struct ArtistCatalogAdapterTests {
         }
         Issue.record("The open settings surface did not receive the refreshed artist catalog")
     }
+
+    private func currentArtistCatalog(in store: ProjectionStore) async throws -> ArtistCatalogProjection {
+        let stream = await store.artistCatalogUpdates()
+        var iterator = stream.makeAsyncIterator()
+        return try #require(await iterator.next())
+    }
 }
 
 private actor CatalogProbe: MusicCatalogReading {
     private var tracks: [CatalogTrack]
+    private var failure: CatalogFailure
     private var scopes: [[String]] = []
     private var authorizationRequestCount = 0
     private var isAuthorizationGranted: Bool
 
-    init(tracks: [CatalogTrack], isAuthorized: Bool = true) {
+    init(
+        tracks: [CatalogTrack],
+        isAuthorized: Bool = true,
+        failure: CatalogFailure = .none
+    ) {
         self.tracks = tracks
+        self.failure = failure
         isAuthorizationGranted = isAuthorized
     }
 
@@ -140,6 +192,16 @@ private actor CatalogProbe: MusicCatalogReading {
 
     func loadCatalog(testArtists: [String]) async throws -> CatalogSnapshot {
         scopes.append(testArtists)
+        switch failure {
+        case .none:
+            break
+        case .cancellation:
+            throw CancellationError()
+        case .authorizationDenied:
+            throw MusicLibraryError.authorizationDenied
+        case .authorizationRestricted:
+            throw MusicLibraryError.authorizationRestricted
+        }
         return CatalogSnapshot(tracks: tracks)
     }
 
@@ -151,12 +213,34 @@ private actor CatalogProbe: MusicCatalogReading {
         self.tracks = tracks
     }
 
+    func replaceFailure(_ failure: CatalogFailure) {
+        self.failure = failure
+    }
+
     func capturedScopes() -> [[String]] {
         scopes
     }
 
     func authorizationRequests() -> Int {
         authorizationRequestCount
+    }
+}
+
+enum CatalogFailure: Sendable {
+    case none
+    case cancellation
+    case authorizationDenied
+    case authorizationRestricted
+
+    var localizedReason: String {
+        switch self {
+        case .authorizationDenied:
+            MusicLibraryError.authorizationDenied.localizedDescription
+        case .authorizationRestricted:
+            MusicLibraryError.authorizationRestricted.localizedDescription
+        case .none, .cancellation:
+            preconditionFailure("The selected failure has no catalog issue")
+        }
     }
 }
 
