@@ -94,7 +94,7 @@ struct YearUndoRecoveryTests {
         try await coordinator.revertChange(fixture.entry)
 
         #expect(await fixture.bridge.writtenProperties == [
-            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .year, value: "0"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .year, value: "0"),
         ])
         #expect(await coordinator.getHistory().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
@@ -121,7 +121,7 @@ struct YearUndoRecoveryTests {
         try await coordinator.revertChange(entry)
 
         #expect(await fixture.bridge.writtenProperties == [
-            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .year, value: "0"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .year, value: "0"),
         ])
         #expect(await coordinator.getHistory().isEmpty)
     }
@@ -177,7 +177,7 @@ struct YearUndoRecoveryTests {
         try await fixture.coordinator().revertChange(fixture.entry)
 
         #expect(await fixture.bridge.writtenProperties == [
-            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .year, value: "0"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .year, value: "0"),
         ])
         #expect(await fixture.historyStore.entries.isEmpty)
     }
@@ -302,7 +302,7 @@ struct YearUndoRecoveryTests {
         #expect(await relaunched.getHistory().isEmpty)
         #expect(await fixture.historyStore.entries.isEmpty)
         #expect(await fixture.bridge.writtenProperties.count == 1)
-        #expect(await fixture.bridge.fetchMetadataCalls().isEmpty)
+        #expect(await fixture.bridge.fetchMetadataCalls() == [[testDatabaseID("T1")]])
         #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
     }
 

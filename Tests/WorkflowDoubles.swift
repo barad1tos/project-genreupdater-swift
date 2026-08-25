@@ -95,6 +95,7 @@ actor DashboardStateScriptClient: MusicAppMutating, MusicAppVerifying {
     private let outcomeTrackIDs: Set<String>
     private let noChangeTrackIDs: Set<String>
     private let writeHold: LiveBatchHold?
+    private let metadataByID: [String: Track]?
     private var writes: [MusicTrackUpdate] = []
 
     init(
@@ -102,17 +103,26 @@ actor DashboardStateScriptClient: MusicAppMutating, MusicAppVerifying {
         cancellingTrackIDs: Set<String> = [],
         outcomeTrackIDs: Set<String> = [],
         noChangeTrackIDs: Set<String> = [],
+        verifiedTracks: [Track]? = nil,
         writeHold: LiveBatchHold? = nil
     ) {
         self.failingTrackIDs = failingTrackIDs
         self.cancellingTrackIDs = cancellingTrackIDs
         self.outcomeTrackIDs = outcomeTrackIDs
         self.noChangeTrackIDs = noChangeTrackIDs
+        metadataByID = verifiedTracks.map { tracks in
+            Dictionary(uniqueKeysWithValues: tracks.map { track in
+                (track.databaseID?.rawValue ?? track.id, track)
+            })
+        }
         self.writeHold = writeHold
     }
 
     func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Track] {
-        databaseIDs.map { databaseID in
+        if let metadataByID {
+            return databaseIDs.compactMap { metadataByID[$0.rawValue] }
+        }
+        return databaseIDs.map { databaseID in
             Track(
                 id: databaseID.rawValue,
                 name: "Track \(databaseID.rawValue)",

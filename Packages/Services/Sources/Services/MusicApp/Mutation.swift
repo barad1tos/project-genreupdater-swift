@@ -52,10 +52,39 @@ public struct MusicTrackUpdate: Equatable, Sendable {
     public let property: MusicTrackProperty
     public let value: String
 
-    public init(databaseID: MusicDatabaseTrackID, property: MusicTrackProperty, value: String) {
+    /// Creates a mutation that can be dispatched by the bundled Music.app writers.
+    ///
+    /// Year values must parse as integers and satisfy `MusicAppYear.isWritable`; validation happens before dispatch.
+    /// - Throws: An error when a year value violates that contract.
+    public init(databaseID: MusicDatabaseTrackID, property: MusicTrackProperty, value: String) throws {
+        try self.init(databaseID: databaseID, property: property, value: value, at: Date())
+    }
+
+    init(
+        databaseID: MusicDatabaseTrackID,
+        property: MusicTrackProperty,
+        value: String,
+        at date: Date
+    ) throws {
+        if property == .year {
+            guard let year = Int(value), MusicAppYear.isWritable(year, at: date) else {
+                throw MusicTrackUpdateError.invalidYear
+            }
+        }
         self.databaseID = databaseID
         self.property = property
         self.value = value
+    }
+}
+
+enum MusicTrackUpdateError: Error, LocalizedError, Sendable, Equatable {
+    case invalidYear
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidYear:
+            "Year update must be 0 or within the writable Music.app range"
+        }
     }
 }
 
@@ -90,11 +119,19 @@ struct WriteAttemptFailure: Error {
 
 /// Grants physical metadata mutation rights in Music.app.
 public protocol MusicAppMutating: Actor {
+    /// Applies one mutation.
+    /// - Parameter onAttempt: Invoke exactly once when the mutation may have reached Music.app, before reporting its
+    ///   outcome. Do not invoke it for confirmed pre-dispatch failure or cancellation. Propagate hook failures without
+    ///   discarding write uncertainty.
     func update(
         _ update: MusicTrackUpdate,
         onAttempt: @escaping WriteAttemptHook
     ) async throws -> MusicWriteResult
 
+    /// Applies a mutation batch.
+    /// - Parameter onAttempt: Invoke exactly once when the batch may have reached Music.app, before reporting its
+    ///   outcome. Do not invoke it for confirmed pre-dispatch failure or cancellation. Propagate hook failures without
+    ///   discarding write uncertainty.
     func update(
         _ updates: [MusicTrackUpdate],
         onAttempt: @escaping WriteAttemptHook

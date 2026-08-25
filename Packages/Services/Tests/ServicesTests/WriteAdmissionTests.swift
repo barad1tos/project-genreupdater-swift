@@ -500,7 +500,7 @@ struct WriteAdmissionTests {
                 partialTrackIDs: { _ in [] },
                 operation: {
                     try await bridge.applySingleUpdate(
-                        MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
+                        musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
                         onAttempt: { throw WorkCheckpointError.store(failure) },
                         execute: {
                             throw AppleScriptOutcomeError(

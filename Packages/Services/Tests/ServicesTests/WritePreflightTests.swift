@@ -158,7 +158,7 @@ struct WritePreflightTests {
 
         #expect(await fixture.bridge.batchUpdates.isEmpty)
         #expect(await fixture.bridge.writtenProperties == [
-            MusicTrackUpdate(databaseID: testDatabaseID("AS1"), property: .artist, value: "Massive Attack"),
+            musicUpdate(databaseID: testDatabaseID("AS1"), property: .artist, value: "Massive Attack"),
         ])
         let prepared = await checkpoints.values.first
         #expect(prepared?.boundary == .beforeAttempt)
@@ -216,7 +216,7 @@ struct WritePreflightTests {
 
         #expect(await fixture.bridge.batchUpdates.isEmpty)
         #expect(await fixture.bridge.writtenProperties == [
-            MusicTrackUpdate(databaseID: testDatabaseID("AS1"), property: .artist, value: "Massive Attack"),
+            musicUpdate(databaseID: testDatabaseID("AS1"), property: .artist, value: "Massive Attack"),
         ])
         #expect(await checkpoints.values.first?.writeChanges[change.id]?.albumArtistChange == nil)
     }
@@ -357,7 +357,7 @@ struct WritePreflightTests {
         #expect(outcome.entry == nil)
         #expect(outcome.noOpEntry?.newYear == MusicAppYear.missingValue)
         #expect(await fixture.bridge.writtenProperties == [
-            MusicTrackUpdate(databaseID: testDatabaseID("AS1"), property: .year, value: "0"),
+            musicUpdate(databaseID: testDatabaseID("AS1"), property: .year, value: "0"),
         ])
     }
 

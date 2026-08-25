@@ -44,7 +44,7 @@ struct AnalyticsBoundaryTests {
         }
         await #expect(throws: CancellationError.self) {
             try await bridge.update(
-                [MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .genre, value: "Rock")],
+                [musicUpdate(databaseID: testDatabaseID("T1"), property: .genre, value: "Rock")],
                 onAttempt: {},
                 execute: { _ in throw CancellationError() }
             )

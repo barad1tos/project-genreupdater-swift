@@ -47,7 +47,7 @@ struct ArtistEvidenceWorkflowTests {
             Issue.record("Expected the feature-credit batch to complete")
             return
         }
-        #expect(await fixture.scriptClient.updatedProperties() == [
+        #expect(try await fixture.scriptClient.updatedProperties() == [
             MusicTrackUpdate(
                 databaseID: testMusicDatabaseID("target"),
                 property: .genre,
@@ -119,7 +119,7 @@ struct ArtistEvidenceWorkflowTests {
         }
         #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
         #expect(viewModel.result?.errorDescriptions.isEmpty == true)
-        #expect(await fixture.scriptClient.updatedProperties() == [
+        #expect(try await fixture.scriptClient.updatedProperties() == [
             MusicTrackUpdate(
                 databaseID: testMusicDatabaseID("as-target"),
                 property: .genre,

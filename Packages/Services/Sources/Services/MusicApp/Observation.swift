@@ -34,7 +34,7 @@ public struct LibraryMirrorIndex: Equatable, Sendable {
 
     public init?(tracksByID: [MusicDatabaseTrackID: Track]) {
         guard tracksByID.allSatisfy({ databaseID, track in
-            track.databaseID == databaseID
+            track.databaseID == databaseID && track.id == databaseID.rawValue
         }) else {
             return nil
         }

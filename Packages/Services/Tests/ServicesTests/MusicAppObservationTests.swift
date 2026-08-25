@@ -5,6 +5,14 @@ import Testing
 
 @Suite("Music.app observation")
 struct MusicAppObservationTests {
+    @Test("Mirror rejects a MusicKit ID under an AppleScript database key")
+    func rejectsMusicKitID() throws {
+        let databaseID = try databaseID("1")
+        let musicKitTrack = track(id: databaseID, artist: "Artist", musicKitID: "music-kit-1")
+
+        #expect(LibraryMirrorIndex(tracksByID: [databaseID: musicKitTrack]) == nil)
+    }
+
     @Test("Fast observation fetches only IDs absent from the previous mirror")
     func fetchesOnlyNewMetadata() async throws {
         let firstID = try databaseID("1")
@@ -238,6 +246,30 @@ struct MusicAppObservationTests {
         }
     }
 
+    @Test("Census membership change rejects an observation even when generation is unchanged")
+    func rejectsChangedCensus() async throws {
+        let firstID = try databaseID("1")
+        let secondID = try databaseID("2")
+        let generation = try libraryGeneration("G1")
+        let source = try ObservationSourceStub(
+            censuses: [
+                census([firstID], generation: generation),
+                census([firstID, secondID], generation: generation),
+            ],
+            tracks: [firstID: track(id: firstID, artist: "Artist")]
+        )
+        let reader = MusicAppObserver(source: source)
+
+        do {
+            _ = try await reader.observe(request())
+            Issue.record("Expected census change to reject the observation")
+        } catch MusicAppObservationError.censusChanged {
+            // Expected: generation alone cannot make changed membership atomic.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test("Census failure is not converted into an empty observation")
     func preservesCensusFailure() async throws {
         let source = ObservationSourceStub(censusError: ObservationTestError.censusFailed)
@@ -269,10 +301,11 @@ struct MusicAppObservationTests {
     private func track(
         id: MusicDatabaseTrackID,
         artist: String,
-        albumArtist: String? = nil
+        albumArtist: String? = nil,
+        musicKitID: String? = nil
     ) -> Track {
         Track(
-            id: "source-\(id.rawValue)",
+            id: musicKitID ?? id.rawValue,
             name: "Song \(id.rawValue)",
             artist: artist,
             album: "Album",

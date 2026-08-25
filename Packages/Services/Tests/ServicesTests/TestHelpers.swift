@@ -10,6 +10,64 @@ func testDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {
     return databaseID
 }
 
+func musicUpdate(
+    databaseID: MusicDatabaseTrackID,
+    property: MusicTrackProperty,
+    value: String
+) -> MusicTrackUpdate {
+    do {
+        return try MusicTrackUpdate(databaseID: databaseID, property: property, value: value)
+    } catch {
+        preconditionFailure("Invalid test music update for \(property.rawValue): \(error.localizedDescription)")
+    }
+}
+
+func undoTrack(
+    for entry: ChangeLogEntry,
+    databaseID: String? = nil,
+    trackStatus: String? = TrackKind.subscription.rawValue
+) -> Track {
+    let resolvedDatabaseID = databaseID ?? entry.trackID
+    return Track(
+        id: resolvedDatabaseID,
+        name: entry.newTrackName ?? entry.trackName,
+        artist: entry.newArtist ?? entry.artist,
+        album: entry.newAlbumName ?? entry.albumName,
+        genre: entry.newGenre,
+        year: entry.newYear,
+        trackStatus: trackStatus,
+        albumArtist: entry.albumArtistChange?.newValue,
+        appleScriptID: resolvedDatabaseID
+    )
+}
+
+extension MusicAppTestAccess {
+    func setMutationTracks(_ tracks: [Track]) {
+        let authoritativeTracks = tracks.map { track in
+            var authoritativeTrack = track
+            authoritativeTrack.trackStatus = TrackKind.subscription.rawValue
+            authoritativeTrack.appleScriptID = track.databaseID?.rawValue ?? track.id
+            return authoritativeTrack
+        }
+        setFetchedTracks(authoritativeTracks)
+    }
+
+    func setUndoEntries(
+        _ entries: [ChangeLogEntry],
+        databaseIDs: [String: String] = [:]
+    ) {
+        let tracksByID = entries
+            .sorted { $0.timestamp > $1.timestamp }
+            .reduce(into: [String: Track]()) { tracks, entry in
+                let databaseID = databaseIDs[entry.trackID] ?? entry.trackID
+                if tracks[databaseID] == nil {
+                    tracks[databaseID] = undoTrack(for: entry, databaseID: databaseID)
+                }
+            }
+        setFetchedTracks(Array(tracksByID.values))
+    }
+}
+
 // MARK: - APIOrchestrator Test Factory
 
 func makeAPIOrchestrator(

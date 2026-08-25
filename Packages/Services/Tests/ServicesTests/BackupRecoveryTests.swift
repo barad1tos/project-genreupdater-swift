@@ -27,7 +27,7 @@ private struct BackupRecoveryFixture {
         var liveTrack = staleMirror
         liveTrack.year = liveYear
         try await trackStore.seedMirror([staleMirror])
-        await bridge.setFetchedTracks([liveTrack])
+        await bridge.setMutationTracks([liveTrack])
         return Self(
             bridge: bridge,
             historyStore: historyStore,
@@ -81,7 +81,7 @@ struct BackupRecoveryTests {
 
         var changedTrack = fixture.liveTrack
         changedTrack.year = 2019
-        await fixture.bridge.setFetchedTracks([changedTrack])
+        await fixture.bridge.setMutationTracks([changedTrack])
         await fixture.trackStore.resumeAppliedUpdates()
         await expectRecoveryFailure(effects: ["stale backup recovery checkpoint"]) {
             _ = try await fixture.coordinator().revertYearsFromBackupCSV(
@@ -166,7 +166,7 @@ struct BackupRecoveryTests {
 
         var changedTrack = fixture.liveTrack
         changedTrack.year = 2020
-        await fixture.bridge.setFetchedTracks([changedTrack])
+        await fixture.bridge.setMutationTracks([changedTrack])
         await fixture.bridge.setWriteCancellationMode(false)
         await expectRecoveryFailure(effects: ["stale backup recovery checkpoint"]) {
             _ = try await fixture.coordinator().revertYearsFromBackupCSV(
@@ -213,7 +213,7 @@ struct BackupRecoveryTests {
             Track(id: "T1", name: "Angel", artist: "Massive Attack", album: "Mezzanine", year: 2019),
             Track(id: "T2", name: "Teardrop", artist: "Massive Attack", album: "Mezzanine", year: 2020),
         ]
-        await bridge.setFetchedTracks(tracks)
+        await bridge.setMutationTracks(tracks)
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),

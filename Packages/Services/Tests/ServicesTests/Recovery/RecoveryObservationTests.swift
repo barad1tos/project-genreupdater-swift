@@ -194,6 +194,37 @@ struct RecoveryObservationServiceTests {
         #expect(outcome.detail == "Music.app track identity changed since the write was planned")
     }
 
+    @Test(
+        "Identity-changing recovery admits the managed value and rejects a third value",
+        arguments: [
+            (ChangeType.trackCleaning, "Clean Track", "Other Track"),
+            (ChangeType.albumCleaning, "Clean Album", "Other Album"),
+        ] as [(ChangeType, String, String)]
+    )
+    func usesManagedIdentityValues(
+        changeType: ChangeType,
+        newValue: String,
+        thirdValue: String
+    ) async throws {
+        let oldValue = changeType == .trackCleaning ? "Track" : "Album"
+        let attempted = makeWorkItem(
+            state: .attempted,
+            changeType: changeType,
+            oldValue: oldValue,
+            newValue: newValue
+        )
+        let client = MusicAppTestAccess()
+        let service = RecoveryObservationService(verifier: client)
+
+        await client.setFetchedTracks([observedIdentityTrack(changeType: changeType, value: newValue)])
+        #expect(try await service.observeOutcomes(for: [attempted])[attempted.id]?.outcome == .written)
+
+        await client.setFetchedTracks([observedIdentityTrack(changeType: changeType, value: thirdValue)])
+        let conflicting = try #require(try await service.observeOutcomes(for: [attempted])[attempted.id])
+        #expect(conflicting.outcome == .needsReview)
+        #expect(conflicting.detail == "Music.app track identity changed since the write was planned")
+    }
+
     @Test("two properties of one track classify independently")
     func classifiesTwoPropertiesOfOneTrack() async throws {
         let genreItem = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
@@ -336,17 +367,26 @@ private func observedTrack(
     genre: String = "Rock",
     year: Int? = nil,
     artist: String = "Artist",
+    album: String = "Album",
     albumArtist: String? = nil
 ) -> Track {
     Track(
         id: id,
         name: name,
         artist: artist,
-        album: "Album",
+        album: album,
         genre: genre,
         year: year,
         albumArtist: albumArtist,
         appleScriptID: id
+    )
+}
+
+private func observedIdentityTrack(changeType: ChangeType, value: String) -> Track {
+    observedTrack(
+        id: "persistent-1",
+        name: changeType == .trackCleaning ? value : "Track",
+        album: changeType == .albumCleaning ? value : "Album"
     )
 }
 

@@ -75,6 +75,7 @@ struct BackupCSVTests {
             ),
         ]
         try await trackStore.seedMirror(tracks)
+        await bridge.setMutationTracks(tracks)
 
         let result = try await coordinator.revertYearsFromBackupCSV(
             csv,
@@ -136,6 +137,7 @@ struct BackupCSVTests {
             appleScriptID: "AS1"
         )
         try await trackStore.seedMirror([storedTrack])
+        await bridge.setMutationTracks([storedTrack])
 
         let result = try await coordinator.revertYearsFromBackupCSV(
             """
@@ -312,7 +314,7 @@ struct BackupCSVTests {
             directory: directory
         )
         try await trackStore.seedMirror([track])
-        await bridge.setFetchedTracks([track])
+        await bridge.setMutationTracks([track])
         _ = try await coordinator.revertYearsFromBackupCSV(
             csv,
             artist: "Massive Attack",
@@ -320,7 +322,7 @@ struct BackupCSVTests {
         )
 
         try await trackStore.seedMirror([track])
-        await bridge.setFetchedTracks([track])
+        await bridge.setMutationTracks([track])
         await historyStore.failSaves()
         await expectFinalizationFailure(effects: ["change history"]) {
             _ = try await coordinator.revertYearsFromBackupCSV(
@@ -375,7 +377,7 @@ struct BackupCSVTests {
             directory: directory
         )
         try await trackStore.seedMirror([track])
-        await bridge.setFetchedTracks([track])
+        await bridge.setMutationTracks([track])
 
         await expectFinalizationFailure(effects: ["backup recovery checkpoint"]) {
             _ = try await coordinator.revertYearsFromBackupCSV(
@@ -448,6 +450,7 @@ struct BackupCSVTests {
             album: "Mezzanine",
             year: 2019
         )
+        await bridge.setMutationTracks([track])
 
         await expectFinalizationFailure(effects: ["prior backup recovery checkpoint"]) {
             _ = try await coordinator.revertYearsFromBackupCSV(
@@ -487,6 +490,7 @@ struct BackupCSVTests {
             album: "Mezzanine",
             year: 2019
         )
+        await bridge.setMutationTracks([track])
 
         do {
             _ = try await coordinator.revertYearsFromBackupCSV(
@@ -531,6 +535,7 @@ struct BackupCSVTests {
                 year: 2019
             ),
         ]
+        await bridge.setMutationTracks(tracks)
 
         await cache.storeAlbumYear(artist: "Massive Attack", album: "Mezzanine", year: 2019, confidence: 100)
         await cache.setCachedAPIResult(CachedAPIResult(
@@ -593,6 +598,7 @@ struct BackupCSVTests {
                 year: 2019
             ),
         ])
+        await bridge.setMutationTracks(tracks)
 
         let result = try await coordinator.revertYearsFromBackupCSV(
             csv,
@@ -671,6 +677,7 @@ struct BackupCSVTests {
                 year: 2019
             ),
         ]
+        await bridge.setMutationTracks(tracks)
 
         do {
             _ = try await coordinator.revertYearsFromBackupCSV(

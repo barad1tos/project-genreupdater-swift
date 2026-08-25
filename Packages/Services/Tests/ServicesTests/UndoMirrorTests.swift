@@ -17,6 +17,7 @@ struct UndoMirrorTests {
             directory: makeDirectory()
         )
         let entry = genreEntry()
+        await bridge.setFetchedTracks([currentTrack()])
         try await coordinator.recordChange(entry)
 
         try await coordinator.revertChange(entry)
@@ -38,6 +39,7 @@ struct UndoMirrorTests {
             directory: makeDirectory()
         )
         let entry = genreEntry()
+        await bridge.setFetchedTracks([currentTrack()])
         try await coordinator.recordChange(entry)
 
         do {
@@ -107,6 +109,7 @@ struct UndoMirrorTests {
             directory: makeDirectory()
         )
         let entry = artistEntry()
+        await bridge.setUndoEntries([entry])
         await cache.storeAlbumYear(
             artist: entry.oldArtist ?? "",
             album: entry.albumName,
@@ -192,8 +195,10 @@ struct UndoMirrorTests {
                 album: entry.newAlbumName ?? "",
                 appleScriptID: entry.trackID
             )])
+            let bridge = MusicAppTestAccess()
+            await bridge.setUndoEntries([entry])
             let coordinator = UndoCoordinator(
-                musicApp: MusicAppTestAccess(),
+                musicApp: bridge,
                 stores: .init(tracks: trackStore),
                 directory: makeDirectory()
             )
@@ -223,8 +228,10 @@ struct UndoMirrorTests {
                 year: entry.newYear,
                 appleScriptID: entry.trackID
             )])
+            let bridge = MusicAppTestAccess()
+            await bridge.setUndoEntries([entry])
             let coordinator = UndoCoordinator(
-                musicApp: MusicAppTestAccess(),
+                musicApp: bridge,
                 stores: .init(tracks: trackStore),
                 directory: makeDirectory()
             )
@@ -281,7 +288,7 @@ struct UndoMirrorTests {
         #expect(persistedTrack.yearSetByMGU == MusicAppYear.missingValue)
         #expect(try await relaunchedLog.loadAll().isEmpty)
         #expect(await bridge.writtenProperties == [
-            MusicTrackUpdate(databaseID: testDatabaseID(entry.trackID), property: .year, value: "0"),
+            musicUpdate(databaseID: testDatabaseID(entry.trackID), property: .year, value: "0"),
         ])
         #expect(!FileManager.default.fileExists(
             atPath: checkpointDirectory.appendingPathComponent("pending-year-revert.json").path

@@ -63,6 +63,7 @@ struct UndoEligibilityTests {
             appleScriptTracks: [authoritativeTrack]
         )
         let bridge = MusicAppTestAccess()
+        await bridge.setFetchedTracks([authoritativeTrack])
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: mapper,

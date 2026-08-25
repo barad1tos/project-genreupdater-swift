@@ -104,7 +104,7 @@ struct WriteOutcomeTests {
 
     @Test("Batch undo stops after an unknown outcome")
     func stopsBatchUndo() async {
-        let client = OutcomeScriptClient(tracks: [])
+        let client = OutcomeScriptClient(tracks: [makeTrack(id: "T1"), makeTrack(id: "T2")])
         let cache = MockCacheService()
         let snapshot = MockUndoLibrarySnapshotService()
         await cache.storeAlbumYear(artist: "Artist", album: "Album", year: 2000, confidence: 80)
@@ -123,7 +123,10 @@ struct WriteOutcomeTests {
 
     @Test("Batch undo stops after cancellation")
     func cancellationStopsBatchUndo() async {
-        let client = OutcomeScriptClient(tracks: [], failure: .cancellation)
+        let client = OutcomeScriptClient(
+            tracks: [makeTrack(id: "T1"), makeTrack(id: "T2")],
+            failure: .cancellation
+        )
         let coordinator = makeUndoCoordinator(client)
 
         await #expect(throws: CancellationError.self) {

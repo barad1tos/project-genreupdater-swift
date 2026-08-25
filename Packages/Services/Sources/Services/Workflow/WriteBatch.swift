@@ -106,9 +106,9 @@ extension UpdateCoordinator {
             return nil
         }
 
-        let reconciledWrites = preparedWrites.map { write in
+        let reconciledWrites = try preparedWrites.map { write in
             guard let currentTrack = currentTracksByID[write.databaseID] else { return write }
-            return PreparedWrite(
+            return try PreparedWrite(
                 change: Self.reconciledArtistRename(write.change, with: currentTrack),
                 databaseID: write.databaseID,
                 property: write.property,

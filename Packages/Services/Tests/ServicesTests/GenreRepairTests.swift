@@ -79,7 +79,7 @@ struct GenreRepairTests {
 
         #expect(result.entries.map(\.trackID) == ["target"])
         #expect(await fixture.bridge.writtenProperties == [
-            MusicTrackUpdate(databaseID: testDatabaseID("target"), property: .genre, value: "Post-Punk"),
+            musicUpdate(databaseID: testDatabaseID("target"), property: .genre, value: "Post-Punk"),
         ])
     }
 
@@ -113,7 +113,7 @@ struct GenreRepairTests {
 
         #expect(result.entries.map(\.trackID) == ["target"])
         #expect(await fixture.bridge.writtenProperties == [
-            MusicTrackUpdate(databaseID: testDatabaseID("target"), property: .genre, value: "Post-Punk"),
+            musicUpdate(databaseID: testDatabaseID("target"), property: .genre, value: "Post-Punk"),
         ])
     }
 
@@ -148,7 +148,7 @@ struct GenreRepairTests {
 
         #expect(changes.map(\.changeType) == [.genreUpdate])
         #expect(await fixture.bridge.writtenProperties == [
-            MusicTrackUpdate(databaseID: testDatabaseID("target"), property: .genre, value: "Post-Punk"),
+            musicUpdate(databaseID: testDatabaseID("target"), property: .genre, value: "Post-Punk"),
         ])
     }
 

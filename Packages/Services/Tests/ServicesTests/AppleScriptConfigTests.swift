@@ -69,7 +69,7 @@ struct AppleScriptConfigTests {
 
     @Test("Single update output accepts script success and no-change responses")
     func singleUpdateOutputAcceptsSuccessAndNoChangeResponses() throws {
-        let update = MusicTrackUpdate(
+        let update = musicUpdate(
             databaseID: testDatabaseID("10"),
             property: .genre,
             value: "Metal"
@@ -89,7 +89,7 @@ struct AppleScriptConfigTests {
 
     @Test("Single update output rejects errors, empty response, and unknown text")
     func singleUpdateOutputRejectsFailures() throws {
-        let update = MusicTrackUpdate(
+        let update = musicUpdate(
             databaseID: testDatabaseID("10"),
             property: .genre,
             value: "Metal"
@@ -145,7 +145,7 @@ struct AppleScriptConfigTests {
             // Value contains a reserved separator that would make makeBatchUpdateArgument throw
             // if it ran before the script check. The script check must run first.
             try await bridge.update([
-                MusicTrackUpdate(
+                musicUpdate(
                     databaseID: testDatabaseID("101"),
                     property: .genre,
                     value: "Metal\(TrackWireCodec.fieldSeparator)Jazz"
@@ -174,7 +174,7 @@ struct AppleScriptConfigTests {
 
         do {
             try await bridge.update([
-                MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Stoner Rock")
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Stoner Rock")
             ], onAttempt: {})
             Issue.record("Expected missing batch script to fail before AppleScript execution")
         } catch let error as AppleScriptBridgeError {
@@ -193,8 +193,8 @@ struct AppleScriptPayloadTests {
     @Test("Batch update verification rejects stale or missing refreshed tracks")
     func batchUpdateVerificationRejectsStaleOrMissingRefreshedTracks() throws {
         let updates = [
-            MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Stoner Rock"),
-            MusicTrackUpdate(databaseID: testDatabaseID("102"), property: .year, value: "2001")
+            musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Stoner Rock"),
+            musicUpdate(databaseID: testDatabaseID("102"), property: .year, value: "2001")
         ]
         let staleTracks = [
             verificationTrack(sourceID: "source-101", databaseID: "101", genre: "Rock"),
@@ -240,7 +240,7 @@ struct AppleScriptPayloadTests {
     @Test("Batch update verification maps album artist property")
     func batchUpdateVerificationMapsAlbumArtistProperty() throws {
         let updates = [
-            MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .albumArtist, value: "Clutch")
+            musicUpdate(databaseID: testDatabaseID("101"), property: .albumArtist, value: "Clutch")
         ]
         let refreshedTracks = [
             Track(
@@ -271,15 +271,10 @@ struct AppleScriptPayloadTests {
 
     @Test("Batch verification accepts Music.app's empty-year sentinel")
     func verifiesMissingYear() throws {
-        let missingYear = MusicTrackUpdate(
+        let missingYear = musicUpdate(
             databaseID: testDatabaseID("101"),
             property: .year,
             value: String(MusicAppYear.missingValue)
-        )
-        let invalidYear = MusicTrackUpdate(
-            databaseID: testDatabaseID("101"),
-            property: .year,
-            value: "-1"
         )
         let refreshedTrack = Track(
             id: "101",
@@ -291,16 +286,13 @@ struct AppleScriptPayloadTests {
         )
 
         try AppleScriptBridge.verifyBatchUpdateValues([missingYear], in: [refreshedTrack])
-        #expect(throws: MusicBatchVerificationError.self) {
-            try AppleScriptBridge.verifyBatchUpdateValues([invalidYear], in: [refreshedTrack])
-        }
     }
 
     @Test("Batch update argv preserves direct metadata payloads")
     func batchUpdateArgvPreservesDirectMetadataPayloads() throws {
         let value = #"Паліндром / Альбом, Частина & "Live"\Raw (EP) [Single]"#
         let argument = try AppleScriptBridge.makeBatchUpdateArgument([
-            MusicTrackUpdate(databaseID: testDatabaseID(#"T"1"#), property: .genre, value: value)
+            musicUpdate(databaseID: testDatabaseID(#"T"1"#), property: .genre, value: value)
         ])
         let fields = argument
             .split(separator: TrackWireCodec.fieldSeparator, omittingEmptySubsequences: false)
@@ -313,7 +305,7 @@ struct AppleScriptPayloadTests {
     func preservesYearClear() throws {
         let missingValue = String(MusicAppYear.missingValue)
         let argument = try AppleScriptBridge.makeBatchUpdateArgument([
-            MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .year, value: missingValue)
+            musicUpdate(databaseID: testDatabaseID("101"), property: .year, value: missingValue)
         ])
         let fields = argument
             .split(separator: TrackWireCodec.fieldSeparator, omittingEmptySubsequences: false)
@@ -326,7 +318,7 @@ struct AppleScriptPayloadTests {
     func batchUpdateArgvRejectsReservedSeparators() {
         #expect(throws: AppleScriptBridgeError.self) {
             _ = try AppleScriptBridge.makeBatchUpdateArgument([
-                MusicTrackUpdate(
+                musicUpdate(
                     databaseID: testDatabaseID("T1"),
                     property: .genre,
                     value: "Metal\(TrackWireCodec.fieldSeparator)Jazz"
@@ -335,7 +327,7 @@ struct AppleScriptPayloadTests {
         }
         #expect(throws: AppleScriptBridgeError.self) {
             _ = try AppleScriptBridge.makeBatchUpdateArgument([
-                MusicTrackUpdate(
+                musicUpdate(
                     databaseID: testDatabaseID("T1\(TrackWireCodec.recordSeparator)"),
                     property: .genre,
                     value: "Metal"

@@ -7,6 +7,28 @@ struct PreparedWrite {
     let databaseID: MusicDatabaseTrackID
     let property: MusicTrackProperty
     let value: String
+    let updates: [MusicTrackUpdate]
+
+    init(
+        change: ProposedChange,
+        databaseID: MusicDatabaseTrackID,
+        property: MusicTrackProperty,
+        value: String
+    ) throws {
+        self.change = change
+        self.databaseID = databaseID
+        self.property = property
+        self.value = value
+        var updates = try [MusicTrackUpdate(databaseID: databaseID, property: property, value: value)]
+        if let albumArtistChange = change.albumArtistChange {
+            try updates.append(MusicTrackUpdate(
+                databaseID: databaseID,
+                property: .albumArtist,
+                value: albumArtistChange.newValue
+            ))
+        }
+        self.updates = updates
+    }
 
     var writeChange: WorkChange {
         WorkChange(
@@ -17,18 +39,6 @@ struct PreparedWrite {
             source: change.source,
             albumArtistChange: change.albumArtistChange
         )
-    }
-
-    var updates: [MusicTrackUpdate] {
-        var updates = [MusicTrackUpdate(databaseID: databaseID, property: property, value: value)]
-        if let albumArtistChange = change.albumArtistChange {
-            updates.append(MusicTrackUpdate(
-                databaseID: databaseID,
-                property: .albumArtist,
-                value: albumArtistChange.newValue
-            ))
-        }
-        return updates
     }
 
     func dispatch(
@@ -252,7 +262,7 @@ extension UpdateCoordinator {
         }
 
         let databaseID = try await databaseID(for: mutationTrack)
-        return .write(PreparedWrite(
+        return try .write(PreparedWrite(
             change: preparedChange,
             databaseID: databaseID,
             property: property,

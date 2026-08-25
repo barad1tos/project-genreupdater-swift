@@ -1,7 +1,8 @@
 import Core
 import Foundation
 
-/// Acquires Music.app's canonical writable identity and authoritative metadata.
+/// Resolves canonical write-facing Music.app database identities and their authoritative metadata.
+/// Resolved identities carry neither observation-generation evidence nor mutation authority.
 public protocol MusicAppIdentifying: Actor {
     /// Returns canonical Music.app tracks for the normalized artist scope.
     /// An empty scope reads the full library.

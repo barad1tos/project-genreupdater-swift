@@ -126,8 +126,8 @@ struct ArtistRenameTests {
 
         let batches = await fixture.bridge.batchUpdates
         #expect(batches == [[
-            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .artist, value: "NewArtist"),
-            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .albumArtist, value: "NewArtist"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .artist, value: "NewArtist"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .albumArtist, value: "NewArtist"),
         ]])
     }
 

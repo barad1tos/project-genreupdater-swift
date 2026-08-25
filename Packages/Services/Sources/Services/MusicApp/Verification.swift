@@ -3,6 +3,8 @@ import Foundation
 
 /// Targeted canonical metadata reads used to prepare, verify, or recover Music.app writes.
 public protocol MusicAppVerifying: Actor {
+    /// Returns the requested rows that still exist; an omitted ID means the track is unavailable.
+    /// Implementations must reject unresolved, unrequested, or duplicate database identities.
     func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Track]
 }
 

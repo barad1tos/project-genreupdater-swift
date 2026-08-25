@@ -31,7 +31,8 @@ public struct FixPlanItemIdentity: Codable, Equatable, Sendable {
         self.albumArtist = albumArtist
     }
 
-    /// Confirms that a freshly read Music.app row still names the track captured by this plan.
+    /// Compares metadata identity after the caller has independently established the expected database ID.
+    /// The optional change admits only the captured-to-managed transition for its specific property.
     public func matchesCurrentTrack(_ track: Track, allowing change: WorkChange? = nil) -> Bool {
         matches(track.name, captured: trackName, property: .trackCleaning, allowing: change)
             && matches(track.artist, captured: artist, property: .artistRename, allowing: change)

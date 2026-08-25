@@ -11,141 +11,13 @@ private func makeTempDirectory() -> URL {
         .appendingPathComponent("UndoCoordinatorTests-\(UUID().uuidString)")
 }
 
-private func makeGenreEntry(
-    trackID: String = "T1",
-    oldGenre: String = "Rock",
-    newGenre: String = "Pop"
-) -> ChangeLogEntry {
-    var entry = ChangeLogEntry(
-        changeType: .genreUpdate,
-        trackID: trackID,
-        artist: "Artist",
-        trackName: "Track",
-        albumName: "Album"
-    )
-    entry.oldGenre = oldGenre
-    entry.newGenre = newGenre
-    return entry
-}
-
-private func makeYearEntry(
-    trackID: String = "T1",
-    artist: String = "Artist",
-    album: String = "Album",
-    oldYear: Int = 1984,
-    newYear: Int = 2000
-) -> ChangeLogEntry {
-    var entry = ChangeLogEntry(
-        changeType: .yearUpdate,
-        trackID: trackID,
-        artist: artist,
-        trackName: "Track",
-        albumName: album
-    )
-    entry.oldYear = oldYear
-    entry.newYear = newYear
-    return entry
-}
-
-private func makeArtistRenameEntry(
-    trackID: String = "T1",
-    oldArtist: String = "Old Artist",
-    newArtist: String = "New Artist"
-) -> ChangeLogEntry {
-    var entry = ChangeLogEntry(
-        changeType: .artistRename,
-        trackID: trackID,
-        artist: newArtist,
-        trackName: "Track",
-        albumName: "Album"
-    )
-    entry.oldArtist = oldArtist
-    entry.newArtist = newArtist
-    return entry
-}
-
-private func makeAlbumCleaningEntry(
-    trackID: String = "T1",
-    artist: String = "Artist",
-    oldAlbum: String = "Album (Remastered)",
-    newAlbum: String = "Album"
-) -> ChangeLogEntry {
-    var entry = ChangeLogEntry(
-        changeType: .albumCleaning,
-        trackID: trackID,
-        artist: artist,
-        trackName: "Track",
-        albumName: oldAlbum
-    )
-    entry.oldAlbumName = oldAlbum
-    entry.newAlbumName = newAlbum
-    return entry
-}
-
-struct MissingUndoTrackIDMapper: TrackIDMapping {
-    func appleScriptID(forMusicKitID _: String) async -> String? {
-        nil
-    }
-
-    func trackWithAppleScriptMetadata(for _: Track) async -> Track? {
-        nil
-    }
-
-    func hasMappingFor(musicKitID _: String) async -> Bool {
-        false
-    }
-}
-
-struct FixedUndoTrackIDMapper: TrackIDMapping {
-    let mapping: [String: String]
-
-    func appleScriptID(forMusicKitID musicKitID: String) async -> String? {
-        mapping[musicKitID]
-    }
-
-    func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track? {
-        var enrichedTrack = musicKitTrack
-        enrichedTrack.trackStatus = TrackKind.subscription.rawValue
-        return enrichedTrack
-    }
-
-    func hasMappingFor(musicKitID: String) async -> Bool {
-        mapping[musicKitID] != nil
-    }
-}
-
-struct MetadataUndoTrackIDMapper: TrackIDMapping {
-    let mapping: [String: String]
-    let metadata: [String: Track]
-
-    func appleScriptID(forMusicKitID musicKitID: String) async -> String? {
-        mapping[musicKitID]
-    }
-
-    func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track? {
-        metadata[musicKitTrack.id] ?? musicKitTrack
-    }
-
-    func hasMappingFor(musicKitID: String) async -> Bool {
-        mapping[musicKitID] != nil
-    }
-}
-
-struct RawTrackIDWriteError: LocalizedError {
-    let trackID: String
-
-    var errorDescription: String? {
-        "Track=\(trackID), AppleScript write failed"
-    }
-}
-
 // MARK: - Tests
 
 @Suite("UndoCoordinator — record and revert changes")
 struct UndoCoordinatorTests {
     @Test("Failed single-entry persistence retains in-memory undo")
     func recordFailure() async {
-        let entry = makeGenreEntry()
+        let entry = genreUndoEntry()
         let store = MockChangeLogStore()
         await store.failSaves()
         let coordinator = UndoCoordinator(
@@ -164,7 +36,7 @@ struct UndoCoordinatorTests {
 
     @Test("Failed batch persistence retains in-memory undo")
     func batchRecordFailure() async {
-        let entries = [makeGenreEntry(), makeYearEntry()]
+        let entries = [genreUndoEntry(), yearUndoEntry()]
         let store = MockChangeLogStore()
         await store.failSaves()
         let coordinator = UndoCoordinator(
@@ -190,8 +62,8 @@ struct UndoCoordinatorTests {
             directory: makeTempDirectory()
         )
 
-        let entry1 = makeGenreEntry(trackID: "T1")
-        let entry2 = makeYearEntry(trackID: "T2")
+        let entry1 = genreUndoEntry(trackID: "T1")
+        let entry2 = yearUndoEntry(trackID: "T2")
 
         try await coordinator.recordChange(entry1)
         try await coordinator.recordChange(entry2)
@@ -209,7 +81,8 @@ struct UndoCoordinatorTests {
             directory: makeTempDirectory()
         )
 
-        let entry = makeGenreEntry(trackID: "T1", oldGenre: "Rock", newGenre: "Pop")
+        let entry = genreUndoEntry(trackID: "T1", oldGenre: "Rock", newGenre: "Pop")
+        await bridge.setUndoEntries([entry])
         try await coordinator.recordChange(entry)
         try await coordinator.revertChange(entry)
 
@@ -232,7 +105,8 @@ struct UndoCoordinatorTests {
             directory: makeTempDirectory()
         )
 
-        let entry = makeYearEntry(trackID: "T1", oldYear: 1984)
+        let entry = yearUndoEntry(trackID: "T1", oldYear: 1984)
+        await bridge.setUndoEntries([entry])
         try await coordinator.recordChange(entry)
         try await coordinator.revertChange(entry)
 
@@ -254,7 +128,8 @@ struct UndoCoordinatorTests {
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
         )
-        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        let entry = yearUndoEntry(trackID: "MK1", oldYear: 1984)
+        await bridge.setUndoEntries([entry])
 
         await cache.storeAlbumYear(artist: entry.artist, album: entry.albumName, year: 2000, confidence: 100)
         await cache.setCachedAPIResult(CachedAPIResult(
@@ -298,12 +173,23 @@ struct UndoCoordinatorTests {
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
         )
-        let entry = makeYearEntry(
+        let entry = yearUndoEntry(
             trackID: "MK1",
             artist: "Tricky",
             album: "Protection",
             oldYear: 1994
         )
+        let observedTrack = Track(
+            id: "AS1",
+            name: "Karmacoma",
+            artist: "Tricky",
+            album: "Protection",
+            year: 2000,
+            trackStatus: TrackKind.subscription.rawValue,
+            albumArtist: "Massive Attack",
+            appleScriptID: "AS1"
+        )
+        await bridge.setFetchedTracks([observedTrack])
 
         await cache.storeAlbumYear(artist: "Massive Attack", album: "Protection", year: 2000, confidence: 100)
         await cache.setCachedAPIResult(CachedAPIResult(
@@ -333,12 +219,13 @@ struct UndoCoordinatorTests {
             cleaning: CleaningConfig(),
             directory: makeTempDirectory()
         )
-        let entry = makeYearEntry(
+        let entry = yearUndoEntry(
             trackID: "MK1",
             artist: "Massive Attack",
             album: "Mezzanine Remastered",
             oldYear: 1998
         )
+        await bridge.setUndoEntries([entry])
 
         await cache.storeAlbumYear(artist: "Massive Attack", album: "Mezzanine", year: 2019, confidence: 100)
         await cache.setCachedAPIResult(CachedAPIResult(
@@ -369,11 +256,12 @@ struct UndoCoordinatorTests {
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
         )
-        let entry = makeAlbumCleaningEntry(
+        let entry = albumUndoEntry(
             artist: "Massive Attack",
             oldAlbum: "Mezzanine (Remastered)",
             newAlbum: "Mezzanine"
         )
+        await bridge.setUndoEntries([entry])
 
         await cache.storeAlbumYear(artist: entry.artist, album: "Mezzanine", year: 1998, confidence: 100)
         await cache.storeAlbumYear(artist: entry.artist, album: "Mezzanine (Remastered)", year: 1998, confidence: 100)
@@ -417,7 +305,7 @@ struct UndoCoordinatorTests {
             idMapper: MissingUndoTrackIDMapper(),
             directory: makeTempDirectory()
         )
-        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        let entry = yearUndoEntry(trackID: "MK1", oldYear: 1984)
         try await coordinator.recordChange(entry)
 
         do {
@@ -450,7 +338,7 @@ struct UndoCoordinatorTests {
             idMapper: MissingUndoTrackIDMapper(),
             directory: makeTempDirectory()
         )
-        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        let entry = yearUndoEntry(trackID: "MK1", oldYear: 1984)
         try await coordinator.recordChange(entry)
 
         do {
@@ -484,7 +372,8 @@ struct UndoCoordinatorTests {
             idMapper: CanonicalUndoMapper(),
             directory: makeTempDirectory()
         )
-        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        let entry = yearUndoEntry(trackID: "MK1", oldYear: 1984)
+        await bridge.setUndoEntries([entry])
         try await coordinator.recordChange(entry)
 
         do {
@@ -513,7 +402,8 @@ struct UndoCoordinatorTests {
             idMapper: CanonicalUndoMapper(),
             directory: makeTempDirectory()
         )
-        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        let entry = yearUndoEntry(trackID: "MK1", oldYear: 1984)
+        await bridge.setUndoEntries([entry])
         try await coordinator.recordChange(entry)
 
         do {
@@ -547,7 +437,8 @@ struct UndoCoordinatorTests {
             idMapper: CanonicalUndoMapper(),
             directory: makeTempDirectory()
         )
-        let entry = makeYearEntry(trackID: "MK1", oldYear: 1984)
+        let entry = yearUndoEntry(trackID: "MK1", oldYear: 1984)
+        await bridge.setUndoEntries([entry])
         try await coordinator.recordChange(entry)
 
         do {
@@ -576,7 +467,8 @@ struct UndoCoordinatorTests {
             directory: makeTempDirectory()
         )
 
-        let entry = makeArtistRenameEntry(trackID: "T1", oldArtist: "Old Artist", newArtist: "New Artist")
+        let entry = artistUndoEntry(trackID: "T1", oldArtist: "Old Artist", newArtist: "New Artist")
+        await bridge.setUndoEntries([entry])
         try await coordinator.recordChange(entry)
         try await coordinator.revertChange(entry)
 
@@ -597,9 +489,10 @@ struct UndoCoordinatorTests {
         )
 
         let entries = [
-            makeGenreEntry(trackID: "T1"),
-            makeYearEntry(trackID: "T2"),
+            genreUndoEntry(trackID: "T1"),
+            yearUndoEntry(trackID: "T2"),
         ]
+        await bridge.setUndoEntries(entries)
         try await coordinator.recordChanges(entries)
         try await coordinator.revertBatch(entries)
 
@@ -630,8 +523,9 @@ struct UndoCoordinatorTests {
             directory: makeTempDirectory()
         )
 
-        let entry1 = makeGenreEntry(trackID: "T1")
-        let entry2 = makeYearEntry(trackID: "T2")
+        let entry1 = genreUndoEntry(trackID: "T1")
+        let entry2 = yearUndoEntry(trackID: "T2")
+        await bridge.setUndoEntries([entry1, entry2])
         try await coordinator.recordChanges([entry1, entry2])
 
         // Make bridge fail on all writes
@@ -655,8 +549,8 @@ struct UndoCoordinatorTests {
         let bridge = MusicAppTestAccess()
         let coordinator = UndoCoordinator(musicApp: bridge, directory: makeTempDirectory())
 
-        try await coordinator.recordChange(makeGenreEntry())
-        try await coordinator.recordChange(makeYearEntry())
+        try await coordinator.recordChange(genreUndoEntry())
+        try await coordinator.recordChange(yearUndoEntry())
         await coordinator.clearHistory()
 
         let history = await coordinator.getHistory()
@@ -672,9 +566,10 @@ struct UndoCoordinatorTests {
             directory: makeTempDirectory()
         )
 
-        let entry1 = makeGenreEntry(trackID: "T1")
-        let entry2 = makeYearEntry(trackID: "T2")
-        let entry3 = makeGenreEntry(trackID: "T3", oldGenre: "Jazz", newGenre: "Blues")
+        let entry1 = genreUndoEntry(trackID: "T1")
+        let entry2 = yearUndoEntry(trackID: "T2")
+        let entry3 = genreUndoEntry(trackID: "T3", oldGenre: "Jazz", newGenre: "Blues")
+        await bridge.setUndoEntries([entry1, entry2, entry3])
         try await coordinator.recordChanges([entry1, entry2, entry3])
 
         // Only revert entry2
@@ -696,7 +591,7 @@ struct UndoCoordinatorTests {
         let coordinator = UndoCoordinator(musicApp: bridge, directory: makeTempDirectory())
 
         for i in 0 ..< 5 {
-            try await coordinator.recordChange(makeGenreEntry(trackID: "T\(i)"))
+            try await coordinator.recordChange(genreUndoEntry(trackID: "T\(i)"))
         }
 
         let limited = await coordinator.getHistory(limit: 2)
@@ -716,8 +611,8 @@ struct UndoCoordinatorPersistenceTests {
         let store1 = ChangeLogDataStore(modelContainer: container)
 
         let coordinator1 = UndoCoordinator(musicApp: bridge, stores: .init(changeLog: store1), directory: directory)
-        try await coordinator1.recordChange(makeGenreEntry(trackID: "T1"))
-        try await coordinator1.recordChange(makeYearEntry(trackID: "T2"))
+        try await coordinator1.recordChange(genreUndoEntry(trackID: "T1"))
+        try await coordinator1.recordChange(yearUndoEntry(trackID: "T2"))
 
         let store2 = ChangeLogDataStore(modelContainer: container)
         let coordinator2 = UndoCoordinator(musicApp: bridge, stores: .init(changeLog: store2), directory: directory)
@@ -750,8 +645,8 @@ struct UndoCoordinatorPersistenceTests {
         let container = try ModelContainerFactory.createInMemory()
         let store = ChangeLogDataStore(modelContainer: container)
         let legacyEntries = [
-            makeGenreEntry(trackID: "T1"),
-            makeYearEntry(trackID: "T2"),
+            genreUndoEntry(trackID: "T1"),
+            yearUndoEntry(trackID: "T2"),
         ]
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

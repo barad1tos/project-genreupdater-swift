@@ -17,9 +17,9 @@ struct BatchWriteTests {
         )
 
         #expect(await fixture.bridge.batchUpdates == [[
-            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .artist, value: "Massive Attack"),
-            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .albumArtist, value: "Massive Attack"),
-            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .genre, value: "Trip-Hop"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .artist, value: "Massive Attack"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .albumArtist, value: "Massive Attack"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .genre, value: "Trip-Hop"),
         ]])
         #expect(result.entries.count == 2)
         #expect(result.entries.first?.albumArtistChange?.newValue == "Massive Attack")
@@ -39,8 +39,8 @@ struct BatchWriteTests {
         )
 
         #expect(await fixture.bridge.batchUpdates == [[
-            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .artist, value: "Massive Attack"),
-            MusicTrackUpdate(databaseID: testDatabaseID("T1"), property: .genre, value: "Trip-Hop"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .artist, value: "Massive Attack"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .genre, value: "Trip-Hop"),
         ]])
         #expect(result.entries.first?.albumArtistChange == nil)
         let prepared = await checkpoints.values.first

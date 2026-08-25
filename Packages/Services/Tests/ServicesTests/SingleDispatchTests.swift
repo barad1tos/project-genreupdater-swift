@@ -11,7 +11,7 @@ struct SingleDispatchTests {
 
         do {
             _ = try await bridge.applySingleUpdate(
-                MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
                 onAttempt: { await attempts.record() },
                 execute: {
                     throw AppleScriptBridgeError.dispatchDeadline(
@@ -39,7 +39,7 @@ struct SingleDispatchTests {
 
         await #expect(throws: CancellationError.self) {
             _ = try await bridge.applySingleUpdate(
-                MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
                 onAttempt: { await attempts.record() },
                 execute: { throw CancellationError() }
             )
@@ -54,7 +54,7 @@ struct SingleDispatchTests {
 
         await #expect(throws: AppleScriptOutcomeError.self) {
             _ = try await bridge.applySingleUpdate(
-                MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
                 onAttempt: { await attempts.record() },
                 execute: {
                     throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(1))
@@ -88,7 +88,7 @@ struct SingleDispatchTests {
 
         do {
             _ = try await bridge.applySingleUpdate(
-                MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
                 onAttempt: { throw WorkCheckpointError.store(stored) },
                 execute: {
                     throw AppleScriptOutcomeError(
@@ -118,7 +118,7 @@ struct SingleDispatchTests {
 
         await #expect(throws: AppleScriptOutcomeError.self) {
             _ = try await bridge.applySingleUpdate(
-                MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
                 onAttempt: { await attempts.record() },
                 execute: { nil }
             )
@@ -132,7 +132,7 @@ struct SingleDispatchTests {
 
         do {
             _ = try await bridge.applySingleUpdate(
-                MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
                 onAttempt: { throw WorkCheckpointError.persistence(.afterAttempt, writeAdjacent: true) },
                 execute: {
                     throw AppleScriptOutcomeError(
@@ -155,7 +155,7 @@ struct SingleDispatchTests {
         let attempts = AttemptCounter()
 
         let result = try await bridge.applySingleUpdate(
-            MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
+            musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
             onAttempt: { await attempts.record() },
             execute: { "Success: Updated track 101" }
         )
@@ -171,7 +171,7 @@ struct SingleDispatchTests {
 
         await #expect(throws: AppleScriptOutcomeError.self) {
             _ = try await bridge.applySingleUpdate(
-                MusicTrackUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
                 onAttempt: { await attempts.record() },
                 execute: { "Updated track 101" }
             )

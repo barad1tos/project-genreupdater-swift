@@ -106,8 +106,9 @@ public protocol TrackStateStore: Actor {
     /// Atomically applies one coherent metadata-mirror update.
     func applyMirror(_ update: TrackMirrorUpdate) async throws
     func getTrack(byID id: String) async throws -> Track?
-    /// Atomically persists metadata and processing flags for a change whose
-    /// track ID is the canonical library read ID, never an AppleScript ID.
+    /// Atomically persists metadata and processing flags for a change keyed by
+    /// the canonical Music.app database ID. Legacy read IDs are migration input,
+    /// not valid identities for newly applied changes.
     func persistAppliedChange(_ change: ChangeLogEntry) async throws
     func getUnprocessedTracks() async throws -> [Track]
     func trackCount() async throws -> Int
