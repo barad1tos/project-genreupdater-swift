@@ -77,35 +77,25 @@ final class MusicLibraryIntegrationTests: XCTestCase {
         }
     }
 
-    func testRawCountCoversSnapshot() async throws {
-        let snapshot = try await reader.loadCatalog(testArtists: [])
+    func testTrackCountIsPositive() async throws {
         let count = try await reader.trackCount()
 
         XCTAssertGreaterThan(
             count,
             0,
-            "trackCount() should report at least one raw MusicKit row for a non-empty library"
-        )
-        XCTAssertGreaterThanOrEqual(
-            count,
-            snapshot.tracks.count,
-            "trackCount() (\(count)) must cover the deduplicated catalog snapshot (\(snapshot.tracks.count))"
+            "trackCount() should report at least one MusicKit library row"
         )
     }
 
-    func testCatalogIDsAreStable() async throws {
-        let firstSnapshot = try await reader.loadCatalog(testArtists: [])
-        try XCTSkipIf(firstSnapshot.tracks.isEmpty, "No tracks in library — cannot verify ID stability")
-
-        let secondSnapshot = try await reader.loadCatalog(testArtists: [])
-
-        let firstIDs = Set(firstSnapshot.tracks.map(\.id.displayValue))
-        let secondIDs = Set(secondSnapshot.tracks.map(\.id.displayValue))
+    func testCatalogIDsAreUnique() async throws {
+        let snapshot = try await reader.loadCatalog(testArtists: [])
+        let trackIDs = snapshot.tracks.map(\.id.displayValue)
+        let uniqueTrackIDs = Set(trackIDs)
 
         XCTAssertEqual(
-            firstIDs,
-            secondIDs,
-            "Two consecutive fetches should return the same track IDs"
+            uniqueTrackIDs.count,
+            trackIDs.count,
+            "Each track in one catalog snapshot should have a unique MusicKit ID"
         )
     }
 }

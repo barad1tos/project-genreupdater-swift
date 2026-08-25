@@ -63,7 +63,7 @@ public protocol MusicCatalogReading: Actor {
     func trackCount() async throws -> Int
 }
 
-/// Records one semantic catalog load without changing catalog routing.
+/// Measures catalog loads when analytics is installed without changing catalog routing.
 public actor MeasuredMusicCatalog: MusicCatalogReading {
     private let base: any MusicCatalogReading
     private var analytics: (any AnalyticsService)?

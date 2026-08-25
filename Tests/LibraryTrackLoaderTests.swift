@@ -23,8 +23,8 @@ struct LibraryTrackLoaderTests {
         #expect(load.isLibraryReadyForUpdates)
     }
 
-    @Test("A catalog-shaped row contaminating the mirror fails closed")
-    func rejectsNonCanonicalMirrorRow() async {
+    @Test("A row without canonical database identity fails closed")
+    func rejectsMissingDatabaseIdentity() async {
         let store = LoaderTrackStore(tracks: [
             Track(id: "catalog-id", name: "Battery", artist: "Metallica", album: "Master of Puppets"),
         ])

@@ -600,7 +600,7 @@ public actor ProjectionStore {
         return stream
     }
 
-    /// Claims ordering before a potentially suspending mirror read.
+    /// Claims ordering before a potentially suspending catalog read.
     public func claimArtistCatalogGeneration() -> UInt64 {
         issuedArtistCatalogGeneration += 1
         return issuedArtistCatalogGeneration

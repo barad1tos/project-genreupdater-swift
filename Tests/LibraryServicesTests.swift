@@ -32,14 +32,15 @@ struct LibraryServicesTests {
         #expect(await fixture.snapshotService.savedSnapshotCount() == 0)
     }
 
-    @Test("Snapshot caching does not mutate processing track state")
-    func snapshotCachingKeepsTrackStateEmpty() async throws {
-        let fixture = try makeFixture(testArtists: ["Clutch"])
+    @Test("Full-library snapshot caching saves once without mutating processing track state")
+    func snapshotCacheSavesWithoutSeedingTrackStore() async throws {
+        let fixture = try makeFixture(testArtists: [])
         let tracks = [sampleTrack()]
 
         await fixture.dependencies.cacheLibraryLoad(tracks)
 
         let storedTracks = try await fixture.trackStore.loadAllTracks()
+        #expect(await fixture.snapshotService.savedSnapshotCount() == 1)
         #expect(storedTracks.isEmpty)
     }
 

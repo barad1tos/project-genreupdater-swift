@@ -12,13 +12,13 @@ public struct ArtistCatalogEntry: Equatable, Sendable {
     }
 }
 
-/// The complete catalog result or an actionable reason it is unavailable.
+/// A catalog result or an actionable reason it is unavailable.
 public enum ArtistCatalogState: Equatable, Sendable {
     case available([ArtistCatalogEntry])
     case unavailable(reason: String)
 }
 
-/// Revisioned full-library presentation catalog published independently of processing scope.
+/// Revisioned presentation artist catalog published independently of processing scope.
 public struct ArtistCatalogProjection: Equatable, Sendable {
     public let revision: ProjectionRevision
     public let state: ArtistCatalogState
@@ -28,7 +28,7 @@ public struct ArtistCatalogProjection: Equatable, Sendable {
         self.state = state
     }
 
-    /// Creates the initial unavailable projection before the mirror is ready.
+    /// Creates the initial unavailable projection before the first catalog result.
     public static func empty(revision: ProjectionRevision = .initial) -> Self {
         Self(revision: revision, state: .unavailable(reason: "Artist catalog isn’t ready yet."))
     }
@@ -38,9 +38,10 @@ public struct ArtistCatalogProjection: Equatable, Sendable {
     }
 }
 
-/// Pure assembly of artist catalog truth from a complete MusicKit catalog snapshot.
+/// Pure assembly of artist counts from supplied MusicKit catalog rows.
 public enum ArtistCatalogBuilder {
-    /// Groups tracks by effective artist with deterministic display ordering.
+    /// Groups supplied tracks by effective artist with deterministic display ordering.
+    /// Callers must supply full-library rows when full-library completeness is required.
     public static func makeProjection(tracks: [CatalogTrack]) -> ArtistCatalogProjection {
         let artists = tracks.enumerated().compactMap { index, track -> (index: Int, name: String)? in
             guard let name = ArtistAllowList.normalizedName(track.albumArtist ?? track.artist) else { return nil }

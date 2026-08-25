@@ -33,13 +33,13 @@ struct ArtistCatalogAdapterTests {
             settingsRevision: 14,
             projection: ArtistCatalogProjection(
                 revision: .initial,
-                state: .unavailable(reason: "Mirror unavailable")
+                state: .unavailable(reason: "Catalog unavailable")
             )
         )
 
         #expect(scope.selected == ["Björk"])
         #expect(scope.options.isEmpty)
-        #expect(scope.catalogIssue == "Mirror unavailable")
+        #expect(scope.catalogIssue == "Catalog unavailable")
     }
 
     @Test("refresh uses an unscoped live read and updates an open narrowed settings surface")
