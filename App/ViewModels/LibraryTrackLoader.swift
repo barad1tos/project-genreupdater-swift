@@ -45,7 +45,7 @@ enum LibraryTrackLoader {
 
         return try LibraryMirrorTrackLoad(
             tracks: canonicalTracks(snapshot.tracks, scopedArtists: scopedArtists),
-            isLibraryReadyForUpdates: snapshot.isSeeded
+            isLibraryReadyForUpdates: snapshot.coverage.admits(MirrorScope(testArtists: scopedArtists))
         )
     }
 

@@ -55,8 +55,8 @@ struct LibraryServicesTests {
         #expect(await fixture.snapshotService.savedTrackIDs() == ["track-1"])
     }
 
-    @Test("A seeded empty mirror replaces cached presentation tracks")
-    func seededEmptyWins() async throws {
+    @Test("A verified empty full-library mirror replaces cached presentation tracks")
+    func verifiedEmptyFullLibraryWins() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         let metricsStore = try MetricsSnapshotStore(modelContainer: ModelContainerFactory.createInMemory())
         await metricsStore.upsert(from: [canonicalMirrorTrack(sampleTrack())])
@@ -64,7 +64,7 @@ struct LibraryServicesTests {
             canonicalMirrorTrack(sampleTrack()),
         ])
         fixture.dependencies.configureLibraryPersistenceForTesting(
-            trackStore: MirrorTrackStoreStub(tracks: [], isSeeded: true),
+            trackStore: MirrorTrackStoreStub(tracks: [], coverage: .verified(.fullLibrary)),
             librarySnapshotService: fixture.snapshotService,
             metricsSnapshotStore: metricsStore,
             runRecordStore: RunRecordStoreStub()
@@ -219,7 +219,7 @@ struct LibraryServicesTests {
                     releaseYear: 0
                 ),
             ])
-            let dependencies = makeDependencies(
+            let dependencies = makeLibraryDependencies(
                 trackStore: trackStore,
                 snapshotService: snapshotService
             )
@@ -241,7 +241,7 @@ struct LibraryServicesTests {
                 configuration: configuration,
                 currentDate: { snapshotDate }
             )
-            let dependencies = try makeDependencies(
+            let dependencies = try makeLibraryDependencies(
                 trackStore: TrackDataStore.createInMemory(),
                 snapshotService: snapshotService
             )
@@ -591,25 +591,6 @@ struct LibraryServicesTests {
 
         #expect(continuations.isEmpty)
     }
-}
-
-@MainActor
-private func makeDependencies(
-    trackStore: TrackDataStore,
-    snapshotService: any LibrarySnapshotService = SnapshotServiceSpy()
-) -> AppDependencies {
-    let dependencies = AppDependencies(
-        configurationLoader: { AppConfiguration() },
-        configurationSaver: { _ in
-            // Relaunch fixtures exercise track persistence only.
-        }
-    )
-    dependencies.configureLibraryPersistenceForTesting(
-        trackStore: trackStore,
-        librarySnapshotService: snapshotService,
-        runRecordStore: RunRecordStoreStub()
-    )
-    return dependencies
 }
 
 private func removeStoreDirectory(_ directory: URL) {

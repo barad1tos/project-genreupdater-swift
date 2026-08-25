@@ -77,43 +77,49 @@ struct TrackMirrorTests {
         try #require(MusicDatabaseTrackID(rawValue: rawValue))
     }
 
-    @Test("A fresh store exposes an unseeded mirror")
-    func freshIsUnseeded() async throws {
+    @Test("A fresh store exposes unknown mirror coverage")
+    func freshCoverageIsUnknown() async throws {
         let store = try makeStore()
         try await store.initialize()
 
         let snapshot = try await store.loadMirrorSnapshot()
 
         #expect(snapshot.tracks.isEmpty)
-        #expect(!snapshot.isSeeded)
+        #expect(snapshot.coverage == .unknown)
     }
 
-    @Test("Applying an empty mirror records authoritative empty state")
-    func emptyIsSeeded() async throws {
+    @Test("Replacing coverage records authoritative empty full-library state")
+    func emptyFullLibraryIsVerified() async throws {
         let store = try makeStore()
         try await store.initialize()
 
-        try await store.applyMirror(TrackMirrorUpdate(repairs: [], upserts: [], deletions: []))
+        try await store.applyMirror(TrackMirrorUpdate(
+            coverageChange: .replace(.fullLibrary),
+            repairs: [],
+            upserts: [],
+            deletions: []
+        ))
         let snapshot = try await store.loadMirrorSnapshot()
 
         #expect(snapshot.tracks.isEmpty)
-        #expect(snapshot.isSeeded)
+        #expect(snapshot.coverage == .verified(.fullLibrary))
     }
 
-    @Test("A rejected mirror update does not seed a fresh store")
-    func rejectionPreservesSeed() async throws {
+    @Test("A rejected mirror update does not replace fresh coverage")
+    func rejectionPreservesCoverage() async throws {
         let store = try makeStore()
         try await store.initialize()
 
         await #expect(throws: TrackStoreError.missingDatabaseID(trackID: "invalid")) {
             try await store.applyMirror(TrackMirrorUpdate(
+                coverageChange: .replace(.fullLibrary),
                 repairs: [],
                 upserts: [sampleTrack(id: "invalid")],
                 deletions: []
             ))
         }
 
-        #expect(try await !store.loadMirrorSnapshot().isSeeded)
+        #expect(try await store.loadMirrorSnapshot().coverage == .unknown)
     }
 
     private func expectRepairedTrack(
@@ -138,6 +144,20 @@ struct TrackMirrorTests {
         #expect(track.lastError == "preserved error")
         #expect(track.originalArtist == "Original Artist")
         #expect(track.originalAlbum == "Original Album")
+        #expect(track.yearBeforeMGU == 1998)
+        #expect(track.yearSetByMGU == 1999)
+    }
+
+    private func expectMergedTrack(_ track: PersistedTrack, processedAt: Date) {
+        #expect(track.trackID == "AS1")
+        #expect(track.name == "Live")
+        #expect((track.artist, track.album) == ("Live", "Live"))
+        #expect(track.genreUpdated)
+        #expect(track.yearUpdated)
+        #expect(track.processedDate == processedAt)
+        #expect(track.lastError == "canonical error")
+        #expect(track.originalArtist == "Stored Artist")
+        #expect(track.originalAlbum == "Legacy Album")
         #expect(track.yearBeforeMGU == 1998)
         #expect(track.yearSetByMGU == 1999)
     }
@@ -236,6 +256,7 @@ struct TrackMirrorTests {
         let removedID = try databaseID("T002")
 
         try await store.applyMirror(TrackMirrorUpdate(
+            coverageChange: .preserve,
             repairs: [],
             upserts: [refreshedTrack, insertedTrack],
             deletions: [removedID]
@@ -269,6 +290,7 @@ struct TrackMirrorTests {
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [],
                 upserts: [mirrorTrack(id: "T001", name: "First"), mirrorTrack(id: "T001", name: "Second")],
                 deletions: [deletedID]
@@ -290,6 +312,7 @@ struct TrackMirrorTests {
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [],
                 upserts: [],
                 deletions: [deletedID, deletedID]
@@ -311,6 +334,7 @@ struct TrackMirrorTests {
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [],
                 upserts: [mirrorTrack(id: "T001", name: "Updated")],
                 deletions: [targetID]
@@ -331,6 +355,7 @@ struct TrackMirrorTests {
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [],
                 upserts: [sampleTrack(id: "T001")],
                 deletions: []
@@ -353,7 +378,12 @@ struct TrackMirrorTests {
         let databaseID = try databaseID("T001")
 
         do {
-            try await store.applyMirror(TrackMirrorUpdate(repairs: [], upserts: [mismatchedTrack], deletions: []))
+            try await store.applyMirror(TrackMirrorUpdate(
+                coverageChange: .preserve,
+                repairs: [],
+                upserts: [mismatchedTrack],
+                deletions: []
+            ))
             Issue.record("Expected mismatched mirror identities to fail")
         } catch let error as TrackStoreError {
             #expect(error == .nonCanonicalTrack(
@@ -373,6 +403,7 @@ struct TrackMirrorTests {
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [],
                 upserts: [mirrorTrack(id: "catalog", name: "Canonical")],
                 deletions: []
@@ -393,6 +424,7 @@ struct TrackMirrorTests {
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [],
                 upserts: [],
                 deletions: [databaseID]
@@ -435,6 +467,7 @@ struct TrackMirrorTests {
             appleScriptID: "database-id"
         )
         let update = TrackMirrorUpdate(
+            coverageChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "catalog-id", target: target)],
             upserts: [],
             deletions: []
@@ -461,7 +494,7 @@ struct TrackMirrorTests {
     }
 
     @Test("Mirror repair converges canonical and legacy state with all history")
-    func mirrorRepairConvergesExistingCanonicalTarget() async throws {
+    func repairConvergesCanonicalTarget() async throws {
         let container = try makeMemoryContainer()
         let context = ModelContext(container)
         let earlier = Date(timeIntervalSince1970: 1_700_000_000)
@@ -500,6 +533,7 @@ struct TrackMirrorTests {
             id: "AS1", name: "Live", artist: "Live", album: "Live", appleScriptID: "AS1"
         )
         let update = TrackMirrorUpdate(
+            coverageChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "MK1", target: live)], upserts: [], deletions: []
         )
         let store = TrackDataStore(modelContainer: container)
@@ -512,17 +546,7 @@ struct TrackMirrorTests {
         let history = try verification.fetch(FetchDescriptor<PersistedChangeLogEntry>())
         let merged = try #require(tracks.first)
         #expect(tracks.count == 1)
-        #expect(merged.trackID == "AS1")
-        #expect(merged.name == "Live")
-        #expect((merged.artist, merged.album) == ("Live", "Live"))
-        #expect(merged.genreUpdated)
-        #expect(merged.yearUpdated)
-        #expect(merged.processedDate == later)
-        #expect(merged.lastError == "canonical error")
-        #expect(merged.originalArtist == "Stored Artist")
-        #expect(merged.originalAlbum == "Legacy Album")
-        #expect(merged.yearBeforeMGU == 1998)
-        #expect(merged.yearSetByMGU == 1999)
+        expectMergedTrack(merged, processedAt: later)
         #expect(history.count == 3)
         #expect(history.allSatisfy { $0.trackID == "AS1" && $0.track?.trackID == "AS1" })
     }
@@ -543,30 +567,36 @@ struct TrackMirrorTests {
 
         let cases: [(TrackMirrorUpdate, TrackStoreError)] = try [
             (TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [TrackMirrorRepair(sourceID: "missing", target: target)],
                 upserts: [], deletions: []
             ), .missingSource(id: "missing")),
             (TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [
                     TrackMirrorRepair(sourceID: "legacy", target: target),
                     TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "other")),
                 ], upserts: [], deletions: []
             ), .duplicateRepairSources(ids: ["legacy"])),
             (TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [
                     TrackMirrorRepair(sourceID: "legacy", target: target),
                     TrackMirrorRepair(sourceID: "occupied", target: target),
                 ], upserts: [], deletions: []
             ), .duplicateRepairTargets(ids: [databaseID("target")])),
             (TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [TrackMirrorRepair(sourceID: "legacy", target: occupied)],
                 upserts: [], deletions: []
             ), .targetExists(id: databaseID("occupied"))),
             (TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [TrackMirrorRepair(sourceID: "legacy", target: target)],
                 upserts: [target], deletions: []
             ), .identityOverlap(ids: [databaseID("target")])),
             (TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "legacy"))],
                 upserts: [], deletions: []
             ), .redundantRepair(id: databaseID("legacy"))),
@@ -592,6 +622,7 @@ struct TrackMirrorTests {
             mirrorTrack(id: "deleted"),
         ])
         let update = try TrackMirrorUpdate(
+            coverageChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "rekeyed"))],
             upserts: [mirrorTrack(id: "updated", name: "New"), mirrorTrack(id: "inserted")],
             deletions: [databaseID("deleted")]
@@ -604,8 +635,8 @@ struct TrackMirrorTests {
         #expect(tracks.first { $0.id == "updated" }?.name == "New")
     }
 
-    @Test("Seeded empty mirror state survives relaunch")
-    func emptySeedPersists() async throws {
+    @Test("Verified empty full-library coverage survives relaunch")
+    func emptyCoveragePersists() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TrackMirrorSeed-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -615,18 +646,23 @@ struct TrackMirrorTests {
         do {
             let store = try TrackDataStore(modelContainer: makeContainer(at: url))
             try await store.initialize()
-            try await store.applyMirror(TrackMirrorUpdate(repairs: [], upserts: [], deletions: []))
+            try await store.applyMirror(TrackMirrorUpdate(
+                coverageChange: .replace(.fullLibrary),
+                repairs: [],
+                upserts: [],
+                deletions: []
+            ))
         }
 
         let relaunched = try TrackDataStore(modelContainer: makeContainer(at: url))
         try await relaunched.initialize()
         let snapshot = try await relaunched.loadMirrorSnapshot()
         #expect(snapshot.tracks.isEmpty)
-        #expect(snapshot.isSeeded)
+        #expect(snapshot.coverage == .verified(.fullLibrary))
     }
 
-    @Test("A legacy populated store migrates to seeded mirror state")
-    func legacyStateMigrates() async throws {
+    @Test("Legacy populated rows survive relaunch with unknown coverage")
+    func legacyRowsStayUnready() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TrackMirrorMigration-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -646,15 +682,23 @@ struct TrackMirrorTests {
             try context.save()
         }
 
-        let migrated = try TrackDataStore(modelContainer: makeContainer(at: url))
-        try await migrated.initialize()
-        let snapshot = try await migrated.loadMirrorSnapshot()
+        do {
+            let migrated = try TrackDataStore(modelContainer: makeContainer(at: url))
+            try await migrated.initialize()
+            let snapshot = try await migrated.loadMirrorSnapshot()
+            #expect(snapshot.tracks.map(\.id) == ["legacy"])
+            #expect(snapshot.coverage == .unknown)
+        }
+
+        let relaunched = try TrackDataStore(modelContainer: makeContainer(at: url))
+        try await relaunched.initialize()
+        let snapshot = try await relaunched.loadMirrorSnapshot()
         #expect(snapshot.tracks.map(\.id) == ["legacy"])
-        #expect(snapshot.isSeeded)
+        #expect(snapshot.coverage == .unknown)
     }
 
-    @Test("A legacy empty store migrates to unseeded mirror state")
-    func legacyEmptyUnseeded() async throws {
+    @Test("A legacy empty store migrates to unknown mirror coverage")
+    func legacyEmptyIsUnknown() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TrackMirrorEmptyMigration-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -667,7 +711,7 @@ struct TrackMirrorTests {
         try await migrated.initialize()
         let snapshot = try await migrated.loadMirrorSnapshot()
         #expect(snapshot.tracks.isEmpty)
-        #expect(!snapshot.isSeeded)
+        #expect(snapshot.coverage == .unknown)
     }
 
     @Test("Mirror repair and undo evidence survive relaunch")
@@ -700,6 +744,7 @@ struct TrackMirrorTests {
             context.insert(entry)
             try context.save()
             try await TrackDataStore(modelContainer: container).applyMirror(TrackMirrorUpdate(
+                coverageChange: .preserve,
                 repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "canonical"))],
                 upserts: [], deletions: []
             ))

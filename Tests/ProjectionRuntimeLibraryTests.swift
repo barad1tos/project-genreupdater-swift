@@ -210,14 +210,17 @@ struct ProjectionRuntimeLibraryTests {
             Core.Track(id: "cached-contamination", name: "Cached", artist: "Clutch", album: "Blast Tyrant"),
         ])
         fixture.dependencies.configureLibraryPersistenceForTesting(
-            trackStore: MirrorTrackStoreStub(tracks: [
-                canonicalMirrorTrack(Core.Track(
-                    id: "current",
-                    name: "Current",
-                    artist: "Clutch",
-                    album: "Blast Tyrant"
-                )),
-            ]),
+            trackStore: MirrorTrackStoreStub(
+                tracks: [
+                    canonicalMirrorTrack(Core.Track(
+                        id: "current",
+                        name: "Current",
+                        artist: "Clutch",
+                        album: "Blast Tyrant"
+                    )),
+                ],
+                coverage: .verified(.fullLibrary)
+            ),
             librarySnapshotService: fixture.snapshotService,
             runRecordStore: RunRecordStoreStub()
         )

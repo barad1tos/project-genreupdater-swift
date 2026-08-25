@@ -29,6 +29,7 @@ enum LibrarySyncObservationError: Error, Equatable, LocalizedError, Sendable {
 
 struct SyncDetection {
     let result: SyncResult
+    let coverageChange: MirrorCoverageChange
     let repairs: [TrackMirrorRepair]
     let upserts: [Track]
     let removedIDs: [MusicDatabaseTrackID]
@@ -38,7 +39,8 @@ struct SyncDetection {
 
 extension LibrarySyncService {
     func detectObservation(forceMetadataRefresh: Bool = false) async throws -> SyncDetection {
-        let storedTracks = try await trackStore.loadAllTracks()
+        let snapshot = try await trackStore.loadMirrorSnapshot()
+        let storedTracks = snapshot.tracks
         let scopedStored = tracksInConfiguredScope(storedTracks)
         let canonicalTracks = storedTracks.filter(isCanonical)
         let scopedCanonical = scopedStored.filter(isCanonical)
@@ -56,7 +58,8 @@ extension LibrarySyncService {
         guard let mirror = LibraryMirrorIndex(tracksByID: scopedByID) else {
             throw LibrarySyncObservationError.invalidObservation(detail: "stored mirror index is inconsistent")
         }
-        let previous: LibraryMirrorReference = scopedByID.isEmpty ? .initial : .verified(mirror)
+        let requestedScope = MirrorScope(testArtists: runtimeConfiguration.testArtists)
+        let previous: LibraryMirrorReference = snapshot.coverage.admits(requestedScope) ? .verified(mirror) : .initial
         let request = LibraryObservationRequest(scope: scope, refresh: refresh, previous: previous)
         let observation = try await observer.observe(request)
         try validate(observation, request: request)
@@ -79,6 +82,7 @@ extension LibrarySyncService {
         }
         return SyncDetection(
             result: classification.result,
+            coverageChange: coverageChange(for: observation),
             repairs: repair.repairs,
             upserts: ordinaryUpserts.sorted { $0.id < $1.id },
             removedIDs: classification.removedIDs,
@@ -87,6 +91,21 @@ extension LibrarySyncService {
             }),
             didCompleteForceRefresh: refresh == .force && observation.metadata.isComplete
         )
+    }
+
+    private func coverageChange(for observation: LibraryObservation) -> MirrorCoverageChange {
+        guard runtimeConfiguration.albumTargetIdentity == nil,
+              observation.metadata.isComplete
+        else { return .invalidate }
+
+        switch (observation.scope.source, observation.membership) {
+        case (.fullLibrary, .full):
+            return .replace(.fullLibrary)
+        case let (.testArtists, .scoped(unobservedIDs)) where unobservedIDs.isEmpty:
+            return .replace(MirrorScope(testArtists: observation.scope.normalizedTestArtists))
+        default:
+            return .invalidate
+        }
     }
 
     private func isCanonical(_ track: Track) -> Bool {

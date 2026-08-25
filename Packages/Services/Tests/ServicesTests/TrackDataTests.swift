@@ -209,6 +209,7 @@ struct TrackDataTests {
         let missingID = try databaseID("missing")
 
         try await store.applyMirror(TrackMirrorUpdate(
+            coverageChange: .preserve,
             repairs: [],
             upserts: [],
             deletions: [deletedID, missingID]

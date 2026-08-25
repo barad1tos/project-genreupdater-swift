@@ -18,9 +18,11 @@ public actor TrackDataStore: TrackStateStore {
 
     public func initialize() async throws {
         let repairedCount = try normalizeStoredYears()
-        let isMirrorSeeded = try initializeMirrorState()
+        let mirrorCoverage = try initializeMirrorState()
         log.info("SwiftData track store initialized; repaired zero-year rows: \(repairedCount, privacy: .public)")
-        log.info("SwiftData track mirror initialized; seeded: \(isMirrorSeeded, privacy: .public)")
+        log.info(
+            "SwiftData track mirror initialized; verified scope: \(mirrorCoverage != .unknown, privacy: .public)"
+        )
     }
 
     // MARK: - Read Operations
@@ -32,9 +34,9 @@ public actor TrackDataStore: TrackStateStore {
     public func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         let tracks = try fetchAllTracks()
         let state = try fetchMirrorState()
-        return TrackMirrorSnapshot(
+        return try TrackMirrorSnapshot(
             tracks: tracks,
-            isSeeded: state?.isSeeded ?? false
+            coverage: state?.coverage() ?? .unknown
         )
     }
 
@@ -101,11 +103,15 @@ public actor TrackDataStore: TrackStateStore {
                     deletedCount += 1
                 }
 
-                if let mirrorState = try fetchMirrorState() {
-                    mirrorState.isSeeded = true
+                let mirrorState: PersistedMirrorState
+                if let storedMirrorState = try fetchMirrorState() {
+                    mirrorState = storedMirrorState
                 } else {
-                    modelContext.insert(PersistedMirrorState(isSeeded: true))
+                    let newMirrorState = PersistedMirrorState()
+                    modelContext.insert(newMirrorState)
+                    mirrorState = newMirrorState
                 }
+                try mirrorState.apply(update.coverageChange)
             }
         } catch {
             modelContext.rollback()
@@ -170,15 +176,14 @@ public actor TrackDataStore: TrackStateStore {
         }
     }
 
-    private func initializeMirrorState() throws -> Bool {
+    private func initializeMirrorState() throws -> MirrorCoverage {
         if let state = try fetchMirrorState() {
-            return state.isSeeded
+            return try state.coverage()
         }
 
-        let isSeeded = try modelContext.fetchCount(FetchDescriptor<PersistedTrack>()) > 0
-        modelContext.insert(PersistedMirrorState(isSeeded: isSeeded))
+        modelContext.insert(PersistedMirrorState())
         try modelContext.save()
-        return isSeeded
+        return .unknown
     }
 
     private func fetchMirrorState() throws -> PersistedMirrorState? {

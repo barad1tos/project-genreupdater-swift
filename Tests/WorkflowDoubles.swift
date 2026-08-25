@@ -9,7 +9,12 @@ extension TrackStateStore {
             canonical.appleScriptID = canonical.id
             return canonical
         }
-        try await applyMirror(TrackMirrorUpdate(repairs: [], upserts: canonicalTracks, deletions: []))
+        try await applyMirror(TrackMirrorUpdate(
+            coverageChange: .replace(.fullLibrary),
+            repairs: [],
+            upserts: canonicalTracks,
+            deletions: []
+        ))
     }
 }
 
@@ -217,7 +222,7 @@ actor DashboardStateTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(tracks: [], isSeeded: false)
+        TrackMirrorSnapshot(tracks: [], coverage: .unknown)
     }
 
     func applyMirror(_: TrackMirrorUpdate) async throws {

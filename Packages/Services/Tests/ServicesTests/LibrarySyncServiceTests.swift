@@ -113,7 +113,7 @@ actor SyncMockScriptClient: MusicAppReading {
 
 actor SyncMockTrackStore: TrackStateStore {
     var storedTracks: [Track] = []
-    private var isSeeded = false
+    private var coverage = MirrorCoverage.unknown
 
     func initialize() async throws {}
 
@@ -122,11 +122,11 @@ actor SyncMockTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(tracks: storedTracks, isSeeded: isSeeded || !storedTracks.isEmpty)
+        TrackMirrorSnapshot(tracks: storedTracks, coverage: coverage)
     }
 
     func applyMirror(_ update: TrackMirrorUpdate) async throws {
-        isSeeded = true
+        coverage = coverage.applying(update.coverageChange)
         let deletionIDs = Set(update.deletions.map(\.rawValue))
         storedTracks.removeAll { deletionIDs.contains($0.id) }
         for track in update.upserts {
@@ -171,7 +171,7 @@ extension SyncMockScriptClient {
 
 extension SyncMockTrackStore {
     func setStored(_ tracks: [Track]) {
-        isSeeded = true
+        coverage = .verified(.fullLibrary)
         storedTracks = tracks.map { track in
             var canonical = track
             if canonical.appleScriptID == nil {
@@ -179,6 +179,14 @@ extension SyncMockTrackStore {
             }
             return canonical
         }
+    }
+
+    func setMirrorCoverage(_ coverage: MirrorCoverage) {
+        self.coverage = coverage
+    }
+
+    func mirrorCoverage() -> MirrorCoverage {
+        coverage
     }
 }
 

@@ -13,16 +13,16 @@ struct LibraryPersistenceFixture {
 
 actor MirrorTrackStoreStub: TrackStateStore {
     private var tracks: [Track]
-    private var isSeeded: Bool
+    private var coverage: MirrorCoverage
     private let beforeLoad: (@Sendable () async throws -> Void)?
 
     init(
         tracks: [Track] = [],
-        isSeeded: Bool = false,
+        coverage: MirrorCoverage = .unknown,
         beforeLoad: (@Sendable () async throws -> Void)? = nil
     ) {
         self.tracks = tracks
-        self.isSeeded = isSeeded || !tracks.isEmpty
+        self.coverage = coverage
         self.beforeLoad = beforeLoad
     }
 
@@ -37,12 +37,12 @@ actor MirrorTrackStoreStub: TrackStateStore {
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try await beforeLoad?()
-        return TrackMirrorSnapshot(tracks: tracks, isSeeded: isSeeded)
+        return TrackMirrorSnapshot(tracks: tracks, coverage: coverage)
     }
 
     func applyMirror(_ update: TrackMirrorUpdate) async throws {
         tracks.append(contentsOf: update.upserts)
-        isSeeded = true
+        coverage = coverage.applying(update.coverageChange)
     }
 
     func getTrack(byID id: String) async throws -> Track? {
@@ -87,6 +87,25 @@ func makeFixture(
         trackStore: trackStore,
         snapshotService: snapshotService
     )
+}
+
+@MainActor
+func makeLibraryDependencies(
+    trackStore: any TrackStateStore,
+    snapshotService: any LibrarySnapshotService = SnapshotServiceSpy()
+) -> AppDependencies {
+    let dependencies = AppDependencies(
+        configurationLoader: { AppConfiguration() },
+        configurationSaver: { _ in
+            // Relaunch fixtures exercise track persistence only.
+        }
+    )
+    dependencies.configureLibraryPersistenceForTesting(
+        trackStore: trackStore,
+        librarySnapshotService: snapshotService,
+        runRecordStore: RunRecordStoreStub()
+    )
+    return dependencies
 }
 
 actor RunRecordStoreStub: RunRecordStore {
@@ -337,6 +356,7 @@ actor SnapshotServiceSpy: LibrarySnapshotService {
     func saveSnapshot(_ tracks: [Track]) async throws -> String {
         saveSnapshotCallCount += 1
         savedTracks = tracks
+        seededSnapshot = tracks
         return "snapshot"
     }
 

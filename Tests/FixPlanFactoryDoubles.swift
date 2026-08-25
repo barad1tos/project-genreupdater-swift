@@ -121,7 +121,7 @@ actor FactoryTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(tracks: [], isSeeded: false)
+        TrackMirrorSnapshot(tracks: [], coverage: .unknown)
     }
 
     func applyMirror(_: TrackMirrorUpdate) async throws {

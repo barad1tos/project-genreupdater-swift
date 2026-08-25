@@ -211,7 +211,12 @@ extension TrackStateStore {
             canonical.appleScriptID = canonical.id
             return canonical
         }
-        try await applyMirror(TrackMirrorUpdate(repairs: [], upserts: canonicalTracks, deletions: []))
+        try await applyMirror(TrackMirrorUpdate(
+            coverageChange: .replace(.fullLibrary),
+            repairs: [],
+            upserts: canonicalTracks,
+            deletions: []
+        ))
     }
 }
 
@@ -223,7 +228,7 @@ struct AppliedTrackUpdate {
 
 actor MockTrackStore: TrackStateStore {
     var tracks: [Track] = []
-    private var isSeeded = false
+    private var coverage = MirrorCoverage.unknown
     private(set) var appliedUpdates: [AppliedTrackUpdate] = []
     private var shouldCancelReads = false
     private var shouldFailMirror = false
@@ -252,11 +257,11 @@ actor MockTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(tracks: tracks, isSeeded: isSeeded || !tracks.isEmpty)
+        TrackMirrorSnapshot(tracks: tracks, coverage: coverage)
     }
 
     func applyMirror(_ update: TrackMirrorUpdate) async throws {
-        isSeeded = true
+        coverage = coverage.applying(update.coverageChange)
         let deletionIDs = Set(update.deletions.map(\.rawValue))
         tracks.removeAll { deletionIDs.contains($0.id) }
         for track in update.upserts {

@@ -105,14 +105,17 @@ struct ProjectionRuntimeTests {
         // must advance even when no host view is subscribed.
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         fixture.dependencies.configureLibraryPersistenceForTesting(
-            trackStore: MirrorTrackStoreStub(tracks: [
-                canonicalMirrorTrack(Core.Track(
-                    id: "live",
-                    name: "Song",
-                    artist: "Clutch",
-                    album: "Blast Tyrant"
-                )),
-            ]),
+            trackStore: MirrorTrackStoreStub(
+                tracks: [
+                    canonicalMirrorTrack(Core.Track(
+                        id: "live",
+                        name: "Song",
+                        artist: "Clutch",
+                        album: "Blast Tyrant"
+                    )),
+                ],
+                coverage: .verified(.fullLibrary)
+            ),
             librarySnapshotService: fixture.snapshotService,
             runRecordStore: RunRecordStoreStub()
         )

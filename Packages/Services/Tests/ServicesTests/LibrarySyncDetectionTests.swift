@@ -212,7 +212,6 @@ struct LibrarySyncConfigTests {
 
         let newTrack = Track(id: "NEW1", name: "New Song", artist: "Artist", album: "Album")
         await bridge.setLibrary(ids: ["NEW1"], tracks: ["NEW1": newTrack])
-        await store.setStored([])
 
         let service = LibrarySyncService(
             trackStore: store,
