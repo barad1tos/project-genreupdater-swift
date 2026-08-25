@@ -32,8 +32,8 @@ struct LibraryServicesTests {
         #expect(await fixture.snapshotService.savedSnapshotCount() == 0)
     }
 
-    @Test("MusicKit UI load does not mutate processing track state")
-    func keepsTrackStateEmpty() async throws {
+    @Test("Snapshot caching does not mutate processing track state")
+    func snapshotCachingKeepsTrackStateEmpty() async throws {
         let fixture = try makeFixture(testArtists: ["Clutch"])
         let tracks = [sampleTrack()]
 
