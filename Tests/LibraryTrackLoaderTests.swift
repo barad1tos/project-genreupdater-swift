@@ -24,7 +24,7 @@ struct LibraryTrackLoaderTests {
     }
 
     @Test("A row without canonical database identity fails closed")
-    func rejectsMissingDatabaseIdentity() async {
+    func rejectsNoncanonicalRow() async {
         let store = LoaderTrackStore(tracks: [
             Track(id: "catalog-id", name: "Battery", artist: "Metallica", album: "Master of Puppets"),
         ])
@@ -33,24 +33,45 @@ struct LibraryTrackLoaderTests {
             _ = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: [])
         }
     }
+
+    @Test("An unseeded empty mirror is not update-ready")
+    func unseededNotReady() async throws {
+        let store = LoaderTrackStore(tracks: [], isSeeded: false)
+
+        let load = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: [])
+
+        #expect(load.tracks.isEmpty)
+        #expect(!load.isLibraryReadyForUpdates)
+    }
 }
 
 private actor LoaderTrackStore: TrackStateStore {
     private let tracks: [Track]
+    private let isSeeded: Bool
 
-    init(tracks: [Track]) {
+    init(tracks: [Track], isSeeded: Bool = true) {
         self.tracks = tracks
+        self.isSeeded = isSeeded
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // This in-memory loader store has no setup work.
+    }
     func loadAllTracks() async throws -> [Track] {
         tracks
     }
-    func applyMirror(_: TrackMirrorUpdate) async throws {}
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        TrackMirrorSnapshot(tracks: tracks, isSeeded: isSeeded)
+    }
+    func applyMirror(_: TrackMirrorUpdate) async throws {
+        // Loader tests exercise reads only, so mirror writes are intentionally inert.
+    }
     func getTrack(byID _: String) async throws -> Track? {
         nil
     }
-    func persistAppliedChange(_: ChangeLogEntry) async throws {}
+    func persistAppliedChange(_: ChangeLogEntry) async throws {
+        // Loader tests exercise reads only, so applied changes are intentionally inert.
+    }
     func getUnprocessedTracks() async throws -> [Track] {
         []
     }

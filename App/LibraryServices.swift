@@ -112,7 +112,6 @@ extension AppDependencies {
         scopedArtists capturedScopedArtists: [String]? = nil
     ) async {
         let scopedArtists = capturedScopedArtists ?? ArtistAllowList.normalized(config.development.testArtists)
-        guard !tracks.isEmpty else { return }
         replacePreviousIncrementalScopeTracks(libraryTracks)
 
         if scopedArtists.isEmpty {

@@ -141,7 +141,6 @@ private func catalogTrack(id: String, artist: String, albumArtist: String? = nil
         album: "Album",
         albumArtist: albumArtist,
         genres: [],
-        releaseYear: nil,
-        dateAdded: nil
+        dates: CatalogDates(releaseYear: nil, dateAdded: nil)
     )
 }

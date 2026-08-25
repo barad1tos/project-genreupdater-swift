@@ -33,7 +33,7 @@ struct LibraryServicesTests {
     }
 
     @Test("Full-library snapshot caching saves once without mutating processing track state")
-    func snapshotCacheSavesWithoutSeedingTrackStore() async throws {
+    func cacheIsolation() async throws {
         let fixture = try makeFixture(testArtists: [])
         let tracks = [sampleTrack()]
 
@@ -53,6 +53,41 @@ struct LibraryServicesTests {
 
         #expect(await fixture.snapshotService.savedSnapshotCount() == 1)
         #expect(await fixture.snapshotService.savedTrackIDs() == ["track-1"])
+    }
+
+    @Test("A seeded empty mirror replaces cached presentation tracks")
+    func seededEmptyWins() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let metricsStore = try MetricsSnapshotStore(modelContainer: ModelContainerFactory.createInMemory())
+        await metricsStore.upsert(from: [canonicalMirrorTrack(sampleTrack())])
+        await fixture.snapshotService.installSnapshot([
+            canonicalMirrorTrack(sampleTrack()),
+        ])
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(tracks: [], isSeeded: true),
+            librarySnapshotService: fixture.snapshotService,
+            metricsSnapshotStore: metricsStore,
+            runRecordStore: RunRecordStoreStub()
+        )
+        var browsedTrackIDs: [[String]] = []
+        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
+            browsedTrackIDs.append(tracks.map(\.id))
+        }
+        var appliedTrackIDs: [[String]] = []
+        fixture.dependencies.onLibraryLoadApplied = { tracks in
+            appliedTrackIDs.append(tracks.map(\.id))
+        }
+
+        await fixture.dependencies.loadLibrary()
+
+        #expect(fixture.dependencies.libraryTracks.isEmpty)
+        #expect(fixture.dependencies.isLibraryReadyForUpdates)
+        #expect(await fixture.snapshotService.savedSnapshotCount() == 1)
+        #expect(await fixture.snapshotService.savedTrackIDs().isEmpty)
+        #expect(browsedTrackIDs == [["track-1"], []])
+        #expect(appliedTrackIDs == [["track-1"], []])
+        #expect(fixture.dependencies.libraryMetrics == nil)
+        #expect(await metricsStore.loadLatest() == nil)
     }
 
     @Test("Canonical mirror metadata is the only library and processing input")
@@ -641,6 +676,10 @@ private actor FailingMirrorReadStore: TrackStateStore {
     }
 
     func loadAllTracks() async throws -> [Core.Track] {
+        throw MirrorReadError()
+    }
+
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         throw MirrorReadError()
     }
 

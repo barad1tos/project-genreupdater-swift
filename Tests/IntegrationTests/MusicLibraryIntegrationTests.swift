@@ -77,7 +77,7 @@ final class MusicLibraryIntegrationTests: XCTestCase {
         }
     }
 
-    func testTrackCountIsPositive() async throws {
+    func testPositiveCount() async throws {
         let count = try await reader.trackCount()
 
         XCTAssertGreaterThan(
@@ -87,7 +87,7 @@ final class MusicLibraryIntegrationTests: XCTestCase {
         )
     }
 
-    func testCatalogIDsAreUnique() async throws {
+    func testUniqueIDs() async throws {
         let snapshot = try await reader.loadCatalog(testArtists: [])
         let trackIDs = snapshot.tracks.map(\.id.displayValue)
         let uniqueTrackIDs = Set(trackIDs)

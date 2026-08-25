@@ -13,32 +13,45 @@ struct LibraryPersistenceFixture {
 
 actor MirrorTrackStoreStub: TrackStateStore {
     private var tracks: [Track]
+    private var isSeeded: Bool
     private let beforeLoad: (@Sendable () async throws -> Void)?
 
     init(
         tracks: [Track] = [],
+        isSeeded: Bool = false,
         beforeLoad: (@Sendable () async throws -> Void)? = nil
     ) {
         self.tracks = tracks
+        self.isSeeded = isSeeded || !tracks.isEmpty
         self.beforeLoad = beforeLoad
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // This in-memory mirror stub requires no setup.
+    }
 
     func loadAllTracks() async throws -> [Track] {
         try await beforeLoad?()
         return tracks
     }
 
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        try await beforeLoad?()
+        return TrackMirrorSnapshot(tracks: tracks, isSeeded: isSeeded)
+    }
+
     func applyMirror(_ update: TrackMirrorUpdate) async throws {
         tracks.append(contentsOf: update.upserts)
+        isSeeded = true
     }
 
     func getTrack(byID id: String) async throws -> Track? {
         tracks.first { $0.id == id }
     }
 
-    func persistAppliedChange(_: ChangeLogEntry) async throws {}
+    func persistAppliedChange(_: ChangeLogEntry) async throws {
+        // Library-load tests do not model applied-change persistence.
+    }
     func getUnprocessedTracks() async throws -> [Track] {
         tracks
     }

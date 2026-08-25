@@ -216,6 +216,10 @@ actor DashboardStateTrackStore: TrackStateStore {
         []
     }
 
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        TrackMirrorSnapshot(tracks: [], isSeeded: false)
+    }
+
     func applyMirror(_: TrackMirrorUpdate) async throws {
         // These tests do not assert persisted track state.
     }

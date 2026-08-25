@@ -16,7 +16,7 @@ struct TrackDataTests {
     }
 
     private func makeContainer(at url: URL) throws -> ModelContainer {
-        let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
+        let schema = Schema([PersistedTrack.self, PersistedMirrorState.self, PersistedChangeLogEntry.self])
         let configuration = ModelConfiguration(
             "TrackRecoveryRelaunch",
             schema: schema,

@@ -255,7 +255,6 @@ private func catalogTrack(id: String, title: String, artist: String, album: Stri
         album: album,
         albumArtist: nil,
         genres: [],
-        releaseYear: nil,
-        dateAdded: nil
+        dates: CatalogDates(releaseYear: nil, dateAdded: nil)
     )
 }

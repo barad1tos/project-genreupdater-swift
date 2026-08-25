@@ -455,8 +455,7 @@ struct DesignRootHostView: View {
     }
 
     private var updateWorkflowTracks: [Core.Track] {
-        guard workflowViewModel != nil else { return dependencies.libraryTracks }
-        return UpdateTrackScopeResolver.tracksForWorkflow(
+        UpdateTrackScopeResolver.tracksForWorkflow(
             libraryTracks: dependencies.libraryTracks,
             testArtists: dependencies.config.development.testArtists,
             isLibraryReadyForUpdates: dependencies.isLibraryReadyForUpdates

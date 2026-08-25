@@ -124,7 +124,9 @@ private actor CatalogSourceSpy: MusicKitCatalogSource {
         true
     }
 
-    func requestAuthorization() async throws {}
+    func requestAuthorization() async throws {
+        // This catalog source spy is permanently authorized.
+    }
 
     func loadTracks() async throws -> [MusicKitTrackMetadata] {
         loads += 1

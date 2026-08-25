@@ -11,6 +11,17 @@ struct TrackMirrorTests {
     }
 
     private func makeContainer(at url: URL) throws -> ModelContainer {
+        let schema = Schema([PersistedTrack.self, PersistedMirrorState.self, PersistedChangeLogEntry.self])
+        let configuration = ModelConfiguration(
+            "TrackMirrorRelaunch",
+            schema: schema,
+            url: url,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private func makeLegacyContainer(at url: URL) throws -> ModelContainer {
         let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
         let configuration = ModelConfiguration(
             "TrackMirrorRelaunch",
@@ -22,7 +33,7 @@ struct TrackMirrorTests {
     }
 
     private func makeMemoryContainer() throws -> ModelContainer {
-        let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
+        let schema = Schema([PersistedTrack.self, PersistedMirrorState.self, PersistedChangeLogEntry.self])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [configuration])
     }
@@ -64,6 +75,45 @@ struct TrackMirrorTests {
 
     private func databaseID(_ rawValue: String) throws -> MusicDatabaseTrackID {
         try #require(MusicDatabaseTrackID(rawValue: rawValue))
+    }
+
+    @Test("A fresh store exposes an unseeded mirror")
+    func freshIsUnseeded() async throws {
+        let store = try makeStore()
+        try await store.initialize()
+
+        let snapshot = try await store.loadMirrorSnapshot()
+
+        #expect(snapshot.tracks.isEmpty)
+        #expect(!snapshot.isSeeded)
+    }
+
+    @Test("Applying an empty mirror records authoritative empty state")
+    func emptyIsSeeded() async throws {
+        let store = try makeStore()
+        try await store.initialize()
+
+        try await store.applyMirror(TrackMirrorUpdate(repairs: [], upserts: [], deletions: []))
+        let snapshot = try await store.loadMirrorSnapshot()
+
+        #expect(snapshot.tracks.isEmpty)
+        #expect(snapshot.isSeeded)
+    }
+
+    @Test("A rejected mirror update does not seed a fresh store")
+    func rejectionPreservesSeed() async throws {
+        let store = try makeStore()
+        try await store.initialize()
+
+        await #expect(throws: TrackStoreError.missingDatabaseID(trackID: "invalid")) {
+            try await store.applyMirror(TrackMirrorUpdate(
+                repairs: [],
+                upserts: [sampleTrack(id: "invalid")],
+                deletions: []
+            ))
+        }
+
+        #expect(try await !store.loadMirrorSnapshot().isSeeded)
     }
 
     private func expectRepairedTrack(
@@ -552,6 +602,72 @@ struct TrackMirrorTests {
         let tracks = try await store.loadAllTracks()
         #expect(tracks.map(\.id).sorted() == ["inserted", "rekeyed", "updated"])
         #expect(tracks.first { $0.id == "updated" }?.name == "New")
+    }
+
+    @Test("Seeded empty mirror state survives relaunch")
+    func emptySeedPersists() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TrackMirrorSeed-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("tracks.store")
+
+        do {
+            let store = try TrackDataStore(modelContainer: makeContainer(at: url))
+            try await store.initialize()
+            try await store.applyMirror(TrackMirrorUpdate(repairs: [], upserts: [], deletions: []))
+        }
+
+        let relaunched = try TrackDataStore(modelContainer: makeContainer(at: url))
+        try await relaunched.initialize()
+        let snapshot = try await relaunched.loadMirrorSnapshot()
+        #expect(snapshot.tracks.isEmpty)
+        #expect(snapshot.isSeeded)
+    }
+
+    @Test("A legacy populated store migrates to seeded mirror state")
+    func legacyStateMigrates() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TrackMirrorMigration-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("tracks.store")
+
+        do {
+            let container = try makeLegacyContainer(at: url)
+            let context = ModelContext(container)
+            context.insert(PersistedTrack(
+                trackID: "legacy",
+                appleScriptID: "legacy",
+                name: "Song",
+                artist: "Artist",
+                album: "Album"
+            ))
+            try context.save()
+        }
+
+        let migrated = try TrackDataStore(modelContainer: makeContainer(at: url))
+        try await migrated.initialize()
+        let snapshot = try await migrated.loadMirrorSnapshot()
+        #expect(snapshot.tracks.map(\.id) == ["legacy"])
+        #expect(snapshot.isSeeded)
+    }
+
+    @Test("A legacy empty store migrates to unseeded mirror state")
+    func legacyEmptyUnseeded() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TrackMirrorEmptyMigration-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("tracks.store")
+
+        _ = try makeLegacyContainer(at: url)
+
+        let migrated = try TrackDataStore(modelContainer: makeContainer(at: url))
+        try await migrated.initialize()
+        let snapshot = try await migrated.loadMirrorSnapshot()
+        #expect(snapshot.tracks.isEmpty)
+        #expect(!snapshot.isSeeded)
     }
 
     @Test("Mirror repair and undo evidence survive relaunch")

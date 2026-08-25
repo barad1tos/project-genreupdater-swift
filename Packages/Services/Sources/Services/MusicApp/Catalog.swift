@@ -21,8 +21,15 @@ public struct CatalogTrack: Equatable, Sendable {
     public let album: String
     public let albumArtist: String?
     public let genres: [String]
-    public let releaseYear: Int?
-    public let dateAdded: Date?
+    public let dates: CatalogDates
+
+    public var releaseYear: Int? {
+        dates.releaseYear
+    }
+
+    public var dateAdded: Date? {
+        dates.dateAdded
+    }
 
     public init(
         id: CatalogTrackID,
@@ -31,8 +38,7 @@ public struct CatalogTrack: Equatable, Sendable {
         album: String,
         albumArtist: String?,
         genres: [String],
-        releaseYear: Int?,
-        dateAdded: Date?
+        dates: CatalogDates
     ) {
         self.id = id
         self.title = title
@@ -40,6 +46,16 @@ public struct CatalogTrack: Equatable, Sendable {
         self.album = album
         self.albumArtist = albumArtist
         self.genres = genres
+        self.dates = dates
+    }
+}
+
+/// Temporal metadata exposed by a MusicKit catalog row.
+public struct CatalogDates: Equatable, Sendable {
+    public let releaseYear: Int?
+    public let dateAdded: Date?
+
+    public init(releaseYear: Int?, dateAdded: Date?) {
         self.releaseYear = releaseYear
         self.dateAdded = dateAdded
     }

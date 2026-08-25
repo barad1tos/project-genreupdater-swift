@@ -177,7 +177,9 @@ private actor AnalyticsMusicCatalog: MusicCatalogReading {
         true
     }
 
-    func requestAuthorization() async throws {}
+    func requestAuthorization() async throws {
+        // This catalog test double is permanently authorized.
+    }
 
     func loadCatalog(testArtists _: [String]) async throws -> CatalogSnapshot {
         snapshot
@@ -199,8 +201,7 @@ private func instrumentationCatalogTrack(id: String) -> CatalogTrack {
         album: "Album",
         albumArtist: nil,
         genres: [],
-        releaseYear: nil,
-        dateAdded: nil
+        dates: CatalogDates(releaseYear: nil, dateAdded: nil)
     )
 }
 

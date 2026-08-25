@@ -99,10 +99,23 @@ public struct TrackMirrorUpdate: Sendable {
     }
 }
 
+/// One coherent read of persisted mirror rows and their authoritative seeding state.
+public struct TrackMirrorSnapshot: Equatable, Sendable {
+    public let tracks: [Track]
+    /// True after at least one coherent mirror update has committed.
+    public let isSeeded: Bool
+
+    public init(tracks: [Track], isSeeded: Bool) {
+        self.tracks = tracks
+        self.isSeeded = isSeeded
+    }
+}
+
 /// Protocol for persisting the track metadata mirror and processing state.
 public protocol TrackStateStore: Actor {
     func initialize() async throws
     func loadAllTracks() async throws -> [Track]
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot
     /// Atomically applies one coherent metadata-mirror update.
     func applyMirror(_ update: TrackMirrorUpdate) async throws
     func getTrack(byID id: String) async throws -> Track?

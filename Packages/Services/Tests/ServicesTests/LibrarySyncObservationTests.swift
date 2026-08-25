@@ -633,6 +633,10 @@ private actor ObservationMirrorStore: TrackStateStore {
         stored
     }
 
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        TrackMirrorSnapshot(tracks: stored, isSeeded: true)
+    }
+
     func applyMirror(_ update: TrackMirrorUpdate) async throws {
         applyCalls.append(ApplyCall(upserting: update.upserts, deleting: update.deletions))
         if let applyError {

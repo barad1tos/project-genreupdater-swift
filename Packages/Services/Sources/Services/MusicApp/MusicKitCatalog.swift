@@ -85,8 +85,10 @@ actor MusicKitCatalogAdapter: MusicKitCatalogSource {
             album: metadata.album ?? "",
             albumArtist: metadata.albumArtist,
             genres: metadata.genres,
-            releaseYear: metadata.releaseDate.map { Calendar.current.component(.year, from: $0) },
-            dateAdded: metadata.dateAdded
+            dates: CatalogDates(
+                releaseYear: metadata.releaseDate.map { Calendar.current.component(.year, from: $0) },
+                dateAdded: metadata.dateAdded
+            )
         )
     }
 

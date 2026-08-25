@@ -18,12 +18,27 @@ public actor TrackDataStore: TrackStateStore {
 
     public func initialize() async throws {
         let repairedCount = try normalizeStoredYears()
+        let isMirrorSeeded = try initializeMirrorState()
         log.info("SwiftData track store initialized; repaired zero-year rows: \(repairedCount, privacy: .public)")
+        log.info("SwiftData track mirror initialized; seeded: \(isMirrorSeeded, privacy: .public)")
     }
 
     // MARK: - Read Operations
 
     public func loadAllTracks() async throws -> [Track] {
+        try fetchAllTracks()
+    }
+
+    public func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        let tracks = try fetchAllTracks()
+        let state = try fetchMirrorState()
+        return TrackMirrorSnapshot(
+            tracks: tracks,
+            isSeeded: state?.isSeeded ?? false
+        )
+    }
+
+    private func fetchAllTracks() throws -> [Track] {
         let descriptor = FetchDescriptor<PersistedTrack>(
             sortBy: [SortDescriptor(\.name)]
         )
@@ -84,6 +99,12 @@ public actor TrackDataStore: TrackStateStore {
                     guard let persistedTrack = storedState.canonicalByID[id] else { continue }
                     modelContext.delete(persistedTrack)
                     deletedCount += 1
+                }
+
+                if let mirrorState = try fetchMirrorState() {
+                    mirrorState.isSeeded = true
+                } else {
+                    modelContext.insert(PersistedMirrorState(isSeeded: true))
                 }
             }
         } catch {
@@ -147,6 +168,25 @@ public actor TrackDataStore: TrackStateStore {
             modelContext.rollback()
             throw error
         }
+    }
+
+    private func initializeMirrorState() throws -> Bool {
+        if let state = try fetchMirrorState() {
+            return state.isSeeded
+        }
+
+        let isSeeded = try modelContext.fetchCount(FetchDescriptor<PersistedTrack>()) > 0
+        modelContext.insert(PersistedMirrorState(isSeeded: isSeeded))
+        try modelContext.save()
+        return isSeeded
+    }
+
+    private func fetchMirrorState() throws -> PersistedMirrorState? {
+        let key = PersistedMirrorState.primaryKey
+        let descriptor = FetchDescriptor<PersistedMirrorState>(
+            predicate: #Predicate { $0.key == key }
+        )
+        return try modelContext.fetch(descriptor).first
     }
 
     private static func duplicateIDs(in ids: [MusicDatabaseTrackID]) -> [MusicDatabaseTrackID] {

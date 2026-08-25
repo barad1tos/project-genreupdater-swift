@@ -120,6 +120,10 @@ actor FactoryTrackStore: TrackStateStore {
         []
     }
 
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        TrackMirrorSnapshot(tracks: [], isSeeded: false)
+    }
+
     func applyMirror(_: TrackMirrorUpdate) async throws {
         // Factory tests do not persist track state.
     }

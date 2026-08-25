@@ -724,12 +724,14 @@ extension AppDependencies {
     func configureLibraryPersistenceForTesting(
         trackStore: (any TrackStateStore)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
+        metricsSnapshotStore: MetricsSnapshotStore? = nil,
         runRecordStore: (any RunRecordStore)? = nil,
         fixPlanStore: (any FixPlanStore)? = nil,
         cache: GRDBCacheService? = nil
     ) {
         self.trackStore = trackStore
         self.librarySnapshotService = librarySnapshotService
+        self.metricsSnapshotStore = metricsSnapshotStore
         self.runRecordStore = runRecordStore
         self.fixPlanStore = fixPlanStore
         cacheService = cache

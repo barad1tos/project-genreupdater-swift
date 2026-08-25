@@ -41,12 +41,12 @@ enum LibraryTrackLoader {
         scopedArtists: [String]
     ) async throws -> LibraryMirrorTrackLoad {
         try Task.checkCancellation()
-        let tracks = try await store.loadAllTracks()
+        let snapshot = try await store.loadMirrorSnapshot()
         try Task.checkCancellation()
 
         return try LibraryMirrorTrackLoad(
-            tracks: canonicalTracks(tracks, scopedArtists: scopedArtists),
-            isLibraryReadyForUpdates: true
+            tracks: canonicalTracks(snapshot.tracks, scopedArtists: scopedArtists),
+            isLibraryReadyForUpdates: snapshot.isSeeded
         )
     }
 

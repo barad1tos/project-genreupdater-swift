@@ -36,6 +36,7 @@ public enum ModelContainerFactory {
     static func makeSchema() -> Schema {
         Schema([
             PersistedTrack.self,
+            PersistedMirrorState.self,
             PersistedChangeLogEntry.self,
             PersistedMetricsSnapshot.self,
             PersistedPendingAlbumEntry.self,

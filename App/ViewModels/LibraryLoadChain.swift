@@ -123,7 +123,9 @@ extension AppDependencies {
                 store: store,
                 scopedArtists: scopedArtists
             )
-            if mirrorLoad.tracks.isEmpty, hasCachedTracks {
+            if mirrorLoad.tracks.isEmpty,
+               !mirrorLoad.isLibraryReadyForUpdates,
+               hasCachedTracks {
                 await recordLibraryLoad(startedAt: loadStart)
                 return libraryLoadGate.isCurrent(token)
             }

@@ -431,6 +431,10 @@ private actor RepairMirrorStore: TrackStateStore {
         stored
     }
 
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        TrackMirrorSnapshot(tracks: stored, isSeeded: true)
+    }
+
     func applyMirror(_ update: TrackMirrorUpdate) async throws {
         updates.append(update)
         for repair in update.repairs {
