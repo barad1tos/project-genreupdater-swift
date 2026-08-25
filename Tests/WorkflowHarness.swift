@@ -427,25 +427,41 @@ func makeProposedChange(
     )
 }
 
+struct WritableTrackFields {
+    var genre: String?
+    var year: Int?
+    var dateAdded: Date?
+    var releaseYear: Int?
+
+    init(
+        genre: String? = nil,
+        year: Int? = nil,
+        dateAdded: Date? = nil,
+        releaseYear: Int? = nil
+    ) {
+        self.genre = genre
+        self.year = year
+        self.dateAdded = dateAdded
+        self.releaseYear = releaseYear
+    }
+}
+
 func makeWritableTrack(
     _ id: String,
     name: String,
     artist: String,
     album: String,
-    genre: String? = nil,
-    year: Int? = nil,
-    dateAdded: Date? = nil,
-    releaseYear: Int? = nil
+    fields: WritableTrackFields = .init()
 ) -> Track {
     Track(
         id: id,
         name: name,
         artist: artist,
         album: album,
-        genre: genre,
-        year: year,
-        dateAdded: dateAdded,
-        releaseYear: releaseYear,
+        genre: fields.genre,
+        year: fields.year,
+        dateAdded: fields.dateAdded,
+        releaseYear: fields.releaseYear,
         appleScriptID: id
     )
 }

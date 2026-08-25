@@ -374,7 +374,7 @@ struct ScopeWorkflowTests {
                 name: "Only for the Weak",
                 artist: "In Flames",
                 album: "Clayman",
-                dateAdded: missingGenreDate
+                fields: WritableTrackFields(dateAdded: missingGenreDate)
             ),
             Track(
                 id: "genre-source",
@@ -417,7 +417,7 @@ struct ScopeWorkflowTests {
                 name: "Only for the Weak",
                 artist: "In Flames",
                 album: "Clayman",
-                dateAdded: Date(timeIntervalSince1970: 2000)
+                fields: WritableTrackFields(dateAdded: Date(timeIntervalSince1970: 2000))
             ),
             Track(
                 id: "genre-source",
@@ -456,11 +456,12 @@ struct ScopeWorkflowTests {
         viewModel.updateYear = true
         viewModel.cleanTrackNames = false
         viewModel.cleanAlbumNames = false
-
         viewModel.start(tracks: [
-            makeWritableTrack("missing-year", name: "Track", artist: "In Flames", album: "Clayman", year: 1999),
+            makeWritableTrack(
+                "missing-year",
+                name: "Track", artist: "In Flames", album: "Clayman", fields: WritableTrackFields(year: 1999)
+            ),
         ])
-
         try await waitForWorkflowToLeaveScanning(viewModel)
 
         #expect(!viewModel.failedTracks.isEmpty)
@@ -487,8 +488,7 @@ struct ScopeWorkflowTests {
                 name: "Only for the Weak",
                 artist: "In Flames",
                 album: "Clayman",
-                year: 1999,
-                dateAdded: Date(timeIntervalSince1970: 2000)
+                fields: WritableTrackFields(year: 1999, dateAdded: Date(timeIntervalSince1970: 2000))
             ),
             Track(
                 id: "genre-source",
@@ -544,8 +544,14 @@ struct ScopeWorkflowTests {
         viewModel.cleanTrackNames = false
         viewModel.cleanAlbumNames = false
         let tracks = [
-            makeWritableTrack("unchanged-year", name: "Track A", artist: "In Flames", album: "Clayman", year: 1999),
-            makeWritableTrack("failed-year", name: "Track B", artist: "In Flames", album: "Clayman", year: 1998),
+            makeWritableTrack(
+                "unchanged-year",
+                name: "Track A", artist: "In Flames", album: "Clayman", fields: WritableTrackFields(year: 1999)
+            ),
+            makeWritableTrack(
+                "failed-year",
+                name: "Track B", artist: "In Flames", album: "Clayman", fields: WritableTrackFields(year: 1998)
+            ),
         ]
 
         viewModel.start(tracks: tracks)
@@ -626,7 +632,7 @@ struct ScopeWorkflowTests {
         viewModel.start(tracks: [
             makeWritableTrack(
                 "plainsong", name: "Plainsong", artist: "The Cure", album: "Disintegration",
-                year: 2025, releaseYear: 1989
+                fields: WritableTrackFields(year: 2025, releaseYear: 1989)
             ),
         ])
         await viewModel.processingTask?.value
@@ -648,8 +654,7 @@ struct ScopeWorkflowTests {
                 name: "Failed Restore",
                 artist: "The Cure",
                 album: "Wish",
-                year: 2025,
-                releaseYear: 1992
+                fields: WritableTrackFields(year: 2025, releaseYear: 1992)
             ),
         ])
         await viewModel.processingTask?.value
@@ -678,8 +683,7 @@ struct ScopeWorkflowTests {
                 name: "Delayed Restore",
                 artist: "The Cure",
                 album: "Wish",
-                year: 2025,
-                releaseYear: 1992
+                fields: WritableTrackFields(year: 2025, releaseYear: 1992)
             ),
         ])
         await writeHold.waitUntilHeld()

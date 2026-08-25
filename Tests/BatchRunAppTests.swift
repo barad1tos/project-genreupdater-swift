@@ -99,7 +99,7 @@ struct BatchRunAppTests {
             name: "Batch Year",
             artist: "Clutch",
             album: "Pure Rock Fury",
-            year: 1999
+            fields: WritableTrackFields(year: 1999)
         )])
         await viewModel.processingTask?.value
 

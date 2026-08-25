@@ -7,7 +7,7 @@ import Testing
 struct TrackWireCodecTests {
     @Test("Decodes canonical identity and writable metadata from a complete record")
     func decodesCompleteRecord() throws {
-        let output = record(
+        let output = record(WireRecord(
             id: "AS-123",
             name: "Battery (Live)",
             artist: "Metallica",
@@ -19,7 +19,7 @@ struct TrackWireCodecTests {
             status: "local only",
             year: "1986",
             release: "1986-03-03 00:00:00"
-        )
+        ))
 
         let track = try #require(TrackWireCodec.decodeRecords(output, scriptName: "fetch_tracks").first)
 
@@ -51,7 +51,7 @@ struct TrackWireCodecTests {
     @Test("Treats zero year fields as missing")
     func treatsZeroYearsAsMissing() throws {
         let track = try #require(TrackWireCodec.decodeRecords(
-            record(id: "AS-0", year: "0", release: "0"),
+            record(WireRecord(id: "AS-0", year: "0", release: "0")),
             scriptName: "fetch_tracks"
         ).first)
 
@@ -59,22 +59,24 @@ struct TrackWireCodecTests {
         #expect(track.releaseYear == nil)
     }
 
-    private func record(
-        id: String,
-        name: String = "Song",
-        artist: String = "Artist",
-        albumArtist: String = "Artist",
-        album: String = "Album",
-        genre: String = "Rock",
-        dateAdded: String = "",
-        lastModified: String = "",
-        status: String = "matched",
-        year: String = "1999",
-        release: String = "2001"
-    ) -> String {
+    private struct WireRecord {
+        let id: String
+        var name = "Song"
+        var artist = "Artist"
+        var albumArtist = "Artist"
+        var album = "Album"
+        var genre = "Rock"
+        var dateAdded = ""
+        var lastModified = ""
+        var status = "matched"
+        var year = "1999"
+        var release = "2001"
+    }
+
+    private func record(_ wire: WireRecord) -> String {
         [
-            id, name, artist, albumArtist, album, genre,
-            dateAdded, lastModified, status, year, release, "",
+            wire.id, wire.name, wire.artist, wire.albumArtist, wire.album, wire.genre,
+            wire.dateAdded, wire.lastModified, wire.status, wire.year, wire.release, "",
         ].joined(separator: String(TrackWireCodec.fieldSeparator))
     }
 }

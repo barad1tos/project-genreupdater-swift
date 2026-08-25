@@ -426,7 +426,9 @@ private actor RepairMirrorStore: TrackStateStore {
         self.stored = stored
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // The test provides initialized mirror state and does not exercise initialization persistence.
+    }
 
     func loadAllTracks() async throws -> [Track] {
         stored
@@ -451,7 +453,9 @@ private actor RepairMirrorStore: TrackStateStore {
         stored.first { $0.id == id }
     }
 
-    func persistAppliedChange(_: ChangeLogEntry) async throws {}
+    func persistAppliedChange(_: ChangeLogEntry) async throws {
+        // The test exercises mirror reconciliation, not change-log persistence.
+    }
 
     func getUnprocessedTracks() async throws -> [Track] {
         stored

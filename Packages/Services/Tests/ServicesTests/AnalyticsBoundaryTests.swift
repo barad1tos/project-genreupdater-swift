@@ -45,7 +45,9 @@ struct AnalyticsBoundaryTests {
         await #expect(throws: CancellationError.self) {
             try await bridge.update(
                 [musicUpdate(databaseID: testDatabaseID("T1"), property: .genre, value: "Rock")],
-                onAttempt: {},
+                onAttempt: {
+                    Issue.record("Confirmed cancellation must not report a mutation attempt")
+                },
                 execute: { _ in throw CancellationError() }
             )
         }

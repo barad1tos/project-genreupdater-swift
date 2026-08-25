@@ -5,6 +5,17 @@ import Testing
 
 @Suite("Library sync observation integration")
 struct LibrarySyncObservationTests {
+    private struct RowValues {
+        var name: Observed<String> = .value("Song")
+        var artist: Observed<String> = .value("Artist")
+        var album: Observed<String> = .value("Album")
+        var genre: Observed<String> = .value("Metal")
+        var year: Observed<Int> = .value(2001)
+        var releaseYear: Observed<Int> = .absent
+        var albumArtist: Observed<String> = .absent
+        var lastModified: Observed<Date> = .absent
+    }
+
     @Test("Relaunch fast sync reuses the canonical persisted mirror")
     func reusesPersistedMirrorWithoutGeneration() async throws {
         let existing = mirrorTrack(id: "A", genre: "Metal")
@@ -36,8 +47,8 @@ struct LibrarySyncObservationTests {
         let reader = try ObservationReader(templates: [template(
             currentIDs: ["B", "A"],
             rows: [
-                row(id: "B", genre: .value("Jazz")),
-                row(id: "A", genre: .value("Alternative")),
+                row(id: "B", values: RowValues(genre: .value("Jazz"))),
+                row(id: "A", values: RowValues(genre: .value("Alternative"))),
             ],
             metadataRequestedIDs: ["A", "B"]
         )])
@@ -65,13 +76,12 @@ struct LibrarySyncObservationTests {
         let store = ObservationMirrorStore(stored: [stored])
         let reader = try ObservationReader(templates: [template(
             currentIDs: ["A"],
-            rows: [row(
-                id: "A",
+            rows: [row(id: "A", values: RowValues(
                 name: .unobserved(reason: "omitted"),
                 genre: .absent,
                 year: .unobserved(reason: "omitted"),
                 albumArtist: .absent
-            )],
+            ))],
             metadataRequestedIDs: ["A"]
         )])
         let service = makeService(store: store, reader: reader)
@@ -101,12 +111,11 @@ struct LibrarySyncObservationTests {
         let store = ObservationMirrorStore(stored: [stored])
         let reader = try ObservationReader(templates: [template(
             currentIDs: ["A"],
-            rows: [row(
-                id: "A",
+            rows: [row(id: "A", values: RowValues(
                 genre: .unobserved(reason: "omitted"),
                 year: .absent,
                 releaseYear: .absent
-            )],
+            ))],
             metadataRequestedIDs: ["A"]
         )])
         let service = makeService(store: store, reader: reader)
@@ -126,7 +135,7 @@ struct LibrarySyncObservationTests {
         let store = ObservationMirrorStore(stored: [mirrorTrack(id: "A", genre: "Rock")])
         let reader = try ObservationReader(templates: [template(
             currentIDs: ["A", "B"],
-            rows: [row(id: "A", genre: .value("Metal"))],
+            rows: [row(id: "A", values: RowValues(genre: .value("Metal")))],
             metadataRequestedIDs: ["A", "B"],
             metadataObservedIDs: ["A"]
         )])
@@ -174,10 +183,9 @@ struct LibrarySyncObservationTests {
         let store = ObservationMirrorStore(stored: [stored])
         let reader = try ObservationReader(templates: [template(
             currentIDs: ["A"],
-            rows: [row(
-                id: "A",
+            rows: [row(id: "A", values: RowValues(
                 lastModified: .value(Date(timeIntervalSince1970: 1_800_000_000))
-            )],
+            ))],
             metadataRequestedIDs: ["A"]
         )])
         let service = makeService(store: store, reader: reader)
@@ -217,7 +225,7 @@ struct LibrarySyncObservationTests {
         let store = ObservationMirrorStore(stored: [])
         let reader = try ObservationReader(templates: [template(
             currentIDs: ["A"],
-            rows: [row(id: "A", name: .unobserved(reason: "omitted"))],
+            rows: [row(id: "A", values: RowValues(name: .unobserved(reason: "omitted")))],
             metadataRequestedIDs: ["A"]
         )])
         let service = makeService(store: store, reader: reader)
@@ -344,7 +352,7 @@ struct LibrarySyncObservationTests {
         )
         let reader = try ObservationReader(templates: [template(
             currentIDs: ["A"],
-            rows: [row(id: "A", genre: .value("Metal"))],
+            rows: [row(id: "A", values: RowValues(genre: .value("Metal")))],
             metadataRequestedIDs: ["A"]
         )])
         let service = makeService(
@@ -467,31 +475,21 @@ struct LibrarySyncObservationTests {
         )
     }
 
-    private func row(
-        id: String,
-        name: Observed<String> = .value("Song"),
-        artist: Observed<String> = .value("Artist"),
-        album: Observed<String> = .value("Album"),
-        genre: Observed<String> = .value("Metal"),
-        year: Observed<Int> = .value(2001),
-        releaseYear: Observed<Int> = .absent,
-        albumArtist: Observed<String> = .absent,
-        lastModified: Observed<Date> = .absent
-    ) throws -> LibraryTrackRow {
+    private func row(id: String, values: RowValues = .init()) throws -> LibraryTrackRow {
         try LibraryTrackRow(
             databaseID: databaseID(id),
             metadata: LibraryTrackMetadata(
                 text: LibraryTrackText(
-                    name: name,
-                    artist: artist,
-                    album: album,
-                    albumArtist: albumArtist
+                    name: values.name,
+                    artist: values.artist,
+                    album: values.album,
+                    albumArtist: values.albumArtist
                 ),
-                genre: genre,
-                editableYear: year,
-                releaseYear: releaseYear,
+                genre: values.genre,
+                editableYear: values.year,
+                releaseYear: values.releaseYear,
                 dateAdded: .absent,
-                lastModified: lastModified,
+                lastModified: values.lastModified,
                 status: .absent
             )
         )
@@ -627,7 +625,9 @@ private actor ObservationMirrorStore: TrackStateStore {
         self.applyError = applyError
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // The test provides initialized mirror state and does not exercise initialization persistence.
+    }
 
     func loadAllTracks() async throws -> [Track] {
         stored
@@ -655,7 +655,9 @@ private actor ObservationMirrorStore: TrackStateStore {
         stored.first { $0.id == id }
     }
 
-    func persistAppliedChange(_: ChangeLogEntry) async throws {}
+    func persistAppliedChange(_: ChangeLogEntry) async throws {
+        // The test exercises mirror reconciliation, not change-log persistence.
+    }
 
     func getUnprocessedTracks() async throws -> [Track] {
         stored

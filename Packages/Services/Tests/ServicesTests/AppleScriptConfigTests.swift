@@ -150,7 +150,9 @@ struct AppleScriptConfigTests {
                     property: .genre,
                     value: "Metal\(TrackWireCodec.fieldSeparator)Jazz"
                 )
-            ], onAttempt: {})
+            ], onAttempt: {
+                Issue.record("Missing batch script must fail before reporting a mutation attempt")
+            })
             Issue.record("Expected missing batch script to fail before AppleScript execution")
         } catch let error as AppleScriptBridgeError {
             guard case .scriptNotFound = error else {
@@ -175,7 +177,9 @@ struct AppleScriptConfigTests {
         do {
             try await bridge.update([
                 musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Stoner Rock")
-            ], onAttempt: {})
+            ], onAttempt: {
+                Issue.record("Missing batch script must fail before reporting a mutation attempt")
+            })
             Issue.record("Expected missing batch script to fail before AppleScript execution")
         } catch let error as AppleScriptBridgeError {
             guard case .scriptNotFound = error else {
