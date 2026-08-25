@@ -6,13 +6,13 @@ import Testing
 /// Slice 15: an album-targeted read request admits exactly the target
 /// album's tracks — including collaboration spellings via the identity
 /// alias list — while the artist allow-list keeps its own veto.
-@Suite("Library read request admission")
-struct LibraryReadRequestTests {
+@Suite("Processing track scope admission")
+struct ProcessingScopeAdmissionTests {
     private let target = AlbumIdentity(artist: "Daft Punk", album: "Random Access Memories")
 
     @Test("a canonical member is admitted")
     func canonicalMemberAdmitted() {
-        let request = LibraryReadRequest(albumIdentity: target)
+        let request = ProcessingTrackScope(albumIdentity: target)
         let track = Track(
             id: "1",
             name: "Contact",
@@ -25,7 +25,7 @@ struct LibraryReadRequestTests {
 
     @Test("a collaboration spelling is admitted through the split alias")
     func collaborationSpellingAdmitted() {
-        let request = LibraryReadRequest(albumIdentity: target)
+        let request = ProcessingTrackScope(albumIdentity: target)
         let track = Track(
             id: "2",
             name: "Get Lucky",
@@ -38,7 +38,7 @@ struct LibraryReadRequestTests {
 
     @Test("the same album name under a different artist is rejected")
     func differentArtistRejected() {
-        let request = LibraryReadRequest(albumIdentity: target)
+        let request = ProcessingTrackScope(albumIdentity: target)
         let track = Track(
             id: "3",
             name: "Song",
@@ -51,7 +51,7 @@ struct LibraryReadRequestTests {
 
     @Test("a different album is rejected")
     func differentAlbumRejected() {
-        let request = LibraryReadRequest(albumIdentity: target)
+        let request = ProcessingTrackScope(albumIdentity: target)
         let track = Track(
             id: "4",
             name: "Around the World",
@@ -64,7 +64,7 @@ struct LibraryReadRequestTests {
 
     @Test("the artist allow-list keeps its veto alongside the identity")
     func allowListVetoStands() {
-        let request = LibraryReadRequest(
+        let request = ProcessingTrackScope(
             testArtists: ["Aphex Twin"],
             albumIdentity: target
         )
@@ -80,7 +80,7 @@ struct LibraryReadRequestTests {
 
     @Test("without an identity the request is a pure allow-list")
     func nilIdentityIsPureAllowList() {
-        let request = LibraryReadRequest(testArtists: ["Daft Punk"])
+        let request = ProcessingTrackScope(testArtists: ["Daft Punk"])
         let inScope = Track(id: "6", name: "Song", artist: "Daft Punk", album: "Any")
         let outOfScope = Track(id: "7", name: "Song", artist: "Other", album: "Any")
 

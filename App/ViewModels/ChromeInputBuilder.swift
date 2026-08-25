@@ -94,9 +94,7 @@ extension AppDependencies {
     private func probedChromePermissions() async -> ChromePermissions {
         let facts = await recoveryAvailability?.probedFacts()
         var musicPermission: Bool?
-        if let musicReader {
-            musicPermission = await musicReader.isAuthorized
-        }
+        musicPermission = await musicCatalog.isAuthorized
         return ChromePermissions(
             isMusicAppAvailable: facts?.isMusicAppRunning,
             areScriptsInstalled: facts?.areScriptsInstalled,
@@ -109,9 +107,9 @@ extension AppDependencies {
     /// MusicKit only when authorization already exists, so the probe can
     /// never prompt.
     func probedPhysicalTrackCount() async -> Int? {
-        guard let musicReader, await musicReader.isAuthorized else { return nil }
+        guard await musicCatalog.isAuthorized else { return nil }
         do {
-            return try await musicReader.trackCount()
+            return try await musicCatalog.trackCount()
         } catch {
             log.error("Chrome physical count probe failed: \(error.localizedDescription, privacy: .public)")
             return nil

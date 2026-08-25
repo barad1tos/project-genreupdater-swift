@@ -91,15 +91,20 @@ struct OnboardingView: View {
 
     private func requestMusicAccess() {
         Task {
-            let reader = MusicLibraryReader()
             do {
-                try await reader.requestAuthorization()
+                try await dependencies.requestCatalogAccess()
                 currentStep = .complete
             } catch {
                 // User denied — still allow continuing (they can grant later)
                 currentStep = .complete
             }
         }
+    }
+}
+
+extension AppDependencies {
+    func requestCatalogAccess() async throws {
+        try await musicCatalog.requestAuthorization()
     }
 }
 

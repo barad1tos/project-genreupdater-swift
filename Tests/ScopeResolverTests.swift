@@ -9,7 +9,11 @@ struct ScopeResolverTests {
     func workflowScopeIsTheLoadedLibrary() {
         let tracks = makeTracks()
 
-        let resolved = UpdateTrackScopeResolver.tracksForWorkflow(libraryTracks: tracks)
+        let resolved = UpdateTrackScopeResolver.tracksForWorkflow(
+            libraryTracks: tracks,
+            testArtists: [],
+            isLibraryReadyForUpdates: true
+        )
 
         #expect(resolved.map(\.id) == ["one", "two", "three"])
     }
@@ -20,10 +24,22 @@ struct ScopeResolverTests {
 
         let resolved = UpdateTrackScopeResolver.tracksForWorkflow(
             libraryTracks: tracks,
-            testArtists: ["Beta"]
+            testArtists: ["Beta"],
+            isLibraryReadyForUpdates: true
         )
 
         #expect(resolved.map(\.id) == ["three"])
+    }
+
+    @Test("cached fallback is never admitted to the legacy Update scope")
+    func cachedFallbackIsNotUpdateReady() {
+        let resolved = UpdateTrackScopeResolver.tracksForWorkflow(
+            libraryTracks: makeTracks(),
+            testArtists: [],
+            isLibraryReadyForUpdates: false
+        )
+
+        #expect(resolved.isEmpty)
     }
 
     @Test("incremental scope without last run processes all tracks")

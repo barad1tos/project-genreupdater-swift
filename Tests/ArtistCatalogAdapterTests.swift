@@ -47,19 +47,12 @@ struct ArtistCatalogAdapterTests {
     func refreshesFromFullLibrary() async throws {
         var configuration = AppConfiguration()
         configuration.development.testArtists = ["Björk"]
-        let trackStore = try TrackDataStore.createInMemory()
-        try await trackStore.initialize()
-        try await trackStore.seedMirror([
-            Core.Track(id: "BJORK-1", name: "Jóga", artist: "Björk", album: "Homogenic"),
+        let catalog = CatalogProbe(tracks: [
+            catalogTrack(id: "BJORK-1", title: "Jóga", artist: "Björk", album: "Homogenic"),
+            catalogTrack(id: "BJORK-2", title: "Bachelorette", artist: "Björk", album: "Homogenic"),
+            catalogTrack(id: "BOOMBOX-1", title: "Вахтерам", artist: "Бумбокс", album: "Меломанія"),
         ])
-        let provider = CatalogReadProvider(tracks: [
-            Core.Track(id: "BJORK-1", name: "Jóga", artist: "Björk", album: "Homogenic"),
-            Core.Track(id: "BJORK-2", name: "Bachelorette", artist: "Björk", album: "Homogenic"),
-            Core.Track(id: "BOOMBOX-1", name: "Вахтерам", artist: "Бумбокс", album: "Меломанія"),
-        ])
-        let dependencies = AppDependencies(configurationLoader: { configuration })
-        dependencies.configureLibraryPersistenceForTesting(trackStore: trackStore)
-        dependencies.installTestLibraryReadProvider(provider)
+        let dependencies = AppDependencies(configurationLoader: { configuration }, musicCatalog: catalog)
         let feed = ArtistCatalogFeed()
         let observation = Task { await feed.observe(dependencies.projectionStore) }
         defer { observation.cancel() }
@@ -72,13 +65,18 @@ struct ArtistCatalogAdapterTests {
                 ArtistCatalogEntry(name: "Бумбокс", trackCount: 1),
             ])
         }
-        #expect(await provider.capturedRequests() == [LibraryReadRequest()])
+        #expect(await catalog.capturedScopes() == [[]])
 
-        await provider.replaceTracks([
-            Core.Track(id: "BJORK-1", name: "Jóga", artist: "Björk", album: "Homogenic"),
-            Core.Track(id: "BJORK-2", name: "Bachelorette", artist: "Björk", album: "Homogenic"),
-            Core.Track(id: "BOOMBOX-1", name: "Вахтерам", artist: "Бумбокс", album: "Меломанія"),
-            Core.Track(id: "IN-FLAMES-1", name: "Cloud Connected", artist: "In Flames", album: "Reroute to Remain"),
+        await catalog.replaceTracks([
+            catalogTrack(id: "BJORK-1", title: "Jóga", artist: "Björk", album: "Homogenic"),
+            catalogTrack(id: "BJORK-2", title: "Bachelorette", artist: "Björk", album: "Homogenic"),
+            catalogTrack(id: "BOOMBOX-1", title: "Вахтерам", artist: "Бумбокс", album: "Меломанія"),
+            catalogTrack(
+                id: "IN-FLAMES-1",
+                title: "Cloud Connected",
+                artist: "In Flames",
+                album: "Reroute to Remain"
+            ),
         ])
         _ = await dependencies.refreshArtistCatalog()
 
@@ -86,7 +84,26 @@ struct ArtistCatalogAdapterTests {
             guard case let .available(entries) = feed.projection.state else { return false }
             return entries.map(\.name) == ["Björk", "In Flames", "Бумбокс"]
         }
-        #expect(await provider.capturedRequests() == [LibraryReadRequest(), LibraryReadRequest()])
+        #expect(await catalog.capturedScopes() == [[], []])
+    }
+
+    @Test("catalog authorization and count do not require processing permission")
+    @MainActor
+    func authorizesAndCountsWithoutProcessing() async throws {
+        let catalog = CatalogProbe(tracks: [
+            catalogTrack(id: "CATALOG-1", title: "Jóga", artist: "Björk", album: "Homogenic"),
+        ], isAuthorized: false)
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            musicCatalog: catalog
+        )
+
+        try await dependencies.requestCatalogAccess()
+        let count = await dependencies.probedPhysicalTrackCount()
+
+        #expect(await catalog.authorizationRequests() == 1)
+        #expect(count == 1)
+        #expect(await catalog.capturedScopes().isEmpty)
     }
 
     @MainActor
@@ -101,24 +118,64 @@ struct ArtistCatalogAdapterTests {
     }
 }
 
-private actor CatalogReadProvider: LibraryReadProvider {
-    private var tracks: [Core.Track]
-    private var requests: [LibraryReadRequest] = []
+private actor CatalogProbe: MusicCatalogReading {
+    private var tracks: [CatalogTrack]
+    private var scopes: [[String]] = []
+    private var authorizationRequestCount = 0
+    private var isAuthorizationGranted: Bool
 
-    init(tracks: [Core.Track]) {
+    init(tracks: [CatalogTrack], isAuthorized: Bool = true) {
+        self.tracks = tracks
+        isAuthorizationGranted = isAuthorized
+    }
+
+    var isAuthorized: Bool {
+        isAuthorizationGranted
+    }
+
+    func requestAuthorization() async throws {
+        authorizationRequestCount += 1
+        isAuthorizationGranted = true
+    }
+
+    func loadCatalog(testArtists: [String]) async throws -> CatalogSnapshot {
+        scopes.append(testArtists)
+        return CatalogSnapshot(
+            tracks: tracks,
+            observedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            freshness: .live
+        )
+    }
+
+    func trackCount() async throws -> Int {
+        tracks.count
+    }
+
+    func replaceTracks(_ tracks: [CatalogTrack]) {
         self.tracks = tracks
     }
 
-    func loadLibrarySnapshot(request: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        requests.append(request)
-        return LibraryReadSnapshot(tracks: tracks, scannedAt: Date(timeIntervalSince1970: 1_700_000_000))
+    func capturedScopes() -> [[String]] {
+        scopes
     }
 
-    func replaceTracks(_ tracks: [Core.Track]) {
-        self.tracks = tracks
+    func authorizationRequests() -> Int {
+        authorizationRequestCount
     }
+}
 
-    func capturedRequests() -> [LibraryReadRequest] {
-        requests
+private func catalogTrack(id: String, title: String, artist: String, album: String) -> CatalogTrack {
+    guard let catalogID = CatalogTrackID(displayValue: id) else {
+        preconditionFailure("Invalid catalog ID")
     }
+    return CatalogTrack(
+        id: catalogID,
+        title: title,
+        artist: artist,
+        album: album,
+        albumArtist: nil,
+        genres: [],
+        releaseYear: nil,
+        dateAdded: nil
+    )
 }

@@ -11,6 +11,46 @@ struct LibraryPersistenceFixture {
     let snapshotService: SnapshotServiceSpy
 }
 
+actor MirrorTrackStoreStub: TrackStateStore {
+    private var tracks: [Track]
+    private let beforeLoad: (@Sendable () async throws -> Void)?
+
+    init(
+        tracks: [Track] = [],
+        beforeLoad: (@Sendable () async throws -> Void)? = nil
+    ) {
+        self.tracks = tracks.map { track in
+            var canonical = track
+            canonical.appleScriptID = canonical.id
+            return canonical
+        }
+        self.beforeLoad = beforeLoad
+    }
+
+    func initialize() async throws {}
+
+    func loadAllTracks() async throws -> [Track] {
+        try await beforeLoad?()
+        return tracks
+    }
+
+    func applyMirror(_ update: TrackMirrorUpdate) async throws {
+        tracks.append(contentsOf: update.upserts)
+    }
+
+    func getTrack(byID id: String) async throws -> Track? {
+        tracks.first { $0.id == id }
+    }
+
+    func persistAppliedChange(_: ChangeLogEntry) async throws {}
+    func getUnprocessedTracks() async throws -> [Track] {
+        tracks
+    }
+    func trackCount() async throws -> Int {
+        tracks.count
+    }
+}
+
 @MainActor
 func makeFixture(
     testArtists: [String],
@@ -278,7 +318,11 @@ actor SnapshotServiceSpy: LibrarySnapshotService {
     private var seededSnapshot: [Track]?
 
     func installSnapshot(_ tracks: [Track]) {
-        seededSnapshot = tracks
+        seededSnapshot = tracks.map { track in
+            var canonical = track
+            canonical.appleScriptID = canonical.id
+            return canonical
+        }
     }
 
     func loadSnapshot() async throws -> [Track]? {

@@ -54,7 +54,7 @@ struct LibraryServicesTests {
         #expect(await fixture.snapshotService.savedTrackIDs() == ["track-1"])
     }
 
-    @Test("MusicKit UI metadata stays separate from authoritative processing state")
+    @Test("Canonical mirror metadata is the only library and processing input")
     func keepsProcessingState() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         try await fixture.trackStore.seedMirror([
@@ -101,15 +101,13 @@ struct LibraryServicesTests {
         albumChange.oldAlbumName = "Blast Tyrant (Original Title)"
         albumChange.newAlbumName = "Blast Tyrant"
         try await fixture.trackStore.persistAppliedChange(albumChange)
-        fixture.dependencies.installTestLibraryReadProvider(PartialLibraryReadProvider())
-
         await fixture.dependencies.loadLibrary(forceRefresh: true)
 
         let visibleTrack = try #require(fixture.dependencies.libraryTracks.first)
         let persistedTrack = try #require(await fixture.trackStore.getTrack(byID: "live"))
-        #expect(visibleTrack.year == nil)
-        #expect(visibleTrack.albumArtist == nil)
-        #expect(visibleTrack.trackStatus == nil)
+        #expect(visibleTrack.year == 2004)
+        #expect(visibleTrack.albumArtist == "Clutch")
+        #expect(visibleTrack.trackStatus == TrackKind.purchased.rawValue)
         #expect(persistedTrack.year == 2004)
         #expect(persistedTrack.albumArtist == "Clutch")
         #expect(persistedTrack.trackStatus == TrackKind.purchased.rawValue)
@@ -119,7 +117,7 @@ struct LibraryServicesTests {
         #expect(persistedTrack.yearSetByMGU == 2004)
     }
 
-    @Test("A MusicKit genre change remains visible and enters incremental scope")
+    @Test("A canonical mirror genre change remains visible and enters incremental scope")
     func genreEditEntersScope() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         await fixture.snapshotService.installSnapshot([
@@ -131,7 +129,15 @@ struct LibraryServicesTests {
                 genre: "Metal"
             ),
         ])
-        fixture.dependencies.installTestLibraryReadProvider(GenreReadProvider())
+        try await fixture.trackStore.seedMirror([
+            Core.Track(
+                id: "live",
+                name: "Song",
+                artist: "Clutch",
+                album: "Blast Tyrant",
+                genre: "Alternative"
+            ),
+        ])
 
         await fixture.dependencies.loadLibrary()
 
@@ -144,7 +150,7 @@ struct LibraryServicesTests {
         )
         #expect(visibleTrack.genre == "Alternative")
         #expect(fixture.dependencies.previousIncrementalScopeTracks.first?.genre == "Metal")
-        #expect(try await fixture.trackStore.loadAllTracks().isEmpty)
+        #expect(try await fixture.trackStore.loadAllTracks().map(\.genre) == ["Alternative"])
         #expect(incrementalTracks.map(\.id) == ["live"])
     }
 
@@ -157,8 +163,6 @@ struct LibraryServicesTests {
         let cachePath = directory.appendingPathComponent("cache.sqlite").path
         let configuration = LibrarySnapshotConfig()
         let snapshotDate = Date(timeIntervalSince1970: 1_800_000_000)
-        let provider = SnapshotRebuildProvider()
-
         do {
             let cache = try GRDBCacheService(databasePath: cachePath)
             try await cache.initialize()
@@ -167,15 +171,25 @@ struct LibraryServicesTests {
                 configuration: configuration,
                 date: snapshotDate
             )
-            let dependencies = try makeDependencies(
-                trackStore: TrackDataStore.createInMemory(),
+            let trackStore = try TrackDataStore.createInMemory()
+            try await trackStore.initialize()
+            try await trackStore.seedMirror([
+                Core.Track(
+                    id: "T1",
+                    name: "Angel",
+                    artist: "Massive Attack",
+                    album: "Mezzanine",
+                    year: 0,
+                    releaseYear: 0
+                ),
+            ])
+            let dependencies = makeDependencies(
+                trackStore: trackStore,
                 snapshotService: snapshotService
             )
-            dependencies.installTestLibraryReadProvider(provider)
 
             await dependencies.loadLibrary()
 
-            #expect(await provider.loadCount() == 1)
             #expect(dependencies.libraryTracks.first?.year == nil)
             #expect(dependencies.libraryTracks.first?.releaseYear == nil)
             let rebuilt = try #require(try await snapshotService.loadSnapshot()?.first)
@@ -201,12 +215,11 @@ struct LibraryServicesTests {
             let cachedTrack = try #require(dependencies.libraryTracks.first)
             #expect(cachedTrack.year == nil)
             #expect(cachedTrack.releaseYear == nil)
-            #expect(await provider.loadCount() == 1)
         }
     }
 
-    @Test("Processing mirror failures do not block MusicKit UI loads")
-    func ignoresMirrorFailure() async {
+    @Test("Processing mirror failures surface an actionable library error")
+    func surfacesMirrorFailure() async {
         let trackStore = FailingMirrorReadStore()
         let snapshotService = SnapshotServiceSpy()
         let dependencies = AppDependencies(
@@ -220,15 +233,13 @@ struct LibraryServicesTests {
             librarySnapshotService: snapshotService,
             runRecordStore: RunRecordStoreStub()
         )
-        dependencies.installTestLibraryReadProvider(PartialLibraryReadProvider())
-
         await dependencies.loadLibrary(forceRefresh: true)
 
-        #expect(dependencies.libraryTracks.map(\.id) == ["live"])
-        #expect(dependencies.libraryLoadError == nil)
-        #expect(dependencies.isLibraryReadyForUpdates)
+        #expect(dependencies.libraryTracks.isEmpty)
+        #expect(dependencies.libraryLoadError?.message == "mirror read failed")
+        #expect(!dependencies.isLibraryReadyForUpdates)
         #expect(await trackStore.savedTrackCount() == 0)
-        #expect(await snapshotService.savedSnapshotCount() == 1)
+        #expect(await snapshotService.savedSnapshotCount() == 0)
     }
 
     @Test("Blank-only test artists save full-library snapshot")
@@ -570,50 +581,6 @@ private func removeStoreDirectory(_ directory: URL) {
         try FileManager.default.removeItem(at: directory)
     } catch {
         Issue.record("Failed to remove library services fixture: \(error)")
-    }
-}
-
-private actor PartialLibraryReadProvider: LibraryReadProvider {
-    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        LibraryReadSnapshot(tracks: [
-            Core.Track(id: "live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
-        ], scannedAt: Date(timeIntervalSince1970: 200))
-    }
-}
-
-private actor GenreReadProvider: LibraryReadProvider {
-    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        LibraryReadSnapshot(tracks: [
-            Core.Track(
-                id: "live",
-                name: "Song",
-                artist: "Clutch",
-                album: "Blast Tyrant",
-                genre: "Alternative"
-            ),
-        ], scannedAt: Date(timeIntervalSince1970: 200))
-    }
-}
-
-private actor SnapshotRebuildProvider: LibraryReadProvider {
-    private var count = 0
-
-    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        count += 1
-        return LibraryReadSnapshot(tracks: [
-            Core.Track(
-                id: "T1",
-                name: "Angel",
-                artist: "Massive Attack",
-                album: "Mezzanine",
-                year: 0,
-                releaseYear: 0
-            ),
-        ], scannedAt: Date(timeIntervalSince1970: 1_800_000_000))
-    }
-
-    func loadCount() -> Int {
-        count
     }
 }
 

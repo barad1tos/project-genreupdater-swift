@@ -1,7 +1,7 @@
 import Core
 import Foundation
 
-/// One normalized effective artist and its physical mirror track count.
+/// One normalized effective artist and its presentation catalog track count.
 public struct ArtistCatalogEntry: Equatable, Sendable {
     public let name: String
     public let trackCount: Int
@@ -18,7 +18,7 @@ public enum ArtistCatalogState: Equatable, Sendable {
     case unavailable(reason: String)
 }
 
-/// Revisioned full-library artist catalog published independently of processing scope.
+/// Revisioned full-library presentation catalog published independently of processing scope.
 public struct ArtistCatalogProjection: Equatable, Sendable {
     public let revision: ProjectionRevision
     public let state: ArtistCatalogState
@@ -38,12 +38,12 @@ public struct ArtistCatalogProjection: Equatable, Sendable {
     }
 }
 
-/// Pure assembly of artist catalog truth from a complete library track snapshot.
+/// Pure assembly of artist catalog truth from a complete MusicKit catalog snapshot.
 public enum ArtistCatalogBuilder {
     /// Groups tracks by effective artist with deterministic display ordering.
-    public static func makeProjection(tracks: [Track]) -> ArtistCatalogProjection {
+    public static func makeProjection(tracks: [CatalogTrack]) -> ArtistCatalogProjection {
         let artists = tracks.enumerated().compactMap { index, track -> (index: Int, name: String)? in
-            guard let name = ArtistAllowList.normalizedName(track.effectiveArtist) else { return nil }
+            guard let name = ArtistAllowList.normalizedName(track.albumArtist ?? track.artist) else { return nil }
             return (index, name)
         }.sorted { first, second in
             let comparison = first.name.localizedCaseInsensitiveCompare(second.name)

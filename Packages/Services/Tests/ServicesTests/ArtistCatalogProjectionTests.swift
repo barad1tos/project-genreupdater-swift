@@ -1,4 +1,4 @@
-import Core
+import Foundation
 import Testing
 @testable import Services
 
@@ -7,9 +7,9 @@ struct ArtistCatalogProjectionTests {
     @Test("groups effective artists case-insensitively and counts tracks")
     func groupsEffectiveArtists() {
         let tracks = [
-            Track(id: "1", name: "First", artist: "Guest", album: "Album", albumArtist: "In Flames"),
-            Track(id: "2", name: "Second", artist: "IN FLAMES", album: "Album"),
-            Track(id: "3", name: "Blank", artist: "  ", album: "Album"),
+            catalogTrack(id: "1", artist: "Guest", albumArtist: "In Flames"),
+            catalogTrack(id: "2", artist: "IN FLAMES"),
+            catalogTrack(id: "3", artist: "  "),
         ]
 
         let projection = ArtistCatalogBuilder.makeProjection(tracks: tracks)
@@ -22,10 +22,10 @@ struct ArtistCatalogProjectionTests {
     @Test("groups names with the same allow-list identity")
     func groupsLocalizedCaseVariants() {
         let projection = ArtistCatalogBuilder.makeProjection(tracks: [
-            Track(id: "1", name: "First", artist: "Straße", album: "Album"),
-            Track(id: "2", name: "Second", artist: "STRASSE", album: "Album"),
-            Track(id: "3", name: "Third", artist: "Émilie Simon", album: "Album"),
-            Track(id: "4", name: "Fourth", artist: "éMILIE SIMON", album: "Album"),
+            catalogTrack(id: "1", artist: "Straße"),
+            catalogTrack(id: "2", artist: "STRASSE"),
+            catalogTrack(id: "3", artist: "Émilie Simon"),
+            catalogTrack(id: "4", artist: "éMILIE SIMON"),
         ])
 
         #expect(projection.state == .available([
@@ -37,12 +37,7 @@ struct ArtistCatalogProjectionTests {
     @Test("assembles a large catalog without changing artist identities", .timeLimit(.minutes(1)))
     func assemblesLargeCatalog() {
         let tracks = (0 ..< 10000).map { index in
-            Track(
-                id: String(index),
-                name: "Track \(index)",
-                artist: String(format: "Artist %05d", index),
-                album: "Album"
-            )
+            catalogTrack(id: String(index), artist: String(format: "Artist %05d", index))
         }
 
         let projection = ArtistCatalogBuilder.makeProjection(tracks: tracks)
@@ -64,13 +59,13 @@ struct ArtistCatalogProjectionTests {
 
         _ = await store.replaceArtistCatalog(
             ArtistCatalogBuilder.makeProjection(tracks: [
-                Track(id: "new", name: "Track", artist: "Björk", album: "Album"),
+                catalogTrack(id: "new", artist: "Björk"),
             ]),
             inputGeneration: newerGeneration
         )
         let stored = await store.replaceArtistCatalog(
             ArtistCatalogBuilder.makeProjection(tracks: [
-                Track(id: "old", name: "Track", artist: "Cher", album: "Album"),
+                catalogTrack(id: "old", artist: "Cher"),
             ]),
             inputGeneration: olderGeneration
         )
@@ -79,4 +74,20 @@ struct ArtistCatalogProjectionTests {
             ArtistCatalogEntry(name: "Björk", trackCount: 1),
         ]))
     }
+}
+
+private func catalogTrack(id: String, artist: String, albumArtist: String? = nil) -> CatalogTrack {
+    guard let catalogID = CatalogTrackID(displayValue: id) else {
+        fatalError("Catalog fixture IDs must be non-empty")
+    }
+    return CatalogTrack(
+        id: catalogID,
+        title: "Track",
+        artist: artist,
+        album: "Album",
+        albumArtist: albumArtist,
+        genres: [],
+        releaseYear: nil,
+        dateAdded: nil
+    )
 }

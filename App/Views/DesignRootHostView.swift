@@ -458,7 +458,8 @@ struct DesignRootHostView: View {
         guard workflowViewModel != nil else { return dependencies.libraryTracks }
         return UpdateTrackScopeResolver.tracksForWorkflow(
             libraryTracks: dependencies.libraryTracks,
-            testArtists: dependencies.config.development.testArtists
+            testArtists: dependencies.config.development.testArtists,
+            isLibraryReadyForUpdates: dependencies.isLibraryReadyForUpdates
         )
     }
 

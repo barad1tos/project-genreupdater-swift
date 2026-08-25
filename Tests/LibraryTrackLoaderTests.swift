@@ -7,40 +7,64 @@ import Testing
 @Suite("LibraryTrackLoader")
 @MainActor
 struct LibraryTrackLoaderTests {
-    @Test("Live provider load marks library ready without mutation metadata preload")
-    func liveProviderLoadMarksLibraryReadyWithoutMutationMetadataPreload() async throws {
-        let scannedAt = Date(timeIntervalSince1970: 1_800_000_000)
-        let provider = LoaderReadProvider(
-            snapshot: LibraryReadSnapshot(
-                tracks: [
-                    Track(id: "MK-1", name: "Battery", artist: "Metallica", album: "Master of Puppets"),
-                ],
-                scannedAt: scannedAt
-            )
-        )
+    @Test("Current mirror load returns only canonical scoped rows")
+    func loadsCanonicalMirrorScope() async throws {
+        let store = LoaderTrackStore(tracks: [
+            canonicalTrack(id: "DB-1", artist: "Metallica"),
+            canonicalTrack(id: "DB-2", artist: "Björk"),
+        ])
 
-        let load = try await LibraryTrackLoader.liveTracks(
-            provider: provider,
+        let load = try await LibraryTrackLoader.currentMirror(
+            store: store,
             scopedArtists: [" Metallica "]
         )
 
-        #expect(load.tracks.map(\.id) == ["MK-1"])
+        #expect(load.tracks.map(\.id) == ["DB-1"])
         #expect(load.isLibraryReadyForUpdates)
-        #expect(load.scanDate == scannedAt)
-        #expect(await provider.requests.map(\.testArtists) == [["Metallica"]])
+    }
+
+    @Test("A catalog-shaped row contaminating the mirror fails closed")
+    func rejectsNonCanonicalMirrorRow() async {
+        let store = LoaderTrackStore(tracks: [
+            Track(id: "catalog-id", name: "Battery", artist: "Metallica", album: "Master of Puppets"),
+        ])
+
+        await #expect(throws: LibraryLoadError.nonCanonicalMirror(trackID: "catalog-id")) {
+            _ = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: [])
+        }
     }
 }
 
-private actor LoaderReadProvider: LibraryReadProvider {
-    var requests: [LibraryReadRequest] = []
-    private let snapshot: LibraryReadSnapshot
+private actor LoaderTrackStore: TrackStateStore {
+    private let tracks: [Track]
 
-    init(snapshot: LibraryReadSnapshot) {
-        self.snapshot = snapshot
+    init(tracks: [Track]) {
+        self.tracks = tracks
     }
 
-    func loadLibrarySnapshot(request: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        requests.append(request)
-        return snapshot
+    func initialize() async throws {}
+    func loadAllTracks() async throws -> [Track] {
+        tracks
     }
+    func applyMirror(_: TrackMirrorUpdate) async throws {}
+    func getTrack(byID _: String) async throws -> Track? {
+        nil
+    }
+    func persistAppliedChange(_: ChangeLogEntry) async throws {}
+    func getUnprocessedTracks() async throws -> [Track] {
+        []
+    }
+    func trackCount() async throws -> Int {
+        tracks.count
+    }
+}
+
+private func canonicalTrack(id: String, artist: String) -> Track {
+    Track(
+        id: id,
+        name: "Song",
+        artist: artist,
+        album: "Album",
+        appleScriptID: id
+    )
 }
