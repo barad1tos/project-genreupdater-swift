@@ -104,7 +104,7 @@ struct ArtistRenameTests {
 
         #expect(changes.contains { $0.changeType == .artistRename })
         let written = await fixture.bridge.writtenProperties
-        #expect(written.contains { $0.property == "artist" && $0.value == "NewArtist" })
+        #expect(written.contains { $0.property == .artist && $0.value == "NewArtist" })
     }
 
     @Test("Write mode updates matching artist fields as one verified operation")
@@ -126,8 +126,8 @@ struct ArtistRenameTests {
 
         let batches = await fixture.bridge.batchUpdates
         #expect(batches == [[
-            TrackPropertyUpdate(trackID: "T1", property: "artist", value: "NewArtist"),
-            TrackPropertyUpdate(trackID: "T1", property: "album_artist", value: "NewArtist"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .artist, value: "NewArtist"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .albumArtist, value: "NewArtist"),
         ]])
     }
 
@@ -184,14 +184,14 @@ struct ArtistRenameTests {
 
         #expect(changes.contains { $0.changeType == .artistRename })
         let written = await fixture.bridge.writtenProperties
-        #expect(written.contains { $0.property == "artist" && $0.value == "NewArtist" })
+        #expect(written.contains { $0.property == .artist && $0.value == "NewArtist" })
     }
 
     private func makeCoordinator(
         mappings: [String: String],
         testArtists: [String] = []
-    ) async -> (coordinator: UpdateCoordinator, bridge: MockAppleScriptClient, cache: MockCacheService) {
-        let bridge = MockAppleScriptClient()
+    ) async -> (coordinator: UpdateCoordinator, bridge: MusicAppTestAccess, cache: MockCacheService) {
+        let bridge = MusicAppTestAccess()
         let apiService = MockAPIService()
         let cache = MockCacheService()
         let runtimeConfiguration = UpdateRuntimeConfiguration(
@@ -206,10 +206,10 @@ struct ArtistRenameTests {
                     discogs: apiService,
                     appleMusic: apiService
                 ),
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(trackStore: MockTrackStore(), cache: cache),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: bridge,
+                    musicApp: bridge,
                     directory: FileManager.default.temporaryDirectory
                         .appendingPathComponent("ArtistRenameTests-\(UUID().uuidString)")
                 )
@@ -235,7 +235,8 @@ struct ArtistRenameTests {
             year: 2000,
             trackStatus: nil,
             originalArtist: originalArtist,
-            albumArtist: albumArtist
+            albumArtist: albumArtist,
+            appleScriptID: "T1"
         )
     }
 

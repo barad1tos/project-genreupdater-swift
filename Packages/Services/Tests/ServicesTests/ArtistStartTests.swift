@@ -211,7 +211,7 @@ struct ArtistStartTests {
         apiOrchestrator: APIOrchestrator,
         pendingVerificationService: (any PendingVerificationService)? = nil
     ) -> UpdateCoordinator {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let store = MockTrackStore()
         let cache = MockCacheService()
         let undoDirectory = FileManager.default.temporaryDirectory
@@ -219,13 +219,13 @@ struct ArtistStartTests {
         return UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: apiOrchestrator,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
                     trackStore: store,
                     cache: cache
                 ),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: bridge,
+                    musicApp: bridge,
                     directory: undoDirectory
                 ),
                 pendingVerificationService: pendingVerificationService

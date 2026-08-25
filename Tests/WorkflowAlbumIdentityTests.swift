@@ -395,13 +395,15 @@ struct WorkflowAlbumIdentityTests {
                 id: "ram-1",
                 name: "Get Lucky",
                 artist: "Daft Punk feat. Pharrell Williams",
-                album: "Random Access Memories"
+                album: "Random Access Memories",
+                appleScriptID: "ram-1"
             ),
             Track(
                 id: "ram-2",
                 name: "Instant Crush",
                 artist: "Daft Punk feat. Julian Casablancas",
-                album: "Random Access Memories"
+                album: "Random Access Memories",
+                appleScriptID: "ram-2"
             ),
         ])
 
@@ -409,7 +411,7 @@ struct WorkflowAlbumIdentityTests {
         let writes = await fixture.scriptClient.updatedProperties()
         let removals = await pendingVerification.removedAlbums()
 
-        #expect(writes.map(\.trackID).sorted() == ["ram-1", "ram-2"])
+        #expect(writes.map(\.databaseID.rawValue).sorted() == ["ram-1", "ram-2"])
         #expect(writes.count == 2)
         #expect(viewModel.completedEntries.map(\.trackID).sorted() == ["ram-1", "ram-2"])
         #expect(viewModel.processedCount == 2)
@@ -462,8 +464,8 @@ struct WorkflowAlbumIdentityTests {
         try await waitForWorkflowToLeaveScanning(viewModel)
         let writes = await fixture.scriptClient.updatedProperties()
 
-        #expect(writes.map(\.trackID).sorted() == ["as-ram-1", "as-ram-2"])
-        #expect(viewModel.completedEntries.map(\.trackID).sorted() == ["ram-1", "ram-2"])
+        #expect(writes.map(\.databaseID.rawValue).sorted() == ["as-ram-1", "as-ram-2"])
+        #expect(viewModel.completedEntries.map(\.trackID).sorted() == ["as-ram-1", "as-ram-2"])
         #expect(viewModel.processedCount == 2)
     }
 
@@ -504,9 +506,9 @@ struct WorkflowAlbumIdentityTests {
         let removals = await pendingVerification.removedAlbums()
         let remainingPending = await pendingVerification.getAllPendingAlbums()
 
-        #expect(writes.map(\.trackID).sorted() == ["as-ram-1", "as-ram-2"])
+        #expect(writes.map(\.databaseID.rawValue).sorted() == ["as-ram-1", "as-ram-2"])
         #expect(writes.count == 2)
-        #expect(viewModel.completedEntries.map(\.trackID).sorted() == ["ram-1", "ram-2"])
+        #expect(viewModel.completedEntries.map(\.trackID).sorted() == ["as-ram-1", "as-ram-2"])
         #expect(viewModel.processedCount == 2)
         #expect(removals.contains { $0.artist == "Pharrell Williams" && $0.album == "Random Access Memories" })
         #expect(removals.contains { $0.artist == "Julian Casablancas" && $0.album == "Random Access Memories" })
@@ -653,7 +655,7 @@ struct WorkflowAlbumIdentityTests {
         let writes = await fixture.scriptClient.updatedProperties()
         let removals = await pendingVerification.removedAlbums()
 
-        #expect(writes.map(\.trackID) == ["as-artist-a-1"])
+        #expect(writes.map(\.databaseID.rawValue) == ["as-artist-a-1"])
         #expect(removals.contains { $0.artist == "Artist A" && $0.album == "Greatest Hits" })
         #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
     }
@@ -738,7 +740,7 @@ struct WorkflowAlbumIdentityTests {
         let removals = await pendingVerification.removedAlbums()
         let remainingPending = await pendingVerification.getAllPendingAlbums()
 
-        #expect(writes.map(\.trackID).count(where: { $0 == "as-ram-1" }) == 1)
+        #expect(writes.map(\.databaseID.rawValue).count(where: { $0 == "as-ram-1" }) == 1)
         #expect(viewModel.result?.failedTrackIDs.count(where: { $0 == "ram-2" }) == 1)
         #expect(removals.isEmpty)
         #expect(Set(remainingPending.map(\.id)) == [

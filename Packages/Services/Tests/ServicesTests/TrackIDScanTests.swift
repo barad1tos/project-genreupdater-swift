@@ -1,15 +1,33 @@
+import Core
 import Testing
 @testable import Services
 
 @Suite("Track ID scan")
 struct TrackIDScanTests {
-    @Test("Collects every ID across bounded batches")
+    @Test("Rejects forged census completeness")
+    func rejectsMalformedCensus() throws {
+        let firstID = try #require(MusicDatabaseTrackID(rawValue: "1"))
+        let secondID = try #require(MusicDatabaseTrackID(rawValue: "2"))
+        let generation = try #require(LibraryGeneration(sourceValue: "G1"))
+
+        #expect(throws: TrackIDCensusError.countMismatch(expected: 2, actual: 1)) {
+            _ = try TrackIDCensus(ids: [firstID], totalCount: 2, generation: generation)
+        }
+        #expect(throws: TrackIDCensusError.duplicateID(firstID)) {
+            _ = try TrackIDCensus(ids: [firstID, firstID], totalCount: 2, generation: generation)
+        }
+        #expect(throws: TrackIDCensusError.unsorted) {
+            _ = try TrackIDCensus(ids: [secondID, firstID], totalCount: 2, generation: generation)
+        }
+    }
+
+    @Test("Returns a sorted typed census with stable count and generation")
     func collectsBatches() async throws {
         let scan = TrackIDScan(batchSize: 2, timeout: .seconds(1)) { offset, limit, _ in
             #expect(limit == 2)
             switch offset {
             case 1:
-                return "BATCH:2:3:G1:10,20"
+                return "BATCH:2:3:G1:20,10"
             case 3:
                 return "BATCH:3:3:G1:30"
             default:
@@ -17,7 +35,11 @@ struct TrackIDScanTests {
             }
         }
 
-        #expect(try await scan.run() == ["10", "20", "30"])
+        let census = try await scan.run()
+
+        #expect(census.ids.map(\.rawValue) == ["10", "20", "30"])
+        #expect(census.totalCount == 3)
+        #expect(census.generation.rawValue == "G1")
     }
 
     @Test("Clamps batch limits", arguments: [0, 5000])
@@ -28,7 +50,7 @@ struct TrackIDScanTests {
             return "BATCH:1:1:G1:A"
         }
 
-        #expect(try await scan.run() == ["A"])
+        #expect(try await scan.run().ids.map(\.rawValue) == ["A"])
     }
 
     @Test("Rejects a track count change between batches")
@@ -76,7 +98,11 @@ struct TrackIDScanTests {
             "BATCH:0:0:G1:"
         }
 
-        #expect(try await scan.run().isEmpty)
+        let census = try await scan.run()
+
+        #expect(census.ids.isEmpty)
+        #expect(census.totalCount == 0)
+        #expect(census.generation.rawValue == "G1")
     }
 
     @Test("Rejects a batch returned after the scan deadline")
@@ -111,7 +137,11 @@ struct TrackIDScanTests {
             await responses.next(offset: offset)
         }
 
-        #expect(try await scan.run() == ["B", "C", "D", "E"])
+        let census = try await scan.run()
+
+        #expect(census.ids.map(\.rawValue) == ["B", "C", "D", "E"])
+        #expect(census.totalCount == 4)
+        #expect(census.generation.rawValue == "G3")
         #expect(await responses.offsets == [1, 3, 1, 3])
     }
 
@@ -127,7 +157,11 @@ struct TrackIDScanTests {
             await responses.next(offset: offset)
         }
 
-        #expect(try await scan.run() == ["A", "B", "C", "D"])
+        let census = try await scan.run()
+
+        #expect(census.ids.map(\.rawValue) == ["A", "B", "C", "D"])
+        #expect(census.totalCount == 4)
+        #expect(census.generation.rawValue == "G3")
         #expect(await responses.offsets == [1, 3, 1, 3])
     }
 
@@ -143,7 +177,10 @@ struct TrackIDScanTests {
             await responses.next(offset: offset)
         }
 
-        #expect(try await scan.run() == ["A", "B", "C", "D"])
+        let census = try await scan.run()
+
+        #expect(census.ids.map(\.rawValue) == ["A", "B", "C", "D"])
+        #expect(census.generation.rawValue == "G2")
         #expect(await responses.offsets == [1, 3, 1, 3])
     }
 

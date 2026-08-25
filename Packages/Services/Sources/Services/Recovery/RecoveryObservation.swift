@@ -7,16 +7,33 @@ import Foundation
 public struct ObservedWorkOutcome: Equatable, Sendable {
     public let outcome: WorkOutcome
     public let observedValue: String?
+    private let detailOverride: String?
 
     public init(outcome: WorkOutcome, observedValue: String?) {
         self.outcome = outcome
         self.observedValue = observedValue
+        detailOverride = nil
+    }
+
+    static let identityMismatch = Self(
+        outcome: .needsReview,
+        observedValue: nil,
+        detailOverride: "Music.app track identity changed since the write was planned"
+    )
+
+    private init(outcome: WorkOutcome, observedValue: String?, detailOverride: String?) {
+        self.outcome = outcome
+        self.observedValue = observedValue
+        self.detailOverride = detailOverride
     }
 
     /// Audit note recorded on the closed work item, phrased per outcome so a
     /// closed ledger reads unambiguously.
     var detail: String? {
-        switch outcome {
+        if let detailOverride {
+            return detailOverride
+        }
+        return switch outcome {
         case .written:
             observedValue.map { "Verified in Music.app: \($0)" }
         case .failed:
@@ -44,7 +61,7 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
 enum RecoveryObservation {
     static func outcome(for item: RunWorkItem, observedTrack: Track) -> ObservedWorkOutcome {
         let change = item.effectiveChange
-        let property = AppleScriptTrackProperty(changeType: change.changeType)
+        let property = MusicTrackProperty(changeType: change.changeType)
         let observedValue = property.currentValue(in: observedTrack)
         guard let albumArtistChange = change.albumArtistChange else {
             return classify(change, property: property, observedValue: observedValue)
@@ -64,7 +81,7 @@ enum RecoveryObservation {
 
     private static func classify(
         _ change: WorkChange,
-        property: AppleScriptTrackProperty,
+        property: MusicTrackProperty,
         observedValue: String?
     ) -> ObservedWorkOutcome {
         guard let observedValue else {

@@ -111,7 +111,7 @@ struct RecoveryObservationTests {
 
     @Test("every change type observes its own AppleScript property")
     func mapsChangeTypesToProperties() {
-        let expectations: [(ChangeType, AppleScriptTrackProperty)] = [
+        let expectations: [(ChangeType, MusicTrackProperty)] = [
             (.genreUpdate, .genre),
             (.yearUpdate, .year),
             (.yearRevert, .year),
@@ -120,8 +120,7 @@ struct RecoveryObservationTests {
             (.artistRename, .artist),
         ]
         for (changeType, property) in expectations {
-            #expect(AppleScriptTrackProperty(changeType: changeType) == property)
-            #expect(UpdateCoordinator.appleScriptProperty(for: changeType) == property.rawValue)
+            #expect(MusicTrackProperty(changeType: changeType) == property)
         }
     }
 }
@@ -132,17 +131,98 @@ struct RecoveryObservationServiceTests {
     func observesUncertainItems() async throws {
         let landed = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
         let external = makeWorkItem(state: .attempting, oldValue: "Pop", newValue: "Synthpop")
-        let client = MockAppleScriptClient()
+        let client = MusicAppTestAccess()
         await client.setFetchedTracks([
             observedTrack(id: "persistent-1", genre: "Stoner Rock"),
         ])
-        let service = RecoveryObservationService(scriptClient: client)
+        let service = RecoveryObservationService(verifier: client)
 
         let outcomes = try await service.observeOutcomes(for: [landed, external])
 
         #expect(outcomes[landed.id]?.outcome == .written)
         #expect(outcomes[external.id]?.outcome == .needsReview)
         #expect(outcomes[external.id]?.observedValue == "Stoner Rock")
+        #expect(try await client.fetchMetadataCalls() == [[#require(MusicDatabaseTrackID(rawValue: "persistent-1"))]])
+    }
+
+    @Test("reused database identity cannot clear recovery")
+    func reusedDatabaseIDNeedsReview() async throws {
+        let attempted = makeWorkItem(state: .attempted, oldValue: "Rock", newValue: "Stoner Rock")
+        let client = MusicAppTestAccess()
+        await client.setFetchedTracks([
+            observedTrack(id: "persistent-1", name: "Replacement Track", genre: "Stoner Rock"),
+        ])
+        let service = RecoveryObservationService(verifier: client)
+
+        let outcome = try #require(try await service.observeOutcomes(for: [attempted])[attempted.id])
+
+        #expect(outcome.outcome == .needsReview)
+        #expect(outcome.detail == "Music.app track identity changed since the write was planned")
+    }
+
+    @Test("reused database identity with another album artist cannot clear recovery")
+    func reusedDatabaseIDByAlbumArtistNeedsReview() async throws {
+        let change = WorkChange(
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Stoner Rock",
+            confidence: 92,
+            source: "MusicBrainz"
+        )
+        let attempted = RunWorkItem(
+            id: UUID(),
+            target: .track(FixPlanItemIdentity(
+                readID: "music-kit-1",
+                appleScriptID: "persistent-1",
+                artist: "Artist",
+                album: "Album",
+                trackName: "Track",
+                albumArtist: "Artist"
+            )),
+            change: change,
+            state: .attempted
+        )
+        let client = MusicAppTestAccess()
+        await client.setFetchedTracks([
+            observedTrack(id: "persistent-1", genre: "Stoner Rock", albumArtist: "Compilation Artist"),
+        ])
+        let service = RecoveryObservationService(verifier: client)
+
+        let outcome = try #require(try await service.observeOutcomes(for: [attempted])[attempted.id])
+
+        #expect(outcome.outcome == .needsReview)
+        #expect(outcome.detail == "Music.app track identity changed since the write was planned")
+    }
+
+    @Test(
+        "Identity-changing recovery admits the managed value and rejects a third value",
+        arguments: [
+            (ChangeType.trackCleaning, "Clean Track", "Other Track"),
+            (ChangeType.albumCleaning, "Clean Album", "Other Album"),
+        ] as [(ChangeType, String, String)]
+    )
+    func usesManagedIdentityValues(
+        changeType: ChangeType,
+        newValue: String,
+        thirdValue: String
+    ) async throws {
+        let oldValue = changeType == .trackCleaning ? "Track" : "Album"
+        let attempted = makeWorkItem(
+            state: .attempted,
+            changeType: changeType,
+            oldValue: oldValue,
+            newValue: newValue
+        )
+        let client = MusicAppTestAccess()
+        let service = RecoveryObservationService(verifier: client)
+
+        await client.setFetchedTracks([observedIdentityTrack(changeType: changeType, value: newValue)])
+        #expect(try await service.observeOutcomes(for: [attempted])[attempted.id]?.outcome == .written)
+
+        await client.setFetchedTracks([observedIdentityTrack(changeType: changeType, value: thirdValue)])
+        let conflicting = try #require(try await service.observeOutcomes(for: [attempted])[attempted.id])
+        #expect(conflicting.outcome == .needsReview)
+        #expect(conflicting.detail == "Music.app track identity changed since the write was planned")
     }
 
     @Test("two properties of one track classify independently")
@@ -154,11 +234,11 @@ struct RecoveryObservationServiceTests {
             oldValue: "1999",
             newValue: "2001"
         )
-        let client = MockAppleScriptClient()
+        let client = MusicAppTestAccess()
         await client.setFetchedTracks([
             observedTrack(id: "persistent-1", genre: "Stoner Rock", year: 1999),
         ])
-        let service = RecoveryObservationService(scriptClient: client)
+        let service = RecoveryObservationService(verifier: client)
 
         let outcomes = try await service.observeOutcomes(for: [genreItem, yearItem])
 
@@ -185,7 +265,7 @@ struct RecoveryObservationServiceTests {
                 albumArtistChange: albumArtistChange
             )
         )
-        let client = MockAppleScriptClient()
+        let client = MusicAppTestAccess()
         await client.setFetchedTracks([
             observedTrack(
                 id: "persistent-1",
@@ -194,7 +274,7 @@ struct RecoveryObservationServiceTests {
             ),
         ])
 
-        let outcomes = try await RecoveryObservationService(scriptClient: client).observeOutcomes(for: [item])
+        let outcomes = try await RecoveryObservationService(verifier: client).observeOutcomes(for: [item])
 
         #expect(outcomes[item.id]?.outcome == .needsReview)
         #expect(outcomes[item.id]?.observedValue == "Massive Attack (album artist: Massive)")
@@ -219,8 +299,8 @@ struct RecoveryObservationServiceTests {
                 albumArtistChange: albumArtistChange
             )
         )
-        let client = MockAppleScriptClient()
-        let service = RecoveryObservationService(scriptClient: client)
+        let client = MusicAppTestAccess()
+        let service = RecoveryObservationService(verifier: client)
 
         await client.setFetchedTracks([
             observedTrack(id: "persistent-1", artist: "Massive Attack", albumArtist: "Massive Attack"),
@@ -236,20 +316,20 @@ struct RecoveryObservationServiceTests {
     @Test("prepared items skip without observation")
     func skipsPreparedWithoutFetch() async throws {
         let prepared = makeWorkItem(state: .prepared)
-        let client = MockAppleScriptClient()
-        let service = RecoveryObservationService(scriptClient: client)
+        let client = MusicAppTestAccess()
+        let service = RecoveryObservationService(verifier: client)
 
         let outcomes = try await service.observeOutcomes(for: [prepared])
 
         #expect(outcomes[prepared.id]?.outcome == .skipped)
-        #expect(await client.fetchTracksByIDsCalls().isEmpty)
+        #expect(await client.fetchMetadataCalls().isEmpty)
     }
 
     @Test("terminal items are not observed")
     func ignoresTerminalItems() async throws {
         let terminal = makeWorkItem(state: .outcome(.written))
-        let client = MockAppleScriptClient()
-        let service = RecoveryObservationService(scriptClient: client)
+        let client = MusicAppTestAccess()
+        let service = RecoveryObservationService(verifier: client)
 
         let outcomes = try await service.observeOutcomes(for: [terminal])
 
@@ -259,9 +339,9 @@ struct RecoveryObservationServiceTests {
     @Test("fetch failure propagates and blocks clearance")
     func propagatesFetchFailure() async {
         let attempted = makeWorkItem(state: .attempted)
-        let client = MockAppleScriptClient()
+        let client = MusicAppTestAccess()
         await client.setFetchThrowMode(true)
-        let service = RecoveryObservationService(scriptClient: client)
+        let service = RecoveryObservationService(verifier: client)
 
         await #expect(throws: MockScriptError.self) {
             _ = try await service.observeOutcomes(for: [attempted])
@@ -271,8 +351,8 @@ struct RecoveryObservationServiceTests {
     @Test("a fully deleted selection classifies as reviewable, not blocked")
     func classifiesDeletedSelection() async throws {
         let attempted = makeWorkItem(state: .attempted)
-        let client = MockAppleScriptClient()
-        let service = RecoveryObservationService(scriptClient: client)
+        let client = MusicAppTestAccess()
+        let service = RecoveryObservationService(verifier: client)
 
         let outcomes = try await service.observeOutcomes(for: [attempted])
 
@@ -283,19 +363,30 @@ struct RecoveryObservationServiceTests {
 
 private func observedTrack(
     id: String,
+    name: String = "Track",
     genre: String = "Rock",
     year: Int? = nil,
     artist: String = "Artist",
+    album: String = "Album",
     albumArtist: String? = nil
 ) -> Track {
     Track(
         id: id,
-        name: "Track",
+        name: name,
         artist: artist,
-        album: "Album",
+        album: album,
         genre: genre,
         year: year,
-        albumArtist: albumArtist
+        albumArtist: albumArtist,
+        appleScriptID: id
+    )
+}
+
+private func observedIdentityTrack(changeType: ChangeType, value: String) -> Track {
+    observedTrack(
+        id: "persistent-1",
+        name: changeType == .trackCleaning ? value : "Track",
+        album: changeType == .albumCleaning ? value : "Album"
     )
 }
 

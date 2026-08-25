@@ -18,6 +18,8 @@ enum YearCheckpointPurpose {
 
 enum UndoCoordinatorError: Error, LocalizedError {
     case revertFailed(trackID: String, reason: String)
+    case trackUnavailable(trackID: String)
+    case trackIdentityChanged(trackID: String)
     case noChangesToRevert
     case partialRevertFailure(succeeded: Int, failed: Int, errorDescriptions: [String])
     case invalidBackupCSV(reason: String)
@@ -32,6 +34,10 @@ enum UndoCoordinatorError: Error, LocalizedError {
         switch self {
         case let .revertFailed(trackID, reason):
             "Failed to revert track \(trackID): \(reason)"
+        case .trackUnavailable:
+            "Track is no longer available in Music.app. Refresh your library before retrying undo"
+        case .trackIdentityChanged:
+            "Track metadata no longer matches this undo. Refresh your library before retrying undo"
         case .noChangesToRevert:
             "No changes available to revert"
         case let .partialRevertFailure(succeeded, failed, errorDescriptions):
@@ -62,6 +68,8 @@ enum UndoCoordinatorError: Error, LocalizedError {
         case .undoOutcomeUnknown, .undoWriteNotApplied, .undoRecoveryConflict, .recoveryStorageFailed:
             true
         case .revertFailed,
+             .trackUnavailable,
+             .trackIdentityChanged,
              .noChangesToRevert,
              .partialRevertFailure,
              .invalidBackupCSV,

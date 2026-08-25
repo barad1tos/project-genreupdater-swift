@@ -5,7 +5,7 @@ import Services
 enum FixPlanWrite {
     struct Runtime {
         let coordinator: UpdateCoordinator
-        let scripts: any AppleScriptClient
+        let verifier: any MusicAppVerifying
     }
 
     struct RunnerDependencies {
@@ -24,6 +24,7 @@ enum FixPlanWrite {
         case noAcceptedItems
         case invalidDecisionItems(FixPlanID)
         case missingWriteTracks(Int)
+        case changedWriteTracks(Int)
 
         var errorDescription: String? {
             switch self {
@@ -41,6 +42,8 @@ enum FixPlanWrite {
                 "Review decision items do not match fix plan \(planID.description)"
             case let .missingWriteTracks(count):
                 "Could not refresh \(count) reviewed write tracks from Music.app"
+            case let .changedWriteTracks(count):
+                "\(count) reviewed write track(s) changed identity in Music.app; review a new fix plan"
             }
         }
     }
@@ -134,15 +137,17 @@ enum FixPlanWrite {
     static func prepareWriteIDs(
         for changes: [ProposedChange],
         mapper: TrackIDMapper,
-        scriptClient: any AppleScriptClient,
-        batchSize: Int,
-        timeout: Duration
+        verifier: any MusicAppVerifying
     ) async throws {
         let log = AppLogger.make(category: "dependencies")
-        var targetsByReadID: [String: (track: Track, appleScriptID: String)] = [:]
+        var targetsByReadID: [String: (
+            track: Track,
+            identity: FixPlanItemIdentity,
+            databaseID: MusicDatabaseTrackID
+        )] = [:]
         var unmappedCount = 0
         for change in changes {
-            guard let appleScriptID = change.track.appleScriptID else {
+            guard let databaseID = change.track.databaseID else {
                 // The write still fails fast later via writeID; the log
                 // makes the seeding-time skip visible instead of silent.
                 unmappedCount += 1
@@ -152,33 +157,57 @@ enum FixPlanWrite {
                 """)
                 continue
             }
-            targetsByReadID[change.track.id] = (change.track, appleScriptID)
+            targetsByReadID[change.track.id] = (
+                track: change.track,
+                identity: FixPlanItemIdentity(
+                    readID: change.track.id,
+                    appleScriptID: change.track.appleScriptID,
+                    artist: change.track.artist,
+                    album: change.track.album,
+                    trackName: change.track.name,
+                    albumArtist: change.track.albumArtist
+                ),
+                databaseID: databaseID
+            )
         }
         if unmappedCount > 0 {
             log.warning("Write seeding skipped \(unmappedCount, privacy: .public) unmapped change(s)")
         }
         guard !targetsByReadID.isEmpty else { return }
 
-        let appleScriptIDs = Array(Set(targetsByReadID.values.map(\.appleScriptID)))
-        let currentTracks = try await scriptClient.fetchTracksByIDs(
-            appleScriptIDs,
-            batchSize: batchSize,
-            timeout: timeout
-        )
-        var currentTracksByID: [String: Track] = [:]
+        let databaseIDs = Array(Set(targetsByReadID.values.map(\.databaseID)))
+        let currentTracks = try await verifier.fetchMetadata(for: databaseIDs)
+        var currentTracksByID: [MusicDatabaseTrackID: Track] = [:]
         for track in currentTracks {
-            currentTracksByID[track.appleScriptID ?? track.id] = track
+            guard let databaseID = track.databaseID else { continue }
+            currentTracksByID[databaseID] = track
         }
         let entries = targetsByReadID.values.compactMap { target in
-            currentTracksByID[target.appleScriptID].map { currentTrack in
-                (musicKitTrack: target.track, appleScriptTrack: currentTrack)
+            currentTracksByID[target.databaseID].map { currentTrack in
+                (
+                    musicKitTrack: target.track,
+                    identity: target.identity,
+                    appleScriptTrack: currentTrack
+                )
             }
         }
         guard entries.count == targetsByReadID.count else {
             throw Failure.missingWriteTracks(targetsByReadID.count - entries.count)
         }
+        let changedTrackCount = identityMismatchCount(in: entries)
+        guard changedTrackCount == 0 else {
+            throw Failure.changedWriteTracks(changedTrackCount)
+        }
 
-        await mapper.seedKnownMappings(entries)
+        await mapper.seedKnownMappings(entries.map { entry in
+            (musicKitTrack: entry.musicKitTrack, appleScriptTrack: entry.appleScriptTrack)
+        })
+    }
+
+    private static func identityMismatchCount(
+        in entries: [(musicKitTrack: Track, identity: FixPlanItemIdentity, appleScriptTrack: Track)]
+    ) -> Int {
+        entries.count { !$0.identity.matchesCurrentTrack($0.appleScriptTrack) }
     }
 
     static func makeRunner(
@@ -227,13 +256,10 @@ enum FixPlanWrite {
                     }
 
                     let runtime = try await dependencies.makeRuntime(plan.configuration, input.scope)
-                    let scriptConfiguration = plan.configuration.appConfiguration.applescript
                     try await prepareWriteIDs(
                         for: acceptedChanges,
                         mapper: dependencies.mapper,
-                        scriptClient: runtime.scripts,
-                        batchSize: scriptConfiguration.batchProcessing.idsBatchSize,
-                        timeout: scriptConfiguration.timeouts.idsBatchFetch
+                        verifier: runtime.verifier
                     )
                     // The runtime coordinator is created per write; attribution
                     // stays set for its whole lifetime.

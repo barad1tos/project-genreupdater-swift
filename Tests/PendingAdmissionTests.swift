@@ -44,7 +44,7 @@ struct PendingAdmissionTests {
         try await waitForWorkflowToLeaveScanning(viewModel)
 
         let writes = await fixture.scriptClient.updatedProperties()
-        #expect(writes.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(writes.map(\.databaseID.rawValue) == ["as-ram-1", "as-ram-2"])
         #expect(viewModel.failedTracks.isEmpty)
     }
 }

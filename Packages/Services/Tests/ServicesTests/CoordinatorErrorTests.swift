@@ -223,13 +223,13 @@ struct UpdateOptionsTests {
 @Suite("UpdateCoordinator — write failure handling")
 struct WriteFailureTests {
     private func makeCoordinator(
-        scriptBridge: MockAppleScriptClient
+        scriptBridge: MusicAppTestAccess
     ) async -> UpdateCoordinator {
         let store = MockTrackStore()
         let cache = MockCacheService()
         let undoDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("WriteFailureTests-\(UUID().uuidString)")
-        let undo = UndoCoordinator(scriptBridge: scriptBridge, directory: undoDir)
+        let undo = UndoCoordinator(musicApp: scriptBridge, directory: undoDir)
 
         let yearResult = YearResult(
             year: 2020,
@@ -246,7 +246,7 @@ struct WriteFailureTests {
         return UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
-                scriptBridge: scriptBridge,
+                writer: scriptBridge,
                 stores: .init(
                     trackStore: store,
                     cache: cache
@@ -259,7 +259,7 @@ struct WriteFailureTests {
 
     @Test("Write failure throws writeFailed error")
     func writeFailureThrows() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setThrowMode(true)
         let coordinator = await makeCoordinator(scriptBridge: bridge)
 
@@ -279,12 +279,12 @@ struct WriteFailureTests {
 
     @Test("Confidence filter removes low-confidence missing-year changes")
     func rejectsWeakYearFill() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let store = MockTrackStore()
         let cache = MockCacheService()
         let undoDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ConfFilterTests-\(UUID().uuidString)")
-        let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
+        let undo = UndoCoordinator(musicApp: bridge, directory: undoDir)
 
         // Only one source returns a low-confidence result; others return empty.
         // This prevents aggregation from boosting the combined score above threshold.
@@ -303,7 +303,7 @@ struct WriteFailureTests {
         let coordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
                     trackStore: store,
                     cache: cache

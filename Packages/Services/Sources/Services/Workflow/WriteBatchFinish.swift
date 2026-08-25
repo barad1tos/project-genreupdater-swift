@@ -2,7 +2,7 @@ import Core
 import Foundation
 
 struct BatchFinalization {
-    let currentTracksByID: [String: Track]
+    let currentTracksByID: [MusicDatabaseTrackID: Track]
     let appliedIndexes: Set<Int>
     let noOpIndexes: Set<Int>
     let preflightFailures: [Int: UpdateCoordinatorError]
@@ -38,7 +38,7 @@ extension UpdateCoordinator {
         _ preparedWrites: [PreparedWrite],
         batch: BatchFinalization,
         attemptedIndexes: Set<Int>,
-        error: AppleScriptBatchVerificationError,
+        error: MusicBatchVerificationError,
         checkpoint: WorkCheckpointSink?
     ) async throws -> any Error {
         let confirmedIndexes = batch.appliedIndexes.union(batch.noOpIndexes)
@@ -164,7 +164,10 @@ extension UpdateCoordinator {
                 continue
             case .written:
                 do {
-                    let entry = try await recordAppliedChange(preparedWrite.change)
+                    let entry = try await recordAppliedChange(
+                        preparedWrite.change,
+                        databaseID: preparedWrite.databaseID
+                    )
                     entries.append(entry)
                 } catch {
                     firstFinalizationError = firstFinalizationError ?? error
@@ -194,13 +197,12 @@ extension UpdateCoordinator {
         guard batch.appliedIndexes.contains(index) else {
             return .failed
         }
-        guard let priorTrack = batch.currentTracksByID[write.trackID] else {
+        guard let priorTrack = batch.currentTracksByID[write.databaseID] else {
             return .written
         }
         let wasAlreadyApplied = write.updates.allSatisfy { update in
-            guard let property = AppleScriptTrackProperty(rawValue: update.property) else { return false }
-            return property.comparisonValue(value(forAppleScriptProperty: update.property, in: priorTrack))
-                == property.comparisonValue(update.value)
+            update.property.comparisonValue(value(for: update.property, in: priorTrack))
+                == update.property.comparisonValue(update.value)
         }
         return wasAlreadyApplied ? .noFixNeeded : .written
     }
@@ -215,7 +217,7 @@ extension UpdateCoordinator {
             trackID: preparedWrite.change.track.id,
             error: UpdateCoordinatorError.writeFailed(
                 trackID: preparedWrite.change.track.id,
-                property: preparedWrite.property,
+                property: preparedWrite.property.rawValue,
                 reason: "Batch write could not be verified after the batch script ran"
             ),
             failedTrackIDs: &failedTrackIDs,
@@ -226,7 +228,7 @@ extension UpdateCoordinator {
     private static func partialBatchOutcome(
         applied: Int,
         attempted: Int,
-        error: AppleScriptBatchVerificationError
+        error: MusicBatchVerificationError
     ) -> AppleScriptOutcomeError {
         let reason = "verification covered only \(applied) of \(attempted) writes after dispatch: " +
             error.localizedDescription
@@ -245,7 +247,10 @@ extension UpdateCoordinator {
             switch Self.batchWorkOutcome(at: index, write: write, batch: batch) {
             case .written:
                 do {
-                    let entry = try await recordAppliedChange(write.change)
+                    let entry = try await recordAppliedChange(
+                        write.change,
+                        databaseID: write.databaseID
+                    )
                     trackIDs.insert(entry.trackID)
                 } catch {
                     firstFinalizationError = firstFinalizationError ?? error

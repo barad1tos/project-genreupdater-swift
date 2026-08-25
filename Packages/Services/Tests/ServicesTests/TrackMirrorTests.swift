@@ -1,0 +1,606 @@
+import Foundation
+import SwiftData
+import Testing
+@testable import Core
+@testable import Services
+
+@Suite("Atomic track mirror")
+struct TrackMirrorTests {
+    private func makeStore() throws -> TrackDataStore {
+        try TrackDataStore.createInMemory()
+    }
+
+    private func makeContainer(at url: URL) throws -> ModelContainer {
+        let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
+        let configuration = ModelConfiguration(
+            "TrackMirrorRelaunch",
+            schema: schema,
+            url: url,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private func makeMemoryContainer() throws -> ModelContainer {
+        let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private func makeNoncanonicalStore(id: String) throws -> TrackDataStore {
+        let container = try makeMemoryContainer()
+        let track = sampleTrack(id: id)
+        let context = ModelContext(container)
+        context.insert(PersistedTrack(
+            trackID: id,
+            name: track.name,
+            artist: track.artist,
+            album: track.album,
+            genre: track.genre,
+            year: track.year,
+            dateAdded: track.dateAdded
+        ))
+        try context.save()
+        return TrackDataStore(modelContainer: container)
+    }
+
+    private func sampleTrack(id: String = "T001", name: String = "Test Song") -> Track {
+        Track(
+            id: id,
+            name: name,
+            artist: "Test Artist",
+            album: "Test Album",
+            genre: "Rock",
+            year: 2020,
+            dateAdded: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+    }
+
+    private func mirrorTrack(id: String, name: String = "Test Song") -> Track {
+        var track = sampleTrack(id: id, name: name)
+        track.appleScriptID = id
+        return track
+    }
+
+    private func databaseID(_ rawValue: String) throws -> MusicDatabaseTrackID {
+        try #require(MusicDatabaseTrackID(rawValue: rawValue))
+    }
+
+    private func expectRepairedTrack(
+        _ track: PersistedTrack,
+        hasSameIdentity: Bool,
+        processedAt: Date
+    ) {
+        #expect(hasSameIdentity)
+        #expect(track.trackID == "database-id")
+        #expect(track.appleScriptID == "database-id")
+        #expect(track.name == "Canonical Name")
+        #expect(track.artist == "Canonical Artist")
+        #expect(track.album == "Canonical Album")
+        #expect(track.genre == "Metal")
+        #expect(track.year == 2001)
+        #expect(track.albumArtist == "Canonical Album Artist")
+        #expect(track.trackStatus == "matched")
+        #expect(track.releaseYear == 2000)
+        #expect(track.genreUpdated)
+        #expect(track.yearUpdated)
+        #expect(track.processedDate == processedAt)
+        #expect(track.lastError == "preserved error")
+        #expect(track.originalArtist == "Original Artist")
+        #expect(track.originalAlbum == "Original Album")
+        #expect(track.yearBeforeMGU == 1998)
+        #expect(track.yearSetByMGU == 1999)
+    }
+
+    private func makeLegacyFixture(processedAt: Date) -> (
+        track: PersistedTrack,
+        linked: PersistedChangeLogEntry,
+        unlinked: PersistedChangeLogEntry
+    ) {
+        let track = PersistedTrack(
+            trackID: "catalog-id", name: "Legacy Name", artist: "Legacy Artist", album: "Legacy Album",
+            genre: "Rock", year: 1999, genreUpdated: true, yearUpdated: true, processedDate: processedAt,
+            lastError: "preserved error", originalArtist: "Original Artist", originalAlbum: "Original Album",
+            yearBeforeMGU: 1998, yearSetByMGU: 1999
+        )
+        let linked = PersistedChangeLogEntry(
+            entryID: UUID(), timestamp: .now, changeTypeRaw: ChangeType.genreUpdate.rawValue,
+            trackID: "catalog-id", artist: "Legacy Artist", trackName: "Legacy Name", albumName: "Legacy Album"
+        )
+        linked.track = track
+        let unlinked = PersistedChangeLogEntry(
+            entryID: UUID(), timestamp: .now, changeTypeRaw: ChangeType.yearUpdate.rawValue,
+            trackID: "catalog-id", artist: "Legacy Artist", trackName: "Legacy Name", albumName: "Legacy Album"
+        )
+        return (track, linked, unlinked)
+    }
+
+    private func appliedChange(trackID: String = "T001", type: ChangeType) -> ChangeLogEntry {
+        var change = ChangeLogEntry(
+            changeType: type,
+            trackID: trackID,
+            artist: "Test Artist",
+            trackName: "Test Song",
+            albumName: "Test Album"
+        )
+        switch type {
+        case .genreUpdate:
+            change.oldGenre = "Rock"
+            change.newGenre = "Metal"
+        case .yearUpdate:
+            change.oldYear = 2020
+            change.newYear = 2024
+        case .yearRevert:
+            change.oldYear = 2020
+            change.newYear = 1999
+        case .trackCleaning:
+            change.oldTrackName = "Test Song"
+            change.newTrackName = "Clean Song"
+        case .albumCleaning:
+            change.oldAlbumName = "Test Album"
+            change.newAlbumName = "Clean Album"
+        case .artistRename:
+            change.oldArtist = "Test Artist"
+            change.newArtist = "Canonical Artist"
+        }
+        return change
+    }
+
+    @Test("Mirror apply commits upserts and deletions while preserving app state")
+    func applyMirrorPreservesState() async throws {
+        let store = try makeStore()
+        try await store.initialize()
+        try await store.seedMirror([
+            mirrorTrack(id: "T001"),
+            mirrorTrack(id: "T002", name: "Removed Song"),
+        ])
+        try await store.persistAppliedChange(appliedChange(type: .genreUpdate))
+        try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
+        try await store.persistAppliedChange(appliedChange(type: .artistRename))
+        try await store.persistAppliedChange(appliedChange(type: .albumCleaning))
+
+        let refreshedTrack = Track(
+            id: "T001",
+            name: "Refreshed Song",
+            artist: "Canonical Artist",
+            album: "Clean Album",
+            genre: "Metal",
+            year: 2024,
+            originalArtist: "Injected Artist",
+            originalAlbum: "Injected Album",
+            yearBeforeMGU: 1901,
+            yearSetByMGU: 1902,
+            appleScriptID: "T001"
+        )
+        let insertedTrack = Track(
+            id: "T003",
+            name: "Inserted Song",
+            artist: "Test Artist",
+            album: "Test Album",
+            originalArtist: "Injected Artist",
+            originalAlbum: "Injected Album",
+            yearBeforeMGU: 1901,
+            yearSetByMGU: 1902,
+            appleScriptID: "T003"
+        )
+        let removedID = try databaseID("T002")
+
+        try await store.applyMirror(TrackMirrorUpdate(
+            repairs: [],
+            upserts: [refreshedTrack, insertedTrack],
+            deletions: [removedID]
+        ))
+
+        let loadedTracks = try await store.loadAllTracks()
+        #expect(loadedTracks.map(\.id).sorted() == ["T001", "T003"])
+        let refreshed = try #require(loadedTracks.first { $0.id == "T001" })
+        #expect(refreshed.name == "Refreshed Song")
+        #expect(refreshed.originalArtist == "Test Artist")
+        #expect(refreshed.originalAlbum == "Test Album")
+        #expect(refreshed.yearBeforeMGU == 2020)
+        #expect(refreshed.yearSetByMGU == 2024)
+        let inserted = try #require(loadedTracks.first { $0.id == "T003" })
+        #expect(inserted.originalArtist == nil)
+        #expect(inserted.originalAlbum == nil)
+        #expect(inserted.yearBeforeMGU == nil)
+        #expect(inserted.yearSetByMGU == nil)
+        let unprocessedIDs = try await store.getUnprocessedTracks().map(\.id)
+        #expect(!unprocessedIDs.contains("T001"))
+        #expect(unprocessedIDs.contains("T003"))
+    }
+
+    @Test("Mirror apply rejects duplicate upserts without changing stored state")
+    func applyMirrorRejectsDuplicateUpserts() async throws {
+        let store = try makeStore()
+        try await store.seedMirror([sampleTrack(id: "T001"), sampleTrack(id: "T002")])
+        let before = try await store.loadAllTracks()
+        let duplicateID = try databaseID("T001")
+        let deletedID = try databaseID("T002")
+
+        do {
+            try await store.applyMirror(TrackMirrorUpdate(
+                repairs: [],
+                upserts: [mirrorTrack(id: "T001", name: "First"), mirrorTrack(id: "T001", name: "Second")],
+                deletions: [deletedID]
+            ))
+            Issue.record("Expected duplicate mirror upserts to fail")
+        } catch let error as TrackStoreError {
+            #expect(error == .duplicateUpserts(ids: [duplicateID]))
+        }
+
+        #expect(try await store.loadAllTracks() == before)
+    }
+
+    @Test("Mirror apply rejects duplicate deletions without changing stored state")
+    func applyMirrorRejectsDuplicateDeletions() async throws {
+        let store = try makeStore()
+        try await store.seedMirror([sampleTrack(id: "T001"), sampleTrack(id: "T002")])
+        let before = try await store.loadAllTracks()
+        let deletedID = try databaseID("T002")
+
+        do {
+            try await store.applyMirror(TrackMirrorUpdate(
+                repairs: [],
+                upserts: [],
+                deletions: [deletedID, deletedID]
+            ))
+            Issue.record("Expected duplicate mirror deletions to fail")
+        } catch let error as TrackStoreError {
+            #expect(error == .duplicateDeletions(ids: [deletedID]))
+        }
+
+        #expect(try await store.loadAllTracks() == before)
+    }
+
+    @Test("Mirror apply rejects upsert-delete overlap without changing stored state")
+    func applyMirrorRejectsOverlap() async throws {
+        let store = try makeStore()
+        try await store.seedMirror([sampleTrack(id: "T001"), sampleTrack(id: "T002")])
+        let before = try await store.loadAllTracks()
+        let targetID = try databaseID("T001")
+
+        do {
+            try await store.applyMirror(TrackMirrorUpdate(
+                repairs: [],
+                upserts: [mirrorTrack(id: "T001", name: "Updated")],
+                deletions: [targetID]
+            ))
+            Issue.record("Expected overlapping mirror IDs to fail")
+        } catch let error as TrackStoreError {
+            #expect(error == .identityOverlap(ids: [targetID]))
+        }
+
+        #expect(try await store.loadAllTracks() == before)
+    }
+
+    @Test("Mirror apply rejects an upsert without canonical database identity")
+    func applyMirrorRejectsMissingDatabaseID() async throws {
+        let store = try makeStore()
+        try await store.seedMirror([sampleTrack(id: "T001")])
+        let before = try await store.loadAllTracks()
+
+        do {
+            try await store.applyMirror(TrackMirrorUpdate(
+                repairs: [],
+                upserts: [sampleTrack(id: "T001")],
+                deletions: []
+            ))
+            Issue.record("Expected missing mirror database identity to fail")
+        } catch let error as TrackStoreError {
+            #expect(error == .missingDatabaseID(trackID: "T001"))
+        }
+
+        #expect(try await store.loadAllTracks() == before)
+    }
+
+    @Test("Mirror apply rejects different presentation and database identities")
+    func applyMirrorRejectsIdentityMismatch() async throws {
+        let store = try makeStore()
+        try await store.seedMirror([sampleTrack(id: "T001")])
+        let before = try await store.loadAllTracks()
+        var mismatchedTrack = sampleTrack(id: "MUSIC-KIT-ID")
+        mismatchedTrack.appleScriptID = "T001"
+        let databaseID = try databaseID("T001")
+
+        do {
+            try await store.applyMirror(TrackMirrorUpdate(repairs: [], upserts: [mismatchedTrack], deletions: []))
+            Issue.record("Expected mismatched mirror identities to fail")
+        } catch let error as TrackStoreError {
+            #expect(error == .nonCanonicalTrack(
+                trackID: "MUSIC-KIT-ID",
+                databaseID: databaseID
+            ))
+        }
+
+        #expect(try await store.loadAllTracks() == before)
+    }
+
+    @Test("Mirror apply rejects a canonical upsert colliding with a noncanonical row")
+    func applyMirrorRejectsIdentityCollision() async throws {
+        let store = try makeNoncanonicalStore(id: "catalog")
+        let before = try await store.loadAllTracks()
+        let databaseID = try databaseID("catalog")
+
+        do {
+            try await store.applyMirror(TrackMirrorUpdate(
+                repairs: [],
+                upserts: [mirrorTrack(id: "catalog", name: "Canonical")],
+                deletions: []
+            ))
+            Issue.record("Expected canonical mirror identity collision to fail")
+        } catch let error as TrackStoreError {
+            #expect(error == .identityCollisions(ids: [databaseID]))
+        }
+
+        #expect(try await store.loadAllTracks() == before)
+    }
+
+    @Test("Mirror apply rejects deletion colliding with a noncanonical row")
+    func applyMirrorRejectsDeletionCollision() async throws {
+        let store = try makeNoncanonicalStore(id: "catalog")
+        let before = try await store.loadAllTracks()
+        let databaseID = try databaseID("catalog")
+
+        do {
+            try await store.applyMirror(TrackMirrorUpdate(
+                repairs: [],
+                upserts: [],
+                deletions: [databaseID]
+            ))
+            Issue.record("Expected canonical deletion identity collision to fail")
+        } catch let error as TrackStoreError {
+            #expect(error == .identityCollisions(ids: [databaseID]))
+        }
+
+        #expect(try await store.loadAllTracks() == before)
+    }
+
+    @Test("Mirror repair preserves state and repairs linked and unlinked history")
+    func mirrorRepairPreservesStateAndHistory() async throws {
+        let container = try makeMemoryContainer()
+        let context = ModelContext(container)
+        let processedAt = Date(timeIntervalSince1970: 1_700_100_000)
+        let (legacy, linked, unlinked) = makeLegacyFixture(processedAt: processedAt)
+        context.insert(legacy)
+        context.insert(linked)
+        context.insert(unlinked)
+        try context.save()
+        let persistentID = legacy.persistentModelID
+
+        let target = Track(
+            id: "database-id",
+            name: "Canonical Name",
+            artist: "Canonical Artist",
+            album: "Canonical Album",
+            genre: "Metal",
+            year: 2001,
+            dateAdded: Date(timeIntervalSince1970: 1_600_000_000),
+            trackStatus: "matched",
+            originalArtist: "Injected Artist",
+            originalAlbum: "Injected Album",
+            yearBeforeMGU: 1901,
+            yearSetByMGU: 1902,
+            releaseYear: 2000,
+            albumArtist: "Canonical Album Artist",
+            appleScriptID: "database-id"
+        )
+        let update = TrackMirrorUpdate(
+            repairs: [TrackMirrorRepair(sourceID: "catalog-id", target: target)],
+            upserts: [],
+            deletions: []
+        )
+
+        let store = TrackDataStore(modelContainer: container)
+        try await store.applyMirror(update)
+
+        let verification = ModelContext(container)
+        let tracks = try verification.fetch(FetchDescriptor<PersistedTrack>())
+        let repaired = try #require(tracks.first)
+        #expect(tracks.count == 1)
+        expectRepairedTrack(
+            repaired,
+            hasSameIdentity: repaired.persistentModelID == persistentID,
+            processedAt: processedAt
+        )
+
+        let history = try verification.fetch(FetchDescriptor<PersistedChangeLogEntry>())
+        #expect(history.count == 2)
+        #expect(history.allSatisfy { $0.trackID == "database-id" })
+        #expect(history.first { $0.entryID == linked.entryID }?.track?.persistentModelID == persistentID)
+        #expect(history.first { $0.entryID == unlinked.entryID }?.track?.persistentModelID == persistentID)
+    }
+
+    @Test("Mirror repair converges canonical and legacy state with all history")
+    func mirrorRepairConvergesExistingCanonicalTarget() async throws {
+        let container = try makeMemoryContainer()
+        let context = ModelContext(container)
+        let earlier = Date(timeIntervalSince1970: 1_700_000_000)
+        let later = Date(timeIntervalSince1970: 1_800_000_000)
+        let canonical = PersistedTrack(
+            trackID: "AS1", appleScriptID: "AS1", name: "Stored", artist: "Stored", album: "Stored",
+            genreUpdated: true, processedDate: earlier, lastError: "canonical error", originalArtist: "Stored Artist"
+        )
+        let legacy = PersistedTrack(
+            trackID: "MK1", appleScriptID: "AS1", name: "Legacy", artist: "Legacy", album: "Legacy",
+            yearUpdated: true, processedDate: later, lastError: "legacy error", originalAlbum: "Legacy Album",
+            yearBeforeMGU: 1998, yearSetByMGU: 1999
+        )
+        let canonicalHistory = PersistedChangeLogEntry(
+            entryID: UUID(), timestamp: .now, changeTypeRaw: ChangeType.genreUpdate.rawValue,
+            trackID: "AS1", artist: "Stored", trackName: "Stored", albumName: "Stored"
+        )
+        canonicalHistory.track = canonical
+        let linkedLegacyHistory = PersistedChangeLogEntry(
+            entryID: UUID(), timestamp: .now, changeTypeRaw: ChangeType.yearUpdate.rawValue,
+            trackID: "MK1", artist: "Legacy", trackName: "Legacy", albumName: "Legacy"
+        )
+        linkedLegacyHistory.track = legacy
+        let unlinkedLegacyHistory = PersistedChangeLogEntry(
+            entryID: UUID(), timestamp: .now, changeTypeRaw: ChangeType.artistRename.rawValue,
+            trackID: "MK1", artist: "Legacy", trackName: "Legacy", albumName: "Legacy"
+        )
+        context.insert(canonical)
+        context.insert(legacy)
+        context.insert(canonicalHistory)
+        context.insert(linkedLegacyHistory)
+        context.insert(unlinkedLegacyHistory)
+        try context.save()
+
+        let live = Track(
+            id: "AS1", name: "Live", artist: "Live", album: "Live", appleScriptID: "AS1"
+        )
+        let update = TrackMirrorUpdate(
+            repairs: [TrackMirrorRepair(sourceID: "MK1", target: live)], upserts: [], deletions: []
+        )
+        let store = TrackDataStore(modelContainer: container)
+
+        try await store.applyMirror(update)
+        try await store.applyMirror(update)
+
+        let verification = ModelContext(container)
+        let tracks = try verification.fetch(FetchDescriptor<PersistedTrack>())
+        let history = try verification.fetch(FetchDescriptor<PersistedChangeLogEntry>())
+        let merged = try #require(tracks.first)
+        #expect(tracks.count == 1)
+        #expect(merged.trackID == "AS1")
+        #expect(merged.name == "Live")
+        #expect((merged.artist, merged.album) == ("Live", "Live"))
+        #expect(merged.genreUpdated)
+        #expect(merged.yearUpdated)
+        #expect(merged.processedDate == later)
+        #expect(merged.lastError == "canonical error")
+        #expect(merged.originalArtist == "Stored Artist")
+        #expect(merged.originalAlbum == "Legacy Album")
+        #expect(merged.yearBeforeMGU == 1998)
+        #expect(merged.yearSetByMGU == 1999)
+        #expect(history.count == 3)
+        #expect(history.allSatisfy { $0.trackID == "AS1" && $0.track?.trackID == "AS1" })
+    }
+
+    @Test("Mirror repair validation leaves stored state unchanged")
+    func mirrorRepairValidationIsAtomic() async throws {
+        let container = try makeMemoryContainer()
+        let context = ModelContext(container)
+        context.insert(PersistedTrack(
+            trackID: "legacy", appleScriptID: "legacy", name: "Legacy", artist: "Artist", album: "Album"
+        ))
+        context.insert(PersistedTrack(trackID: "occupied", name: "Occupied", artist: "Artist", album: "Album"))
+        try context.save()
+        let store = TrackDataStore(modelContainer: container)
+        let before = try await store.loadAllTracks()
+        let target = mirrorTrack(id: "target")
+        let occupied = mirrorTrack(id: "occupied")
+
+        let cases: [(TrackMirrorUpdate, TrackStoreError)] = try [
+            (TrackMirrorUpdate(
+                repairs: [TrackMirrorRepair(sourceID: "missing", target: target)],
+                upserts: [], deletions: []
+            ), .missingSource(id: "missing")),
+            (TrackMirrorUpdate(
+                repairs: [
+                    TrackMirrorRepair(sourceID: "legacy", target: target),
+                    TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "other")),
+                ], upserts: [], deletions: []
+            ), .duplicateRepairSources(ids: ["legacy"])),
+            (TrackMirrorUpdate(
+                repairs: [
+                    TrackMirrorRepair(sourceID: "legacy", target: target),
+                    TrackMirrorRepair(sourceID: "occupied", target: target),
+                ], upserts: [], deletions: []
+            ), .duplicateRepairTargets(ids: [databaseID("target")])),
+            (TrackMirrorUpdate(
+                repairs: [TrackMirrorRepair(sourceID: "legacy", target: occupied)],
+                upserts: [], deletions: []
+            ), .targetExists(id: databaseID("occupied"))),
+            (TrackMirrorUpdate(
+                repairs: [TrackMirrorRepair(sourceID: "legacy", target: target)],
+                upserts: [target], deletions: []
+            ), .identityOverlap(ids: [databaseID("target")])),
+            (TrackMirrorUpdate(
+                repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "legacy"))],
+                upserts: [], deletions: []
+            ), .redundantRepair(id: databaseID("legacy"))),
+        ]
+
+        for (update, expectedError) in cases {
+            do {
+                try await store.applyMirror(update)
+                Issue.record("Expected mirror rekey validation to fail")
+            } catch let error as TrackStoreError {
+                #expect(error == expectedError)
+            }
+            #expect(try await store.loadAllTracks() == before)
+        }
+    }
+
+    @Test("Mirror update atomically combines rekey, upsert, and deletion")
+    func mixedMirrorUpdate() async throws {
+        let store = try makeStore()
+        try await store.seedMirror([
+            sampleTrack(id: "legacy"),
+            mirrorTrack(id: "updated", name: "Old"),
+            mirrorTrack(id: "deleted"),
+        ])
+        let update = try TrackMirrorUpdate(
+            repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "rekeyed"))],
+            upserts: [mirrorTrack(id: "updated", name: "New"), mirrorTrack(id: "inserted")],
+            deletions: [databaseID("deleted")]
+        )
+
+        try await store.applyMirror(update)
+
+        let tracks = try await store.loadAllTracks()
+        #expect(tracks.map(\.id).sorted() == ["inserted", "rekeyed", "updated"])
+        #expect(tracks.first { $0.id == "updated" }?.name == "New")
+    }
+
+    @Test("Mirror repair and undo evidence survive relaunch")
+    func mirrorRepairSurvivesRelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TrackMirrorRepair-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("tracks.store")
+        let entryID = UUID()
+
+        do {
+            let container = try makeContainer(at: url)
+            let context = ModelContext(container)
+            let canonical = PersistedTrack(
+                trackID: "canonical", appleScriptID: "canonical", name: "Stored", artist: "Artist", album: "Album",
+                lastError: "stored error", originalArtist: "Stored Artist"
+            )
+            let legacy = PersistedTrack(
+                trackID: "legacy", appleScriptID: "canonical", name: "Legacy", artist: "Artist", album: "Album",
+                genreUpdated: true, originalArtist: "Original"
+            )
+            let entry = PersistedChangeLogEntry(
+                entryID: entryID, timestamp: .now, changeTypeRaw: ChangeType.artistRename.rawValue,
+                trackID: "legacy", artist: "Artist", trackName: "Legacy", albumName: "Album"
+            )
+            entry.track = legacy
+            context.insert(canonical)
+            context.insert(legacy)
+            context.insert(entry)
+            try context.save()
+            try await TrackDataStore(modelContainer: container).applyMirror(TrackMirrorUpdate(
+                repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "canonical"))],
+                upserts: [], deletions: []
+            ))
+        }
+
+        let relaunched = try makeContainer(at: url)
+        let context = ModelContext(relaunched)
+        let tracks = try context.fetch(FetchDescriptor<PersistedTrack>())
+        let track = try #require(tracks.first)
+        let entry = try #require(context.fetch(FetchDescriptor<PersistedChangeLogEntry>()).first)
+        #expect(tracks.count == 1)
+        #expect(track.trackID == "canonical")
+        #expect(track.genreUpdated)
+        #expect(track.lastError == "stored error")
+        #expect(track.originalArtist == "Stored Artist")
+        #expect(entry.entryID == entryID)
+        #expect(entry.trackID == "canonical")
+        #expect(entry.track?.trackID == "canonical")
+    }
+}

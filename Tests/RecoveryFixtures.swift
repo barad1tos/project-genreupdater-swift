@@ -80,6 +80,7 @@ private func uncertainWorkItem(
     oldValue: String?,
     newValue: String?,
     changeType: ChangeType = .genreUpdate,
+    capturedAlbumArtist: String? = nil,
     albumArtistChange: AlbumArtistChange? = nil,
     writeChange: WorkChange? = nil
 ) -> RunWorkItem {
@@ -89,7 +90,8 @@ private func uncertainWorkItem(
         appleScriptID: "persistent-1",
         artist: "Artist",
         album: "Album",
-        trackName: "Track"
+        trackName: "Track",
+        albumArtist: capturedAlbumArtist
     ))
     let change = WorkChange(
         changeType: changeType,
@@ -119,6 +121,7 @@ func uncertainRunRecord(
     oldValue: String? = "Rock",
     newValue: String? = "Stoner Rock",
     changeType: ChangeType = .genreUpdate,
+    capturedAlbumArtist: String? = nil,
     albumArtistChange: AlbumArtistChange? = nil,
     writeChange: WorkChange? = nil
 ) -> (record: RunRecord, item: RunWorkItem) {
@@ -134,6 +137,7 @@ func uncertainRunRecord(
         oldValue: oldValue,
         newValue: newValue,
         changeType: changeType,
+        capturedAlbumArtist: capturedAlbumArtist,
         albumArtistChange: albumArtistChange,
         writeChange: writeChange
     )
@@ -217,8 +221,8 @@ func makeRelaunchedStore(
 func makeArtistRecovery(store: RunRecordDataStore, recoveryID: UUID) async throws -> RecoverySetup {
     let setup = try await makeRecoverySetup(store: store)
     _ = await setup.processor.beginRecoveryHold(id: recoveryID)
-    try await setup.trackStore.saveTracks([Track(
-        id: "read-1",
+    try await setup.trackStore.seedMirror([Track(
+        id: "persistent-1",
         name: "Track",
         artist: "Artist",
         album: "Album",
@@ -229,15 +233,16 @@ func makeArtistRecovery(store: RunRecordDataStore, recoveryID: UUID) async throw
         isMusicAppRunning: { true },
         areScriptsInstalled: { true }
     )))
-    setup.dependencies.installTestObservationClient(RecoveryScriptStub(tracks: [
+    setup.dependencies.recoveryVerifier = RecoveryScriptStub(tracks: [
         Track(
             id: "persistent-1",
             name: "Track",
             artist: "Renamed Artist",
             album: "Album",
-            albumArtist: "Various Artists"
+            albumArtist: "Various Artists",
+            appleScriptID: "persistent-1"
         ),
-    ]))
+    ])
     return setup
 }
 
@@ -316,35 +321,31 @@ actor FlakyRecoveryStore: RunRecordStore {
 }
 
 /// Serves canned tracks for recovery observation in app-hosted tests.
-actor RecoveryScriptStub: AppleScriptClient {
+actor RecoveryScriptStub: MusicAppMutating, MusicAppVerifying {
     private let tracks: [Track]
 
     init(tracks: [Track]) {
         self.tracks = tracks
     }
 
-    func initialize() async throws {
-        // The stub requires no setup.
+    func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Track] {
+        databaseIDs.compactMap { databaseID in
+            tracks.first { $0.databaseID == databaseID }
+        }
     }
 
-    func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
-        nil
-    }
-
-    func fetchTracksByIDs(_ trackIDs: [String], batchSize _: Int, timeout _: Duration?) async throws -> [Track] {
-        trackIDs.compactMap { id in tracks.first { ($0.appleScriptID ?? $0.id) == id } }
-    }
-
-    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
-        tracks.map(\.id)
-    }
-
-    func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws
-        -> AppleScriptWriteResult {
+    func update(
+        _: MusicTrackUpdate,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> MusicWriteResult {
+        try await onAttempt()
         throw AppleScriptBridgeError.scriptNotFound(name: "update_property", searchPath: URL(filePath: "/dev/null"))
     }
 
-    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
+    func update(
+        _: [MusicTrackUpdate],
+        onAttempt _: @escaping WriteAttemptHook
+    ) async throws {
         // The stub never dispatches batch writes.
     }
 }
@@ -364,7 +365,7 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) async throws -> Recov
     )
     let trackStore = TrackDataStore(modelContainer: persistenceContainer)
     let undo = UndoCoordinator(
-        scriptBridge: RecoveryScriptStub(tracks: []),
+        musicApp: RecoveryScriptStub(tracks: []),
         stores: .init(changeLog: changeLog),
         directory: directory.appendingPathComponent("undo", isDirectory: true)
     )

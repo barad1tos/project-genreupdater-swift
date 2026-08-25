@@ -14,9 +14,6 @@ import SwiftData
 public actor TrackDataStore: TrackStateStore {
     private let log = AppLogger.make(category: "trackstore")
 
-    /// Chunk size for batch insert operations.
-    private static let batchChunkSize = 500
-
     // MARK: - Initialization
 
     public func initialize() async throws {
@@ -58,53 +55,47 @@ public actor TrackDataStore: TrackStateStore {
 
     // MARK: - Write Operations
 
-    public func saveTracks(_ tracks: [Track]) async throws {
-        let chunks = tracks.chunked(into: Self.batchChunkSize)
-
-        for chunk in chunks {
-            for track in chunk {
-                let descriptor = FetchDescriptor<PersistedTrack>(
-                    predicate: #Predicate { $0.trackID == track.id }
-                )
-
-                if let existing = try modelContext.fetch(descriptor).first {
-                    existing.update(from: track)
-                } else {
-                    let persisted = PersistedTrack(from: track)
-                    modelContext.insert(persisted)
-                }
-            }
-
-            try modelContext.save()
-        }
-
-        log.info("Saved \(tracks.count, privacy: .public) tracks")
-    }
-
-    @discardableResult
-    public func deleteTrackIDs(_ ids: [String]) async throws -> Int {
-        let uniqueIDs = Array(Set(ids)).sorted()
-        guard !uniqueIDs.isEmpty else { return 0 }
+    public func applyMirror(_ update: TrackMirrorUpdate) async throws {
+        let plan = try Self.validate(update)
+        let currentTracks = try modelContext.fetch(FetchDescriptor<PersistedTrack>())
+        try Self.validateStored(plan, tracks: currentTracks)
 
         var deletedCount = 0
-        let chunks = uniqueIDs.chunked(into: Self.batchChunkSize)
-        for chunk in chunks {
-            for id in chunk {
-                let descriptor = FetchDescriptor<PersistedTrack>(
-                    predicate: #Predicate { $0.trackID == id }
-                )
-                let persistedTracks = try modelContext.fetch(descriptor)
-                for persistedTrack in persistedTracks {
+        do {
+            try modelContext.transaction {
+                let transactionPlan = try Self.validate(update)
+                let storedTracks = try modelContext.fetch(FetchDescriptor<PersistedTrack>())
+                let storedState = try Self.validateStored(transactionPlan, tracks: storedTracks)
+                let history = try modelContext.fetch(FetchDescriptor<PersistedChangeLogEntry>())
+
+                for repair in transactionPlan.repairs {
+                    try Self.applyRepair(repair, state: storedState, history: history, modelContext: modelContext)
+                }
+
+                for (track, databaseID) in zip(update.upserts, transactionPlan.upsertIDs) {
+                    if let persistedTrack = storedState.canonicalByID[databaseID] {
+                        persistedTrack.updateMirror(from: track, databaseID: databaseID)
+                    } else {
+                        modelContext.insert(PersistedTrack(mirror: track, databaseID: databaseID))
+                    }
+                }
+
+                for id in transactionPlan.deletions {
+                    guard let persistedTrack = storedState.canonicalByID[id] else { continue }
                     modelContext.delete(persistedTrack)
                     deletedCount += 1
                 }
             }
-
-            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
         }
 
-        log.info("Deleted \(deletedCount, privacy: .public) persisted tracks")
-        return deletedCount
+        log.info("Applied mirror repairs: \(update.repairs.count, privacy: .public)")
+        log
+            .info(
+                "Applied mirror upserts: \(update.upserts.count, privacy: .public); deletions: \(deletedCount, privacy: .public)"
+            )
     }
 
     public func persistAppliedChange(_ change: ChangeLogEntry) async throws {
@@ -156,6 +147,191 @@ public actor TrackDataStore: TrackStateStore {
             modelContext.rollback()
             throw error
         }
+    }
+
+    private static func duplicateIDs(in ids: [MusicDatabaseTrackID]) -> [MusicDatabaseTrackID] {
+        var seen = Set<MusicDatabaseTrackID>()
+        var duplicates = Set<MusicDatabaseTrackID>()
+        for id in ids where !seen.insert(id).inserted {
+            duplicates.insert(id)
+        }
+        return duplicates.sorted { $0.rawValue < $1.rawValue }
+    }
+
+    private static func canonicalIDs(for tracks: [Track]) throws -> [MusicDatabaseTrackID] {
+        try tracks.map { track in
+            guard let databaseID = track.databaseID else {
+                throw TrackStoreError.missingDatabaseID(trackID: track.id)
+            }
+            guard track.id == databaseID.rawValue else {
+                throw TrackStoreError.nonCanonicalTrack(trackID: track.id, databaseID: databaseID)
+            }
+            return databaseID
+        }
+    }
+
+    private struct ValidatedRepair {
+        let sourceID: String
+        let targetID: MusicDatabaseTrackID
+        let track: Track
+    }
+
+    private struct MirrorPlan {
+        let repairs: [ValidatedRepair]
+        let upsertIDs: [MusicDatabaseTrackID]
+        let deletions: [MusicDatabaseTrackID]
+    }
+
+    private struct StoredMirrorState {
+        let byID: [String: PersistedTrack]
+        let canonicalByID: [MusicDatabaseTrackID: PersistedTrack]
+    }
+
+    private static func validate(_ update: TrackMirrorUpdate) throws -> MirrorPlan {
+        let repairs = try validatedRepairs(update.repairs)
+        let upsertIDs = try canonicalIDs(for: update.upserts)
+        let duplicateUpserts = duplicateIDs(in: upsertIDs)
+        guard duplicateUpserts.isEmpty else {
+            throw TrackStoreError.duplicateUpserts(ids: duplicateUpserts)
+        }
+
+        let duplicateDeletions = duplicateIDs(in: update.deletions)
+        guard duplicateDeletions.isEmpty else {
+            throw TrackStoreError.duplicateDeletions(ids: duplicateDeletions)
+        }
+
+        let sortedDeletions = update.deletions.sorted { $0.rawValue < $1.rawValue }
+        let overlappingIDs = overlapIDs(repairs: repairs, upserts: upsertIDs, deletions: sortedDeletions)
+        guard overlappingIDs.isEmpty else {
+            throw TrackStoreError.identityOverlap(ids: overlappingIDs)
+        }
+        return MirrorPlan(repairs: repairs, upsertIDs: upsertIDs, deletions: sortedDeletions)
+    }
+
+    private static func validatedRepairs(_ repairs: [TrackMirrorRepair]) throws -> [ValidatedRepair] {
+        let emptySource = repairs.contains { $0.sourceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !emptySource else { throw TrackStoreError.emptySource }
+
+        let duplicateSources = duplicateStrings(in: repairs.map(\.sourceID))
+        guard duplicateSources.isEmpty else {
+            throw TrackStoreError.duplicateRepairSources(ids: duplicateSources)
+        }
+
+        let targetIDs = try canonicalIDs(for: repairs.map(\.target))
+        let duplicateTargets = duplicateIDs(in: targetIDs)
+        guard duplicateTargets.isEmpty else {
+            throw TrackStoreError.duplicateRepairTargets(ids: duplicateTargets)
+        }
+
+        return zip(repairs, targetIDs).map { repair, targetID in
+            ValidatedRepair(sourceID: repair.sourceID, targetID: targetID, track: repair.target)
+        }
+    }
+
+    private static func overlapIDs(
+        repairs: [ValidatedRepair],
+        upserts: [MusicDatabaseTrackID],
+        deletions: [MusicDatabaseTrackID]
+    ) -> [MusicDatabaseTrackID] {
+        let targets = Set(repairs.map(\.targetID))
+        let upsertSet = Set(upserts)
+        let deletionSet = Set(deletions)
+        let overlaps = targets.intersection(upsertSet)
+            .union(targets.intersection(deletionSet))
+            .union(upsertSet.intersection(deletionSet))
+        return overlaps.sorted { $0.rawValue < $1.rawValue }
+    }
+
+    @discardableResult
+    private static func validateStored(_ plan: MirrorPlan, tracks: [PersistedTrack]) throws -> StoredMirrorState {
+        let byID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.trackID, $0) })
+        for repair in plan.repairs {
+            let source = byID[repair.sourceID]
+            let target = byID[repair.targetID.rawValue]
+            guard source != nil || target?.isCanonical(databaseID: repair.targetID) == true else {
+                throw TrackStoreError.missingSource(id: repair.sourceID)
+            }
+            if let source, repair.sourceID == repair.targetID.rawValue {
+                guard source.appleScriptID != source.trackID else {
+                    throw TrackStoreError.redundantRepair(id: repair.targetID)
+                }
+            } else if let target, !target.isCanonical(databaseID: repair.targetID) {
+                throw TrackStoreError.targetExists(id: repair.targetID)
+            }
+        }
+
+        let operationIDs = Set(plan.upsertIDs).union(plan.deletions)
+        let canonicalByID = try indexCanonicalTracks(tracks, operationIDs: operationIDs)
+        return StoredMirrorState(byID: byID, canonicalByID: canonicalByID)
+    }
+
+    private static func applyRepair(
+        _ repair: ValidatedRepair,
+        state: StoredMirrorState,
+        history: [PersistedChangeLogEntry],
+        modelContext: ModelContext
+    ) throws {
+        let source = state.byID[repair.sourceID]
+        let target = state.canonicalByID[repair.targetID]
+        let sourceHistory = history.filter { entry in
+            entry.trackID == repair.sourceID || entry.track === source
+        }
+        let persistedTrack: PersistedTrack
+        let sourceToDelete: PersistedTrack?
+        if let source, let target, source !== target {
+            target.mergeRepair(source, with: repair.track, databaseID: repair.targetID)
+            persistedTrack = target
+            sourceToDelete = source
+        } else if let source {
+            source.repairMirror(with: repair.track, databaseID: repair.targetID)
+            persistedTrack = source
+            sourceToDelete = nil
+        } else if let target {
+            target.updateMirror(from: repair.track, databaseID: repair.targetID)
+            persistedTrack = target
+            sourceToDelete = nil
+        } else {
+            throw TrackStoreError.missingSource(id: repair.sourceID)
+        }
+        for entry in sourceHistory {
+            entry.trackID = repair.targetID.rawValue
+            entry.track = persistedTrack
+        }
+        if let sourceToDelete {
+            sourceToDelete.changeLog.removeAll()
+            modelContext.delete(sourceToDelete)
+        }
+    }
+
+    private static func indexCanonicalTracks(
+        _ tracks: [PersistedTrack],
+        operationIDs: Set<MusicDatabaseTrackID>
+    ) throws -> [MusicDatabaseTrackID: PersistedTrack] {
+        var canonicalByID: [MusicDatabaseTrackID: PersistedTrack] = [:]
+        var collisions = Set<MusicDatabaseTrackID>()
+        for track in tracks {
+            guard let databaseID = MusicDatabaseTrackID(rawValue: track.trackID) else { continue }
+            guard track.appleScriptID == track.trackID else {
+                if operationIDs.contains(databaseID) {
+                    collisions.insert(databaseID)
+                }
+                continue
+            }
+            canonicalByID[databaseID] = track
+        }
+        guard collisions.isEmpty else {
+            throw TrackStoreError.identityCollisions(ids: collisions.sorted { $0.rawValue < $1.rawValue })
+        }
+        return canonicalByID
+    }
+
+    private static func duplicateStrings(in values: [String]) -> [String] {
+        var seen = Set<String>()
+        var duplicates = Set<String>()
+        for value in values where !seen.insert(value).inserted {
+            duplicates.insert(value)
+        }
+        return duplicates.sorted()
     }
 }
 

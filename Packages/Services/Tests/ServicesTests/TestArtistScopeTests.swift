@@ -37,12 +37,12 @@ struct TestArtistScopeTests {
         year: Int?,
         confidence: Int
     ) async -> TestArtistScopeFixture {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let store = MockTrackStore()
         let cache = MockCacheService()
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TestArtistScopeTests-\(UUID().uuidString)")
-        let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
+        let undo = UndoCoordinator(musicApp: bridge, directory: undoDirectory)
         let yearScores: [Int: Int] = if let year {
             [year: confidence]
         } else {
@@ -62,7 +62,7 @@ struct TestArtistScopeTests {
         let coordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
                     trackStore: store,
                     cache: cache
@@ -95,5 +95,5 @@ struct TestArtistScopeTests {
 
 private struct TestArtistScopeFixture {
     let coordinator: UpdateCoordinator
-    let bridge: MockAppleScriptClient
+    let bridge: MusicAppTestAccess
 }

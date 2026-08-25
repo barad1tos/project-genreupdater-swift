@@ -27,9 +27,11 @@ struct RunRuntimeFactory {
             albumTarget: configuration.albumTarget
         )
         let cacheConfiguration = cacheConfiguration(for: appConfiguration)
-        let runServices = try await services.prepare(id: configuration.id, configuration: appConfiguration)
+        let runServices = try await services.prepareObservation(
+            id: configuration.id,
+            configuration: appConfiguration
+        )
         return LibrarySyncService(
-            scriptBridge: runServices.scripts,
             trackStore: store,
             cache: cache,
             pendingVerificationService: runServices.pendingVerification,
@@ -43,7 +45,7 @@ struct RunRuntimeFactory {
                     AlbumIdentity(artist: $0.artist, album: $0.album)
                 }
             ),
-            readProvider: runServices.readProvider
+            observer: runServices.observer
         )
     }
 
@@ -58,7 +60,10 @@ struct RunRuntimeFactory {
             albumTarget: configuration.albumTarget
         )
         let cacheConfiguration = cacheConfiguration(for: appConfiguration)
-        let runServices = try await services.consume(id: configuration.id, configuration: appConfiguration)
+        let runServices = try await services.consumePreview(
+            id: configuration.id,
+            configuration: appConfiguration
+        )
         let snapshotService = AppDependencies.makeSnapshotService(
             cache: cache,
             configuration: cacheConfiguration
@@ -74,7 +79,6 @@ struct RunRuntimeFactory {
         let coordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: apiOrchestrator,
-                scriptBridge: runServices.scripts,
                 stores: .init(
                     trackStore: store,
                     cache: cache
@@ -89,14 +93,13 @@ struct RunRuntimeFactory {
             yearDeterminator: AppDependencies.makeYearDeterminator(configuration: appConfiguration),
             runtimeConfiguration: UpdateRuntimeConfiguration(configuration: appConfiguration)
         )
-        let identity = WriteIdentityRefresher(mapper: mapper, client: runServices.scripts)
+        let identity = WriteIdentityRefresher(mapper: mapper, source: runServices.identifier)
 
         return FixPlanProducer.Runtime(
             refreshIdentity: { tracks, currentScope in
                 try await identity.refresh(
                     tracks: tracks,
-                    scope: currentScope,
-                    config: appConfiguration.applescript
+                    scope: currentScope
                 )
             },
             albumContext: { await coordinator.albumContextTracksByTrackID(for: $0, requiresMutationMetadata: false) },
@@ -125,7 +128,10 @@ struct RunRuntimeFactory {
             albumTarget: configuration.albumTarget
         )
         let cacheConfiguration = cacheConfiguration(for: appConfiguration)
-        let runServices = try await services.consume(id: configuration.id, configuration: appConfiguration)
+        let runServices = try await services.consumeWrite(
+            id: configuration.id,
+            configuration: appConfiguration
+        )
         let snapshotService = AppDependencies.makeSnapshotService(
             cache: cache,
             configuration: cacheConfiguration
@@ -139,7 +145,7 @@ struct RunRuntimeFactory {
                     discogsAccess: .disabled,
                     analytics: analytics
                 ),
-                scriptBridge: runServices.scripts,
+                writer: runServices.writer,
                 stores: .init(trackStore: store, cache: cache),
                 undoCoordinator: undo,
                 idMapper: mapper,
@@ -151,7 +157,7 @@ struct RunRuntimeFactory {
             yearDeterminator: AppDependencies.makeYearDeterminator(configuration: appConfiguration),
             runtimeConfiguration: UpdateRuntimeConfiguration(configuration: appConfiguration)
         )
-        return FixPlanWrite.Runtime(coordinator: coordinator, scripts: runServices.scripts)
+        return FixPlanWrite.Runtime(coordinator: coordinator, verifier: runServices.writer)
     }
 
     func discard(_ configuration: FixPlanConfig) async {
@@ -213,22 +219,15 @@ struct RunRuntimeFactory {
 
 struct WriteIdentityRefresher {
     let mapper: TrackIDMapper
-    let client: any AppleScriptClient
+    let source: any MusicAppIdentifying
 
     func refresh(
         tracks: [Track],
-        scope: ProcessingScopeSnapshot,
-        config: AppleScriptConfig
+        scope: ProcessingScopeSnapshot
     ) async throws {
-        let trackFetchTimeout = scope.normalizedTestArtists.isEmpty
-            ? config.timeouts.idsBatchFetch
-            : config.timeouts.singleArtistFetch
         let mappedCount = try await mapper.refreshMapping(
             musicKitTracks: tracks,
-            appleScriptClient: client,
-            batchSize: config.batchProcessing.idsBatchSize,
-            allTrackIDsTimeout: config.timeouts.fullLibraryFetch,
-            tracksByIDsTimeout: trackFetchTimeout,
+            identitySource: source,
             testArtists: scope.normalizedTestArtists,
             mergeExisting: true
         )
@@ -254,7 +253,7 @@ extension AppDependencies {
 
         return RunRuntimeFactory(
             services: RunServiceFactory(
-                makeScripts: { configuration in
+                makeMusicAccess: { configuration in
                     let bridge = AppleScriptBridge(
                         installer: installer,
                         config: configuration.applescript,
@@ -262,7 +261,11 @@ extension AppDependencies {
                         analytics: analytics
                     )
                     try await bridge.initialize()
-                    return bridge
+                    return RunMusicAccess(
+                        identifier: bridge,
+                        writer: bridge,
+                        observer: MusicAppObserver(bridge: bridge)
+                    )
                 },
                 makePendingVerification: { configuration in
                     let pendingVerification = PendingVerificationStore(
@@ -271,12 +274,6 @@ extension AppDependencies {
                     )
                     try await pendingVerification.initialize()
                     return pendingVerification
-                },
-                makeReadProvider: { _ in
-                    MeasuredLibraryProvider(
-                        base: MusicKitReadProvider(reader: MusicLibraryReader()),
-                        analytics: analytics
-                    )
                 }
             ),
             store: store,

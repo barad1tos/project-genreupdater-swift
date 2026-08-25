@@ -5,10 +5,10 @@ import Testing
 
 @Suite("TrackIDMapper client refresh")
 struct TrackIDRefreshTests {
-    @Test("Refresh from AppleScript client maps MusicKit tracks to fetched AppleScript IDs")
-    func refreshFromAppleScriptClientMapsFetchedTracks() async throws {
+    @Test("Refresh from identity source maps MusicKit tracks to fetched AppleScript IDs")
+    func refreshFromIdentitySourceMapsFetchedTracks() async throws {
         let mapper = TrackIDMapper()
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let musicKitTracks = [
             makeTrack(id: "MK1", name: "Come Together", artist: "Beatles", album: "Abbey Road"),
             makeTrack(id: "MK2", name: "Something", artist: "Beatles", album: "Abbey Road")
@@ -21,10 +21,7 @@ struct TrackIDRefreshTests {
 
         let mappedCount = try await mapper.refreshMapping(
             musicKitTracks: musicKitTracks,
-            appleScriptClient: bridge,
-            batchSize: 50,
-            allTrackIDsTimeout: .seconds(5),
-            tracksByIDsTimeout: .seconds(10)
+            identitySource: bridge
         )
 
         #expect(mappedCount == 2)
@@ -32,10 +29,10 @@ struct TrackIDRefreshTests {
         #expect(await mapper.appleScriptID(forMusicKitID: "MK2") == "AS-HEX-2")
     }
 
-    @Test("Unscoped refresh fetches AppleScript IDs before metadata details")
-    func unscopedRefreshFetchesAppleScriptIDsBeforeMetadataDetails() async throws {
+    @Test("Unscoped refresh requests the full canonical identity surface")
+    func unscopedRefreshRequestsFullIdentitySurface() async throws {
         let mapper = TrackIDMapper()
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let musicKitTracks = [
             makeTrack(id: "MK-CLUTCH", name: "Immortal", artist: "Clutch", album: "Pure Rock Fury")
         ]
@@ -46,18 +43,11 @@ struct TrackIDRefreshTests {
 
         let mappedCount = try await mapper.refreshMapping(
             musicKitTracks: musicKitTracks,
-            appleScriptClient: bridge,
-            batchSize: 37,
-            allTrackIDsTimeout: .seconds(4),
-            tracksByIDsTimeout: .seconds(9)
+            identitySource: bridge
         )
 
-        let detailsFetch = try #require(await bridge.fetchTracksByIDsCalls().first)
         #expect(mappedCount == 1)
-        #expect(await bridge.fetchAllTrackIDsTimeouts() == [.seconds(4)])
-        #expect(detailsFetch.trackIDs == ["AS-CLUTCH"])
-        #expect(detailsFetch.batchSize == 37)
-        #expect(detailsFetch.timeout == .seconds(9))
+        #expect(await bridge.identityScopes() == [[]])
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-CLUTCH") == "AS-CLUTCH")
     }
 
@@ -76,16 +66,12 @@ struct TrackIDRefreshTests {
 
         let mappedCount = try await mapper.refreshMapping(
             musicKitTracks: musicKitTracks,
-            appleScriptClient: bridge,
-            batchSize: 50,
-            allTrackIDsTimeout: .seconds(5),
-            tracksByIDsTimeout: .seconds(10),
-            testArtists: ["In Flames"]
+            identitySource: bridge,
+            testArtists: ["  in flames ", "In Flames"]
         )
 
         #expect(mappedCount == 1)
-        #expect(await bridge.didFetchAllTrackIDs() == false)
-        #expect(await bridge.requestedArtists() == ["In Flames"])
+        #expect(await bridge.requestedScopes() == [["in flames"]])
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-IN") == "AS-IN")
         #expect(await mapper.appleScriptID(forMusicKitID: "MK-OUT") == nil)
     }
@@ -115,69 +101,24 @@ struct TrackIDRefreshTests {
     }
 }
 
-private actor ScopedTrackMappingScriptClient: AppleScriptClient {
+private actor ScopedTrackMappingScriptClient: MusicAppIdentifying {
     private let scopedTracks: [String: [Track]]
-    private var fetchedAllTrackIDs = false
-    private var artistRequests: [String] = []
+    private var scopes: [[String]] = []
 
     init(scopedTracks: [String: [Track]]) {
         self.scopedTracks = scopedTracks
     }
 
-    func initialize() async throws {
-        try Task.checkCancellation()
+    func fetchIdentityMetadata(scopedTo artists: [String]) async throws -> [Track] {
+        scopes.append(artists)
+        return artists.flatMap { artist in
+            scopedTracks.first { key, _ in
+                key.localizedCaseInsensitiveCompare(artist) == .orderedSame
+            }?.value ?? []
+        }
     }
 
-    func runScript(
-        name _: String,
-        arguments _: [String],
-        timeout _: Duration?
-    ) async throws -> String? {
-        nil
-    }
-
-    func fetchTracks(
-        artist: String?,
-        timeout _: Duration?
-    ) async throws -> [Track] {
-        guard let artist else { return [] }
-        artistRequests.append(artist)
-        return scopedTracks[artist] ?? []
-    }
-
-    func fetchTracksByIDs(
-        _: [String],
-        batchSize _: Int,
-        timeout _: Duration?
-    ) async throws -> [Track] {
-        []
-    }
-
-    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
-        fetchedAllTrackIDs = true
-        return []
-    }
-
-    func updateTrackProperty(
-        trackID _: String,
-        property _: String,
-        value _: String
-    ) async throws -> AppleScriptWriteResult {
-        try Task.checkCancellation()
-        return .changed
-    }
-
-    func batchUpdateTracks(
-        _: [TrackPropertyUpdate]
-    ) async throws {
-        try Task.checkCancellation()
-    }
-
-    func didFetchAllTrackIDs() -> Bool {
-        fetchedAllTrackIDs
-    }
-
-    func requestedArtists() -> [String] {
-        artistRequests
+    func requestedScopes() -> [[String]] {
+        scopes
     }
 }

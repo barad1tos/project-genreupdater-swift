@@ -29,6 +29,8 @@ struct ArtistEvidenceWorkflowTests {
     @Test("full library batch groups explicit feature credits")
     func featureCreditBatch() async throws {
         let fixture = makeWorkflowFixture()
+        var tracks = featureCreditGenreTracks()
+        tracks[1].appleScriptID = "target"
         let viewModel = fixture.viewModel
         viewModel.mode = .fullLibrary
         viewModel.previewOnly = false
@@ -37,7 +39,7 @@ struct ArtistEvidenceWorkflowTests {
         viewModel.cleanTrackNames = false
         viewModel.cleanAlbumNames = false
 
-        viewModel.start(tracks: featureCreditGenreTracks())
+        viewModel.start(tracks: tracks)
 
         try await waitForWorkflowToLeaveScanning(viewModel)
 
@@ -45,8 +47,12 @@ struct ArtistEvidenceWorkflowTests {
             Issue.record("Expected the feature-credit batch to complete")
             return
         }
-        #expect(await fixture.scriptClient.updatedProperties() == [
-            TrackPropertyUpdate(trackID: "target", property: "genre", value: "Post-Punk"),
+        #expect(try await fixture.scriptClient.updatedProperties() == [
+            MusicTrackUpdate(
+                databaseID: testMusicDatabaseID("target"),
+                property: .genre,
+                value: "Post-Punk"
+            ),
         ])
     }
 
@@ -113,8 +119,12 @@ struct ArtistEvidenceWorkflowTests {
         }
         #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
         #expect(viewModel.result?.errorDescriptions.isEmpty == true)
-        #expect(await fixture.scriptClient.updatedProperties() == [
-            TrackPropertyUpdate(trackID: "as-target", property: "genre", value: "Post-Punk"),
+        #expect(try await fixture.scriptClient.updatedProperties() == [
+            MusicTrackUpdate(
+                databaseID: testMusicDatabaseID("as-target"),
+                property: .genre,
+                value: "Post-Punk"
+            ),
         ])
     }
 

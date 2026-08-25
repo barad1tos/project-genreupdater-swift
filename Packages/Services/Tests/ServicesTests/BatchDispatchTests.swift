@@ -15,8 +15,8 @@ struct BatchDispatchTests {
         let checkpoints = BatchAttemptCounter()
 
         do {
-            try await bridge.batchUpdateTracks([
-                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Metal")
+            try await bridge.update([
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal")
             ], onAttempt: {
                 _ = await checkpoints.next()
             }, execute: { _ in
@@ -46,8 +46,8 @@ struct BatchDispatchTests {
         let checkpoints = BatchAttemptCounter()
 
         await #expect(throws: BatchSetupError.self) {
-            try await fixture.bridge.batchUpdateTracks([
-                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Metal")
+            try await fixture.bridge.update([
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal")
             ], onAttempt: {
                 _ = await checkpoints.next()
             }, execute: { _ in
@@ -64,8 +64,8 @@ struct BatchDispatchTests {
         let checkpoints = BatchAttemptCounter()
 
         await #expect(throws: CancellationError.self) {
-            try await fixture.bridge.batchUpdateTracks([
-                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Metal")
+            try await fixture.bridge.update([
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal")
             ], onAttempt: {
                 _ = await checkpoints.next()
             }, execute: { _ in
@@ -82,8 +82,8 @@ struct BatchDispatchTests {
         let checkpoints = BatchAttemptCounter()
 
         await #expect(throws: AppleScriptOutcomeError.self) {
-            try await fixture.bridge.batchUpdateTracks([
-                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Metal")
+            try await fixture.bridge.update([
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal")
             ], onAttempt: {
                 _ = await checkpoints.next()
             }, execute: { _ in
@@ -117,8 +117,8 @@ struct BatchDispatchTests {
         )
 
         do {
-            try await fixture.bridge.batchUpdateTracks([
-                TrackPropertyUpdate(trackID: "101", property: "genre", value: "Metal")
+            try await fixture.bridge.update([
+                musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal")
             ], onAttempt: {
                 throw WorkCheckpointError.store(stored)
             }, execute: { _ in

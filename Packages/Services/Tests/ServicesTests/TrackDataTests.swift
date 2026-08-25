@@ -38,6 +38,10 @@ struct TrackDataTests {
         )
     }
 
+    private func databaseID(_ rawValue: String) throws -> MusicDatabaseTrackID {
+        try #require(MusicDatabaseTrackID(rawValue: rawValue))
+    }
+
     private func appliedChange(
         trackID: String = "T001",
         type: ChangeType
@@ -150,7 +154,7 @@ struct TrackDataTests {
         try await store.initialize()
 
         let tracks = [sampleTrack(id: "1"), sampleTrack(id: "2", name: "Another Song")]
-        try await store.saveTracks(tracks)
+        try await store.seedMirror(tracks)
 
         let loaded = try await store.loadAllTracks()
         #expect(loaded.count == 2)
@@ -161,7 +165,7 @@ struct TrackDataTests {
         let store = try makeStore()
         try await store.initialize()
 
-        try await store.saveTracks([sampleTrack(id: "ABC")])
+        try await store.seedMirror([sampleTrack(id: "ABC")])
 
         let found = try await store.getTrack(byID: "ABC")
         #expect(found != nil)
@@ -187,41 +191,46 @@ struct TrackDataTests {
 
         #expect(try await store.trackCount() == 0)
 
-        try await store.saveTracks([sampleTrack(id: "1"), sampleTrack(id: "2"), sampleTrack(id: "3")])
+        try await store.seedMirror([sampleTrack(id: "1"), sampleTrack(id: "2"), sampleTrack(id: "3")])
         #expect(try await store.trackCount() == 3)
     }
 
-    @Test("deleteTrackIDs removes persisted tracks")
-    func deleteTrackIDs() async throws {
+    @Test("Mirror deletion removes persisted tracks")
+    func appliesMirrorDeletion() async throws {
         let store = try makeStore()
         try await store.initialize()
 
-        try await store.saveTracks([
+        try await store.seedMirror([
             sampleTrack(id: "1"),
             sampleTrack(id: "2"),
             sampleTrack(id: "3"),
         ])
+        let deletedID = try databaseID("2")
+        let missingID = try databaseID("missing")
 
-        let deletedCount = try await store.deleteTrackIDs(["2", "missing"])
+        try await store.applyMirror(TrackMirrorUpdate(
+            repairs: [],
+            upserts: [],
+            deletions: [deletedID, missingID]
+        ))
         let remainingTracks = try await store.loadAllTracks()
         let remainingIDs = remainingTracks.map(\.id).sorted()
 
-        #expect(deletedCount == 1)
         #expect(remainingIDs == ["1", "3"])
     }
 
     // MARK: - Upsert
 
-    @Test("saveTracks updates existing tracks")
-    func upsertBehavior() async throws {
+    @Test("Mirror upsert updates an existing track")
+    func updatesExistingMirror() async throws {
         let store = try makeStore()
         try await store.initialize()
 
         let original = Track(id: "U1", name: "Original", artist: "A", album: "B")
-        try await store.saveTracks([original])
+        try await store.seedMirror([original])
 
         let updated = Track(id: "U1", name: "Updated", artist: "A", album: "B", genre: "Metal")
-        try await store.saveTracks([updated])
+        try await store.seedMirror([updated])
 
         let count = try await store.trackCount()
         #expect(count == 1)
@@ -238,7 +247,7 @@ struct TrackDataTests {
         for expectation in appliedChangeExpectations {
             let store = try makeStore()
             try await store.initialize()
-            try await store.saveTracks([sampleTrack()])
+            try await store.seedMirror([sampleTrack()])
 
             try await store.persistAppliedChange(appliedChange(type: expectation.type))
 
@@ -254,7 +263,7 @@ struct TrackDataTests {
     @Test("Coupled artist rename updates both fields in the persisted mirror")
     func coupledArtistRenameUpdatesPersistedMirror() async throws {
         let store = try makeStore()
-        try await store.saveTracks([
+        try await store.seedMirror([
             Track(
                 id: "T001",
                 name: "Teardrop",
@@ -288,7 +297,7 @@ struct TrackDataTests {
     func completesProcessingState() async throws {
         let store = try makeStore()
         try await store.initialize()
-        try await store.saveTracks([sampleTrack()])
+        try await store.seedMirror([sampleTrack()])
 
         try await store.persistAppliedChange(appliedChange(type: .genreUpdate))
         try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
@@ -299,7 +308,7 @@ struct TrackDataTests {
     @Test("Confirmed writes persist recovery metadata")
     func persistsRecoveryMetadata() async throws {
         let store = try makeStore()
-        try await store.saveTracks([sampleTrack()])
+        try await store.seedMirror([sampleTrack()])
 
         try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
         try await store.persistAppliedChange(appliedChange(type: .artistRename))
@@ -316,7 +325,7 @@ struct TrackDataTests {
     @Test("Repeated writes preserve first originals and update the applied year")
     func preservesFirstValues() async throws {
         let store = try makeStore()
-        try await store.saveTracks([sampleTrack()])
+        try await store.seedMirror([sampleTrack()])
 
         try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
         var secondYear = appliedChange(type: .yearUpdate)
@@ -346,18 +355,10 @@ struct TrackDataTests {
     @Test("Sparse library refresh preserves recovery metadata")
     func sparseRefreshPreservesState() async throws {
         let store = try makeStore()
-        let tracked = Track(
-            id: "T001",
-            name: "Test Song",
-            artist: "Canonical Artist",
-            album: "Clean Album",
-            year: 2024,
-            originalArtist: "Test Artist",
-            originalAlbum: "Test Album",
-            yearBeforeMGU: 2020,
-            yearSetByMGU: 2024
-        )
-        try await store.saveTracks([tracked])
+        try await store.seedMirror([sampleTrack()])
+        try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
+        try await store.persistAppliedChange(appliedChange(type: .artistRename))
+        try await store.persistAppliedChange(appliedChange(type: .albumCleaning))
 
         let sparseRefresh = Track(
             id: "T001",
@@ -366,7 +367,7 @@ struct TrackDataTests {
             album: "Clean Album",
             year: 2024
         )
-        try await store.saveTracks([sparseRefresh])
+        try await store.seedMirror([sparseRefresh])
 
         let stored = try #require(try await store.getTrack(byID: "T001"))
         #expect(stored.originalArtist == "Test Artist")
@@ -391,7 +392,7 @@ struct TrackDataTests {
 
         do {
             let store = try makeStore(at: storeURL)
-            try await store.saveTracks([sampleTrack()])
+            try await store.seedMirror([sampleTrack()])
             try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
             try await store.persistAppliedChange(appliedChange(type: .artistRename))
             try await store.persistAppliedChange(appliedChange(type: .albumCleaning))
@@ -505,7 +506,7 @@ struct TrackDataTests {
     func rejectsMissingValue() async throws {
         let store = try makeStore()
         try await store.initialize()
-        try await store.saveTracks([sampleTrack()])
+        try await store.seedMirror([sampleTrack()])
         let change = ChangeLogEntry(
             changeType: .genreUpdate,
             trackID: "T001",
@@ -522,7 +523,7 @@ struct TrackDataTests {
         let store = try makeStore()
         try await store.initialize()
 
-        try await store.saveTracks([
+        try await store.seedMirror([
             sampleTrack(id: "P1"),
             sampleTrack(id: "P2"),
             sampleTrack(id: "P3"),
@@ -552,7 +553,7 @@ struct TrackDataTests {
             )
         }
 
-        try await store.saveTracks(tracks)
+        try await store.seedMirror(tracks)
         let count = try await store.trackCount()
         #expect(count == 600)
     }

@@ -198,11 +198,11 @@ private func makeWorkflowCoordinator(
         services: input.options.apiServices,
         cache: cache
     )
-    let undoCoordinator = UndoCoordinator(scriptBridge: scriptClient, directory: temporaryDirectory())
+    let undoCoordinator = UndoCoordinator(musicApp: scriptClient, directory: temporaryDirectory())
     return UpdateCoordinator(
         dependencies: UpdateDependencies(
             apiOrchestrator: apiOrchestrator,
-            scriptBridge: scriptClient,
+            writer: scriptClient,
             trackStore: DashboardStateTrackStore(),
             cache: cache,
             undoCoordinator: undoCoordinator,
@@ -411,13 +411,58 @@ func makeProposedChange(
     changeType: ChangeType = .genreUpdate
 ) -> ProposedChange {
     ProposedChange(
-        track: Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album"),
+        track: Track(
+            id: id,
+            name: "Track \(id)",
+            artist: "Artist",
+            album: "Album",
+            appleScriptID: id
+        ),
         changeType: changeType,
         oldValue: nil,
         newValue: "Rock",
         confidence: 90,
         source: "test",
         isAccepted: isAccepted
+    )
+}
+
+struct WritableTrackFields {
+    var genre: String?
+    var year: Int?
+    var dateAdded: Date?
+    var releaseYear: Int?
+
+    init(
+        genre: String? = nil,
+        year: Int? = nil,
+        dateAdded: Date? = nil,
+        releaseYear: Int? = nil
+    ) {
+        self.genre = genre
+        self.year = year
+        self.dateAdded = dateAdded
+        self.releaseYear = releaseYear
+    }
+}
+
+func makeWritableTrack(
+    _ id: String,
+    name: String,
+    artist: String,
+    album: String,
+    fields: WritableTrackFields = .init()
+) -> Track {
+    Track(
+        id: id,
+        name: name,
+        artist: artist,
+        album: album,
+        genre: fields.genre,
+        year: fields.year,
+        dateAdded: fields.dateAdded,
+        releaseYear: fields.releaseYear,
+        appleScriptID: id
     )
 }
 

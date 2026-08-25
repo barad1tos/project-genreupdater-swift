@@ -20,11 +20,11 @@ struct LibrarySyncDetectionTests {
         ])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store
+            trackStore: store,
+            observer: bridge
         )
 
-        let result = try await service.detectChanges()
+        let result = try await service.detectObservation().result
         #expect(result.newTracks.count == 1)
         #expect(result.newTracks.first?.id == "NEW1")
         #expect(result.removedTrackIDs.isEmpty)
@@ -44,11 +44,11 @@ struct LibrarySyncDetectionTests {
         ])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store
+            trackStore: store,
+            observer: bridge
         )
 
-        let result = try await service.detectChanges()
+        let result = try await service.detectObservation().result
         #expect(result.newTracks.isEmpty)
         #expect(result.removedTrackIDs == ["T2"])
     }
@@ -89,11 +89,11 @@ struct LibrarySyncDetectionTests {
         ])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store
+            trackStore: store,
+            observer: bridge
         )
 
-        let result = try await service.detectChanges(forceMetadataRefresh: true)
+        let result = try await service.detectObservation(forceMetadataRefresh: true).result
         #expect(result.modifiedTracks.isEmpty)
     }
 
@@ -125,11 +125,11 @@ struct LibrarySyncDetectionTests {
         ])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store
+            trackStore: store,
+            observer: bridge
         )
 
-        let result = try await service.detectChanges(forceMetadataRefresh: true)
+        let result = try await service.detectObservation(forceMetadataRefresh: true).result
         #expect(result.modifiedTracks.isEmpty)
     }
 
@@ -149,14 +149,14 @@ struct LibrarySyncDetectionTests {
         )
 
         await bridge.setLibrary(ids: ["T1"], tracks: ["T1": track])
-        try await store.saveTracks([track])
+        try await store.seedMirror([track])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store
+            trackStore: store,
+            observer: bridge
         )
 
-        let result = try await service.detectChanges(forceMetadataRefresh: true)
+        let result = try await service.detectObservation(forceMetadataRefresh: true).result
         #expect(result.modifiedTracks.isEmpty)
     }
 
@@ -193,11 +193,11 @@ struct LibrarySyncDetectionTests {
         ])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store
+            trackStore: store,
+            observer: bridge
         )
 
-        let result = try await service.detectChanges(forceMetadataRefresh: true)
+        let result = try await service.detectObservation(forceMetadataRefresh: true).result
         #expect(result.modifiedTracks.count == 1)
         #expect(result.modifiedTracks.first?.id == "T1")
     }
@@ -205,8 +205,8 @@ struct LibrarySyncDetectionTests {
 
 @Suite("LibrarySyncService - runtime configuration")
 struct LibrarySyncConfigTests {
-    @Test("Uses configured AppleScript batch and timeout values")
-    func usesConfiguredAppleScriptBatchAndTimeoutValues() async throws {
+    @Test("Fast sync requests an initial observation and returns its new track")
+    func requestsInitialFastObservation() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
 
@@ -215,48 +215,43 @@ struct LibrarySyncConfigTests {
         await store.setStored([])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
-            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
-                idsBatchSize: 7,
-                fullLibraryFetchTimeout: .seconds(11),
-                idsBatchFetchTimeout: .seconds(13)
-            )
+            observer: bridge
         )
 
-        _ = try await service.detectChanges()
+        let result = try await service.detectObservation().result
 
-        let fetchRequest = await bridge.lastFetchTracksRequest()
-        #expect(await bridge.lastFetchAllTrackIDsTimeout() == .seconds(11))
-        #expect(fetchRequest?.batchSize == 7)
-        #expect(fetchRequest?.timeout == .seconds(13))
+        let request = try #require(await bridge.recordedObservationRequests().first)
+        #expect(request.refresh == .fast)
+        #expect(request.previous == .initial)
+        #expect(result.newTracks.map(\.id) == ["NEW1"])
     }
 
-    @Test("Runtime configuration update applies to subsequent sync")
-    func runtimeConfigurationUpdateAppliesToSubsequentSync() async throws {
+    @Test("Runtime scope update applies to the next observation")
+    func runtimeScopeUpdateAppliesToNextObservation() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
 
-        let newTrack = Track(id: "NEW1", name: "New Song", artist: "Artist", album: "Album")
-        await bridge.setLibrary(ids: ["NEW1"], tracks: ["NEW1": newTrack])
+        let target = Track(id: "TARGET", name: "Target Song", artist: "Target", album: "Album")
+        let outside = Track(id: "OUTSIDE", name: "Other Song", artist: "Other", album: "Album")
+        await bridge.setLibrary(ids: ["TARGET", "OUTSIDE"], tracks: [
+            "TARGET": target,
+            "OUTSIDE": outside,
+        ])
         await store.setStored([])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store
+            trackStore: store,
+            observer: bridge
         )
-        await service.updateRuntimeConfiguration(LibrarySyncRuntimeConfiguration(
-            idsBatchSize: 3,
-            fullLibraryFetchTimeout: .seconds(17),
-            idsBatchFetchTimeout: .seconds(19)
-        ))
+        await service.updateRuntimeConfiguration(LibrarySyncRuntimeConfiguration(testArtists: ["Target"]))
 
-        _ = try await service.detectChanges()
+        let result = try await service.detectObservation().result
 
-        let fetchRequest = await bridge.lastFetchTracksRequest()
-        #expect(await bridge.lastFetchAllTrackIDsTimeout() == .seconds(17))
-        #expect(fetchRequest?.batchSize == 3)
-        #expect(fetchRequest?.timeout == .seconds(19))
+        let request = try #require(await bridge.recordedObservationRequests().first)
+        #expect(request.scope.source == .testArtists)
+        #expect(request.scope.normalizedTestArtists == ["Target"])
+        #expect(result.newTracks.map(\.id) == ["TARGET"])
     }
 
     @Test("Track ID fetch failure does not apply removals")
@@ -272,8 +267,8 @@ struct LibrarySyncConfigTests {
         ])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store
+            trackStore: store,
+            observer: bridge
         )
 
         await #expect(throws: AppleScriptBridgeError.self) {

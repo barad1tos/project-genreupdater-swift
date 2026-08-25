@@ -2,16 +2,9 @@ import Foundation
 @testable import Core
 @testable import Services
 
-struct ScriptFetchRequest {
-    let trackIDs: [String]
-    let batchSize: Int
-    let timeout: Duration?
-}
-
-actor MockAppleScriptClient: AppleScriptClient {
-    var writtenProperties: [TrackPropertyUpdate] = []
-    var batchUpdates: [[TrackPropertyUpdate]] = []
-    var trackIDsToFetch: [String] = []
+actor MusicAppTestAccess: MusicAppIdentifying, MusicAppMutating, MusicAppVerifying {
+    var writtenProperties: [MusicTrackUpdate] = []
+    var batchUpdates: [[MusicTrackUpdate]] = []
     var tracksByID: [String: Track] = [:]
     var shouldThrow = false
     var shouldCancelWrite = false
@@ -22,143 +15,107 @@ actor MockAppleScriptClient: AppleScriptClient {
     var shouldApplyBatchUpdates = true
     var shouldClearFetchedTracksAfterBatchUpdate = false
     var batchMutationLimit: Int?
-    var singleWriteResult: AppleScriptWriteResult = .changed
+    var singleWriteResult: MusicWriteResult = .changed
     var customWriteError: Error?
     var customBatchError: Error?
     private var writeErrorsByTrackID: [String: any Error] = [:]
     private var writeErrorsByProperty: [String: any Error] = [:]
     private var failingWriteTrackIDs: Set<String> = []
     private var writeAttemptHook: (@Sendable () throws -> Void)?
-    private var fetchedTracksByIDsCalls: [ScriptFetchRequest] = []
-    private var fetchedAllTrackIDsTimeouts: [Duration?] = []
+    private var fetchedMetadataIDs: [[MusicDatabaseTrackID]] = []
+    private var fetchedIdentityScopes: [[String]] = []
 
-    func initialize() async throws {
-        // Mock: no initialization behavior required.
-    }
-
-    func runScript(
-        name _: String,
-        arguments _: [String],
-        timeout _: Duration?
-    ) async throws -> String? {
-        nil
-    }
-
-    func fetchTracksByIDs(
-        _ trackIDs: [String],
-        batchSize: Int,
-        timeout: Duration?
-    ) async throws -> [Track] {
-        fetchedTracksByIDsCalls.append(ScriptFetchRequest(
-            trackIDs: trackIDs,
-            batchSize: batchSize,
-            timeout: timeout
-        ))
+    func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Track] {
+        fetchedMetadataIDs.append(databaseIDs)
         if shouldThrowFetch {
             throw MockScriptError.intentional
         }
         if shouldCancelFetch {
             throw CancellationError()
         }
-        return trackIDs.compactMap { tracksByID[$0] }
+        return databaseIDs.compactMap { tracksByID[$0.rawValue] }
     }
 
-    func fetchAllTrackIDs(timeout: Duration?) async throws -> [String] {
-        fetchedAllTrackIDsTimeouts.append(timeout)
-        return trackIDsToFetch
+    func fetchIdentityMetadata(scopedTo artists: [String]) async throws -> [Track] {
+        fetchedIdentityScopes.append(artists)
+        if shouldThrowFetch {
+            throw MockScriptError.intentional
+        }
+        if shouldCancelFetch {
+            throw CancellationError()
+        }
+        return Array(tracksByID.values)
     }
 
-    func updateTrackProperty(
-        trackID: String,
-        property: String,
-        value: String
-    ) async throws -> AppleScriptWriteResult {
-        try await performWrite(
-            trackID: trackID,
-            property: property,
-            value: value,
-            onAttempt: nil
-        )
-    }
-
-    func updateTrackProperty(
-        trackID: String,
-        property: String,
-        value: String,
+    func update(
+        _ update: MusicTrackUpdate,
         onAttempt: @escaping WriteAttemptHook
-    ) async throws -> AppleScriptWriteResult {
+    ) async throws -> MusicWriteResult {
         try await performWrite(
-            trackID: trackID,
-            property: property,
-            value: value,
+            update,
             onAttempt: onAttempt
         )
     }
 
     private func performWrite(
-        trackID: String,
-        property: String,
-        value: String,
-        onAttempt: WriteAttemptHook?
-    ) async throws -> AppleScriptWriteResult {
+        _ update: MusicTrackUpdate,
+        onAttempt: WriteAttemptHook
+    ) async throws -> MusicWriteResult {
+        let databaseID = update.databaseID.rawValue
         if shouldCancelWrite {
             throw CancellationError()
         }
         if let customWriteError {
             try writeAttemptHook?()
-            try await onAttempt?()
+            try await onAttempt()
             throw customWriteError
         }
-        if let writeError = writeErrorsByTrackID[trackID] {
+        if let writeError = writeErrorsByTrackID[databaseID] {
             try writeAttemptHook?()
-            try await onAttempt?()
+            try await onAttempt()
             throw writeError
         }
-        if let writeError = writeErrorsByProperty[property] {
+        if let writeError = writeErrorsByProperty[update.property.rawValue] {
             try writeAttemptHook?()
-            try await onAttempt?()
+            try await onAttempt()
             throw writeError
         }
-        if shouldThrow || failingWriteTrackIDs.contains(trackID) {
+        if shouldThrow || failingWriteTrackIDs.contains(databaseID) {
             throw MockScriptError.intentional
         }
-        writtenProperties.append(TrackPropertyUpdate(trackID: trackID, property: property, value: value))
-        if currentValue(for: property, inTrackWithID: trackID) == value {
+        writtenProperties.append(update)
+        if currentValue(for: update.property, inTrackWithID: databaseID) == update.value {
             // The real bridge fires the attempt hook for every dispatched
             // response, including "no change".
             try writeAttemptHook?()
-            try await onAttempt?()
+            try await onAttempt()
             return .noChange
         }
         if singleWriteResult == .changed {
-            apply(property: property, value: value, toTrackWithID: trackID)
+            apply(property: update.property, value: update.value, toTrackWithID: databaseID)
         }
         try writeAttemptHook?()
-        try await onAttempt?()
+        try await onAttempt()
         return singleWriteResult
     }
 
-    func batchUpdateTracks(_ updates: [TrackPropertyUpdate]) async throws {
-        try await performBatch(updates, onAttempt: nil)
-    }
-
-    func batchUpdateTracks(
-        _ updates: [TrackPropertyUpdate],
+    func update(
+        _ updates: [MusicTrackUpdate],
         onAttempt: @escaping WriteAttemptHook
     ) async throws {
         try await performBatch(updates, onAttempt: onAttempt)
     }
 
     private func performBatch(
-        _ updates: [TrackPropertyUpdate],
-        onAttempt: WriteAttemptHook?
+        _ updates: [MusicTrackUpdate],
+        onAttempt: WriteAttemptHook
     ) async throws {
         batchUpdates.append(updates)
         if shouldCancelBatch {
             throw CancellationError()
         }
         if let customBatchError {
-            try await onAttempt?()
+            try await onAttempt()
             throw customBatchError
         }
         if shouldThrowBatch {
@@ -166,13 +123,17 @@ actor MockAppleScriptClient: AppleScriptClient {
         }
         if shouldApplyBatchUpdates {
             for update in updates.prefix(batchMutationLimit ?? updates.count) {
-                apply(property: update.property, value: update.value, toTrackWithID: update.trackID)
+                apply(
+                    property: update.property,
+                    value: update.value,
+                    toTrackWithID: update.databaseID.rawValue
+                )
             }
         }
         if shouldClearFetchedTracksAfterBatchUpdate {
             tracksByID.removeAll()
         }
-        try await onAttempt?()
+        try await onAttempt()
         try verifyBatchUpdates(updates)
     }
 
@@ -216,7 +177,7 @@ actor MockAppleScriptClient: AppleScriptClient {
         batchMutationLimit = limit
     }
 
-    func setSingleWriteResult(_ result: AppleScriptWriteResult) {
+    func setSingleWriteResult(_ result: MusicWriteResult) {
         singleWriteResult = result
     }
 
@@ -241,54 +202,48 @@ actor MockAppleScriptClient: AppleScriptClient {
     }
 
     func setFetchedTracks(_ tracks: [Track]) {
-        trackIDsToFetch = tracks.map(\.id)
-        tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { track in
+            (track.databaseID?.rawValue ?? track.id, track)
+        })
     }
 
-    func fetchTracksByIDsCalls() -> [ScriptFetchRequest] {
-        fetchedTracksByIDsCalls
+    func fetchMetadataCalls() -> [[MusicDatabaseTrackID]] {
+        fetchedMetadataIDs
     }
 
-    func fetchAllTrackIDsTimeouts() -> [Duration?] {
-        fetchedAllTrackIDsTimeouts
+    func identityScopes() -> [[String]] {
+        fetchedIdentityScopes
     }
 
-    private func apply(property: String, value: String, toTrackWithID trackID: String) {
+    private func apply(property: MusicTrackProperty, value: String, toTrackWithID trackID: String) {
         guard var track = tracksByID[trackID] else { return }
 
         switch property {
-        case "genre":
+        case .genre:
             track.genre = value
-        case "year":
+        case .year:
             track.year = Int(value)
-        case "name":
+        case .name:
             track.name = value
-        case "album":
+        case .album:
             track.album = value
-        case "artist":
+        case .artist:
             track.artist = value
-        case "album_artist":
+        case .albumArtist:
             track.albumArtist = value
-        default:
-            return
         }
         tracksByID[trackID] = track
     }
 
-    private func currentValue(for property: String, inTrackWithID trackID: String) -> String? {
-        guard let track = tracksByID[trackID],
-              let property = AppleScriptTrackProperty(rawValue: property)
-        else {
-            return nil
-        }
+    private func currentValue(for property: MusicTrackProperty, inTrackWithID trackID: String) -> String? {
+        guard let track = tracksByID[trackID] else { return nil }
         return property.currentValue(in: track)
     }
 
-    private func verifyBatchUpdates(_ updates: [TrackPropertyUpdate]) throws {
+    private func verifyBatchUpdates(_ updates: [MusicTrackUpdate]) throws {
         let failedCount = updates.count(where: { update in
-            guard let track = tracksByID[update.trackID],
-                  let property = AppleScriptTrackProperty(rawValue: update.property),
-                  let currentValue = property.currentValue(in: track)
+            guard let track = tracksByID[update.databaseID.rawValue],
+                  let currentValue = update.property.currentValue(in: track)
             else {
                 return true
             }
@@ -296,7 +251,7 @@ actor MockAppleScriptClient: AppleScriptClient {
         })
 
         guard failedCount == 0 else {
-            throw AppleScriptBatchVerificationError(
+            throw MusicBatchVerificationError(
                 updateCount: updates.count,
                 failedCount: failedCount,
                 reason: "test batch verification failure"

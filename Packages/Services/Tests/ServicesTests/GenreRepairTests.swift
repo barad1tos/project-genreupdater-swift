@@ -79,7 +79,7 @@ struct GenreRepairTests {
 
         #expect(result.entries.map(\.trackID) == ["target"])
         #expect(await fixture.bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: "target", property: "genre", value: "Post-Punk"),
+            musicUpdate(databaseID: testDatabaseID("target"), property: .genre, value: "Post-Punk"),
         ])
     }
 
@@ -113,7 +113,7 @@ struct GenreRepairTests {
 
         #expect(result.entries.map(\.trackID) == ["target"])
         #expect(await fixture.bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: "target", property: "genre", value: "Post-Punk"),
+            musicUpdate(databaseID: testDatabaseID("target"), property: .genre, value: "Post-Punk"),
         ])
     }
 
@@ -148,7 +148,7 @@ struct GenreRepairTests {
 
         #expect(changes.map(\.changeType) == [.genreUpdate])
         #expect(await fixture.bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: "target", property: "genre", value: "Post-Punk"),
+            musicUpdate(databaseID: testDatabaseID("target"), property: .genre, value: "Post-Punk"),
         ])
     }
 
@@ -266,7 +266,7 @@ struct GenreRepairTests {
     private func makeCoordinator(
         idMapper: (any TrackIDMapping)? = nil
     ) async -> GenreRepairFixture {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let apiService = MockAPIService()
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: apiService,
@@ -275,12 +275,12 @@ struct GenreRepairTests {
         )
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenreRepairTests-\(UUID().uuidString)")
-        let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
+        let undo = UndoCoordinator(musicApp: bridge, directory: undoDirectory)
 
         let coordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
                     trackStore: MockTrackStore(),
                     cache: MockCacheService()
@@ -300,7 +300,7 @@ struct GenreRepairTests {
 
 private struct GenreRepairFixture {
     let coordinator: UpdateCoordinator
-    let bridge: MockAppleScriptClient
+    let bridge: MusicAppTestAccess
 }
 
 private actor GenreIdentityMapper: TrackIDMapping {
@@ -320,11 +320,6 @@ private actor GenreIdentityMapper: TrackIDMapping {
         enrichedTrack.appleScriptID = "AS-source"
         enrichedTrack.trackStatus = TrackKind.subscription.rawValue
         return enrichedTrack
-    }
-
-    func refreshMapping(musicKitTracks: [Track], appleScriptTracks: [Track]) async {
-        _ = musicKitTracks
-        _ = appleScriptTracks
     }
 
     func hasMappingFor(musicKitID: String) async -> Bool {

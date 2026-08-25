@@ -1,15 +1,8 @@
-// MusicLibraryReader.swift — MusicKit library access wrapper
-// NEW: No Python equivalent (Python used AppleScript for everything)
+// MusicLibraryReader.swift — MusicKit presentation and catalog projection.
 //
-// MusicKit provides type-safe, fast read access to the Music library.
-// This replaces the Python `fetch_tracks.applescript` for READ operations.
-// WRITE operations still go through AppleScriptBridge (MusicKit has no write API).
-//
-// MusicKit advantages over AppleScript reads:
-// - 10-50x faster for large libraries (native framework vs IPC)
-// - Type-safe Song/Album/Artist models
-// - Async/await native
-// - No parsing of delimited strings
+// MusicKit provides fast, type-safe library browsing for UI surfaces. Writable
+// metadata and canonical Music.app database identity come from the explicit
+// AppleScript-backed Services capabilities instead.
 
 import Core
 import Foundation
@@ -44,11 +37,11 @@ public enum MusicLibraryError: Error, LocalizedError {
 
 // MARK: - Music Library Reader
 
-/// Reads the user's Music library via MusicKit framework.
+/// Reads the user's MusicKit presentation projection.
 ///
-/// Provides fast, type-safe access to tracks, albums, and artists.
-/// For write operations (updating genre, year), use `AppleScriptBridge` instead —
-/// MusicKit does not support writing metadata.
+/// Provides fast, type-safe access to tracks, albums, and artists for UI and
+/// catalog selection. It does not establish writable metadata or canonical
+/// Music.app database identity.
 public actor MusicLibraryReader {
     struct MusicKitTrackMetadata {
         let id: String

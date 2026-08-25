@@ -3,6 +3,71 @@ import Testing
 @testable import Core
 @testable import Services
 
+func testDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {
+    guard let databaseID = MusicDatabaseTrackID(rawValue: rawValue) else {
+        preconditionFailure("Invalid test database ID: \(rawValue)")
+    }
+    return databaseID
+}
+
+func musicUpdate(
+    databaseID: MusicDatabaseTrackID,
+    property: MusicTrackProperty,
+    value: String
+) -> MusicTrackUpdate {
+    do {
+        return try MusicTrackUpdate(databaseID: databaseID, property: property, value: value)
+    } catch {
+        preconditionFailure("Invalid test music update for \(property.rawValue): \(error.localizedDescription)")
+    }
+}
+
+func undoTrack(
+    for entry: ChangeLogEntry,
+    databaseID: String? = nil,
+    trackStatus: String? = TrackKind.subscription.rawValue
+) -> Track {
+    let resolvedDatabaseID = databaseID ?? entry.trackID
+    return Track(
+        id: resolvedDatabaseID,
+        name: entry.newTrackName ?? entry.trackName,
+        artist: entry.newArtist ?? entry.artist,
+        album: entry.newAlbumName ?? entry.albumName,
+        genre: entry.newGenre,
+        year: entry.newYear,
+        trackStatus: trackStatus,
+        albumArtist: entry.albumArtistChange?.newValue,
+        appleScriptID: resolvedDatabaseID
+    )
+}
+
+extension MusicAppTestAccess {
+    func setMutationTracks(_ tracks: [Track]) {
+        let authoritativeTracks = tracks.map { track in
+            var authoritativeTrack = track
+            authoritativeTrack.trackStatus = TrackKind.subscription.rawValue
+            authoritativeTrack.appleScriptID = track.databaseID?.rawValue ?? track.id
+            return authoritativeTrack
+        }
+        setFetchedTracks(authoritativeTracks)
+    }
+
+    func setUndoEntries(
+        _ entries: [ChangeLogEntry],
+        databaseIDs: [String: String] = [:]
+    ) {
+        let tracksByID = entries
+            .sorted { $0.timestamp > $1.timestamp }
+            .reduce(into: [String: Track]()) { tracks, entry in
+                let databaseID = databaseIDs[entry.trackID] ?? entry.trackID
+                if tracks[databaseID] == nil {
+                    tracks[databaseID] = undoTrack(for: entry, databaseID: databaseID)
+                }
+            }
+        setFetchedTracks(Array(tracksByID.values))
+    }
+}
+
 // MARK: - APIOrchestrator Test Factory
 
 func makeAPIOrchestrator(
@@ -139,6 +204,17 @@ actor PendingRecorder: PendingVerificationService {
 
 // MARK: - MockTrackStore
 
+extension TrackStateStore {
+    func seedMirror(_ tracks: [Track]) async throws {
+        let canonicalTracks = tracks.map { track in
+            var canonical = track
+            canonical.appleScriptID = canonical.id
+            return canonical
+        }
+        try await applyMirror(TrackMirrorUpdate(repairs: [], upserts: canonicalTracks, deletions: []))
+    }
+}
+
 struct AppliedTrackUpdate {
     let id: String
     let genreUpdated: Bool?
@@ -174,15 +250,16 @@ actor MockTrackStore: TrackStateStore {
         tracks
     }
 
-    func saveTracks(_ newTracks: [Track]) async throws {
-        tracks = newTracks
-    }
-
-    func deleteTrackIDs(_ ids: [String]) async throws -> Int {
-        let idsToDelete = Set(ids)
-        let originalCount = tracks.count
-        tracks.removeAll { idsToDelete.contains($0.id) }
-        return originalCount - tracks.count
+    func applyMirror(_ update: TrackMirrorUpdate) async throws {
+        let deletionIDs = Set(update.deletions.map(\.rawValue))
+        tracks.removeAll { deletionIDs.contains($0.id) }
+        for track in update.upserts {
+            if let index = tracks.firstIndex(where: { $0.id == track.id }) {
+                tracks[index] = track
+            } else {
+                tracks.append(track)
+            }
+        }
     }
 
     func getTrack(byID id: String) async throws -> Track? {

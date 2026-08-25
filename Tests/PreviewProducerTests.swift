@@ -53,9 +53,9 @@ struct PreviewProducerTests {
         mutate: (inout AppConfiguration) -> Void = { $0.genreUpdate.batchSize = 0 }
     ) async throws {
         let services = RunServiceFactory(
-            makeScripts: { _ in
+            makeMusicAccess: { _ in
                 Issue.record("Invalid historical configuration must fail before script creation")
-                return PreviewScriptClient(tracks: [])
+                return previewAccess(PreviewScriptClient(tracks: []))
             },
             makePendingVerification: { _ in
                 Issue.record("Invalid historical configuration must fail before store creation")
@@ -91,9 +91,9 @@ struct PreviewProducerTests {
     func usesSubmittedConfiguration() async throws {
         let probe = RunConfigProbe()
         let services = RunServiceFactory(
-            makeScripts: { configuration in
+            makeMusicAccess: { configuration in
                 await probe.recordScriptConfig(configuration)
-                return PreviewScriptClient(tracks: [])
+                return previewAccess(PreviewScriptClient(tracks: []))
             },
             makePendingVerification: { configuration in
                 await probe.recordPendingConfig(configuration)
@@ -136,7 +136,7 @@ struct PreviewProducerTests {
     @Test("Headless preview uses the captured run confidence")
     func usesRunConfidence() async throws {
         let services = RunServiceFactory(
-            makeScripts: { _ in PreviewScriptClient(tracks: []) },
+            makeMusicAccess: { _ in previewAccess(PreviewScriptClient(tracks: [])) },
             makePendingVerification: { _ in nil }
         )
         let factory = try await makeRuntime(services: services)
@@ -186,14 +186,11 @@ struct PreviewProducerTests {
     func rebuildsChangedConfig() async throws {
         let probe = RunConfigProbe()
         let services = RunServiceFactory(
-            makeScripts: { configuration in
+            makeMusicAccess: { configuration in
                 await probe.recordScriptConfig(configuration)
-                return PreviewScriptClient(tracks: [])
+                return previewAccess(PreviewScriptClient(tracks: []))
             },
-            makePendingVerification: { _ in nil },
-            makeReadProvider: { configuration in
-                ScopedReadProvider(artists: configuration.development.testArtists)
-            }
+            makePendingVerification: { _ in nil }
         )
         var first = AppConfiguration()
         let firstPath = FileManager.default.temporaryDirectory.appendingPathComponent("first").path
@@ -205,22 +202,23 @@ struct PreviewProducerTests {
         second.development.testArtists = ["Second Artist"]
         let id = UUID()
 
-        let firstServices = try await services.prepare(id: id, configuration: first)
-        let secondServices = try await services.consume(id: id, configuration: second)
+        let firstServices = try await services.prepareObservation(id: id, configuration: first)
+        let secondServices = try await services.consumePreview(id: id, configuration: second)
 
         let snapshot = await probe.snapshot()
         #expect(snapshot.libraryPaths == [firstPath, secondPath])
-        #expect(try await readArtists(firstServices) == ["First Artist"])
-        #expect(try await readArtists(secondServices) == ["Second Artist"])
+        #expect(snapshot.testArtists == [["First Artist"], ["Second Artist"]])
+        _ = firstServices
+        _ = secondServices
     }
 
     @Test("discarded run services are rebuilt")
     func rebuildsDiscardedRun() async throws {
         let probe = RunConfigProbe()
         let services = RunServiceFactory(
-            makeScripts: { configuration in
+            makeMusicAccess: { configuration in
                 await probe.recordScriptConfig(configuration)
-                return PreviewScriptClient(tracks: [])
+                return previewAccess(PreviewScriptClient(tracks: []))
             },
             makePendingVerification: { _ in nil }
         )
@@ -229,9 +227,9 @@ struct PreviewProducerTests {
         configuration.paths.musicLibraryPath = path
         let id = UUID()
 
-        _ = try await services.prepare(id: id, configuration: configuration)
+        _ = try await services.prepareObservation(id: id, configuration: configuration)
         await services.discard(id: id)
-        _ = try await services.consume(id: id, configuration: configuration)
+        _ = try await services.consumePreview(id: id, configuration: configuration)
 
         let snapshot = await probe.snapshot()
         #expect(snapshot.libraryPaths == [path, path])
@@ -240,7 +238,7 @@ struct PreviewProducerTests {
     @Test("preview consumes submitted Discogs access")
     func consumesDiscogsAccess() async throws {
         let services = RunServiceFactory(
-            makeScripts: { _ in PreviewScriptClient(tracks: []) },
+            makeMusicAccess: { _ in previewAccess(PreviewScriptClient(tracks: [])) },
             makePendingVerification: { _ in nil }
         )
         let accessStore = DiscogsAccessStore()
@@ -264,7 +262,7 @@ struct PreviewProducerTests {
     @Test("preview fails when submitted Discogs access is missing")
     func rejectsMissingDiscogsAccess() async throws {
         let services = RunServiceFactory(
-            makeScripts: { _ in PreviewScriptClient(tracks: []) },
+            makeMusicAccess: { _ in previewAccess(PreviewScriptClient(tracks: [])) },
             makePendingVerification: { _ in nil }
         )
         let runtime = try await makeRuntime(services: services)
@@ -288,7 +286,7 @@ struct PreviewProducerTests {
         let rawTracks = musicKitArtistTracks()
         let script = PreviewScriptClient(tracks: appleScriptArtistTracks())
         let services = RunServiceFactory(
-            makeScripts: { _ in script },
+            makeMusicAccess: { _ in previewAccess(script) },
             makePendingVerification: { _ in nil }
         )
         let runtime = try await makeRuntime(services: services)
@@ -387,7 +385,7 @@ struct PreviewProducerTests {
     @Test("discard removes submitted Discogs access")
     func discardsDiscogsAccess() async throws {
         let services = RunServiceFactory(
-            makeScripts: { _ in PreviewScriptClient(tracks: []) },
+            makeMusicAccess: { _ in previewAccess(PreviewScriptClient(tracks: [])) },
             makePendingVerification: { _ in nil }
         )
         let accessStore = DiscogsAccessStore()
@@ -408,11 +406,6 @@ struct PreviewProducerTests {
         #expect(await accessStore.consume(configurationID: configuration.id) == nil)
     }
 
-    private func readArtists(_ services: RunServices) async throws -> [String] {
-        let provider = try #require(services.readProvider as? ScopedReadProvider)
-        return provider.artists
-    }
-
     private func makeRuntime(
         services: RunServiceFactory,
         accessStore: DiscogsAccessStore = DiscogsAccessStore()
@@ -426,7 +419,7 @@ struct PreviewProducerTests {
             store: TrackDataStore(modelContainer: container),
             gate: FeatureGate(fixedTier: .pro),
             cache: cache,
-            undo: UndoCoordinator(scriptBridge: script),
+            undo: UndoCoordinator(musicApp: script),
             mapper: TrackIDMapper(),
             reachability: nil,
             discogsAccessStore: accessStore,
@@ -459,4 +452,8 @@ private enum RuntimeEntryPoint: CaseIterable {
     case sync
     case preview
     case write
+}
+
+private func previewAccess(_ scripts: PreviewScriptClient) -> RunMusicAccess {
+    RunMusicAccess(identifier: scripts, writer: scripts, observer: MusicAppTestObserver(tracks: []))
 }

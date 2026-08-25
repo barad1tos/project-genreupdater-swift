@@ -113,7 +113,7 @@ extension AppDependencies {
                 provider: provider,
                 scopedArtists: scopedArtists
             )
-            try await applyLiveLibraryLoad(
+            await applyLiveLibraryLoad(
                 liveLoad,
                 token: token,
                 scopedArtists: scopedArtists,
@@ -161,22 +161,22 @@ extension AppDependencies {
         token: UInt64,
         scopedArtists: [String],
         loadStart: ContinuousClock.Instant
-    ) async throws {
+    ) async {
         guard libraryLoadGate.isCurrent(token) else { return }
-        let reconciledTracks = try await persistLibraryLoad(
+        await cacheLibraryLoad(
             liveLoad.tracks,
             scopedArtists: scopedArtists
         )
         guard libraryLoadGate.isCurrent(token) else { return }
         isLibraryReadyForUpdates = liveLoad.isLibraryReadyForUpdates
-        libraryTracks = reconciledTracks
-        await applyBrowseTruthForLoad?(reconciledTracks, .liveLibrary(scannedAt: liveLoad.scanDate), token)
+        libraryTracks = liveLoad.tracks
+        await applyBrowseTruthForLoad?(liveLoad.tracks, .liveLibrary(scannedAt: liveLoad.scanDate), token)
         guard libraryLoadGate.isCurrent(token) else { return }
-        let upsertedMetrics = await metricsSnapshotStore?.upsert(from: reconciledTracks)
+        let upsertedMetrics = await metricsSnapshotStore?.upsert(from: liveLoad.tracks)
         guard libraryLoadGate.isCurrent(token) else { return }
         lastLibraryScanDate = liveLoad.scanDate
         libraryMetrics = upsertedMetrics
-        onLibraryLoadApplied?(reconciledTracks)
+        onLibraryLoadApplied?(liveLoad.tracks)
         await recordLibraryLoad(startedAt: loadStart)
     }
 

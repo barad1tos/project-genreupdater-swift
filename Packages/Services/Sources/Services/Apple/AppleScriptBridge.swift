@@ -24,7 +24,7 @@ private let log = AppLogger.make(category: "applescript")
 /// Uses NSUserAppleScriptTask for sandbox-compatible script execution.
 /// The actor applies configured read retries, rate, and concurrency limits before
 /// reaching Music.app.
-public actor AppleScriptBridge: AppleScriptClient {
+public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppVerifying {
     private static let batchUpdateScriptName = "batch_update_tracks"
 
     private let installer: ScriptInstaller
@@ -48,7 +48,7 @@ public actor AppleScriptBridge: AppleScriptClient {
         self.analytics = analytics
     }
 
-    public var trackIDBatchSize: Int {
+    var trackIDBatchSize: Int {
         BatchProcessingConfig.clampIDBatch(config.batchProcessing.idsBatchSize)
     }
 
@@ -101,7 +101,7 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     // MARK: - Script Execution
 
-    public func runScript(
+    func runScript(
         name: String,
         arguments: [String] = [],
         timeout: Duration? = nil
@@ -163,7 +163,7 @@ public actor AppleScriptBridge: AppleScriptClient {
 
     // MARK: - Track Operations
 
-    public func fetchTracksByIDs(
+    func fetchTracksByIDs(
         _ trackIDs: [String],
         batchSize: Int = 1000,
         timeout: Duration? = nil
@@ -214,20 +214,114 @@ public actor AppleScriptBridge: AppleScriptClient {
         return tracks
     }
 
-    public func fetchAllTrackIDs(timeout: Duration? = nil) async throws -> [String] {
+    func fetchTrackIDCensus(timeout: Duration? = nil) async throws -> TrackIDCensus {
         let effectiveTimeout = timeout ?? config.timeouts.fullLibraryFetch
-        let ids = try await scanTrackIDs(timeout: effectiveTimeout) { [self] offset, limit, remaining in
+        return try await scanTrackIDs(timeout: effectiveTimeout) { [self] offset, limit, remaining in
             try await runScriptBody(
                 name: "fetch_track_ids",
                 arguments: trackIDArguments(offset: offset, limit: limit),
                 timeout: remaining
             )
         }
-        log.info("Fetched \(ids.count, privacy: .public) track IDs from library")
-        return ids
     }
 
-    func scanTrackIDs(timeout: Duration, fetch: @escaping TrackIDScan.Fetch) async throws -> [String] {
+    func fetchCensus() async throws -> TrackIDCensus {
+        try await fetchTrackIDCensus()
+    }
+
+    public func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Core.Track] {
+        let tracks = try await fetchTracksByIDs(
+            databaseIDs.map(\.rawValue),
+            batchSize: trackIDBatchSize,
+            timeout: config.timeouts.idsBatchFetch
+        )
+        return try Self.validatedMetadata(tracks, requestedIDs: databaseIDs)
+    }
+
+    public func fetchIdentityMetadata(scopedTo artists: [String]) async throws -> [Core.Track] {
+        let artists = ArtistAllowList.normalized(artists)
+        let tracks: [Core.Track]
+        let requestedIDs: Set<MusicDatabaseTrackID>?
+        if artists.isEmpty {
+            let census = try await fetchTrackIDCensus(timeout: config.timeouts.fullLibraryFetch)
+            tracks = try await fetchTracksByIDs(
+                census.ids.map(\.rawValue),
+                batchSize: trackIDBatchSize,
+                timeout: config.timeouts.idsBatchFetch
+            )
+            requestedIDs = Set(census.ids)
+        } else {
+            var scopedTracks: [Core.Track] = []
+            for artist in artists {
+                let artistTracks = try await fetchTracks(artist: artist)
+                scopedTracks.append(contentsOf: artistTracks)
+            }
+            tracks = scopedTracks
+            requestedIDs = nil
+        }
+        return try Self.validatedIdentityMetadata(tracks, requestedIDs: requestedIDs)
+    }
+
+    func fetchTracks(artist: String) async throws -> [Core.Track] {
+        let output = try await runScript(
+            name: "fetch_tracks",
+            arguments: [artist],
+            timeout: config.timeouts.singleArtistFetch
+        )
+        guard let output, output != "NO_TRACKS_FOUND" else { return [] }
+        do {
+            return try TrackWireCodec.decodeRecords(output, scriptName: "fetch_tracks")
+        } catch let error as TrackWireError {
+            throw AppleScriptBridgeError.parseError(scriptName: error.scriptName, detail: error.detail)
+        }
+    }
+
+    static func validatedIdentityMetadata(
+        _ tracks: [Core.Track],
+        requestedIDs: Set<MusicDatabaseTrackID>?
+    ) throws -> [Core.Track] {
+        var tracksByID: [MusicDatabaseTrackID: Core.Track] = [:]
+        var orderedIDs: [MusicDatabaseTrackID] = []
+        for track in tracks {
+            guard let databaseID = track.databaseID else {
+                throw MusicAppIdentityError.unresolvedMetadataIdentity
+            }
+            guard requestedIDs?.contains(databaseID) != false else {
+                throw MusicAppIdentityError.unexpectedMetadata(databaseID)
+            }
+            if let existing = tracksByID[databaseID] {
+                guard existing == track else {
+                    throw MusicAppIdentityError.conflictingMetadata(databaseID)
+                }
+                continue
+            }
+            tracksByID[databaseID] = track
+            orderedIDs.append(databaseID)
+        }
+        return orderedIDs.compactMap { tracksByID[$0] }
+    }
+
+    static func validatedMetadata(
+        _ tracks: [Core.Track],
+        requestedIDs: [MusicDatabaseTrackID]
+    ) throws -> [Core.Track] {
+        let requestedIDs = Set(requestedIDs)
+        var observedIDs = Set<MusicDatabaseTrackID>()
+        for track in tracks {
+            guard let databaseID = track.databaseID else {
+                throw MusicAppVerificationError.unresolvedMetadataIdentity
+            }
+            guard requestedIDs.contains(databaseID) else {
+                throw MusicAppVerificationError.unexpectedMetadata(databaseID)
+            }
+            guard observedIDs.insert(databaseID).inserted else {
+                throw MusicAppVerificationError.duplicateMetadata(databaseID)
+            }
+        }
+        return tracks
+    }
+
+    func scanTrackIDs(timeout: Duration, fetch: @escaping TrackIDScan.Fetch) async throws -> TrackIDCensus {
         let operation = {
             try await TrackIDScan(
                 batchSize: self.config.batchProcessing.batchSize,
@@ -252,13 +346,11 @@ public actor AppleScriptBridge: AppleScriptClient {
 extension AppleScriptBridge {
     // MARK: - Music.app Write Operations
 
-    func updateTrackProperty(
-        trackID: String,
-        property: String,
-        value: String,
-        onAttempt: WriteAttemptHook?,
+    func applySingleUpdate(
+        _ update: MusicTrackUpdate,
+        onAttempt: WriteAttemptHook,
         execute: () async throws -> String?
-    ) async throws -> AppleScriptWriteResult {
+    ) async throws -> MusicWriteResult {
         let output: String?
         do {
             output = try await execute()
@@ -266,35 +358,24 @@ extension AppleScriptBridge {
             try await recordUnknownAttempt(onAttempt, outcome: error)
             throw error
         }
-        try await onAttempt?()
-        let result = try Self.validateUpdatePropertyOutput(output, trackID: trackID, property: property)
+        try await onAttempt()
+        let result = try Self.validateUpdatePropertyOutput(output, update: update)
 
         log
             .info(
                 """
-                Completed update_property for \(property, privacy: .public) on track \
-                \(trackID, privacy: .private): \(value, privacy: .private)
+                Completed update_property for \(update.property.rawValue, privacy: .public) on track \
+                \(update.databaseID.rawValue, privacy: .private): \(update.value, privacy: .private)
                 """
             )
         return result
     }
 
-    /// Batch update multiple tracks' properties.
-    public func batchUpdateTracks(_ updates: [TrackPropertyUpdate]) async throws {
-        try await batchUpdateTracks(updates, onAttempt: nil) { [self] batchArgument in
-            try await runScriptBody(
-                name: Self.batchUpdateScriptName,
-                arguments: [batchArgument],
-                timeout: config.timeouts.batchUpdate
-            )
-        }
-    }
-
-    public func batchUpdateTracks(
-        _ updates: [TrackPropertyUpdate],
+    public func update(
+        _ updates: [MusicTrackUpdate],
         onAttempt: @escaping WriteAttemptHook
     ) async throws {
-        try await batchUpdateTracks(updates, onAttempt: onAttempt) { [self] batchArgument in
+        try await update(updates, onAttempt: onAttempt) { [self] batchArgument in
             try await runScriptBody(
                 name: Self.batchUpdateScriptName,
                 arguments: [batchArgument],
@@ -303,27 +384,27 @@ extension AppleScriptBridge {
         }
     }
 
-    func batchUpdateTracks(
-        _ updates: [TrackPropertyUpdate],
-        onAttempt: WriteAttemptHook?,
+    func update(
+        _ updates: [MusicTrackUpdate],
+        onAttempt: WriteAttemptHook,
         execute: (String) async throws -> String?
     ) async throws {
         guard !updates.isEmpty else { return }
         guard let analytics else {
-            return try await batchUpdateTracksBody(updates, onAttempt: onAttempt, execute: execute)
+            return try await applyBatch(updates, onAttempt: onAttempt, execute: execute)
         }
         return try await analytics.measure(.appleScriptBatchWrite) {
-            try await self.batchUpdateTracksBody(updates, onAttempt: onAttempt, execute: execute)
+            try await self.applyBatch(updates, onAttempt: onAttempt, execute: execute)
         }
     }
 
-    private func batchUpdateTracksBody(
-        _ updates: [TrackPropertyUpdate],
-        onAttempt: WriteAttemptHook?,
+    private func applyBatch(
+        _ updates: [MusicTrackUpdate],
+        onAttempt: WriteAttemptHook,
         execute: (String) async throws -> String?
     ) async throws {
-        let batchUpdateSignpost = AppSignpost.appleScriptWrite.beginInterval("batchUpdateTracks")
-        defer { AppSignpost.appleScriptWrite.endInterval("batchUpdateTracks", batchUpdateSignpost) }
+        let batchSignpost = AppSignpost.appleScriptWrite.beginInterval("batchUpdate")
+        defer { AppSignpost.appleScriptWrite.endInterval("batchUpdate", batchSignpost) }
 
         // Format matches batch_update_tracks.applescript:
         // Fields separated by ASCII 30 (Record Separator), commands by ASCII 29 (Group Separator).
@@ -343,12 +424,12 @@ extension AppleScriptBridge {
             try await recordUnknownAttempt(onAttempt, outcome: error)
             throw error
         }
-        try await onAttempt?()
+        try await onAttempt()
 
         do {
             try Self.validateBatchUpdateOutput(output, updateCount: updates.count)
         } catch {
-            throw AppleScriptBatchVerificationError(
+            throw MusicBatchVerificationError(
                 updateCount: updates.count,
                 failedCount: nil,
                 reason: "Batch script returned an unverifiable response: \(error.localizedDescription)"
@@ -359,10 +440,9 @@ extension AppleScriptBridge {
     }
 
     private func recordUnknownAttempt(
-        _ onAttempt: WriteAttemptHook?,
+        _ onAttempt: WriteAttemptHook,
         outcome: AppleScriptOutcomeError
     ) async throws {
-        guard let onAttempt else { return }
         do {
             try await onAttempt()
         } catch let WorkCheckpointError.store(failure) {
@@ -391,18 +471,14 @@ extension AppleScriptBridge {
     }
 
     private func verifyBatchUpdateResult(
-        _ updates: [TrackPropertyUpdate]
+        _ updates: [MusicTrackUpdate]
     ) async throws {
-        let trackIDs = Array(Set(updates.map(\.trackID)))
+        let databaseIDs = Array(Set(updates.map(\.databaseID)))
         let refreshedTracks: [Core.Track]
         do {
-            refreshedTracks = try await fetchTracksByIDs(
-                trackIDs,
-                batchSize: trackIDBatchSize,
-                timeout: config.timeouts.idsBatchFetch
-            )
+            refreshedTracks = try await fetchMetadata(for: databaseIDs)
         } catch {
-            throw AppleScriptBatchVerificationError(
+            throw MusicBatchVerificationError(
                 updateCount: updates.count,
                 failedCount: nil,
                 reason: "Could not refresh tracks after batch write: \(error.localizedDescription)"
@@ -416,8 +492,8 @@ extension AppleScriptBridge {
     /// Parse AppleScript output into Track objects.
     static func parseTrackOutput(_ output: String) throws -> [Core.Track] {
         do {
-            return try parseTrackRecords(output, scriptName: TrackLookup.scriptName)
-        } catch let error as AppleScriptClientParseError {
+            return try TrackWireCodec.decodeRecords(output, scriptName: TrackLookup.scriptName)
+        } catch let error as TrackWireError {
             throw AppleScriptBridgeError.parseError(scriptName: error.scriptName, detail: error.detail)
         }
     }

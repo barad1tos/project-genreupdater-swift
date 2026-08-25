@@ -104,7 +104,7 @@ struct WriteOutcomeTests {
 
     @Test("Batch undo stops after an unknown outcome")
     func stopsBatchUndo() async {
-        let client = OutcomeScriptClient(tracks: [])
+        let client = OutcomeScriptClient(tracks: [makeTrack(id: "T1"), makeTrack(id: "T2")])
         let cache = MockCacheService()
         let snapshot = MockUndoLibrarySnapshotService()
         await cache.storeAlbumYear(artist: "Artist", album: "Album", year: 2000, confidence: 80)
@@ -123,7 +123,10 @@ struct WriteOutcomeTests {
 
     @Test("Batch undo stops after cancellation")
     func cancellationStopsBatchUndo() async {
-        let client = OutcomeScriptClient(tracks: [], failure: .cancellation)
+        let client = OutcomeScriptClient(
+            tracks: [makeTrack(id: "T1"), makeTrack(id: "T2")],
+            failure: .cancellation
+        )
         let coordinator = makeUndoCoordinator(client)
 
         await #expect(throws: CancellationError.self) {
@@ -158,7 +161,7 @@ struct WriteOutcomeTests {
             makeTrack(id: "T1", name: "First", year: 1969),
             makeTrack(id: "T2", name: "Second", year: 1969)
         ]
-        let client = MockAppleScriptClient()
+        let client = MusicAppTestAccess()
         await client.setFetchedTracks(tracks)
         let coordinator = makeCoordinator(client)
         var failedTrackIDs: [String] = []
@@ -183,7 +186,7 @@ struct WriteOutcomeTests {
             makeTrack(id: "T1", name: "First", year: 1969),
             makeTrack(id: "T2", name: "Second", year: 1969)
         ]
-        let client = MockAppleScriptClient()
+        let client = MusicAppTestAccess()
         await client.setFetchedTracks(tracks)
         let store = MockChangeLogStore()
         await store.failSaves()
@@ -207,7 +210,7 @@ struct WriteOutcomeTests {
             makeTrack(id: "T1", name: "First", year: 1969),
             makeTrack(id: "T2", name: "Second", year: 1969)
         ]
-        let client = MockAppleScriptClient()
+        let client = MusicAppTestAccess()
         await client.setFetchedTracks(tracks)
         let store = MockChangeLogStore()
         await store.failSaves()
@@ -270,7 +273,7 @@ private final class ProgressRecorder: @unchecked Sendable {
     }
 }
 
-actor OutcomeScriptClient: AppleScriptClient {
+actor OutcomeScriptClient: MusicAppMutating, MusicAppVerifying {
     enum Failure {
         case unknown
         case cancellation
@@ -293,45 +296,44 @@ actor OutcomeScriptClient: AppleScriptClient {
         self.completion = completion
     }
 
-    func initialize() async throws {
-        // This in-memory client requires no setup.
+    func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Track] {
+        databaseIDs.compactMap { tracksByID[$0.rawValue] }
     }
 
-    func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
-        nil
-    }
-
-    func fetchTracksByIDs(_ trackIDs: [String], batchSize _: Int, timeout _: Duration?) async throws -> [Track] {
-        trackIDs.compactMap { tracksByID[$0] }
-    }
-
-    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
-        Array(tracksByID.keys)
-    }
-
-    func updateTrackProperty(trackID _: String, property _: String, value _: String) async throws
-        -> AppleScriptWriteResult {
+    func update(
+        _: MusicTrackUpdate,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> MusicWriteResult {
         writeAttempts += 1
-        switch failure {
-        case .unknown:
-            throw unknownOutcome(scriptName: "update_property")
-        case .cancellation:
-            throw CancellationError()
-        case .plain:
-            throw PlainWriteError()
-        }
+        try await failWrite(scriptName: "update_property", onAttempt: onAttempt)
     }
 
-    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
+    func update(
+        _: [MusicTrackUpdate],
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws {
         batchAttempts += 1
-        switch failure {
+        try await failWrite(scriptName: "batch_update_tracks", onAttempt: onAttempt)
+    }
+
+    private func failWrite(
+        scriptName: String,
+        onAttempt: WriteAttemptHook
+    ) async throws -> Never {
+        let writeError: any Error = switch failure {
         case .unknown:
-            throw unknownOutcome(scriptName: "batch_update_tracks")
+            unknownOutcome(scriptName: scriptName)
         case .cancellation:
-            throw CancellationError()
+            CancellationError()
         case .plain:
-            throw PlainWriteError()
+            PlainWriteError()
         }
+        do {
+            try await onAttempt()
+        } catch {
+            throw WriteAttemptFailure(writeError: writeError, checkpointError: error)
+        }
+        throw writeError
     }
 
     private func unknownOutcome(scriptName: String) -> AppleScriptOutcomeError {
@@ -382,7 +384,7 @@ func expectStoredCompletion(
 }
 
 func makeCoordinator(
-    _ client: any AppleScriptClient,
+    _ client: any MusicAppMutating & MusicAppVerifying,
     year: Int? = nil,
     cache: any CacheService = MockCacheService(),
     snapshot: (any LibrarySnapshotService)? = nil,
@@ -399,7 +401,7 @@ func makeCoordinator(
                 discogs: api,
                 appleMusic: api
             ),
-            scriptBridge: client,
+            writer: client,
             stores: .init(trackStore: MockTrackStore(), cache: cache),
             undoCoordinator: undo,
             librarySnapshotService: snapshot
@@ -410,13 +412,14 @@ func makeCoordinator(
 }
 
 private func makeUndoCoordinator(
-    _ client: any AppleScriptClient,
+    _ client: any MusicAppMutating & MusicAppVerifying,
     cache: (any CacheService)? = nil,
     snapshot: (any LibrarySnapshotService)? = nil,
     changeLogStore: (any ChangeLogStore)? = nil
 ) -> UndoCoordinator {
     UndoCoordinator(
-        scriptBridge: client,
+        musicApp: client,
+        idMapper: CanonicalUndoMapper(),
         stores: .init(changeLog: changeLogStore, cache: cache),
         librarySnapshotService: snapshot,
         directory: FileManager.default.temporaryDirectory
@@ -438,7 +441,8 @@ func makeTrack(
         genre: "Rock",
         year: year,
         trackStatus: TrackKind.subscription.rawValue,
-        releaseYear: releaseYear
+        releaseYear: releaseYear,
+        appleScriptID: id
     )
 }
 

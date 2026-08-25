@@ -86,7 +86,7 @@ struct ApplyAcceptedTests {
 
         let written = await fixture.bridge.writtenProperties
         #expect(written.count == 1)
-        #expect(written[0].property == "genre")
+        #expect(written[0].property == .genre)
         #expect(written[0].value == "Electronic")
         #expect(result.entries.count == 1)
         #expect(result.entries[0].changeType == .genreUpdate)
@@ -122,7 +122,7 @@ struct ApplyAcceptedTests {
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
-        #expect(batches[0].map(\.property) == ["genre", "year"])
+        #expect(batches[0].map(\.property) == [.genre, .year])
         #expect(batches[0].map(\.value) == ["Stoner Rock", "2001"])
         #expect(written.isEmpty)
         #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
@@ -178,8 +178,8 @@ struct ApplyAcceptedTests {
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
         let batch = try #require(batches.first)
-        #expect(batch.map(\.trackID) == ["MK1", "MK2"])
-        #expect(batch.map(\.property) == ["year", "year"])
+        #expect(batch.map(\.databaseID.rawValue) == ["MK1", "MK2"])
+        #expect(batch.map(\.property) == [.year, .year])
         #expect(batch.map(\.value) == ["2001", "2001"])
         #expect(written.isEmpty)
         #expect(result.entries.map(\.trackID) == ["MK1", "MK2"])
@@ -253,7 +253,7 @@ struct ApplyAcceptedTests {
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
-        #expect(batches[0].map(\.property) == ["genre", "year"])
+        #expect(batches[0].map(\.property) == [.genre, .year])
         #expect(written.isEmpty)
         #expect(result.entries.isEmpty)
         #expect(result.noOpEntries.map(\.changeType) == [.genreUpdate, .yearUpdate])
@@ -290,7 +290,7 @@ struct ApplyAcceptedTests {
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
-        #expect(batches[0].map(\.property) == ["genre", "year"])
+        #expect(batches[0].map(\.property) == [.genre, .year])
         #expect(written.isEmpty)
         #expect(result.entries.isEmpty)
         #expect(result.noOpEntries.map(\.changeType) == [.genreUpdate, .yearUpdate])
@@ -381,47 +381,6 @@ struct ApplyAcceptedTests {
         }
     }
 
-    @Test("Partially applied reviewed batches report an unknown outcome")
-    func partialBatchIsUnknown() async throws {
-        let mapper = TrackIDMapper()
-        let musicKitTrack = makeEditableTrack(id: "MK1", genre: "Rock", year: 1999)
-        let appleScriptTrack = makeEditableTrack(id: "AS1", genre: "Rock", year: 1999)
-        await mapper.refreshMapping(
-            musicKitTracks: [musicKitTrack],
-            appleScriptTracks: [appleScriptTrack]
-        )
-        let fixture = await makeCoordinator(
-            runtimeConfiguration: UpdateRuntimeConfiguration(
-                areBatchUpdatesEnabled: true,
-                maxBatchUpdateSize: 5
-            ),
-            idMapper: mapper
-        )
-        await fixture.bridge.setBatchMutationLimit(1)
-        await fixture.bridge.setSingleWriteResult(.noChange)
-        await fixture.bridge.setFetchedTracks([appleScriptTrack])
-        let proposals = acceptedProposals(for: musicKitTrack)
-
-        do {
-            _ = try await fixture.coordinator.applyAcceptedChanges(
-                proposals,
-                progressHandler: ignoreAcceptedChangeProgress
-            )
-            Issue.record("Expected a partially applied batch outcome")
-        } catch let error as PartialWriteError {
-            #expect(error.appliedTrackIDs == [musicKitTrack.id])
-            #expect(error.underlyingError is AppleScriptOutcomeError)
-        } catch {
-            Issue.record("Expected PartialWriteError, got \(error)")
-        }
-
-        let batches = await fixture.bridge.batchUpdates
-        let written = await fixture.bridge.writtenProperties
-        #expect(batches.count == 1)
-        #expect(batches.first?.map(\.trackID) == ["AS1", "AS1"])
-        #expect(written.isEmpty)
-    }
-
     @Test("Default reviewed writes keep single-write behavior")
     func defaultReviewedWritesKeepSingleWriteBehavior() async throws {
         let fixture = await makeCoordinator()
@@ -436,7 +395,7 @@ struct ApplyAcceptedTests {
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.isEmpty)
-        #expect(written.map(\.property) == ["genre", "year"])
+        #expect(written.map(\.property) == [.genre, .year])
         #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
     }
 
@@ -470,7 +429,7 @@ struct ApplyAcceptedTests {
         )
 
         let written = await fixture.bridge.writtenProperties
-        #expect(written.map(\.property) == ["year"])
+        #expect(written.map(\.property) == [.year])
         #expect(result.entries.isEmpty)
         #expect(result.noOpEntries.map(\.changeType) == [.yearUpdate])
         #expect(result.failedTrackIDs.isEmpty)
@@ -517,7 +476,7 @@ struct ApplyAcceptedTests {
         )
 
         let written = await fixture.bridge.writtenProperties
-        #expect(written.map(\.property) == ["year"])
+        #expect(written.map(\.property) == [.year])
         #expect(result.entries.map(\.changeType) == [.yearUpdate])
         #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
         #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: "Album") == nil)
@@ -549,7 +508,7 @@ struct ApplyAcceptedTests {
         let batches = await fixture.bridge.batchUpdates
         let written = await fixture.bridge.writtenProperties
         #expect(batches.count == 1)
-        #expect(written.map(\.property) == ["genre", "year"])
+        #expect(written.map(\.property) == [.genre, .year])
         #expect(written.map(\.value) == ["Stoner Rock", "2001"])
         #expect(result.entries.map(\.changeType) == [.genreUpdate, .yearUpdate])
     }
@@ -797,28 +756,5 @@ struct ApplyAcceptedTests {
 
         let written = await fixture.bridge.writtenProperties
         #expect(written.isEmpty)
-    }
-
-    private func acceptedProposals(for track: Track) -> [ProposedChange] {
-        [
-            ProposedChange(
-                track: track,
-                changeType: .genreUpdate,
-                oldValue: "Rock",
-                newValue: "Stoner Rock",
-                confidence: 90,
-                source: "Library",
-                isAccepted: true
-            ),
-            ProposedChange(
-                track: track,
-                changeType: .yearUpdate,
-                oldValue: "1999",
-                newValue: "2001",
-                confidence: 95,
-                source: "MusicBrainz",
-                isAccepted: true
-            ),
-        ]
     }
 }

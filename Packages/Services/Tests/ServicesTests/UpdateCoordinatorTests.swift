@@ -36,7 +36,8 @@ func makeEditableTrack(
         genre: genre,
         year: year,
         dateAdded: dateAdded,
-        trackStatus: nil // nil trackStatus = available
+        trackStatus: nil, // nil trackStatus = available
+        appleScriptID: id
     )
 }
 
@@ -44,7 +45,7 @@ func makeEditableTrack(
 
 struct CoordinatorFixture {
     let coordinator: UpdateCoordinator
-    let bridge: MockAppleScriptClient
+    let bridge: MusicAppTestAccess
     let store: MockTrackStore
     let undo: UndoCoordinator
 }
@@ -84,7 +85,7 @@ actor MockLibrarySnapshotService: LibrarySnapshotService {
 @Suite("UpdateCoordinator — single and multi-track updates")
 struct UpdateCoordinatorTests {
     struct Setup {
-        var scriptBridge: MockAppleScriptClient?
+        var scriptBridge: MusicAppTestAccess?
         var idMapper: (any TrackIDMapping)?
         var librarySnapshotService: (any LibrarySnapshotService)?
     }
@@ -96,12 +97,12 @@ struct UpdateCoordinatorTests {
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
         setup: Setup = Setup()
     ) async -> CoordinatorFixture {
-        let bridge = setup.scriptBridge ?? MockAppleScriptClient()
+        let bridge = setup.scriptBridge ?? MusicAppTestAccess()
         let store = MockTrackStore()
         let cacheService = cache ?? MockCacheService()
         let undoDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("UpdateCoordinatorTests-\(UUID().uuidString)")
-        let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
+        let undo = UndoCoordinator(musicApp: bridge, directory: undoDir)
 
         // yearScores must be populated for APIOrchestrator.aggregateResults
         let yearScores: [Int: Int] = if let year {
@@ -124,7 +125,7 @@ struct UpdateCoordinatorTests {
         let coordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
                     trackStore: store,
                     cache: cacheService
@@ -231,8 +232,12 @@ struct UpdateCoordinatorTests {
 
         let written = await fixture.bridge.writtenProperties
         #expect(result.failedTrackIDs.isEmpty)
-        #expect(written.contains { $0.trackID == "target" && $0.property == "genre" && $0.value == "Punk" })
-        #expect(!written.contains { $0.trackID == "target" && $0.property == "genre" && $0.value == "Pop" })
+        #expect(written.contains {
+            $0.databaseID.rawValue == "target" && $0.property == .genre && $0.value == "Punk"
+        })
+        #expect(!written.contains {
+            $0.databaseID.rawValue == "target" && $0.property == .genre && $0.value == "Pop"
+        })
     }
 
     @Test("Genre context uses AppleScript-enriched artist tracks")
@@ -296,7 +301,7 @@ struct UpdateCoordinatorTests {
         let fixture = await makeCoordinator(year: 2020, confidence: 90)
 
         let track = makeEditableTrack(year: 1969)
-        try await fixture.store.saveTracks([track])
+        try await fixture.store.seedMirror([track])
         let changes = try await fixture.coordinator.updateTrack(
             track,
             options: UpdateOptions(updateGenre: false, updateYear: true),
@@ -305,7 +310,7 @@ struct UpdateCoordinatorTests {
 
         #expect(!changes.isEmpty)
         let written = await fixture.bridge.writtenProperties
-        #expect(written.contains { $0.property == "year" && $0.value == "2020" })
+        #expect(written.contains { $0.property == .year && $0.value == "2020" })
         let storedTrack = try await fixture.store.getTrack(byID: track.id)
         #expect(storedTrack?.year == 2020)
     }
@@ -316,25 +321,11 @@ struct UpdateCoordinatorTests {
             policies: .init(missingYearThreshold: 95)
         )
         let fixture = await makeCoordinator(runtimeConfiguration: runtimeConfiguration)
-        let target = Track(
-            id: "T1",
-            name: "Come Together",
-            artist: "Beatles",
-            album: "Abbey Road",
-            year: nil,
-            trackStatus: nil,
-            releaseYear: 1970
-        )
-        let peer = Track(
-            id: "T2",
-            name: "Something",
-            artist: "Beatles",
-            album: "Abbey Road",
-            year: nil,
-            trackStatus: nil,
-            releaseYear: 1970
-        )
-        try await fixture.store.saveTracks([target])
+        var target = makeEditableTrack(id: "T1", year: nil)
+        target.releaseYear = 1970
+        var peer = makeEditableTrack(id: "T2", name: "Something", year: nil)
+        peer.releaseYear = 1970
+        try await fixture.store.seedMirror([target])
 
         let changes = try await fixture.coordinator.updateTrack(
             target,
@@ -347,7 +338,7 @@ struct UpdateCoordinatorTests {
         #expect(yearChange.newValue == "1970")
         #expect(yearChange.confidence == 80)
         let written = await fixture.bridge.writtenProperties
-        #expect(written.contains { $0.property == "year" && $0.value == "1970" } == !dryRun)
+        #expect(written.contains { $0.property == .year && $0.value == "1970" } == !dryRun)
     }
 
     @Test("Non-editable track throws trackNotEditable")
@@ -443,7 +434,7 @@ struct UpdateCoordinatorTests {
         let written = await fixture.bridge.writtenProperties
         #expect(result.failedTrackIDs.isEmpty)
         #expect(written.contains { property in
-            property.trackID == "target" && property.property == "year" && property.value == "1970"
+            property.databaseID.rawValue == "target" && property.property == .year && property.value == "1970"
         })
     }
 
@@ -591,7 +582,7 @@ struct UpdateCoordinatorTests {
     @Test("Failed write keeps library snapshot cache")
     func failedWriteKeepsLibrarySnapshotCache() async throws {
         let snapshotService = MockLibrarySnapshotService()
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setThrowMode(true)
         let fixture = await makeCoordinator(
             setup: .init(

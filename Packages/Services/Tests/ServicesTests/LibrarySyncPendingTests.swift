@@ -33,9 +33,9 @@ struct LibrarySyncPendingTests {
         ])
 
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
-            pendingVerificationService: pending
+            pendingVerificationService: pending,
+            observer: bridge
         )
 
         _ = try await service.synchronizeNow()

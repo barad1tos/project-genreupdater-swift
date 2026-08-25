@@ -15,7 +15,7 @@ struct CandidateScoringTests {
             year: nil,
             trackStatus: nil
         )
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let api = makeAPIOrchestrator(
             musicBrainz: MockAPIService(releaseCandidates: [
@@ -53,7 +53,7 @@ struct CandidateScoringTests {
             year: nil,
             trackStatus: nil
         )
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let api = makeAPIOrchestrator(
             musicBrainz: MockAPIService(releaseCandidates: [
@@ -118,7 +118,7 @@ struct CandidateScoringTests {
             musicKitTracks: [musicKitTrack],
             appleScriptTracks: [appleScriptTrack]
         )
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let api = APIOrchestrator(
             musicBrainz: MockAPIService(releaseCandidates: [
@@ -167,7 +167,7 @@ struct CandidateScoringTests {
                 releaseYear: 1998
             ),
         ]
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         await cache.storeAlbumYear(
             artist: "Clutch",
@@ -228,7 +228,7 @@ struct CandidateScoringTests {
             musicKitTracks: [mappedMusicKitTrack, unmappedMusicKitTrack],
             appleScriptTracks: [mappedAppleScriptTrack]
         )
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let api = makeAPIOrchestrator(
             musicBrainz: MockAPIService(),
@@ -254,7 +254,7 @@ struct CandidateScoringTests {
     func doesNotRewriteValidEditableYearWithoutAPIConfirmation() async throws {
         let track = subRosaTrack()
         let albumTracks = subRosaAlbumTracks()
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let api = emptyAPIOrchestrator()
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
@@ -273,7 +273,7 @@ struct CandidateScoringTests {
     func usesAPIConfirmationForConflictingReleaseYear() async throws {
         let track = subRosaTrack()
         let albumTracks = subRosaAlbumTracks()
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let api = subRosaAPIOrchestrator(confirmingYear: 2008)
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
@@ -295,7 +295,7 @@ struct CandidateScoringTests {
     func usesCachedYearWhenItMatchesTheReleaseYearConflictTarget() async throws {
         let track = subRosaTrack()
         let albumTracks = subRosaAlbumTracks()
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         await cache.storeAlbumYear(
             artist: "SubRosa",
@@ -434,7 +434,7 @@ struct CandidateScoringTests {
     func skipsYearLookupWhenEveryAlbumTrackWasAlreadyProcessed() async throws {
         let track = subRosaTrack(year: 2008, yearSetByMGU: 2008)
         let albumTracks = subRosaAlbumTracks(year: 2008, yearSetByMGU: 2008)
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         await cache.storeAlbumYear(
             artist: "SubRosa",
@@ -459,7 +459,7 @@ struct CandidateScoringTests {
     func forceYearLookupBypassesAlreadyProcessedAlbumSkip() async throws {
         let track = subRosaTrack(year: 2008, yearSetByMGU: 2008)
         let albumTracks = subRosaAlbumTracks(year: 2008, yearSetByMGU: 2008)
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         await cache.storeAlbumYear(
             artist: "SubRosa",
@@ -495,7 +495,7 @@ struct CandidateScoringTests {
                 releaseYear: 2008
             ),
         ]
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         await cache.storeAlbumYear(
             artist: "SubRosa",
@@ -522,7 +522,7 @@ struct CandidateScoringTests {
     func fallsBackToAPIWhenCachedYearDoesNotMatchTheReleaseYearConflictTarget() async throws {
         let track = subRosaTrack()
         let albumTracks = subRosaAlbumTracks()
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         await cache.storeAlbumYear(
             artist: "SubRosa",
@@ -550,7 +550,7 @@ struct CandidateScoringTests {
     func usesAPIConfirmationWhenOnlyTheTargetTrackHasAValidReleaseYearSignal() async throws {
         let track = subRosaTrack()
         let albumTracks = subRosaAlbumTracks(secondReleaseYear: nil)
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let api = subRosaAPIOrchestrator(confirmingYear: 2008)
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
@@ -572,7 +572,7 @@ struct CandidateScoringTests {
     func doesNotRewriteWhenOnlyTargetReleaseYearSignalLacksConfirmation() async throws {
         let track = subRosaTrack()
         let albumTracks = subRosaAlbumTracks(secondReleaseYear: nil)
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let api = emptyAPIOrchestrator()
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
@@ -593,7 +593,7 @@ struct CandidateScoringTests {
     func doesNotRewriteWhenCacheConflictsWithReleaseYearAndAPIsDoNotConfirm() async throws {
         let track = subRosaTrack()
         let albumTracks = subRosaAlbumTracks()
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         await cache.storeAlbumYear(
             artist: "SubRosa",
@@ -620,7 +620,7 @@ struct CandidateScoringTests {
     func acceptsDefinitiveAPIYearNearReleaseYearSignal() async throws {
         let track = subRosaTrack()
         let albumTracks = subRosaAlbumTracks()
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let api = subRosaAPIOrchestrator(confirmingYear: 2010)
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
@@ -647,7 +647,7 @@ struct CandidateScoringTests {
                 releaseYear: 2010
             ),
         ]
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let api = subRosaAPIOrchestrator(confirmingYear: 2010)
         let coordinator = makeCoordinator(api: api, bridge: bridge, cache: cache)
@@ -732,7 +732,7 @@ struct CandidateScoringTests {
         apiProbe: APIRequestProbe,
         coordinator: UpdateCoordinator
     ) {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let apiProbe = APIRequestProbe()
         let api = makeAPIOrchestrator(
@@ -769,7 +769,7 @@ struct CandidateScoringTests {
 
     private func makeCoordinator(
         api: APIOrchestrator,
-        bridge: MockAppleScriptClient,
+        bridge: MusicAppTestAccess,
         cache: MockCacheService,
         idMapper: (any TrackIDMapping)? = nil,
         pendingVerificationService: (any PendingVerificationService)? = nil
@@ -779,13 +779,13 @@ struct CandidateScoringTests {
         return UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: api,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
                     trackStore: MockTrackStore(),
                     cache: cache
                 ),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: bridge,
+                    musicApp: bridge,
                     directory: undoDirectory
                 ),
                 idMapper: idMapper,

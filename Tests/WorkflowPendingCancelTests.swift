@@ -17,9 +17,9 @@ struct WorkflowPendingCancelTests {
         try await waitForWorkflowToReturnToConfigure(viewModel)
         let writes = await run.fixture.scriptClient.updatedProperties()
 
-        #expect(writes.map(\.trackID) == ["as-ram-1", "as-ram-2"])
-        #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1", "ram-2"])
-        #expect(viewModel.result?.entries.map(\.trackID) == ["ram-1", "ram-2"])
+        #expect(writes.map(\.databaseID.rawValue) == ["as-ram-1", "as-ram-2"])
+        #expect(viewModel.completedEntries.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(viewModel.result?.entries.map(\.trackID) == ["as-ram-1", "as-ram-2"])
         #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
         #expect(viewModel.result?.errorDescriptions.isEmpty == true)
         #expect(viewModel.trackStatuses["ram-1"] == .done)
@@ -84,7 +84,7 @@ struct WorkflowPendingCancelTests {
         try await waitForWorkflowToReturnToConfigure(viewModel)
         let writes = await fixture.scriptClient.updatedProperties()
 
-        #expect(writes.map(\.trackID) == ["as-batch-year-1"])
+        #expect(writes.map(\.databaseID.rawValue) == ["as-batch-year-1"])
         #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1", "ram-2"])
         #expect(viewModel.result?.entries.map(\.trackID) == ["ram-1", "ram-2"])
         #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
@@ -121,10 +121,10 @@ struct WorkflowPendingCancelTests {
         let writes = await run.fixture.scriptClient.updatedProperties()
         let removals = await pendingVerification.removedAlbums()
 
-        #expect(writes.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(writes.map(\.databaseID.rawValue) == ["as-ram-1", "as-ram-2"])
         #expect(removals.contains { $0.artist == "Daft Punk" && $0.album == "Random Access Memories" })
-        #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1", "ram-2"])
-        #expect(viewModel.result?.entries.map(\.trackID) == ["ram-1", "ram-2"])
+        #expect(viewModel.completedEntries.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(viewModel.result?.entries.map(\.trackID) == ["as-ram-1", "as-ram-2"])
         #expect(viewModel.result?.failedTrackIDs.isEmpty == true)
         #expect(viewModel.result?.errorDescriptions.isEmpty == true)
         #expect(viewModel.processedCount == 2)
@@ -160,10 +160,10 @@ struct WorkflowPendingCancelTests {
         let writes = await fixture.scriptClient.updatedProperties()
         let removals = await pendingVerification.removedAlbums()
 
-        #expect(writes.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(writes.map(\.databaseID.rawValue) == ["as-ram-1", "as-ram-2"])
         #expect(removals.contains { $0.artist == "Daft Punk" && $0.album == "Random Access Memories" })
-        #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1", "ram-2"])
-        #expect(viewModel.result?.entries.map(\.trackID) == ["ram-1", "ram-2"])
+        #expect(viewModel.completedEntries.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(viewModel.result?.entries.map(\.trackID) == ["as-ram-1", "as-ram-2"])
         #expect(viewModel.trackStatuses["ram-1"] == .done)
         #expect(viewModel.trackStatuses["ram-2"] == .done)
         #expect(viewModel.failedTracks.isEmpty)
@@ -195,10 +195,10 @@ struct WorkflowPendingCancelTests {
         let writes = await fixture.scriptClient.updatedProperties()
         let removals = await pendingVerification.removedAlbums()
 
-        #expect(writes.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(writes.map(\.databaseID.rawValue) == ["as-ram-1", "as-ram-2"])
         #expect(removals.contains { $0.artist == "Daft Punk" && $0.album == "Random Access Memories" })
-        #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1", "ram-2"])
-        #expect(viewModel.result?.entries.map(\.trackID) == ["ram-1", "ram-2"])
+        #expect(viewModel.completedEntries.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(viewModel.result?.entries.map(\.trackID) == ["as-ram-1", "as-ram-2"])
         #expect(viewModel.trackStatuses["ram-1"] == .done)
         #expect(viewModel.trackStatuses["ram-2"] == .done)
         #expect(viewModel.failedTracks.isEmpty)
@@ -225,7 +225,7 @@ struct WorkflowPendingCancelTests {
 
         try await waitForWorkflowToLeaveScanning(viewModel)
 
-        #expect(viewModel.completedEntries.map(\.trackID) == ["ram-1", "ram-2"])
+        #expect(viewModel.completedEntries.map(\.trackID) == ["as-ram-1", "as-ram-2"])
         #expect(await run.timestampUpdates.count() == 0)
         if case let .error(message) = viewModel.phase {
             #expect(message == PendingTimestampUpdateError.failed.localizedDescription)
@@ -264,7 +264,7 @@ struct WorkflowPendingCancelTests {
         await viewModel.processingTask?.value
 
         let writes = await fixture.scriptClient.updatedProperties()
-        #expect(writes.map(\.trackID) == ["as-ram-1", "as-ram-2"])
+        #expect(writes.map(\.databaseID.rawValue) == ["as-ram-1", "as-ram-2"])
         #expect(metered.count == 2)
     }
 
@@ -290,7 +290,7 @@ struct WorkflowPendingCancelTests {
         await viewModel.processingTask?.value
 
         let writes = await fixture.scriptClient.updatedProperties()
-        #expect(writes.map(\.trackID) == ["as-ram-1"])
+        #expect(writes.map(\.databaseID.rawValue) == ["as-ram-1"])
         #expect(metered.count == 1)
     }
 

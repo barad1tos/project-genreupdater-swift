@@ -7,32 +7,28 @@ import Testing
 struct UndoArtistTests {
     @Test("Revert restores both artist fields together")
     func revertCoupledArtistRename() async throws {
-        let bridge = MockAppleScriptClient()
-        await bridge.setFetchedTracks([
-            Track(
-                id: "T1",
-                name: "Teardrop",
-                artist: "Massive Attack",
-                album: "Mezzanine",
-                albumArtist: "Massive Attack"
-            ),
-        ])
-        let coordinator = UndoCoordinator(scriptBridge: bridge, directory: makeDirectory())
+        let bridge = MusicAppTestAccess()
         let entry = makeEntry()
+        await bridge.setUndoEntries([entry])
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
+            directory: makeDirectory()
+        )
         try await coordinator.recordChange(entry)
 
         try await coordinator.revertChange(entry)
 
         #expect(await bridge.batchUpdates == [[
-            TrackPropertyUpdate(trackID: "T1", property: "artist", value: "Massive"),
-            TrackPropertyUpdate(trackID: "T1", property: "album_artist", value: "Massive"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .artist, value: "Massive"),
+            musicUpdate(databaseID: testDatabaseID("T1"), property: .albumArtist, value: "Massive"),
         ]])
         #expect(await coordinator.getHistory().isEmpty)
     }
 
     @Test("Revert preserves an album artist changed after the original rename")
     func revertPreservesDistinctAlbumArtist() async throws {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let currentTrack = Track(
             id: "T1",
             name: "Teardrop",
@@ -41,8 +37,18 @@ struct UndoArtistTests {
             trackStatus: TrackKind.subscription.rawValue,
             albumArtist: "Various Artists"
         )
+        let observedTrack = Track(
+            id: "AS1",
+            name: currentTrack.name,
+            artist: currentTrack.artist,
+            album: currentTrack.album,
+            trackStatus: currentTrack.trackStatus,
+            albumArtist: currentTrack.albumArtist,
+            appleScriptID: "AS1"
+        )
+        await bridge.setFetchedTracks([observedTrack])
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             idMapper: MetadataUndoTrackIDMapper(
                 mapping: ["T1": "AS1"],
                 metadata: ["T1": currentTrack]
@@ -56,7 +62,7 @@ struct UndoArtistTests {
 
         #expect(await bridge.batchUpdates.isEmpty)
         #expect(await bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: "AS1", property: "artist", value: "Massive"),
+            musicUpdate(databaseID: testDatabaseID("AS1"), property: .artist, value: "Massive"),
         ])
         #expect(await coordinator.getHistory().isEmpty)
     }

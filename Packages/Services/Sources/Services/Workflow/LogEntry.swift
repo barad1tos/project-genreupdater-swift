@@ -1,10 +1,14 @@
 import Core
 
 extension UpdateCoordinator {
-    static func changeToLogEntry(_ change: ProposedChange, recoveryOrigin: String? = nil) -> ChangeLogEntry {
+    static func changeToLogEntry(
+        _ change: ProposedChange,
+        databaseID: MusicDatabaseTrackID,
+        recoveryOrigin: String? = nil
+    ) -> ChangeLogEntry {
         var entry = ChangeLogEntry(
             changeType: change.changeType,
-            trackID: change.track.id,
+            trackID: databaseID.rawValue,
             artist: change.track.artist,
             trackName: change.track.name,
             albumName: change.track.album

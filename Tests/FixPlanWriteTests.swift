@@ -6,7 +6,7 @@ import Testing
 
 @Suite("FixPlanWrite")
 struct FixPlanWriteTests {
-    @Test("reviewed write ID refresh uses captured request settings")
+    @Test("reviewed write ID refresh uses typed database identities")
     func usesPlanSettings() async throws {
         let scriptClient = WriteIDScriptSpy()
         let mapper = TrackIDMapper()
@@ -25,18 +25,86 @@ struct FixPlanWriteTests {
         try await FixPlanWrite.prepareWriteIDs(
             for: changes,
             mapper: mapper,
-            scriptClient: scriptClient,
-            batchSize: 2,
-            timeout: .seconds(45)
+            verifier: scriptClient
         )
 
         let calls = await scriptClient.fetchCalls
-        #expect(calls.map(\.batchSize) == [2])
-        #expect(calls.map(\.timeout) == [.seconds(45)])
-        #expect(Set(calls.flatMap(\.trackIDs)) == ["AS-1", "AS-2", "AS-3"])
+        let firstID = try #require(MusicDatabaseTrackID(rawValue: "AS-1"))
+        let secondID = try #require(MusicDatabaseTrackID(rawValue: "AS-2"))
+        let thirdID = try #require(MusicDatabaseTrackID(rawValue: "AS-3"))
+        #expect(Set(calls.flatMap(\.self)) == [
+            firstID,
+            secondID,
+            thirdID,
+        ])
         for index in 1 ... 3 {
             #expect(await mapper.appleScriptID(forMusicKitID: "MK-\(index)") == "AS-\(index)")
         }
+    }
+
+    @Test("reviewed write rejects a reused database ID")
+    func rejectsReusedDatabaseID() async throws {
+        let verifier = WriteIDScriptSpy()
+        let mapper = TrackIDMapper()
+        let change = ProposedChange(
+            track: musicKitTrack(index: 1),
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Metal",
+            confidence: 90,
+            source: "review-test"
+        )
+        await verifier.setTracks([
+            Track(
+                id: "AS-1",
+                name: "Replacement Track",
+                artist: "Different Artist",
+                album: "Different Album",
+                appleScriptID: "AS-1"
+            ),
+        ])
+
+        await #expect(throws: FixPlanWrite.Failure.self) {
+            try await FixPlanWrite.prepareWriteIDs(
+                for: [change],
+                mapper: mapper,
+                verifier: verifier
+            )
+        }
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-1") == nil)
+    }
+
+    @Test("reviewed write rejects a reused database ID with another album artist")
+    func rejectsReusedDatabaseIDByAlbumArtist() async throws {
+        let verifier = WriteIDScriptSpy()
+        let mapper = TrackIDMapper()
+        let change = ProposedChange(
+            track: musicKitTrack(index: 1, albumArtist: "Artist"),
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Metal",
+            confidence: 90,
+            source: "review-test"
+        )
+        await verifier.setTracks([
+            Track(
+                id: "AS-1",
+                name: change.track.name,
+                artist: change.track.artist,
+                album: change.track.album,
+                albumArtist: "Compilation Artist",
+                appleScriptID: "AS-1"
+            ),
+        ])
+
+        await #expect(throws: FixPlanWrite.Failure.self) {
+            try await FixPlanWrite.prepareWriteIDs(
+                for: [change],
+                mapper: mapper,
+                verifier: verifier
+            )
+        }
+        #expect(await mapper.appleScriptID(forMusicKitID: "MK-1") == nil)
     }
 
     @Test("reviewed write maps decision verdicts")
@@ -161,62 +229,27 @@ struct FixPlanWriteTests {
     }
 }
 
-private actor WriteIDScriptSpy: AppleScriptClient {
+private actor WriteIDScriptSpy: MusicAppVerifying {
     private var tracksByID: [String: Track] = [:]
-    private(set) var fetchCalls: [ScriptFetchCall] = []
+    private(set) var fetchCalls: [[MusicDatabaseTrackID]] = []
 
     func setTracks(_ tracks: [Track]) {
         tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
     }
 
-    func initialize() async throws {
-        // This in-memory client requires no setup.
-    }
-
-    func runScript(
-        name _: String,
-        arguments _: [String],
-        timeout _: Duration?
-    ) async throws -> String? {
-        nil
-    }
-
-    func fetchTracksByIDs(
-        _ trackIDs: [String],
-        batchSize: Int,
-        timeout: Duration?
-    ) async throws -> [Track] {
-        fetchCalls.append(ScriptFetchCall(trackIDs: trackIDs, batchSize: batchSize, timeout: timeout))
-        return trackIDs.compactMap { tracksByID[$0] }
-    }
-
-    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
-        Array(tracksByID.keys)
-    }
-
-    func fetchTracks(artist _: String?, timeout _: Duration?) async throws -> [Track] {
-        Array(tracksByID.values)
-    }
-
-    func updateTrackProperty(
-        trackID _: String,
-        property _: String,
-        value _: String
-    ) async throws -> AppleScriptWriteResult {
-        .noChange
-    }
-
-    func batchUpdateTracks(_: [TrackPropertyUpdate]) async throws {
-        // This spy only exercises single-track writes.
+    func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Track] {
+        fetchCalls.append(databaseIDs)
+        return databaseIDs.compactMap { tracksByID[$0.rawValue] }
     }
 }
 
-private func musicKitTrack(index: Int) -> Track {
+private func musicKitTrack(index: Int, albumArtist: String? = nil) -> Track {
     Track(
         id: "MK-\(index)",
         name: "Track \(index)",
         artist: "Artist",
         album: "Album",
+        albumArtist: albumArtist,
         appleScriptID: "AS-\(index)"
     )
 }
@@ -227,6 +260,7 @@ private func appleScriptTrack(from track: Track) -> Track {
         name: track.name,
         artist: track.artist,
         album: track.album,
+        albumArtist: track.albumArtist,
         appleScriptID: track.appleScriptID
     )
 }

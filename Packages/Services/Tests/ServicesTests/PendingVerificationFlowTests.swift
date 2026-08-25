@@ -5,7 +5,7 @@ import Testing
 
 private struct PendingCoordinatorFixture {
     let coordinator: UpdateCoordinator
-    let bridge: MockAppleScriptClient
+    let bridge: MusicAppTestAccess
 }
 
 private func makePendingCoordinator(
@@ -51,12 +51,12 @@ private func makePendingCoordinator(
     pendingVerification: PendingRecorder? = nil,
     reachability: NetworkReachabilityMonitor? = nil
 ) async -> PendingCoordinatorFixture {
-    let bridge = MockAppleScriptClient()
+    let bridge = MusicAppTestAccess()
     let store = MockTrackStore()
     let cache = MockCacheService()
     let undoDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("UpdateCoordinatorPendingTests-\(UUID().uuidString)")
-    let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDir)
+    let undo = UndoCoordinator(musicApp: bridge, directory: undoDir)
     let orchestrator = makeAPIOrchestrator(
         musicBrainz: musicBrainz,
         discogs: discogs,
@@ -67,7 +67,7 @@ private func makePendingCoordinator(
     let coordinator = UpdateCoordinator(
         dependencies: UpdateDependencies(
             apiOrchestrator: orchestrator,
-            scriptBridge: bridge,
+            writer: bridge,
             stores: .init(trackStore: store, cache: cache),
             undoCoordinator: undo,
             pendingVerificationService: pendingVerification
@@ -95,7 +95,8 @@ private func makePendingTrack(
         artist: artist,
         album: album,
         year: year,
-        albumArtist: albumArtist
+        albumArtist: albumArtist,
+        appleScriptID: id
     )
 }
 
@@ -162,7 +163,7 @@ struct PendingVerificationFlowTests {
         #expect(result.resolvedYear == 1997)
         #expect(result.entries.count == 2)
         #expect(written.count == 2)
-        #expect(written.allSatisfy { $0.property == "year" && $0.value == "1997" })
+        #expect(written.allSatisfy { $0.property == .year && $0.value == "1997" })
     }
 
     @Test("No-op pending write does not create a change entry")
@@ -301,7 +302,7 @@ struct PendingVerificationFlowTests {
         #expect(result.entries.map(\.trackID) == ["T1"])
         #expect(result.failedTrackIDs == ["T2"])
         #expect(result.errorDescriptions.isEmpty == false)
-        #expect(written.map(\.trackID) == ["T1"])
+        #expect(written.map(\.databaseID.rawValue) == ["T1"])
     }
 
     @Test("Pending verification API lookup has no pending-store side effects")

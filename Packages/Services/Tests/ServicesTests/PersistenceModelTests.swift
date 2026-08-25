@@ -13,69 +13,28 @@ import Testing
 struct PersistedTrackTests {
     private let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-    private func sampleTrack() -> Core.Track {
-        Core.Track(
-            id: "T1",
+    private func samplePersistedTrack() -> PersistedTrack {
+        PersistedTrack(
+            trackID: "T1",
             name: "Song",
             artist: "Artist",
             album: "Album",
             genre: "Rock",
             year: 2020,
             dateAdded: fixedDate,
+            albumArtist: "AlbumArtist",
             trackStatus: "matched",
             originalArtist: "Original Artist",
             originalAlbum: "Original Album",
             yearBeforeMGU: 1999,
             yearSetByMGU: 2020,
-            releaseYear: 2019,
-            albumArtist: "AlbumArtist"
+            releaseYear: 2019
         )
-    }
-
-    @Test("init(from:) maps all fields from Core.Track")
-    func initFromTrackMapsAllFields() {
-        let track = sampleTrack()
-        let persisted = PersistedTrack(from: track)
-
-        #expect(persisted.trackID == "T1")
-        #expect(persisted.name == "Song")
-        #expect(persisted.artist == "Artist")
-        #expect(persisted.album == "Album")
-        #expect(persisted.genre == "Rock")
-        #expect(persisted.year == 2020)
-        #expect(persisted.dateAdded == fixedDate)
-        #expect(persisted.albumArtist == "AlbumArtist")
-        #expect(persisted.trackStatus == "matched")
-        #expect(persisted.originalArtist == "Original Artist")
-        #expect(persisted.originalAlbum == "Original Album")
-        #expect(persisted.yearBeforeMGU == 1999)
-        #expect(persisted.yearSetByMGU == 2020)
-        #expect(persisted.releaseYear == 2019)
-        #expect(persisted.genreUpdated == false)
-        #expect(persisted.yearUpdated == false)
-        #expect(persisted.processedDate == nil)
-    }
-
-    @Test("init(from:) handles nil optional fields")
-    func initFromTrackHandlesNils() {
-        let track = Core.Track(id: "T2", name: "Minimal", artist: "A", album: "B")
-        let persisted = PersistedTrack(from: track)
-
-        #expect(persisted.genre == nil)
-        #expect(persisted.year == nil)
-        #expect(persisted.dateAdded == nil)
-        #expect(persisted.albumArtist == nil)
-        #expect(persisted.trackStatus == nil)
-        #expect(persisted.originalArtist == nil)
-        #expect(persisted.originalAlbum == nil)
-        #expect(persisted.yearBeforeMGU == nil)
-        #expect(persisted.yearSetByMGU == nil)
-        #expect(persisted.releaseYear == nil)
     }
 
     @Test("toTrack() converts back to matching domain Track")
     func toTrackConvertsBack() {
-        let persisted = PersistedTrack(from: sampleTrack())
+        let persisted = samplePersistedTrack()
         let result = persisted.toTrack()
 
         #expect(result.id == "T1")
@@ -94,30 +53,9 @@ struct PersistedTrackTests {
         #expect(result.releaseYear == 2019)
     }
 
-    @Test("Round-trip Track -> PersistedTrack -> Track preserves all mapped fields")
-    func roundTripPreservesFields() {
-        let original = sampleTrack()
-        let roundTripped = PersistedTrack(from: original).toTrack()
-
-        #expect(roundTripped.id == original.id)
-        #expect(roundTripped.name == original.name)
-        #expect(roundTripped.artist == original.artist)
-        #expect(roundTripped.album == original.album)
-        #expect(roundTripped.genre == original.genre)
-        #expect(roundTripped.year == original.year)
-        #expect(roundTripped.dateAdded == original.dateAdded)
-        #expect(roundTripped.albumArtist == original.albumArtist)
-        #expect(roundTripped.trackStatus == original.trackStatus)
-        #expect(roundTripped.originalArtist == original.originalArtist)
-        #expect(roundTripped.originalAlbum == original.originalAlbum)
-        #expect(roundTripped.yearBeforeMGU == original.yearBeforeMGU)
-        #expect(roundTripped.yearSetByMGU == original.yearSetByMGU)
-        #expect(roundTripped.releaseYear == original.releaseYear)
-    }
-
     @Test("update(from:) updates mutable fields but preserves processing state")
     func updatePreservesProcessingState() {
-        let persisted = PersistedTrack(from: sampleTrack())
+        let persisted = samplePersistedTrack()
 
         // Simulate processing
         persisted.genreUpdated = true
@@ -165,7 +103,7 @@ struct PersistedTrackTests {
 
     @Test("update(from:) can set optional fields to nil")
     func updateCanClearOptionalFields() {
-        let persisted = PersistedTrack(from: sampleTrack())
+        let persisted = samplePersistedTrack()
         #expect(persisted.genre == "Rock")
         #expect(persisted.year == 2020)
 

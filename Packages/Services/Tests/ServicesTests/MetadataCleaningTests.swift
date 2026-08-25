@@ -457,7 +457,7 @@ struct MetadataCleaningTests {
 
     @Test("Write mode cleans track and album before artist rename")
     func cleansBeforeRename() async throws {
-        let scriptBridge = MockAppleScriptClient()
+        let scriptBridge = MusicAppTestAccess()
         let runtimeConfiguration = UpdateRuntimeConfiguration(
             artistRenameMappings: ["The Beatles": "Beatles"]
         )
@@ -653,7 +653,7 @@ struct MetadataCleaningTests {
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
         apiService: any ExternalAPIService = MockAPIService(),
         disabledSources: Set<APISource> = [],
-        scriptBridge: MockAppleScriptClient = MockAppleScriptClient()
+        scriptBridge: MusicAppTestAccess = MusicAppTestAccess()
     ) async -> UpdateCoordinator {
         UpdateCoordinator(
             dependencies: UpdateDependencies(
@@ -663,10 +663,10 @@ struct MetadataCleaningTests {
                     appleMusic: apiService,
                     disabledSources: disabledSources
                 ),
-                scriptBridge: scriptBridge,
+                writer: scriptBridge,
                 stores: .init(trackStore: MockTrackStore(), cache: MockCacheService()),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: scriptBridge,
+                    musicApp: scriptBridge,
                     directory: FileManager.default.temporaryDirectory
                         .appendingPathComponent("MetadataCleaningTests-\(UUID().uuidString)")
                 )
@@ -696,7 +696,8 @@ struct MetadataCleaningTests {
             year: year,
             dateAdded: dateAdded,
             trackStatus: nil,
-            albumArtist: albumArtist
+            albumArtist: albumArtist,
+            appleScriptID: id
         )
     }
 }

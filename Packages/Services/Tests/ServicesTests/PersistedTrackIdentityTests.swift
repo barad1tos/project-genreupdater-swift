@@ -7,18 +7,15 @@ import Testing
 struct PersistedTrackIdentityTests {
     @Test("Round-trips MusicKit primary ID and AppleScript mutation ID")
     func roundTripsPrimaryAndMutationIDs() {
-        let track = Track(
-            id: "MK-TRACK-1",
+        let persisted = PersistedTrack(
+            trackID: "MK-TRACK-1",
+            appleScriptID: "AS-TRACK-1",
             name: "Battery",
             artist: "Metallica",
             album: "Master of Puppets",
             genre: "Metal",
-            year: nil,
-            releaseYear: 1986,
-            appleScriptID: "AS-TRACK-1"
+            releaseYear: 1986
         )
-
-        let persisted = PersistedTrack(from: track)
         let restored = persisted.toTrack()
 
         #expect(persisted.trackID == "MK-TRACK-1")
@@ -29,13 +26,13 @@ struct PersistedTrackIdentityTests {
 
     @Test("Update preserves processing state and refreshes AppleScript ID")
     func updateRefreshesAppleScriptID() {
-        let persisted = PersistedTrack(from: Track(
-            id: "MK-TRACK-1",
+        let persisted = PersistedTrack(
+            trackID: "MK-TRACK-1",
+            appleScriptID: "AS-OLD",
             name: "Battery",
             artist: "Metallica",
-            album: "Master of Puppets",
-            appleScriptID: "AS-OLD"
-        ))
+            album: "Master of Puppets"
+        )
         persisted.genreUpdated = true
 
         persisted.update(from: Track(
@@ -53,13 +50,13 @@ struct PersistedTrackIdentityTests {
 
     @Test("Update preserves AppleScript ID when refreshed from MusicKit-only rows")
     func updatePreservesAppleScriptIDWhenMusicKitRowHasNoMutationID() {
-        let persisted = PersistedTrack(from: Track(
-            id: "MK-TRACK-1",
+        let persisted = PersistedTrack(
+            trackID: "MK-TRACK-1",
+            appleScriptID: "AS-OLD",
             name: "Battery",
             artist: "Metallica",
-            album: "Master of Puppets",
-            appleScriptID: "AS-OLD"
-        ))
+            album: "Master of Puppets"
+        )
 
         persisted.update(from: Track(
             id: "MK-TRACK-1",

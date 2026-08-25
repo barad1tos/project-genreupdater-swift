@@ -64,13 +64,13 @@ struct MaintenanceCoordinatorTests {
         let logDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MaintenanceCoordinatorTests-\(UUID().uuidString)")
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 databaseVerificationIntervalDays: 0,
                 logsBaseDirectory: logDirectory.path,
                 lastDatabaseVerifyLog: "last.log"
-            )
+            ),
+            observer: bridge
         )
         let coordinator = MaintenanceCoordinator(
             databaseVerificationService: service,
@@ -86,7 +86,7 @@ struct MaintenanceCoordinatorTests {
         #expect(disabledResult.databaseVerification == nil)
         #expect(disabledResult.databaseVerificationError == nil)
         #expect(disabledResult.isPendingVerificationDue)
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 0)
+        #expect(await bridge.recordedObservationRequests().isEmpty)
 
         await service.updateRuntimeConfiguration(
             LibrarySyncRuntimeConfiguration(
@@ -98,7 +98,9 @@ struct MaintenanceCoordinatorTests {
         let enabledResult = await coordinator.runPreflight()
 
         #expect(enabledResult.databaseVerification?.verifiedTrackCount == 1)
-        #expect(await bridge.fetchAllTrackIDsCallCount() == 1)
+        let requests = await bridge.recordedObservationRequests()
+        #expect(requests.count == 1)
+        #expect(requests.first?.refresh == .membershipOnly)
         #expect(await pending.shouldAutoVerifyCallCount() == 2)
     }
 }

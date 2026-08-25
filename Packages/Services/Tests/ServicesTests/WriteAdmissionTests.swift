@@ -268,7 +268,7 @@ struct WriteAdmissionTests {
                 partialTrackIDs: { _ in [] },
                 operation: {
                     calls.append("external-during-batch")
-                    return AppleScriptWriteResult.changed
+                    return MusicWriteResult.changed
                 }
             )
         }
@@ -286,7 +286,7 @@ struct WriteAdmissionTests {
                 operation: {
                     calls.append("external")
                     await externalHold.wait()
-                    return AppleScriptWriteResult.changed
+                    return MusicWriteResult.changed
                 }
             )
         }
@@ -499,10 +499,8 @@ struct WriteAdmissionTests {
                 appliedTrackIDs: { _ in [] },
                 partialTrackIDs: { _ in [] },
                 operation: {
-                    try await bridge.updateTrackProperty(
-                        trackID: "101",
-                        property: "genre",
-                        value: "Metal",
+                    try await bridge.applySingleUpdate(
+                        musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
                         onAttempt: { throw WorkCheckpointError.store(failure) },
                         execute: {
                             throw AppleScriptOutcomeError(
@@ -616,7 +614,7 @@ struct WriteAdmissionTests {
                 partialTrackIDs: { _ in [] },
                 operation: {
                     dispatches.append("early-second")
-                    return AppleScriptWriteResult.changed
+                    return MusicWriteResult.changed
                 }
             )
         }

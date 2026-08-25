@@ -158,7 +158,7 @@ struct WritePreflightTests {
 
         #expect(await fixture.bridge.batchUpdates.isEmpty)
         #expect(await fixture.bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: "AS1", property: "artist", value: "Massive Attack"),
+            musicUpdate(databaseID: testDatabaseID("AS1"), property: .artist, value: "Massive Attack"),
         ])
         let prepared = await checkpoints.values.first
         #expect(prepared?.boundary == .beforeAttempt)
@@ -216,7 +216,7 @@ struct WritePreflightTests {
 
         #expect(await fixture.bridge.batchUpdates.isEmpty)
         #expect(await fixture.bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: "AS1", property: "artist", value: "Massive Attack"),
+            musicUpdate(databaseID: testDatabaseID("AS1"), property: .artist, value: "Massive Attack"),
         ])
         #expect(await checkpoints.values.first?.writeChanges[change.id]?.albumArtistChange == nil)
     }
@@ -266,6 +266,7 @@ struct WritePreflightTests {
         #expect(outcome.noOpEntry?.albumArtistChange?.newValue == "Massive Attack")
         #expect(await fixture.bridge.batchUpdates.isEmpty)
         #expect(await fixture.bridge.writtenProperties.isEmpty)
+        #expect(await fixture.trackStore.appliedUpdates.isEmpty)
     }
 
     @Test("Generated year update still writes already-processed metadata")
@@ -307,12 +308,14 @@ struct WritePreflightTests {
             isAccepted: true
         )
 
-        _ = try await fixture.coordinator.applyChange(change, isReviewedChange: false)
+        let entry = try #require(try await fixture.coordinator.applyChange(change, isReviewedChange: false))
 
         let written = await fixture.bridge.writtenProperties
-        #expect(written.map(\.trackID) == ["AS1"])
-        #expect(written.map(\.property) == ["year"])
+        #expect(written.map(\.databaseID.rawValue) == ["AS1"])
+        #expect(written.map(\.property) == [.year])
         #expect(written.map(\.value) == ["1970"])
+        #expect(entry.trackID == "AS1")
+        #expect(await fixture.trackStore.appliedUpdates.map(\.id) == ["AS1"])
     }
 
     @Test("Reviewed year clear accepts an already-empty Music.app value")
@@ -354,7 +357,7 @@ struct WritePreflightTests {
         #expect(outcome.entry == nil)
         #expect(outcome.noOpEntry?.newYear == MusicAppYear.missingValue)
         #expect(await fixture.bridge.writtenProperties == [
-            TrackPropertyUpdate(trackID: "AS1", property: "year", value: "0"),
+            musicUpdate(databaseID: testDatabaseID("AS1"), property: .year, value: "0"),
         ])
     }
 
@@ -412,25 +415,25 @@ struct WritePreflightTests {
         #expect(await fixture.bridge.writtenProperties.isEmpty)
     }
 
-    @Test("Reviewed batch write uses configured ID fetch batch size")
-    func chunksIDFetches() async throws {
+    @Test("Reviewed batch verifies canonical Music database identities")
+    func verifiesCanonicalIDs() async throws {
         let changes = batchChanges()
         let mapper = batchMapper(for: changes)
         let runtimeConfiguration = UpdateRuntimeConfiguration(
             areBatchUpdatesEnabled: true,
-            maxBatchUpdateSize: 5,
-            idsBatchSize: 2
+            maxBatchUpdateSize: 5
         )
         let fixture = await makeCoordinator(idMapper: mapper, runtimeConfiguration: runtimeConfiguration)
-        await fixture.bridge.setFetchedTracks(scriptTracks(for: changes))
+        let scriptTracks = scriptTracks(for: changes)
+        await fixture.bridge.setFetchedTracks(scriptTracks)
 
         let result = try await fixture.coordinator.applyAcceptedChanges(
             changes,
             progressHandler: ignoreAcceptedChangeProgress
         )
 
-        let fetchCalls = await fixture.bridge.fetchTracksByIDsCalls()
-        #expect(fetchCalls.map(\.batchSize).allSatisfy { $0 == 2 })
+        let fetchedIDs = await fixture.bridge.fetchMetadataCalls().flatMap(\.self)
+        #expect(Set(fetchedIDs) == Set(scriptTracks.compactMap(\.databaseID)))
         #expect(result.entries.count == 3)
         #expect(result.failedTrackIDs.isEmpty)
     }
@@ -539,7 +542,7 @@ struct WritePreflightTests {
         idMapper: any TrackIDMapping,
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
     ) async -> PreflightFixture {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let apiService = MockAPIService()
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: apiService,
@@ -548,13 +551,14 @@ struct WritePreflightTests {
         )
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("WritePreflightTests-\(UUID().uuidString)")
-        let undo = UndoCoordinator(scriptBridge: bridge, directory: undoDirectory)
+        let undo = UndoCoordinator(musicApp: bridge, directory: undoDirectory)
+        let trackStore = MockTrackStore()
         let coordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
-                    trackStore: MockTrackStore(),
+                    trackStore: trackStore,
                     cache: MockCacheService()
                 ),
                 undoCoordinator: undo,
@@ -565,13 +569,14 @@ struct WritePreflightTests {
             runtimeConfiguration: runtimeConfiguration
         )
 
-        return PreflightFixture(coordinator: coordinator, bridge: bridge)
+        return PreflightFixture(coordinator: coordinator, bridge: bridge, trackStore: trackStore)
     }
 }
 
 private struct PreflightFixture {
     let coordinator: UpdateCoordinator
-    let bridge: MockAppleScriptClient
+    let bridge: MusicAppTestAccess
+    let trackStore: MockTrackStore
 }
 
 private actor PreflightCheckpointRecorder {
@@ -601,10 +606,6 @@ private actor ProcessedIDMapper: TrackIDMapping {
         musicKitTrack.id == musicKitID ? enrichedTrack : nil
     }
 
-    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
-        await Task.yield()
-    }
-
     func hasMappingFor(musicKitID: String) async -> Bool {
         musicKitID == self.musicKitID
     }
@@ -627,10 +628,6 @@ private actor BatchIDMapper: TrackIDMapping {
 
     func trackWithAppleScriptMetadata(for musicKitTrack: Track) async -> Track? {
         valuesByMusicKitID[musicKitTrack.id]?.enrichedTrack
-    }
-
-    func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
-        await Task.yield()
     }
 
     func hasMappingFor(musicKitID: String) async -> Bool {

@@ -15,7 +15,7 @@ struct YearLocalFirstTests {
         yearDeterminator: YearDeterminator = YearDeterminator(),
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration()
     ) async -> UpdateCoordinator {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let effectiveCache = cache ?? MockCacheService()
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("YearLocalFirstTests-\(UUID().uuidString)")
@@ -42,13 +42,13 @@ struct YearLocalFirstTests {
         return UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: orchestrator,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
                     trackStore: MockTrackStore(),
                     cache: effectiveCache
                 ),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: bridge,
+                    musicApp: bridge,
                     directory: undoDirectory
                 ),
                 idMapper: nil,

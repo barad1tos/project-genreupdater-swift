@@ -40,10 +40,10 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "Removed Band", album: "Removed Album")
         await seedSyncCaches(cache, artist: "Guest Guitar", album: "Removed Album")
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
-            librarySnapshotService: snapshotService
+            librarySnapshotService: snapshotService,
+            observer: bridge
         )
 
         _ = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -86,7 +86,6 @@ struct LibrarySyncIdentityTests {
         )
         await store.setStored([])
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
             librarySnapshotService: snapshotService,
@@ -95,7 +94,8 @@ struct LibrarySyncIdentityTests {
                     artist: "Daft Punk",
                     album: "Random Access Memories"
                 )
-            )
+            ),
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -105,21 +105,11 @@ struct LibrarySyncIdentityTests {
         #expect(Set(result.newTracks.map(\.id)) == ["A1", "A2"])
     }
 
-    @Test("A compilation target admits provider tracks after enrichment")
-    func compilationTargetAdmitsProviderTracksAfterEnrichment() async throws {
-        // Codex P1 (PR #163): MusicKit strips albumArtist, so the album
-        // identity must be judged AFTER mutation-metadata enrichment
-        // restores it — never on the raw snapshot.
+    @Test("An album target admits authoritative album artist metadata")
+    func admitsAlbumArtist() async throws {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let provider = SyncMockReadProvider()
-        let musicKitTrack = Track(
-            id: "MK1",
-            name: "Hit Song",
-            artist: "Artist One",
-            album: "Best Of"
-        )
-        let enriched = Track(
+        let compilationTrack = Track(
             id: "AS1",
             name: "Hit Song",
             artist: "Artist One",
@@ -127,11 +117,9 @@ struct LibrarySyncIdentityTests {
             albumArtist: "Various Artists",
             appleScriptID: "AS1"
         )
-        await provider.setTracks([musicKitTrack])
-        await bridge.setArtistTracks([enriched], for: "Artist One")
+        await bridge.setLibrary(ids: ["AS1"], tracks: ["AS1": compilationTrack])
         await store.setStored([])
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 albumTargetIdentity: AlbumIdentity(
@@ -139,53 +127,14 @@ struct LibrarySyncIdentityTests {
                     album: "Best Of"
                 )
             ),
-            readProvider: provider
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
 
-        #expect(result.newTracks.count == 1)
+        #expect(result.newTracks.map(\.id) == ["AS1"])
         #expect(result.newTracks.first?.albumArtist == "Various Artists")
-    }
-
-    @Test("A provider stray track never enters an album-targeted result")
-    func providerStrayTrackNeverEntersAlbumTargetedResult() async throws {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let provider = SyncMockReadProvider()
-        let albumTrack = Track(
-            id: "MK1",
-            name: "Hit Song",
-            artist: "Various Artists",
-            album: "Best Of",
-            albumArtist: "Various Artists",
-            appleScriptID: "AS1"
-        )
-        let strayTrack = Track(
-            id: "MK2",
-            name: "Elsewhere Song",
-            artist: "Someone Else",
-            album: "Elsewhere",
-            albumArtist: "Someone Else",
-            appleScriptID: "AS2"
-        )
-        await provider.setTracks([albumTrack, strayTrack])
-        await store.setStored([])
-        let service = LibrarySyncService(
-            scriptBridge: bridge,
-            trackStore: store,
-            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
-                albumTargetIdentity: AlbumIdentity(
-                    artist: "Various Artists",
-                    album: "Best Of"
-                )
-            ),
-            readProvider: provider
-        )
-
-        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
-
-        #expect(result.newTracks.map(\.id) == ["MK1"])
+        #expect(await store.storedTracks.map(\.id) == ["AS1"])
     }
 
     @Test("Album-tag drift is never misread as removal by a scoped preview")
@@ -212,7 +161,6 @@ struct LibrarySyncIdentityTests {
         await bridge.setLibrary(ids: ["A1"], tracks: ["A1": driftedCurrent])
         await store.setStored([storedTrack])
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
             librarySnapshotService: snapshotService,
@@ -222,7 +170,8 @@ struct LibrarySyncIdentityTests {
                     artist: "Daft Punk",
                     album: "Random Access Memories"
                 )
-            )
+            ),
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -258,10 +207,10 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "Old Artist", album: "Old Album")
         await seedSyncCaches(cache, artist: "New Artist", album: "New Album")
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
-            librarySnapshotService: snapshotService
+            librarySnapshotService: snapshotService,
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -305,10 +254,10 @@ struct LibrarySyncIdentityTests {
         await store.setStored([storedTrack])
         await seedSyncCaches(cache, artist: "Same Artist", album: "Same Album")
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
-            librarySnapshotService: snapshotService
+            librarySnapshotService: snapshotService,
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -353,10 +302,10 @@ struct LibrarySyncIdentityTests {
         await store.setStored([storedTrack])
         await seedSyncCaches(cache, artist: "same artist", album: "same album")
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
-            librarySnapshotService: snapshotService
+            librarySnapshotService: snapshotService,
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -401,10 +350,10 @@ struct LibrarySyncIdentityTests {
         await store.setStored([storedTrack])
         await seedSyncCaches(cache, artist: "Same Artist", album: "Same Album")
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
-            librarySnapshotService: snapshotService
+            librarySnapshotService: snapshotService,
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -433,10 +382,10 @@ struct LibrarySyncIdentityTests {
         await store.setStored([])
         await seedSyncCaches(cache, artist: "New Artist", album: "New Album")
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
-            librarySnapshotService: snapshotService
+            librarySnapshotService: snapshotService,
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -476,10 +425,10 @@ struct LibrarySyncIdentityTests {
         await store.setStored([storedTrack])
         await seedSyncCaches(cache, artist: "Same Artist", album: "Same Album")
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
-            librarySnapshotService: snapshotService
+            librarySnapshotService: snapshotService,
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -521,10 +470,10 @@ struct LibrarySyncIdentityTests {
         await store.setStored([storedTrack])
         await seedSyncCaches(cache, artist: "Same Artist", album: "Same Album")
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
-            librarySnapshotService: snapshotService
+            librarySnapshotService: snapshotService,
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
@@ -564,10 +513,10 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "Old Artist", album: "Old Album")
         await seedSyncCaches(cache, artist: "New Artist", album: "New Album")
         let service = LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
             cache: cache,
-            librarySnapshotService: snapshotService
+            librarySnapshotService: snapshotService,
+            observer: bridge
         )
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)

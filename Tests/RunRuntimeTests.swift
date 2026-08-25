@@ -49,9 +49,14 @@ struct RunRuntimeTests {
         let track = Track(id: "cache-track", name: "Track", artist: "Artist", album: "Album")
         let script = RuntimeScriptSpy(track: track)
         let services = RunServiceFactory(
-            makeScripts: { _ in script },
+            makeMusicAccess: { _ in
+                RunMusicAccess(identifier: script, writer: script, observer: MusicAppTestObserver(tracks: [track]))
+            },
             makePendingVerification: { _ in nil }
         )
+
+        let prepared = try await services.prepareObservation(id: UUID(), configuration: AppConfiguration())
+        #expect(prepared.observer is MusicAppTestObserver)
         let runtime = try await makeRuntime(
             services: services,
             script: script,
@@ -79,7 +84,7 @@ struct RunRuntimeTests {
         #expect(effective.processing.cacheTTLDays == defaults.processing.cacheTTLDays)
     }
 
-    @Test("write runtime uses captured batch settings")
+    @Test("write runtime preserves captured write settings")
     func usesCapturedSettings() async throws {
         let track = Track(
             id: "AS-1",
@@ -94,9 +99,13 @@ struct RunRuntimeTests {
         let script = RuntimeScriptSpy(track: track)
         let config = RuntimeConfigProbe()
         let services = RunServiceFactory(
-            makeScripts: { configuration in
+            makeMusicAccess: { configuration in
                 await config.record(configuration)
-                return script
+                return RunMusicAccess(
+                    identifier: script,
+                    writer: script,
+                    observer: MusicAppTestObserver(tracks: [track])
+                )
             },
             makePendingVerification: { _ in
                 // This runtime test does not exercise pending verification.
@@ -120,7 +129,8 @@ struct RunRuntimeTests {
 
         #expect(result.appliedOperationCount == 2)
         #expect(await script.batchCalls.count == 1)
-        #expect(await script.fetchCalls.map(\.batchSize) == [7])
+        let databaseID = try #require(MusicDatabaseTrackID(rawValue: "AS-1"))
+        #expect(await script.metadataFetches == [[databaseID]])
         let captured = try #require(await config.last)
         #expect(captured.experimental.batchUpdatesEnabled)
         #expect(captured.experimental.maxBatchSize == 4)
@@ -138,7 +148,7 @@ struct RunRuntimeTests {
         let container = try ModelContainerFactory.createInMemory()
         let store = TrackDataStore(modelContainer: container)
         try await store.initialize()
-        try await store.saveTracks([track])
+        try await store.seedMirror([track])
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()
         let mapper = TrackIDMapper()
@@ -148,7 +158,7 @@ struct RunRuntimeTests {
             store: store,
             gate: gate,
             cache: cache,
-            undo: UndoCoordinator(scriptBridge: script),
+            undo: UndoCoordinator(musicApp: script),
             mapper: mapper,
             reachability: nil,
             discogsAccessStore: DiscogsAccessStore(),
@@ -161,7 +171,9 @@ struct RunRuntimeTests {
         let track = Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")
         let script = RuntimeScriptSpy(track: track)
         let services = RunServiceFactory(
-            makeScripts: { _ in script },
+            makeMusicAccess: { _ in
+                RunMusicAccess(identifier: script, writer: script, observer: MusicAppTestObserver(tracks: [track]))
+            },
             makePendingVerification: { _ in
                 // Scope derivation needs no pending verification.
                 nil
@@ -282,7 +294,7 @@ private struct CompositionFixture {
 
 private struct CompositionServices {
     let script: RuntimeScriptSpy
-    let provider: RuntimeReadProvider
+    let observer: MusicAppTestObserver
     let store: TrackDataStore
     let planStore: FixPlanDataStore
     let runStore: RunRecordDataStore
@@ -295,9 +307,10 @@ private struct CompositionServices {
     var runtime: RunRuntimeFactory {
         RunRuntimeFactory(
             services: RunServiceFactory(
-                makeScripts: { _ in script },
-                makePendingVerification: { _ in nil },
-                makeReadProvider: { _ in provider }
+                makeMusicAccess: { _ in
+                    RunMusicAccess(identifier: script, writer: script, observer: observer)
+                },
+                makePendingVerification: { _ in nil }
             ),
             store: store,
             gate: gate,
@@ -350,11 +363,10 @@ private func makeCompositionFixture(
         runRecordStore: services.runStore
     ))
     let syncService = LibrarySyncService(
-        scriptBridge: services.script,
         trackStore: services.store,
         cache: services.cache,
         runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: configuration),
-        readProvider: services.provider
+        observer: services.observer
     )
     let orchestrator = dependencies.makeRunOrchestrator(
         syncService: syncService,
@@ -383,20 +395,20 @@ private func makeCompositionServices(
     let container = try ModelContainerFactory.createInMemory()
     let store = TrackDataStore(modelContainer: container)
     try await store.initialize()
-    try await store.saveTracks([track])
+    try await store.seedMirror([track])
     let cache = try GRDBCacheService.createInMemory()
     try await cache.initialize()
     let mapper = TrackIDMapper()
     await mapper.seedKnownMappings([(musicKitTrack: track, appleScriptTrack: track)])
     return CompositionServices(
         script: script,
-        provider: RuntimeReadProvider(track: track),
+        observer: MusicAppTestObserver(tracks: [track]),
         store: store,
         planStore: FixPlanDataStore(modelContainer: container),
         runStore: RunRecordDataStore(modelContainer: container),
         cache: cache,
         gate: FeatureGate(fixedTier: .pro),
-        undo: UndoCoordinator(scriptBridge: script),
+        undo: UndoCoordinator(musicApp: script),
         mapper: mapper,
         discogsAccess: discogsAccess
     )
@@ -425,66 +437,66 @@ private actor RuntimeConfigProbe {
     }
 }
 
-private actor RuntimeScriptSpy: AppleScriptClient {
+private actor RuntimeScriptSpy: MusicAppIdentifying, MusicAppMutating, MusicAppVerifying {
     private var tracks: [String: Track]
-    private(set) var fetchCalls: [ScriptFetchCall] = []
-    private(set) var batchCalls: [[TrackPropertyUpdate]] = []
+    private(set) var metadataFetches: [[MusicDatabaseTrackID]] = []
+    private(set) var batchCalls: [[MusicTrackUpdate]] = []
 
     init(track: Track) {
         tracks = [track.id: track]
     }
 
-    func initialize() async throws {
-        // The in-memory script test double has no external setup.
+    func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Track] {
+        metadataFetches.append(databaseIDs)
+        return databaseIDs.compactMap { tracks[$0.rawValue] }
     }
 
-    func runScript(name _: String, arguments _: [String], timeout _: Duration?) async throws -> String? {
-        nil
+    func fetchIdentityMetadata(scopedTo artists: [String]) async throws -> [Track] {
+        ArtistAllowList.filter(Array(tracks.values), allowedArtists: artists)
     }
 
-    func fetchTracksByIDs(
-        _ trackIDs: [String],
-        batchSize: Int,
-        timeout: Duration?
-    ) async throws -> [Track] {
-        fetchCalls.append(ScriptFetchCall(trackIDs: trackIDs, batchSize: batchSize, timeout: timeout))
-        return trackIDs.compactMap { tracks[$0] }
-    }
-
-    func fetchAllTrackIDs(timeout _: Duration?) async throws -> [String] {
-        Array(tracks.keys)
-    }
-
-    func updateTrackProperty(
-        trackID: String,
-        property: String,
-        value: String
-    ) async throws -> AppleScriptWriteResult {
-        apply(property: property, value: value, trackID: trackID)
+    func update(
+        _ update: MusicTrackUpdate,
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws -> MusicWriteResult {
+        apply(
+            property: update.property,
+            value: update.value,
+            databaseID: update.databaseID.rawValue
+        )
+        try await onAttempt()
         return .changed
     }
 
-    func batchUpdateTracks(_ updates: [TrackPropertyUpdate]) async throws {
+    func update(
+        _ updates: [MusicTrackUpdate],
+        onAttempt: @escaping WriteAttemptHook
+    ) async throws {
         batchCalls.append(updates)
         for update in updates {
-            apply(property: update.property, value: update.value, trackID: update.trackID)
+            apply(
+                property: update.property,
+                value: update.value,
+                databaseID: update.databaseID.rawValue
+            )
         }
+        try await onAttempt()
     }
 
     func storedTrack(id: String) -> Track? {
         tracks[id]
     }
 
-    private func apply(property: String, value: String, trackID: String) {
-        guard var track = tracks[trackID] else { return }
+    private func apply(property: MusicTrackProperty, value: String, databaseID: String) {
+        guard var track = tracks[databaseID] else { return }
         switch property {
-        case "genre":
+        case .genre:
             track.genre = value
-        case "year":
+        case .year:
             track.year = Int(value)
-        default:
+        case .name, .album, .artist, .albumArtist:
             break
         }
-        tracks[trackID] = track
+        tracks[databaseID] = track
     }
 }

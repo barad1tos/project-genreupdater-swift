@@ -225,9 +225,9 @@ struct LibrarySyncPrereleaseTests {
         await bridge.setLibrary(ids: currentTracks.keys.sorted(), tracks: currentTracks)
         await store.setStored(storedTracks)
         return LibrarySyncService(
-            scriptBridge: bridge,
             trackStore: store,
-            pendingVerificationService: pendingVerification
+            pendingVerificationService: pendingVerification,
+            observer: bridge
         )
     }
 }

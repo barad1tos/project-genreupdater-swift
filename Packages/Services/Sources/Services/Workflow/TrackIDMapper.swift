@@ -4,6 +4,12 @@ import OSLog
 
 // MARK: - Track ID Mapper
 
+struct TrackIDResolution: Equatable, Sendable {
+    let matches: [String: Track]
+    let ambiguous: [String: [String]]
+    let unresolved: [String]
+}
+
 /// Maps MusicKit IDs to AppleScript database IDs by matching on (name, artist/albumArtist, album).
 ///
 /// MusicKit returns numeric `MusicItemID` strings while AppleScript uses its
@@ -20,48 +26,15 @@ public actor TrackIDMapper: TrackIDMapping {
 
     public func refreshMapping(
         musicKitTracks: [Track],
-        appleScriptTracks: [Track]
-    ) {
-        refreshMapping(
-            musicKitTracks: musicKitTracks,
-            appleScriptTracks: appleScriptTracks,
-            mergeExisting: false
-        )
-    }
-
-    public func refreshMapping(
-        musicKitTracks: [Track],
         appleScriptTracks: [Track],
-        mergeExisting: Bool
+        mergeExisting: Bool = false
     ) {
-        var (updatedMapping, updatedMetadata) = matchByKeys(
-            musicKitTracks: musicKitTracks,
-            appleScriptTracks: appleScriptTracks,
-            keys: normalizedKeys
+        let resolution = Self.resolve(
+            sourceTracks: musicKitTracks,
+            targetTracks: appleScriptTracks
         )
-
-        // Album-agnostic fallback. MusicKit and AppleScript can disagree on the
-        // album (e.g. a single later folded into an album), which breaks the
-        // (name, artist, album) key even though it is the same writable track.
-        // Retry the still-unmapped tracks on (name, artist) alone, staying
-        // conservative: only a unique match on both sides is accepted.
-        let unmappedMusicKitTracks = musicKitTracks.filter { updatedMapping[$0.id] == nil }
-        if !unmappedMusicKitTracks.isEmpty {
-            // Exclude AppleScript tracks the primary pass already claimed, so the
-            // album-agnostic fallback can never attach a second MusicKit track to a
-            // write target another track already owns (which would overwrite it).
-            let claimedAppleScriptIDs = Set(updatedMapping.values)
-            let availableAppleScriptTracks = appleScriptTracks.filter {
-                !claimedAppleScriptIDs.contains($0.id)
-            }
-            let (fallbackMapping, fallbackMetadata) = matchByKeys(
-                musicKitTracks: unmappedMusicKitTracks,
-                appleScriptTracks: availableAppleScriptTracks,
-                keys: nameArtistKeys
-            )
-            updatedMapping.merge(fallbackMapping) { existing, _ in existing }
-            updatedMetadata.merge(fallbackMetadata) { existing, _ in existing }
-        }
+        let updatedMapping = resolution.matches.mapValues(\.id)
+        let updatedMetadata = resolution.matches
 
         if mergeExisting {
             for track in musicKitTracks {
@@ -84,19 +57,12 @@ public actor TrackIDMapper: TrackIDMapping {
     @discardableResult
     public func refreshMapping(
         musicKitTracks: [Track],
-        appleScriptClient: any AppleScriptClient,
-        batchSize: Int,
-        allTrackIDsTimeout: Duration?,
-        tracksByIDsTimeout: Duration?,
+        identitySource: any MusicAppIdentifying,
         testArtists: [String] = [],
         mergeExisting: Bool = false
     ) async throws -> Int {
-        let appleScriptTracks = try await fetchAppleScriptTracks(
-            client: appleScriptClient,
-            batchSize: batchSize,
-            allTrackIDsTimeout: allTrackIDsTimeout,
-            tracksByIDsTimeout: tracksByIDsTimeout,
-            testArtists: testArtists
+        let appleScriptTracks = try await identitySource.fetchIdentityMetadata(
+            scopedTo: ArtistAllowList.normalized(testArtists)
         )
         refreshMapping(
             musicKitTracks: musicKitTracks,
@@ -152,60 +118,114 @@ public actor TrackIDMapper: TrackIDMapping {
         mapping[musicKitID] != nil
     }
 
+    static func resolve(
+        sourceTracks: [Track],
+        targetTracks: [Track]
+    ) -> TrackIDResolution {
+        var matches = matchByKeys(
+            sourceTracks: sourceTracks,
+            targetTracks: targetTracks,
+            keys: normalizedKeys
+        )
+
+        let unmatchedSources = sourceTracks.filter { matches[$0.id] == nil }
+        if !unmatchedSources.isEmpty {
+            let claimedTargetIDs = Set(matches.values.map(\.id))
+            let availableTargets = targetTracks.filter { !claimedTargetIDs.contains($0.id) }
+            let fallbackMatches = matchByKeys(
+                sourceTracks: unmatchedSources,
+                targetTracks: availableTargets,
+                keys: nameArtistKeys
+            )
+            matches.merge(fallbackMatches) { existing, _ in existing }
+        }
+
+        let candidateIndex = candidateIndex(targetTracks)
+        var ambiguous: [String: [String]] = [:]
+        var unresolved: [String] = []
+        for source in sourceTracks where matches[source.id] == nil {
+            let sourceKeys = Set(normalizedKeys(source) + nameArtistKeys(source))
+            let candidateIDs = sourceKeys.reduce(into: Set<String>()) { result, key in
+                result.formUnion(candidateIndex[key, default: []])
+            }
+            .sorted()
+            if candidateIDs.isEmpty {
+                unresolved.append(source.id)
+            } else {
+                ambiguous[source.id] = candidateIDs
+            }
+        }
+
+        return TrackIDResolution(
+            matches: matches,
+            ambiguous: ambiguous,
+            unresolved: unresolved.sorted()
+        )
+    }
+
+    private static func candidateIndex(_ targets: [Track]) -> [String: Set<String>] {
+        var candidateIndex: [String: Set<String>] = [:]
+        for target in targets {
+            let keys = Set(normalizedKeys(target) + nameArtistKeys(target))
+            for key in keys {
+                candidateIndex[key, default: []].insert(target.id)
+            }
+        }
+        return candidateIndex
+    }
+
     /// Builds a MusicKit→AppleScript mapping by matching tracks on the keys produced
     /// by `keys`. A key shared by more than one track on either side is ambiguous and
     /// skipped, so only a unique cross-side match is accepted.
-    private func matchByKeys(
-        musicKitTracks: [Track],
-        appleScriptTracks: [Track],
+    private static func matchByKeys(
+        sourceTracks: [Track],
+        targetTracks: [Track],
         keys: (Track) -> [String]
-    ) -> (mapping: [String: String], metadata: [String: Track]) {
-        var appleScriptLookup: [String: Track] = [:]
-        var ambiguousAppleScriptKeys: Set<String> = []
-        for track in appleScriptTracks {
+    ) -> [String: Track] {
+        var targetLookup: [String: Track] = [:]
+        var ambiguousTargetKeys: Set<String> = []
+        for track in targetTracks {
             for key in keys(track) {
-                if appleScriptLookup[key] != nil {
-                    appleScriptLookup[key] = nil
-                    ambiguousAppleScriptKeys.insert(key)
-                } else if !ambiguousAppleScriptKeys.contains(key) {
-                    appleScriptLookup[key] = track
+                if targetLookup[key] != nil {
+                    targetLookup[key] = nil
+                    ambiguousTargetKeys.insert(key)
+                } else if !ambiguousTargetKeys.contains(key) {
+                    targetLookup[key] = track
                 }
             }
         }
 
-        var musicKitKeyCounts: [String: Int] = [:]
-        for track in musicKitTracks {
+        var sourceKeyCounts: [String: Int] = [:]
+        for track in sourceTracks {
             for key in keys(track) {
-                musicKitKeyCounts[key, default: 0] += 1
+                sourceKeyCounts[key, default: 0] += 1
             }
         }
-        let ambiguousMusicKitKeys = Set(musicKitKeyCounts.compactMap { key, count in
+        let ambiguousSourceKeys = Set(sourceKeyCounts.compactMap { key, count in
             count > 1 ? key : nil
         })
 
-        var resultMapping: [String: String] = [:]
-        var resultMetadata: [String: Track] = [:]
-        for track in musicKitTracks {
+        var matches: [String: Track] = [:]
+        for track in sourceTracks {
             let candidates = keys(track)
-                .filter { !ambiguousMusicKitKeys.contains($0) }
-                .filter { !ambiguousAppleScriptKeys.contains($0) }
-                .compactMap { appleScriptLookup[$0] }
-            let uniqueAppleScriptIDs = Set(candidates.map(\.id))
-            guard uniqueAppleScriptIDs.count == 1, let appleScriptTrack = candidates.first else { continue }
+                .filter { !ambiguousSourceKeys.contains($0) }
+                .filter { !ambiguousTargetKeys.contains($0) }
+                .compactMap { targetLookup[$0] }
+            let uniqueTargetIDs = Set(candidates.map(\.id))
+            guard uniqueTargetIDs.count == 1, let target = candidates.first else { continue }
 
-            resultMapping[track.id] = appleScriptTrack.id
-            resultMetadata[track.id] = appleScriptTrack
+            matches[track.id] = target
         }
-        return (mapping: resultMapping, metadata: resultMetadata)
+        return matches
     }
 
-    private func normalizedKeys(_ track: Track) -> [String] {
+    private static func normalizedKeys(_ track: Track) -> [String] {
         identityKeys(for: track) { name, artist in
             "\(name)|\(artist)|\(track.album.lowercased())"
         }
     }
 
-    private func nameArtistKeys(_ track: Track) -> [String] {
+    private static func nameArtistKeys(_ track: Track) -> [String] {
         identityKeys(for: track) { name, artist in
             "\(name)|\(artist)"
         }
@@ -214,7 +234,7 @@ public actor TrackIDMapper: TrackIDMapping {
     /// Returns the lowercased identity keys for a track using both its track artist
     /// and album artist, de-duplicated. `buildKey` receives the already-lowercased
     /// name and artist and decides what else to fold into the key.
-    private func identityKeys(
+    private static func identityKeys(
         for track: Track,
         _ buildKey: (_ name: String, _ artist: String) -> String
     ) -> [String] {
@@ -233,41 +253,5 @@ public actor TrackIDMapper: TrackIDMapping {
             keys.append(key)
         }
         return keys
-    }
-
-    private func fetchAppleScriptTracks(
-        client: any AppleScriptClient,
-        batchSize: Int,
-        allTrackIDsTimeout: Duration?,
-        tracksByIDsTimeout: Duration?,
-        testArtists: [String]
-    ) async throws -> [Track] {
-        let scopedArtists = MusicLibraryReader.fetchTargets(
-            requestedArtist: nil,
-            testArtists: testArtists,
-            ignoreTestFilter: false
-        )
-        .compactMap(\.self)
-
-        guard !scopedArtists.isEmpty else {
-            let appleScriptTrackIDs = try await client.fetchAllTrackIDs(
-                timeout: allTrackIDsTimeout
-            )
-            return try await client.fetchTracksByIDs(
-                appleScriptTrackIDs,
-                batchSize: batchSize,
-                timeout: tracksByIDsTimeout
-            )
-        }
-
-        var scopedTracks: [Track] = []
-        for artist in scopedArtists {
-            let tracks = try await client.fetchTracks(
-                artist: artist,
-                timeout: tracksByIDsTimeout
-            )
-            scopedTracks.append(contentsOf: tracks)
-        }
-        return scopedTracks
     }
 }

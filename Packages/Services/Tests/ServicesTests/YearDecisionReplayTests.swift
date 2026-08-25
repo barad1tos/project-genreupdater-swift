@@ -143,7 +143,7 @@ struct YearDecisionReplayTests {
             artistActivityPeriod: (input.artistStartYear, nil),
             artistStartYear: input.artistStartYear
         )
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let coordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: makeAPIOrchestrator(
@@ -151,10 +151,10 @@ struct YearDecisionReplayTests {
                     discogs: MockAPIService(),
                     appleMusic: MockAPIService()
                 ),
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(trackStore: MockTrackStore(), cache: cache),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: bridge,
+                    musicApp: bridge,
                     directory: FileManager.default.temporaryDirectory
                         .appendingPathComponent("YearDecisionReplay-\(UUID().uuidString)")
                 ),

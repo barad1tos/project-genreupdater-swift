@@ -26,6 +26,13 @@ public struct Track: Sendable, Codable, Identifiable, Hashable {
     /// as the Python original; NEITHER repo reads `persistent ID`).
     public let id: String
 
+    /// Typed view of the resolved AppleScript database ID.
+    ///
+    /// This value identifies a Music.app row but does not prove that the row is current or writable.
+    public var databaseID: MusicDatabaseTrackID? {
+        appleScriptID.flatMap(MusicDatabaseTrackID.init(rawValue:))
+    }
+
     /// AppleScript database ID populated for Music.app mutation metadata;
     /// stable within a library, reassigned on rebuild or re-import.
     ///
@@ -413,96 +420,6 @@ extension ChangeLogEntry {
         guard let value else { throw TrackChangeError.missingValue(changeType) }
         return value
     }
-}
-
-// MARK: - Track Parsing from AppleScript
-
-extension Track {
-    /// Field separator used in AppleScript output (ASCII Record Separator).
-    public static let fieldSeparator: Character = "\u{1E}"
-
-    /// Record separator used in AppleScript output (ASCII Group Separator).
-    public static let recordSeparator: Character = "\u{1D}"
-
-    /// Parse a track from AppleScript's delimited output.
-    ///
-    /// AppleScript returns tracks as fields separated by \x1E (Record Separator)
-    /// with records separated by \x1D (Group Separator).
-    ///
-    /// Field order (from `serializeTrack` in fetch_tracks.applescript):
-    /// [0] id, [1] name, [2] artist, [3] albumArtist, [4] album,
-    /// [5] genre, [6] dateAdded, [7] modDate, [8] status,
-    /// [9] year, [10] releaseYear or release date, [11] empty placeholder
-    ///
-    /// - Parameter raw: Single record string from AppleScript output
-    /// - Returns: Parsed Track, or nil if parsing fails
-    public static func fromAppleScriptOutput(_ raw: String) -> Track? {
-        let fields = raw.split(separator: fieldSeparator, omittingEmptySubsequences: false)
-            .map(String.init)
-
-        // Minimum fields: id, name, artist, albumArtist, album
-        guard fields.count >= 5 else { return nil }
-        guard !fields[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-
-        return Track(
-            id: fields[0],
-            name: fields[1],
-            artist: fields[2],
-            album: fields[4],
-            genre: fields.count > 5 ? fields[safe: 5]?.nilIfEmpty : nil,
-            year: fields.count > 9 ? fields[safe: 9].flatMap { Int($0) } : nil,
-            dateAdded: fields.count > 6 ? fields[safe: 6].flatMap { parseAppleScriptDate($0) } : nil,
-            lastModified: fields.count > 7 ? fields[safe: 7].flatMap { parseAppleScriptDate($0) } : nil,
-            trackStatus: fields.count > 8 ? fields[safe: 8]?.nilIfEmpty : nil,
-            releaseYear: fields.count > 10 ? parseAppleScriptReleaseYear(fields[safe: 10]) : nil,
-            albumArtist: fields.count > 3 ? fields[safe: 3]?.nilIfEmpty : nil,
-            appleScriptID: fields[0]
-        )
-    }
-}
-
-// MARK: - Helpers
-
-// Safety: All formatters are configured once at init and never mutated afterward.
-// They are effectively read-only after initialization, making concurrent access safe.
-private enum AppleScriptDateFormatters {
-    /// Compact format produced by our AppleScript `formatDate` handler: "2024-02-21 13:45:00"
-    static let compact: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        return formatter
-    }()
-
-    // Safety: Configured once at init, never mutated — concurrent reads are safe.
-    nonisolated(unsafe) static let iso8601: ISO8601DateFormatter = .init()
-
-    static let natural: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm:ss a"
-        formatter.locale = Locale(identifier: "en_US")
-        return formatter
-    }()
-}
-
-private func parseAppleScriptDate(_ string: String) -> Date? {
-    // Compact first — the format our scripts actually produce
-    if let date = AppleScriptDateFormatters.compact.date(from: string) {
-        return date
-    }
-    if let date = AppleScriptDateFormatters.iso8601.date(from: string) {
-        return date
-    }
-    return AppleScriptDateFormatters.natural.date(from: string)
-}
-
-private func parseAppleScriptReleaseYear(_ string: String?) -> Int? {
-    guard let value = string?.nilIfEmpty else { return nil }
-    if let year = Int(value) {
-        return year
-    }
-    guard let releaseDate = parseAppleScriptDate(value) else { return nil }
-    return Calendar(identifier: .gregorian).component(.year, from: releaseDate)
 }
 
 extension Collection {

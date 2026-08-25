@@ -62,9 +62,10 @@ struct UndoEligibilityTests {
             musicKitTracks: [readTrack],
             appleScriptTracks: [authoritativeTrack]
         )
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
+        await bridge.setFetchedTracks([authoritativeTrack])
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
             idMapper: mapper,
             directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("UndoEligibilityTests-\(UUID().uuidString)")
@@ -84,7 +85,7 @@ struct UndoEligibilityTests {
 
     private struct Fixture {
         let coordinator: UndoCoordinator
-        let bridge: MockAppleScriptClient
+        let bridge: MusicAppTestAccess
         let entry: ChangeLogEntry
     }
 }

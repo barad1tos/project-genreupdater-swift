@@ -176,7 +176,7 @@ struct PrereleasePreflightTests {
         )
         let coordinator = makeCoordinator(
             api: makeAPI(probe: APIRequestProbe()),
-            bridge: MockAppleScriptClient(),
+            bridge: MusicAppTestAccess(),
             cache: MockCacheService(),
             pendingVerificationService: pendingVerification
         )
@@ -223,7 +223,7 @@ struct PrereleasePreflightTests {
         )
         let coordinator = makeCoordinator(
             api: makeAPI(probe: APIRequestProbe()),
-            bridge: MockAppleScriptClient(),
+            bridge: MusicAppTestAccess(),
             cache: MockCacheService(),
             pendingVerificationService: pendingVerification
         )
@@ -450,7 +450,7 @@ struct PrereleasePreflightTests {
         prereleaseHandling: PrereleaseHandling = .processEditable,
         processingConfig: ProcessingConfig = ProcessingConfig()
     ) -> PrereleaseTestContext {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let apiProbe = APIRequestProbe()
         let pendingVerification = PendingVerificationProbe(entry: nil, isVerificationNeeded: false)
@@ -491,7 +491,7 @@ struct PrereleasePreflightTests {
 
     private func makeCoordinator(
         api: APIOrchestrator,
-        bridge: MockAppleScriptClient,
+        bridge: MusicAppTestAccess,
         cache: MockCacheService,
         idMapper: (any TrackIDMapping)? = nil,
         pendingVerificationService: (any PendingVerificationService)? = nil,
@@ -503,13 +503,13 @@ struct PrereleasePreflightTests {
         return UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: api,
-                scriptBridge: bridge,
+                writer: bridge,
                 stores: .init(
                     trackStore: MockTrackStore(),
                     cache: cache
                 ),
                 undoCoordinator: UndoCoordinator(
-                    scriptBridge: bridge,
+                    musicApp: bridge,
                     directory: undoDirectory
                 ),
                 idMapper: idMapper,
@@ -593,10 +593,6 @@ struct PrereleasePreflightTests {
 
         func trackWithAppleScriptMetadata(for _: Track) async -> Track? {
             nil
-        }
-
-        func refreshMapping(musicKitTracks _: [Track], appleScriptTracks _: [Track]) async {
-            await Task.yield()
         }
 
         func hasMappingFor(musicKitID _: String) async -> Bool {

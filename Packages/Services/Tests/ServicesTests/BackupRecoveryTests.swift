@@ -4,7 +4,7 @@ import Testing
 @testable import Services
 
 private struct BackupRecoveryFixture {
-    let bridge: MockAppleScriptClient
+    let bridge: MusicAppTestAccess
     let historyStore: MockChangeLogStore
     let trackStore: MockTrackStore
     let directory: URL
@@ -12,7 +12,7 @@ private struct BackupRecoveryFixture {
     let csv: String
 
     static func make(liveYear: Int = 1998) async throws -> Self {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         let historyStore = MockChangeLogStore()
         let trackStore = MockTrackStore()
         let directory = FileManager.default.temporaryDirectory
@@ -26,8 +26,8 @@ private struct BackupRecoveryFixture {
         )
         var liveTrack = staleMirror
         liveTrack.year = liveYear
-        try await trackStore.saveTracks([staleMirror])
-        await bridge.setFetchedTracks([liveTrack])
+        try await trackStore.seedMirror([staleMirror])
+        await bridge.setMutationTracks([liveTrack])
         return Self(
             bridge: bridge,
             historyStore: historyStore,
@@ -43,7 +43,8 @@ private struct BackupRecoveryFixture {
 
     func coordinator() -> UndoCoordinator {
         UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             stores: .init(changeLog: historyStore, tracks: trackStore),
             directory: directory
         )
@@ -80,7 +81,7 @@ struct BackupRecoveryTests {
 
         var changedTrack = fixture.liveTrack
         changedTrack.year = 2019
-        await fixture.bridge.setFetchedTracks([changedTrack])
+        await fixture.bridge.setMutationTracks([changedTrack])
         await fixture.trackStore.resumeAppliedUpdates()
         await expectRecoveryFailure(effects: ["stale backup recovery checkpoint"]) {
             _ = try await fixture.coordinator().revertYearsFromBackupCSV(
@@ -165,7 +166,7 @@ struct BackupRecoveryTests {
 
         var changedTrack = fixture.liveTrack
         changedTrack.year = 2020
-        await fixture.bridge.setFetchedTracks([changedTrack])
+        await fixture.bridge.setMutationTracks([changedTrack])
         await fixture.bridge.setWriteCancellationMode(false)
         await expectRecoveryFailure(effects: ["stale backup recovery checkpoint"]) {
             _ = try await fixture.coordinator().revertYearsFromBackupCSV(
@@ -206,15 +207,16 @@ struct BackupRecoveryTests {
 
     @Test("A write error with recovery evidence stops later targets")
     func writeErrorStopsBackupBatch() async {
-        let bridge = MockAppleScriptClient()
+        let bridge = MusicAppTestAccess()
         await bridge.setWriteError(MockScriptError.intentional, for: "T1")
         let tracks = [
             Track(id: "T1", name: "Angel", artist: "Massive Attack", album: "Mezzanine", year: 2019),
             Track(id: "T2", name: "Teardrop", artist: "Massive Attack", album: "Mezzanine", year: 2020),
         ]
-        await bridge.setFetchedTracks(tracks)
+        await bridge.setMutationTracks(tracks)
         let coordinator = UndoCoordinator(
-            scriptBridge: bridge,
+            musicApp: bridge,
+            idMapper: CanonicalUndoMapper(),
             directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("BackupRecoveryTests-\(UUID().uuidString)")
         )

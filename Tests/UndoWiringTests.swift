@@ -13,17 +13,18 @@ struct UndoWiringTests {
         let trackStore = TrackDataStore(modelContainer: container)
         try await trackStore.initialize()
         let changeLogStore = ChangeLogDataStore(modelContainer: container)
-        let scriptClient = DashboardStateScriptClient()
         let track = Track(
             id: "T1",
             name: "Angel",
             artist: "Massive Attack",
             album: "Mezzanine",
-            year: 2019
+            year: 2019,
+            appleScriptID: "T1"
         )
-        try await trackStore.saveTracks([track])
+        let scriptClient = DashboardStateScriptClient(verifiedTracks: [track])
+        try await trackStore.seedMirror([track])
         let coordinator = UndoCoordinator(
-            scriptBridge: scriptClient,
+            musicApp: scriptClient,
             stores: AppDependencies.makeUndoStores(
                 changeLogStore: changeLogStore,
                 trackStore: trackStore,
