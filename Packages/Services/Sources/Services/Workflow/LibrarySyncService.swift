@@ -149,7 +149,7 @@ public actor LibrarySyncService {
         }
     }
 
-    private func retryingMirrorConflicts<Result>(
+    private func retryingMirrorConflicts<Result: Sendable>(
         _ operation: () async throws -> Result
     ) async throws -> Result {
         var conflictCount = 0
