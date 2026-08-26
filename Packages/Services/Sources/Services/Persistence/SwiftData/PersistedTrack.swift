@@ -13,76 +13,80 @@ import SwiftData
 ///
 /// The domain model (`Core.Track`) remains a plain struct with no persistence
 /// dependencies, keeping Core free of SwiftData.
-@Model
-public final class PersistedTrack {
-    @Attribute(.unique)
-    public var trackID: String
+extension StoreSchemaV2 {
+    @Model
+    public final class PersistedTrack {
+        @Attribute(.unique)
+        public var trackID: String
 
-    public var appleScriptID: String?
+        public var appleScriptID: String?
 
-    public var name: String
-    public var artist: String
-    public var album: String
-    public var genre: String?
-    public var year: Int?
-    public var genreUpdated: Bool
-    public var yearUpdated: Bool
-    public var processedDate: Date?
-    public var lastError: String?
-    public var dateAdded: Date?
-    public var albumArtist: String?
-    public var trackStatus: String?
-    public var originalArtist: String?
-    public var originalAlbum: String?
-    public var yearBeforeMGU: Int?
-    public var yearSetByMGU: Int?
-    public var releaseYear: Int?
+        public var name: String
+        public var artist: String
+        public var album: String
+        public var genre: String?
+        public var year: Int?
+        public var genreUpdated: Bool
+        public var yearUpdated: Bool
+        public var processedDate: Date?
+        public var lastError: String?
+        public var dateAdded: Date?
+        public var albumArtist: String?
+        public var trackStatus: String?
+        public var originalArtist: String?
+        public var originalAlbum: String?
+        public var yearBeforeMGU: Int?
+        public var yearSetByMGU: Int?
+        public var releaseYear: Int?
 
-    @Relationship(deleteRule: .cascade, inverse: \PersistedChangeLogEntry.track)
-    public var changeLog: [PersistedChangeLogEntry] = []
+        @Relationship(deleteRule: .cascade, inverse: \PersistedChangeLogEntry.track)
+        public var changeLog: [PersistedChangeLogEntry] = []
 
-    public init(
-        trackID: String,
-        appleScriptID: String? = nil,
-        name: String,
-        artist: String,
-        album: String,
-        genre: String? = nil,
-        year: Int? = nil,
-        genreUpdated: Bool = false,
-        yearUpdated: Bool = false,
-        processedDate: Date? = nil,
-        lastError: String? = nil,
-        dateAdded: Date? = nil,
-        albumArtist: String? = nil,
-        trackStatus: String? = nil,
-        originalArtist: String? = nil,
-        originalAlbum: String? = nil,
-        yearBeforeMGU: Int? = nil,
-        yearSetByMGU: Int? = nil,
-        releaseYear: Int? = nil
-    ) {
-        self.trackID = trackID
-        self.appleScriptID = appleScriptID
-        self.name = name
-        self.artist = artist
-        self.album = album
-        self.genre = genre
-        self.year = MusicAppYear.normalized(year)
-        self.genreUpdated = genreUpdated
-        self.yearUpdated = yearUpdated
-        self.processedDate = processedDate
-        self.lastError = lastError
-        self.dateAdded = dateAdded
-        self.albumArtist = albumArtist
-        self.trackStatus = trackStatus
-        self.originalArtist = originalArtist
-        self.originalAlbum = originalAlbum
-        self.yearBeforeMGU = yearBeforeMGU
-        self.yearSetByMGU = yearSetByMGU
-        self.releaseYear = MusicAppYear.normalized(releaseYear)
+        public init(
+            trackID: String,
+            appleScriptID: String? = nil,
+            name: String,
+            artist: String,
+            album: String,
+            genre: String? = nil,
+            year: Int? = nil,
+            genreUpdated: Bool = false,
+            yearUpdated: Bool = false,
+            processedDate: Date? = nil,
+            lastError: String? = nil,
+            dateAdded: Date? = nil,
+            albumArtist: String? = nil,
+            trackStatus: String? = nil,
+            originalArtist: String? = nil,
+            originalAlbum: String? = nil,
+            yearBeforeMGU: Int? = nil,
+            yearSetByMGU: Int? = nil,
+            releaseYear: Int? = nil
+        ) {
+            self.trackID = trackID
+            self.appleScriptID = appleScriptID
+            self.name = name
+            self.artist = artist
+            self.album = album
+            self.genre = genre
+            self.year = MusicAppYear.normalized(year)
+            self.genreUpdated = genreUpdated
+            self.yearUpdated = yearUpdated
+            self.processedDate = processedDate
+            self.lastError = lastError
+            self.dateAdded = dateAdded
+            self.albumArtist = albumArtist
+            self.trackStatus = trackStatus
+            self.originalArtist = originalArtist
+            self.originalAlbum = originalAlbum
+            self.yearBeforeMGU = yearBeforeMGU
+            self.yearSetByMGU = yearSetByMGU
+            self.releaseYear = MusicAppYear.normalized(releaseYear)
+        }
     }
 }
+
+public typealias PersistedTrack = StoreSchemaV2.PersistedTrack
 
 // MARK: - Conversion to/from Core.Track
 

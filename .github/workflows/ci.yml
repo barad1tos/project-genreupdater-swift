@@ -208,6 +208,21 @@ jobs:
 
       - name: Scan for unused code (Periphery)
         run: |
+          # Include the real, non-test consumer of the frozen V1 schema. The
+          # executable remains separate from the app while Periphery analyzes
+          # both production index stores in one census.
+          SERVICES_SCRATCH_PATH=.build/periphery-services
+          swift build \
+            --package-path Packages/Services \
+            --scratch-path "${SERVICES_SCRATCH_PATH}" \
+            --target StoreFixtureGenerator
+          SERVICES_BIN_PATH="$(
+            swift build \
+              --package-path Packages/Services \
+              --scratch-path "${SERVICES_SCRATCH_PATH}" \
+              --show-bin-path
+          )"
+
           # Findings exit zero without --strict; only a nonzero status means
           # the scan itself failed, which the validator must reject.
           set +e
@@ -216,6 +231,7 @@ jobs:
             --schemes GenreUpdater \
             --skip-build \
             --index-store-path .build/xcode/Index.noindex/DataStore \
+            --index-store-path "${SERVICES_BIN_PATH}/index/store" \
             --retain-codable-properties \
             --retain-swift-ui-previews \
             --retain-assign-only-properties \

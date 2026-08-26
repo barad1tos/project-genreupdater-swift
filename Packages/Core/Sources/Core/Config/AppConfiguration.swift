@@ -41,6 +41,7 @@ public struct AppConfiguration: Sendable, Codable {
     public var paths = PathsConfig()
     public var pythonSettings = PythonSettingsConfig()
     public var runtime = RuntimeConfig()
+    public var librarySync = LibrarySyncConfig()
     public var applescript = AppleScriptConfig()
     public var yearRetrieval = YearRetrievalConfig()
     public var genreUpdate = GenreUpdateConfig()
@@ -60,7 +61,7 @@ public struct AppConfiguration: Sendable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case revision
-        case paths, pythonSettings, runtime, applescript, yearRetrieval, genreUpdate, caching
+        case paths, pythonSettings, runtime, librarySync, applescript, yearRetrieval, genreUpdate, caching
         case processing, analytics, cleaning, exceptions, artistRenamer, databaseVerification
         case pendingVerification, reporting, logging
         case albumTypeDetection, experimental, development
@@ -68,7 +69,7 @@ public struct AppConfiguration: Sendable, Codable {
 
     private enum DecodingKeys: String, CodingKey {
         case revision
-        case paths, pythonSettings, runtime, applescript, yearRetrieval, genreUpdate, caching
+        case paths, pythonSettings, runtime, librarySync, applescript, yearRetrieval, genreUpdate, caching
         case processing, analytics, cleaning, exceptions, artistRenamer, databaseVerification
         case pendingVerification, reporting, logging
         case albumTypeDetection, experimental, development
@@ -110,6 +111,7 @@ public struct AppConfiguration: Sendable, Codable {
         pythonSettings = try container
             .decodeIfPresent(PythonSettingsConfig.self, forKey: .pythonSettings) ?? PythonSettingsConfig()
         runtime = try container.decodeIfPresent(RuntimeConfig.self, forKey: .runtime) ?? RuntimeConfig()
+        librarySync = try container.decodeIfPresent(LibrarySyncConfig.self, forKey: .librarySync) ?? LibrarySyncConfig()
         applescript = try container.decodeIfPresent(AppleScriptConfig.self, forKey: .applescript) ?? AppleScriptConfig()
         yearRetrieval = try container
             .decodeIfPresent(YearRetrievalConfig.self, forKey: .yearRetrieval) ?? YearRetrievalConfig()

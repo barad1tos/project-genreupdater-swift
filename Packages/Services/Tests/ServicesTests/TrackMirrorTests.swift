@@ -94,6 +94,7 @@ struct TrackMirrorTests {
         try await store.initialize()
 
         try await store.applyMirror(TrackMirrorUpdate(
+            baseRevision: .initial,
             coverageChange: .replace(.fullLibrary),
             repairs: [],
             upserts: [],
@@ -112,6 +113,7 @@ struct TrackMirrorTests {
 
         await #expect(throws: TrackStoreError.missingDatabaseID(trackID: "invalid")) {
             try await store.applyMirror(TrackMirrorUpdate(
+                baseRevision: .initial,
                 coverageChange: .replace(.fullLibrary),
                 repairs: [],
                 upserts: [sampleTrack(id: "invalid")],
@@ -254,8 +256,10 @@ struct TrackMirrorTests {
             appleScriptID: "T003"
         )
         let removedID = try databaseID("T002")
+        let revision = try await store.loadMirrorSnapshot().revision
 
         try await store.applyMirror(TrackMirrorUpdate(
+            baseRevision: revision,
             coverageChange: .preserve,
             repairs: [],
             upserts: [refreshedTrack, insertedTrack],
@@ -287,9 +291,11 @@ struct TrackMirrorTests {
         let before = try await store.loadAllTracks()
         let duplicateID = try databaseID("T001")
         let deletedID = try databaseID("T002")
+        let revision = try await store.loadMirrorSnapshot().revision
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [],
                 upserts: [mirrorTrack(id: "T001", name: "First"), mirrorTrack(id: "T001", name: "Second")],
@@ -309,9 +315,11 @@ struct TrackMirrorTests {
         try await store.seedMirror([sampleTrack(id: "T001"), sampleTrack(id: "T002")])
         let before = try await store.loadAllTracks()
         let deletedID = try databaseID("T002")
+        let revision = try await store.loadMirrorSnapshot().revision
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [],
                 upserts: [],
@@ -331,9 +339,11 @@ struct TrackMirrorTests {
         try await store.seedMirror([sampleTrack(id: "T001"), sampleTrack(id: "T002")])
         let before = try await store.loadAllTracks()
         let targetID = try databaseID("T001")
+        let revision = try await store.loadMirrorSnapshot().revision
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [],
                 upserts: [mirrorTrack(id: "T001", name: "Updated")],
@@ -352,9 +362,11 @@ struct TrackMirrorTests {
         let store = try makeStore()
         try await store.seedMirror([sampleTrack(id: "T001")])
         let before = try await store.loadAllTracks()
+        let revision = try await store.loadMirrorSnapshot().revision
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [],
                 upserts: [sampleTrack(id: "T001")],
@@ -376,9 +388,11 @@ struct TrackMirrorTests {
         var mismatchedTrack = sampleTrack(id: "MUSIC-KIT-ID")
         mismatchedTrack.appleScriptID = "T001"
         let databaseID = try databaseID("T001")
+        let revision = try await store.loadMirrorSnapshot().revision
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [],
                 upserts: [mismatchedTrack],
@@ -400,9 +414,11 @@ struct TrackMirrorTests {
         let store = try makeNoncanonicalStore(id: "catalog")
         let before = try await store.loadAllTracks()
         let databaseID = try databaseID("catalog")
+        let revision = try await store.loadMirrorSnapshot().revision
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [],
                 upserts: [mirrorTrack(id: "catalog", name: "Canonical")],
@@ -421,9 +437,11 @@ struct TrackMirrorTests {
         let store = try makeNoncanonicalStore(id: "catalog")
         let before = try await store.loadAllTracks()
         let databaseID = try databaseID("catalog")
+        let revision = try await store.loadMirrorSnapshot().revision
 
         do {
             try await store.applyMirror(TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [],
                 upserts: [],
@@ -467,6 +485,7 @@ struct TrackMirrorTests {
             appleScriptID: "database-id"
         )
         let update = TrackMirrorUpdate(
+            baseRevision: .initial,
             coverageChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "catalog-id", target: target)],
             upserts: [],
@@ -533,13 +552,20 @@ struct TrackMirrorTests {
             id: "AS1", name: "Live", artist: "Live", album: "Live", appleScriptID: "AS1"
         )
         let update = TrackMirrorUpdate(
+            baseRevision: .initial,
             coverageChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "MK1", target: live)], upserts: [], deletions: []
         )
         let store = TrackDataStore(modelContainer: container)
 
         try await store.applyMirror(update)
-        try await store.applyMirror(update)
+        try await store.applyMirror(TrackMirrorUpdate(
+            baseRevision: MirrorRevision(value: 1),
+            coverageChange: update.coverageChange,
+            repairs: update.repairs,
+            upserts: update.upserts,
+            deletions: update.deletions
+        ))
 
         let verification = ModelContext(container)
         let tracks = try verification.fetch(FetchDescriptor<PersistedTrack>())
@@ -564,14 +590,16 @@ struct TrackMirrorTests {
         let before = try await store.loadAllTracks()
         let target = mirrorTrack(id: "target")
         let occupied = mirrorTrack(id: "occupied")
-
+        let revision = try await store.loadMirrorSnapshot().revision
         let cases: [(TrackMirrorUpdate, TrackStoreError)] = try [
             (TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [TrackMirrorRepair(sourceID: "missing", target: target)],
                 upserts: [], deletions: []
             ), .missingSource(id: "missing")),
             (TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [
                     TrackMirrorRepair(sourceID: "legacy", target: target),
@@ -579,6 +607,7 @@ struct TrackMirrorTests {
                 ], upserts: [], deletions: []
             ), .duplicateRepairSources(ids: ["legacy"])),
             (TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [
                     TrackMirrorRepair(sourceID: "legacy", target: target),
@@ -586,16 +615,19 @@ struct TrackMirrorTests {
                 ], upserts: [], deletions: []
             ), .duplicateRepairTargets(ids: [databaseID("target")])),
             (TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [TrackMirrorRepair(sourceID: "legacy", target: occupied)],
                 upserts: [], deletions: []
             ), .targetExists(id: databaseID("occupied"))),
             (TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [TrackMirrorRepair(sourceID: "legacy", target: target)],
                 upserts: [target], deletions: []
             ), .identityOverlap(ids: [databaseID("target")])),
             (TrackMirrorUpdate(
+                baseRevision: revision,
                 coverageChange: .preserve,
                 repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "legacy"))],
                 upserts: [], deletions: []
@@ -603,11 +635,8 @@ struct TrackMirrorTests {
         ]
 
         for (update, expectedError) in cases {
-            do {
+            await #expect(throws: expectedError) {
                 try await store.applyMirror(update)
-                Issue.record("Expected mirror rekey validation to fail")
-            } catch let error as TrackStoreError {
-                #expect(error == expectedError)
             }
             #expect(try await store.loadAllTracks() == before)
         }
@@ -621,7 +650,9 @@ struct TrackMirrorTests {
             mirrorTrack(id: "updated", name: "Old"),
             mirrorTrack(id: "deleted"),
         ])
+        let revision = try await store.loadMirrorSnapshot().revision
         let update = try TrackMirrorUpdate(
+            baseRevision: revision,
             coverageChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "rekeyed"))],
             upserts: [mirrorTrack(id: "updated", name: "New"), mirrorTrack(id: "inserted")],
@@ -647,6 +678,7 @@ struct TrackMirrorTests {
             let store = try TrackDataStore(modelContainer: makeContainer(at: url))
             try await store.initialize()
             try await store.applyMirror(TrackMirrorUpdate(
+                baseRevision: .initial,
                 coverageChange: .replace(.fullLibrary),
                 repairs: [],
                 upserts: [],
@@ -744,6 +776,7 @@ struct TrackMirrorTests {
             context.insert(entry)
             try context.save()
             try await TrackDataStore(modelContainer: container).applyMirror(TrackMirrorUpdate(
+                baseRevision: .initial,
                 coverageChange: .preserve,
                 repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "canonical"))],
                 upserts: [], deletions: []

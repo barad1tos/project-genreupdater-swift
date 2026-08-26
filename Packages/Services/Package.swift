@@ -7,6 +7,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .library(name: "Services", targets: ["Services"]),
+        .executable(name: "StoreFixtureGenerator", targets: ["StoreFixtureGenerator"]),
     ],
     dependencies: [
         .package(path: "../Core"),
@@ -28,6 +29,11 @@ let package = Package(
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
             ]
+        ),
+        .executableTarget(
+            name: "StoreFixtureGenerator",
+            dependencies: ["Services"],
+            path: "Sources/StoreFixtureGenerator"
         ),
         .testTarget(
             name: "ServicesTests",

@@ -10,6 +10,7 @@ actor SyncMockScriptClient: MusicAppReading {
     var tracksByID: [String: Track] = [:]
     private var fetchAllTrackIDsError: AppleScriptBridgeError?
     private var observationRequests: [LibraryObservationRequest] = []
+    private var trackQueue: [[String: Track]] = []
 
     func observe(_ request: LibraryObservationRequest) async throws -> LibraryObservation {
         observationRequests.append(request)
@@ -25,17 +26,13 @@ actor SyncMockScriptClient: MusicAppReading {
                 return databaseID
             }
             .sorted { $0.rawValue < $1.rawValue }
-        let previousIDs: Set<MusicDatabaseTrackID> = switch request.previous {
-        case .initial:
-            []
-        case let .verified(mirror):
-            Set(mirror.tracksByID.keys)
-        }
+        let previousIDs = Self.previousIDs(from: request.previous)
         let requestedIDs = request.refresh == .force
             ? allIDs
             : allIDs.filter { !previousIDs.contains($0) }
+        let observedTracks = trackQueue.isEmpty ? tracksByID : trackQueue.removeFirst()
         let rows = requestedIDs.compactMap { databaseID -> LibraryTrackRow? in
-            guard let track = tracksByID[databaseID.rawValue] else { return nil }
+            guard let track = observedTracks[databaseID.rawValue] else { return nil }
             return Self.observationRow(track, databaseID: databaseID)
         }
         let scopedRows = rows.filter { row in
@@ -85,6 +82,15 @@ actor SyncMockScriptClient: MusicAppReading {
         return generation
     }
 
+    private static func previousIDs(from mirror: LibraryMirrorReference) -> Set<MusicDatabaseTrackID> {
+        switch mirror {
+        case .initial:
+            []
+        case let .verified(index):
+            Set(index.tracksByID.keys)
+        }
+    }
+
     private static func observationRow(
         _ track: Track,
         databaseID: MusicDatabaseTrackID
@@ -114,6 +120,8 @@ actor SyncMockScriptClient: MusicAppReading {
 actor SyncMockTrackStore: TrackStateStore {
     var storedTracks: [Track] = []
     private var coverage = MirrorCoverage.unknown
+    private var revision = MirrorRevision.initial
+    private var conflictsRemaining = 0
 
     func initialize() async throws {}
 
@@ -122,10 +130,19 @@ actor SyncMockTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(tracks: storedTracks, coverage: coverage)
+        TrackMirrorSnapshot(revision: revision, tracks: storedTracks, coverage: coverage)
     }
 
-    func applyMirror(_ update: TrackMirrorUpdate) async throws {
+    @discardableResult
+    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+        if conflictsRemaining > 0 {
+            conflictsRemaining -= 1
+            revision = revision.advanced()
+            throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
+        }
+        guard update.baseRevision == revision else {
+            throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
+        }
         coverage = coverage.applying(update.coverageChange)
         let deletionIDs = Set(update.deletions.map(\.rawValue))
         storedTracks.removeAll { deletionIDs.contains($0.id) }
@@ -136,6 +153,8 @@ actor SyncMockTrackStore: TrackStateStore {
                 storedTracks.append(track)
             }
         }
+        revision = revision.advanced()
+        return revision
     }
 
     func getTrack(byID id: String) async throws -> Track? {
@@ -167,6 +186,10 @@ extension SyncMockScriptClient {
     func setFetchAllTrackIDsError(_ error: AppleScriptBridgeError) {
         fetchAllTrackIDsError = error
     }
+
+    func queueObservationTracks(_ tracks: [[String: Track]]) {
+        trackQueue = tracks
+    }
 }
 
 extension SyncMockTrackStore {
@@ -187,6 +210,10 @@ extension SyncMockTrackStore {
 
     func mirrorCoverage() -> MirrorCoverage {
         coverage
+    }
+
+    func rejectNextMirrorCommits(_ count: Int = 1) {
+        conflictsRemaining = count
     }
 }
 

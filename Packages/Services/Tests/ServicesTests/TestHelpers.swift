@@ -206,12 +206,14 @@ actor PendingRecorder: PendingVerificationService {
 
 extension TrackStateStore {
     func seedMirror(_ tracks: [Track]) async throws {
+        let revision = try await loadMirrorSnapshot().revision
         let canonicalTracks = tracks.map { track in
             var canonical = track
             canonical.appleScriptID = canonical.id
             return canonical
         }
         try await applyMirror(TrackMirrorUpdate(
+            baseRevision: revision,
             coverageChange: .replace(.fullLibrary),
             repairs: [],
             upserts: canonicalTracks,
@@ -229,6 +231,7 @@ struct AppliedTrackUpdate {
 actor MockTrackStore: TrackStateStore {
     var tracks: [Track] = []
     private var coverage = MirrorCoverage.unknown
+    private var revision = MirrorRevision.initial
     private(set) var appliedUpdates: [AppliedTrackUpdate] = []
     private var shouldCancelReads = false
     private var shouldFailMirror = false
@@ -257,10 +260,14 @@ actor MockTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(tracks: tracks, coverage: coverage)
+        TrackMirrorSnapshot(revision: revision, tracks: tracks, coverage: coverage)
     }
 
-    func applyMirror(_ update: TrackMirrorUpdate) async throws {
+    @discardableResult
+    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+        guard update.baseRevision == revision else {
+            throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
+        }
         coverage = coverage.applying(update.coverageChange)
         let deletionIDs = Set(update.deletions.map(\.rawValue))
         tracks.removeAll { deletionIDs.contains($0.id) }
@@ -271,6 +278,8 @@ actor MockTrackStore: TrackStateStore {
                 tracks.append(track)
             }
         }
+        revision = revision.advanced()
+        return revision
     }
 
     func getTrack(byID id: String) async throws -> Track? {

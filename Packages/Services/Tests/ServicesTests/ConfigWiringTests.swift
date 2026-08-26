@@ -56,6 +56,20 @@ struct ConfigWiringTests {
         #expect(restrictedScope.adaptiveDelay == false)
     }
 
+    @Test("Library sync retry policy follows its dedicated configuration")
+    func mapsSyncRetry() {
+        var configuration = AppConfiguration()
+        configuration.librarySync.conflictRetries = 4
+        configuration.librarySync.conflictDelaySeconds = 0.25
+
+        let runtimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: configuration)
+
+        #expect(runtimeConfiguration.mirrorRetryPolicy == MirrorRetryPolicy(
+            retryLimit: 4,
+            delay: .milliseconds(250)
+        ))
+    }
+
     @Test("Python-era configuration keys feed runtime configuration owners")
     func pythonEraConfigurationKeysFeedRuntimeConfigurationOwners() throws {
         let jsonString = """

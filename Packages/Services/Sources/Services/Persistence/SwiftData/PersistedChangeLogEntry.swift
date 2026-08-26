@@ -10,87 +10,91 @@ import SwiftData
 /// Stores metadata changes applied to tracks so that `UndoCoordinator`
 /// can restore history across app restarts. Each entry maps 1:1 to
 /// a `Core.ChangeLogEntry`.
-@Model
-public final class PersistedChangeLogEntry {
-    @Attribute(.unique)
-    public var entryID: UUID
+extension StoreSchemaV2 {
+    @Model
+    public final class PersistedChangeLogEntry {
+        @Attribute(.unique)
+        public var entryID: UUID
 
-    public var timestamp: Date
-    public var changeTypeRaw: String
-    public var trackID: String
-    public var artist: String
-    public var trackName: String
-    public var albumName: String
+        public var timestamp: Date
+        public var changeTypeRaw: String
+        public var trackID: String
+        public var artist: String
+        public var trackName: String
+        public var albumName: String
 
-    // Genre changes
-    public var oldGenre: String?
-    public var newGenre: String?
+        // Genre changes
+        public var oldGenre: String?
+        public var newGenre: String?
 
-    // Year changes
-    public var oldYear: Int?
-    public var newYear: Int?
+        // Year changes
+        public var oldYear: Int?
+        public var newYear: Int?
 
-    // Name cleaning changes
-    public var oldTrackName: String?
-    public var newTrackName: String?
-    public var oldAlbumName: String?
-    public var newAlbumName: String?
+        // Name cleaning changes
+        public var oldTrackName: String?
+        public var newTrackName: String?
+        public var oldAlbumName: String?
+        public var newAlbumName: String?
 
-    // Artist rename changes
-    public var oldArtist: String?
-    public var newArtist: String?
-    public var oldAlbumArtist: String?
-    public var newAlbumArtist: String?
+        // Artist rename changes
+        public var oldArtist: String?
+        public var newArtist: String?
+        public var oldAlbumArtist: String?
+        public var newAlbumArtist: String?
 
-    /// Run attribution for retention; nil on legacy and out-of-run entries.
-    public var runID: UUID?
+        /// Run attribution for retention; nil on legacy and out-of-run entries.
+        public var runID: UUID?
 
-    /// Relationship to PersistedTrack (set in H3)
-    public var track: PersistedTrack?
+        /// Relationship to PersistedTrack (set in H3)
+        public var track: PersistedTrack?
 
-    public init(
-        entryID: UUID,
-        timestamp: Date,
-        changeTypeRaw: String,
-        trackID: String,
-        artist: String,
-        trackName: String,
-        albumName: String,
-        oldGenre: String? = nil,
-        newGenre: String? = nil,
-        oldYear: Int? = nil,
-        newYear: Int? = nil,
-        oldTrackName: String? = nil,
-        newTrackName: String? = nil,
-        oldAlbumName: String? = nil,
-        newAlbumName: String? = nil,
-        oldArtist: String? = nil,
-        newArtist: String? = nil,
-        oldAlbumArtist: String? = nil,
-        newAlbumArtist: String? = nil
-    ) {
-        self.entryID = entryID
-        self.timestamp = timestamp
-        self.changeTypeRaw = changeTypeRaw
-        self.trackID = trackID
-        self.artist = artist
-        self.trackName = trackName
-        self.albumName = albumName
-        self.oldGenre = oldGenre
-        self.newGenre = newGenre
-        self.oldYear = oldYear
-        self.newYear = newYear
-        self.oldTrackName = oldTrackName
-        self.newTrackName = newTrackName
-        self.oldAlbumName = oldAlbumName
-        self.newAlbumName = newAlbumName
-        self.oldArtist = oldArtist
-        self.newArtist = newArtist
-        self.oldAlbumArtist = oldAlbumArtist
-        self.newAlbumArtist = newAlbumArtist
-        runID = nil
+        public init(
+            entryID: UUID,
+            timestamp: Date,
+            changeTypeRaw: String,
+            trackID: String,
+            artist: String,
+            trackName: String,
+            albumName: String,
+            oldGenre: String? = nil,
+            newGenre: String? = nil,
+            oldYear: Int? = nil,
+            newYear: Int? = nil,
+            oldTrackName: String? = nil,
+            newTrackName: String? = nil,
+            oldAlbumName: String? = nil,
+            newAlbumName: String? = nil,
+            oldArtist: String? = nil,
+            newArtist: String? = nil,
+            oldAlbumArtist: String? = nil,
+            newAlbumArtist: String? = nil
+        ) {
+            self.entryID = entryID
+            self.timestamp = timestamp
+            self.changeTypeRaw = changeTypeRaw
+            self.trackID = trackID
+            self.artist = artist
+            self.trackName = trackName
+            self.albumName = albumName
+            self.oldGenre = oldGenre
+            self.newGenre = newGenre
+            self.oldYear = oldYear
+            self.newYear = newYear
+            self.oldTrackName = oldTrackName
+            self.newTrackName = newTrackName
+            self.oldAlbumName = oldAlbumName
+            self.newAlbumName = newAlbumName
+            self.oldArtist = oldArtist
+            self.newArtist = newArtist
+            self.oldAlbumArtist = oldAlbumArtist
+            self.newAlbumArtist = newAlbumArtist
+            runID = nil
+        }
     }
 }
+
+public typealias PersistedChangeLogEntry = StoreSchemaV2.PersistedChangeLogEntry
 
 // MARK: - Conversion to/from Core.ChangeLogEntry
 

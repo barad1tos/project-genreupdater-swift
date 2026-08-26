@@ -79,6 +79,33 @@ struct LibrarySyncApplyTests {
         #expect(storedTracks.first { $0.id == "MOD" }?.year == 2024)
     }
 
+    @Test("A stale mirror commit re-observes Music.app before retrying")
+    func reobservesAfterConflict() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let staleTrack = Track(id: "T1", name: "Stale", artist: "Artist", album: "Album")
+        let currentTrack = Track(id: "T1", name: "Current", artist: "Artist", album: "Album")
+        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": currentTrack])
+        await bridge.queueObservationTracks([["T1": staleTrack], ["T1": currentTrack]])
+        await store.rejectNextMirrorCommits()
+
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                mirrorRetryPolicy: MirrorRetryPolicy(retryLimit: 1, delay: .zero)
+            ),
+            observer: bridge
+        )
+
+        let result = try await service.synchronizeNow()
+        let requests = await bridge.recordedObservationRequests()
+        let storedTracks = await store.storedTracks
+
+        #expect(requests.count == 2)
+        #expect(result.newTracks.map(\.name) == ["Current"])
+        #expect(storedTracks.map(\.name) == ["Current"])
+    }
+
     @Test("Synchronize now resolves prerelease pending after subscription transition")
     func synchronizeNowResolvesPrereleasePendingAfterSubscriptionTransition() async throws {
         let fixture = await makePrereleaseFixture(currentStatus: .subscription)

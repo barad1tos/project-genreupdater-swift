@@ -5,47 +5,52 @@ import Foundation
 import SwiftData
 
 /// Persistent representation of an album waiting for manual year verification.
-@Model
-public final class PersistedPendingAlbumEntry {
-    @Attribute(.unique)
-    public var entryID: String
+extension StoreSchemaV2 {
+    @Model
+    public final class PersistedPendingAlbumEntry {
+        @Attribute(.unique)
+        public var entryID: String
 
-    public var artist: String
-    public var album: String
-    public var reason: String
-    public var attemptCount: Int
-    public var lastAttempt: Date
-    public var recheckInterval: TimeInterval
-    public var metadataData: Data?
+        public var artist: String
+        public var album: String
+        public var reason: String
+        public var attemptCount: Int
+        public var lastAttempt: Date
+        public var recheckInterval: TimeInterval
+        public var metadataData: Data?
 
-    public init(from entry: Core.PendingAlbumEntry) {
-        entryID = entry.id
-        artist = entry.artist
-        album = entry.album
-        reason = entry.reason
-        attemptCount = entry.attemptCount
-        lastAttempt = entry.lastAttempt
-        recheckInterval = entry.recheckInterval
-        metadataData = Self.encodeMetadata(entry.metadata)
+        public init(from entry: Core.PendingAlbumEntry) {
+            entryID = entry.id
+            artist = entry.artist
+            album = entry.album
+            reason = entry.reason
+            attemptCount = entry.attemptCount
+            lastAttempt = entry.lastAttempt
+            recheckInterval = entry.recheckInterval
+            metadataData = Self.encodeMetadata(entry.metadata)
+        }
+    }
+
+    /// Singleton metadata record for pending verification state.
+    @Model
+    public final class PersistedPendingVerificationMetadata {
+        @Attribute(.unique)
+        public var metadataID: String
+
+        public var lastAutoVerification: Date?
+
+        public init(
+            metadataID: String = "pending-verification",
+            lastAutoVerification: Date? = nil
+        ) {
+            self.metadataID = metadataID
+            self.lastAutoVerification = lastAutoVerification
+        }
     }
 }
 
-/// Singleton metadata record for pending verification state.
-@Model
-public final class PersistedPendingVerificationMetadata {
-    @Attribute(.unique)
-    public var metadataID: String
-
-    public var lastAutoVerification: Date?
-
-    public init(
-        metadataID: String = "pending-verification",
-        lastAutoVerification: Date? = nil
-    ) {
-        self.metadataID = metadataID
-        self.lastAutoVerification = lastAutoVerification
-    }
-}
+public typealias PersistedPendingAlbumEntry = StoreSchemaV2.PersistedPendingAlbumEntry
+public typealias PersistedPendingVerificationMetadata = StoreSchemaV2.PersistedPendingVerificationMetadata
 
 // MARK: - Conversion to/from Core.PendingAlbumEntry
 

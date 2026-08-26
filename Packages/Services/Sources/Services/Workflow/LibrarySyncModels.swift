@@ -63,6 +63,24 @@ public struct DatabaseVerificationResult: Sendable, Equatable {
     }
 }
 
+/// Retry policy for optimistic mirror commits.
+public struct MirrorRetryPolicy: Sendable, Equatable {
+    public let retryLimit: Int
+    public let delay: Duration
+
+    public init(retryLimit: Int, delay: Duration) {
+        self.retryLimit = max(0, retryLimit)
+        self.delay = max(.zero, delay)
+    }
+
+    public init(configuration: LibrarySyncConfig) {
+        self.init(
+            retryLimit: configuration.conflictRetries,
+            delay: .milliseconds(Int64(configuration.conflictDelaySeconds * 1000))
+        )
+    }
+}
+
 /// Runtime policy for library sync scope, refresh cadence, and verification logs.
 public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
     public let databaseVerificationIntervalDays: Int
@@ -70,6 +88,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
     public let logsBaseDirectory: String
     public let lastDatabaseVerifyLog: String
     public let testArtists: [String]
+    public let mirrorRetryPolicy: MirrorRetryPolicy
     /// A preview's album target: every load path narrows through the
     /// read request's admission predicate when this is set.
     public let albumTargetIdentity: AlbumIdentity?
@@ -80,6 +99,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         logsBaseDirectory: String = PathsConfig().logsBaseDirectory,
         lastDatabaseVerifyLog: String = LoggingConfig().lastDatabaseVerifyLog,
         testArtists: [String] = [],
+        mirrorRetryPolicy: MirrorRetryPolicy = MirrorRetryPolicy(configuration: LibrarySyncConfig()),
         albumTargetIdentity: AlbumIdentity? = nil
     ) {
         self.databaseVerificationIntervalDays = max(0, databaseVerificationIntervalDays)
@@ -87,6 +107,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         self.logsBaseDirectory = logsBaseDirectory
         self.lastDatabaseVerifyLog = lastDatabaseVerifyLog
         self.testArtists = ArtistAllowList.normalized(testArtists)
+        self.mirrorRetryPolicy = mirrorRetryPolicy
         self.albumTargetIdentity = albumTargetIdentity
     }
 
@@ -96,6 +117,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
             logsBaseDirectory: configuration.paths.effectiveLogsBaseDirectory,
             lastDatabaseVerifyLog: configuration.logging.lastDatabaseVerifyLog,
             testArtists: configuration.development.testArtists,
+            mirrorRetryPolicy: MirrorRetryPolicy(configuration: configuration.librarySync),
             albumTargetIdentity: albumTargetIdentity
         )
     }

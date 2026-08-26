@@ -28,6 +28,7 @@ enum LibrarySyncObservationError: Error, Equatable, LocalizedError, Sendable {
 }
 
 struct SyncDetection {
+    let baseRevision: MirrorRevision
     let result: SyncResult
     let coverageChange: MirrorCoverageChange
     let repairs: [TrackMirrorRepair]
@@ -81,6 +82,7 @@ extension LibrarySyncService {
             return !repairedIDs.contains(databaseID)
         }
         return SyncDetection(
+            baseRevision: snapshot.revision,
             result: classification.result,
             coverageChange: coverageChange(for: observation),
             repairs: repair.repairs,

@@ -20,7 +20,7 @@ public enum ModelContainerFactory {
             groupContainer: .none,
             cloudKitDatabase: .none
         )
-        return try ModelContainer(for: schema, configurations: [config])
+        return try create(schema: schema, configuration: config)
     }
 
     /// Create an in-memory container (for testing).
@@ -30,22 +30,18 @@ public enum ModelContainerFactory {
             schema: schema,
             isStoredInMemoryOnly: true
         )
-        return try ModelContainer(for: schema, configurations: [config])
+        return try create(schema: schema, configuration: config)
     }
 
     static func makeSchema() -> Schema {
-        Schema([
-            PersistedTrack.self,
-            PersistedMirrorState.self,
-            PersistedChangeLogEntry.self,
-            PersistedMetricsSnapshot.self,
-            PersistedPendingAlbumEntry.self,
-            PersistedPendingVerificationMetadata.self,
-            PersistedRunRecord.self,
-            PersistedRunWorkItem.self,
-            PersistedRunReportItem.self,
-            PersistedFixPlan.self,
-            PersistedFixPlanDecision.self
-        ])
+        Schema(versionedSchema: StoreSchemaV2.self)
+    }
+
+    static func create(schema: Schema, configuration: ModelConfiguration) throws -> ModelContainer {
+        try ModelContainer(
+            for: schema,
+            migrationPlan: StoreMigrationPlan.self,
+            configurations: [configuration]
+        )
     }
 }
