@@ -57,6 +57,12 @@ public actor LibrarySyncService {
     }
 
     public func verifyAndCleanDatabase(force: Bool = false) async throws -> DatabaseVerificationResult {
+        try await retryingMirrorConflicts {
+            try await verificationAttempt(force: force)
+        }
+    }
+
+    private func verificationAttempt(force: Bool) async throws -> DatabaseVerificationResult {
         let snapshot = try await trackStore.loadMirrorSnapshot()
         let storedTracks = tracksInConfiguredScope(snapshot.tracks)
         guard !storedTracks.isEmpty else {
@@ -138,10 +144,18 @@ public actor LibrarySyncService {
     /// Detect and persist Music.app library changes in the local store.
     @discardableResult
     public func synchronizeNow(forceMetadataRefresh: Bool = false) async throws -> SyncResult {
+        try await retryingMirrorConflicts {
+            try await synchronizeAttempt(forceMetadataRefresh: forceMetadataRefresh)
+        }
+    }
+
+    private func retryingMirrorConflicts<Result>(
+        _ operation: () async throws -> Result
+    ) async throws -> Result {
         var conflictCount = 0
         while true {
             do {
-                return try await synchronizeAttempt(forceMetadataRefresh: forceMetadataRefresh)
+                return try await operation()
             } catch let conflict as MirrorRevisionConflict {
                 guard conflictCount < runtimeConfiguration.mirrorRetryPolicy.retryLimit else {
                     throw conflict

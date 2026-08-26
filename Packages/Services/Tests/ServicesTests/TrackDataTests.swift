@@ -243,7 +243,7 @@ struct TrackDataTests {
         do {
             _ = try await store.applyMirror(TrackMirrorUpdate(
                 baseRevision: .initial,
-                coverageChange: .preserve,
+                coverageChange: .invalidate,
                 repairs: [],
                 upserts: [rejectedTrack],
                 deletions: []
@@ -258,6 +258,7 @@ struct TrackDataTests {
 
         let snapshot = try await store.loadMirrorSnapshot()
         #expect(snapshot.revision == MirrorRevision(value: 1))
+        #expect(snapshot.coverage == .verified(.fullLibrary))
         #expect(snapshot.tracks.map(\.id) == ["accepted"])
     }
 

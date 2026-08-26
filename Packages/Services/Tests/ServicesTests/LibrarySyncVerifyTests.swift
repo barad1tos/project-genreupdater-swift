@@ -48,6 +48,36 @@ struct LibrarySyncVerifyTests {
         #expect(remainingIDs == ["T1", "T3"])
     }
 
+    @Test("Database verification re-observes after a mirror revision conflict")
+    func verificationReobserves() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncServiceTests-\(UUID().uuidString)")
+
+        await bridge.setLibrary(ids: ["T1"], tracks: [:])
+        await store.setStored([
+            Track(id: "T1", name: "One", artist: "Artist", album: "Album"),
+            Track(id: "T2", name: "Two", artist: "Artist", album: "Album"),
+        ])
+        await store.rejectNextMirrorCommits()
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log",
+                mirrorRetryPolicy: MirrorRetryPolicy(retryLimit: 1, delay: .zero)
+            ),
+            observer: bridge
+        )
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+
+        #expect(result.removedTrackIDs == ["T2"])
+        #expect(await bridge.recordedObservationRequests().count == 2)
+        #expect(try await store.loadAllTracks().map(\.id) == ["T1"])
+    }
+
     @Test("Database verification invalidates cache for removed tracks")
     func databaseVerificationInvalidatesCacheForRemovedTracks() async throws {
         let bridge = SyncMockScriptClient()

@@ -90,27 +90,28 @@ package enum StoreFixtureWriter {
     }
 
     private static func fixtureTrack() -> StoreSchemaV1.PersistedTrack {
-        StoreSchemaV1.PersistedTrack(
+        let track = StoreSchemaV1.PersistedTrack(
             trackID: "track-sentinel",
-            appleScriptID: "track-sentinel",
             name: "Migration Track",
             artist: "Migration Artist",
-            album: "Migration Album",
-            genre: "Migration Genre",
-            year: 2026,
-            genreUpdated: true,
-            yearUpdated: true,
-            processedDate: timestamp,
-            lastError: "migration-error-sentinel",
-            dateAdded: timestamp,
-            albumArtist: "Migration Album Artist",
-            trackStatus: "local",
-            originalArtist: "Original Artist",
-            originalAlbum: "Original Album",
-            yearBeforeMGU: 2025,
-            yearSetByMGU: 2026,
-            releaseYear: 2024
+            album: "Migration Album"
         )
+        track.appleScriptID = "track-sentinel"
+        track.genre = "Migration Genre"
+        track.year = 2026
+        track.genreUpdated = true
+        track.yearUpdated = true
+        track.processedDate = timestamp
+        track.lastError = "migration-error-sentinel"
+        track.dateAdded = timestamp
+        track.albumArtist = "Migration Album Artist"
+        track.trackStatus = "local"
+        track.originalArtist = "Original Artist"
+        track.originalAlbum = "Original Album"
+        track.yearBeforeMGU = 2025
+        track.yearSetByMGU = 2026
+        track.releaseYear = 2024
+        return track
     }
 
     private static func identifier(_ value: String) -> UUID {

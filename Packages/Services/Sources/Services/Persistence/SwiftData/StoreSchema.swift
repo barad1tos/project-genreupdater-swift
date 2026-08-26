@@ -1,6 +1,26 @@
 import Foundation
 import SwiftData
 
+enum StoreSchemaV0: VersionedSchema {
+    static let versionIdentifier = Schema.Version(0, 0, 0)
+
+    /// The sandboxed store predates mirror provenance. Reuse the frozen V1
+    /// entity definitions so their hashes remain identical while omitting the
+    /// entity that was introduced in V1.
+    static let models: [any PersistentModel.Type] = [
+        StoreSchemaV1.PersistedTrack.self,
+        StoreSchemaV1.PersistedChangeLogEntry.self,
+        StoreSchemaV1.PersistedMetricsSnapshot.self,
+        StoreSchemaV1.PersistedPendingAlbumEntry.self,
+        StoreSchemaV1.PersistedPendingVerificationMetadata.self,
+        StoreSchemaV1.PersistedRunRecord.self,
+        StoreSchemaV1.PersistedRunWorkItem.self,
+        StoreSchemaV1.PersistedRunReportItem.self,
+        StoreSchemaV1.PersistedFixPlan.self,
+        StoreSchemaV1.PersistedFixPlanDecision.self,
+    ]
+}
+
 enum StoreSchemaV1: VersionedSchema {
     static let versionIdentifier = Schema.Version(1, 0, 0)
 
@@ -45,44 +65,16 @@ enum StoreSchemaV1: VersionedSchema {
 
         init(
             trackID: String,
-            appleScriptID: String? = nil,
             name: String,
             artist: String,
-            album: String,
-            genre: String? = nil,
-            year: Int? = nil,
-            genreUpdated: Bool = false,
-            yearUpdated: Bool = false,
-            processedDate: Date? = nil,
-            lastError: String? = nil,
-            dateAdded: Date? = nil,
-            albumArtist: String? = nil,
-            trackStatus: String? = nil,
-            originalArtist: String? = nil,
-            originalAlbum: String? = nil,
-            yearBeforeMGU: Int? = nil,
-            yearSetByMGU: Int? = nil,
-            releaseYear: Int? = nil
+            album: String
         ) {
             self.trackID = trackID
-            self.appleScriptID = appleScriptID
             self.name = name
             self.artist = artist
             self.album = album
-            self.genre = genre
-            self.year = year
-            self.genreUpdated = genreUpdated
-            self.yearUpdated = yearUpdated
-            self.processedDate = processedDate
-            self.lastError = lastError
-            self.dateAdded = dateAdded
-            self.albumArtist = albumArtist
-            self.trackStatus = trackStatus
-            self.originalArtist = originalArtist
-            self.originalAlbum = originalAlbum
-            self.yearBeforeMGU = yearBeforeMGU
-            self.yearSetByMGU = yearSetByMGU
-            self.releaseYear = releaseYear
+            genreUpdated = false
+            yearUpdated = false
         }
     }
 
@@ -345,11 +337,13 @@ public enum StoreSchemaV2: VersionedSchema {
 
 enum StoreMigrationPlan: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
+        StoreSchemaV0.self,
         StoreSchemaV1.self,
         StoreSchemaV2.self,
     ]
 
     static let stages: [MigrationStage] = [
+        .lightweight(fromVersion: StoreSchemaV0.self, toVersion: StoreSchemaV1.self),
         .lightweight(fromVersion: StoreSchemaV1.self, toVersion: StoreSchemaV2.self),
     ]
 }

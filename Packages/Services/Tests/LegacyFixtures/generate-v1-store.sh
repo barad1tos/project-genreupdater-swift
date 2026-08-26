@@ -11,6 +11,7 @@ trap 'rm -rf -- "${temporary_directory}"' EXIT
 
 swift run \
     --disable-sandbox \
+    --disable-automatic-resolution \
     --package-path "${package_directory}" \
     StoreFixtureGenerator \
     "${temporary_fixture}"

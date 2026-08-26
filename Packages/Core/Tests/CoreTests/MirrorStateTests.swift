@@ -36,4 +36,14 @@ struct MirrorStateTests {
 
         #expect(decoded == revision)
     }
+
+    @Test("Revision conflicts describe the stale and current revisions")
+    func conflictDescription() {
+        let conflict = MirrorRevisionConflict(
+            expected: MirrorRevision(value: 4),
+            actual: MirrorRevision(value: 7)
+        )
+
+        #expect(conflict.localizedDescription == "Mirror revision conflict: expected 4, current 7.")
+    }
 }
