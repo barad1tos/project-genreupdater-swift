@@ -15,7 +15,7 @@ struct RunMigrationTests {
             let currentContainer = try openProductionContainer(at: storeURL)
             let trackStore = TrackDataStore(modelContainer: currentContainer)
             let changeLogStore = ChangeLogDataStore(modelContainer: currentContainer)
-            let migratedTrack = try #require(try await trackStore.getTrack(byID: "T1"))
+            let migratedTrack = try #require(try await trackStore.getHistoricalTrack(byID: "T1"))
             #expect(migratedTrack.artist == "Florence & the Machine")
             #expect(migratedTrack.originalArtist == nil)
             #expect(migratedTrack.originalAlbum == nil)
@@ -23,8 +23,8 @@ struct RunMigrationTests {
             #expect(migratedTrack.yearSetByMGU == nil)
 
             let bridge = MusicAppTestAccess()
-            let liveTracks = try await trackStore.loadAllTracks()
-            await bridge.setMutationTracks(liveTracks)
+            let secondTrack = try #require(try await trackStore.getHistoricalTrack(byID: "T2"))
+            await bridge.setMutationTracks([migratedTrack, secondTrack])
             let coordinator = UndoCoordinator(
                 musicApp: bridge,
                 idMapper: CanonicalUndoMapper(),
@@ -41,10 +41,10 @@ struct RunMigrationTests {
         let relaunchedContainer = try openProductionContainer(at: storeURL)
         let relaunchedTrackStore = TrackDataStore(modelContainer: relaunchedContainer)
         let relaunchedLogStore = ChangeLogDataStore(modelContainer: relaunchedContainer)
-        let restoredTrack = try #require(try await relaunchedTrackStore.getTrack(byID: "T1"))
+        let restoredTrack = try #require(try await relaunchedTrackStore.getHistoricalTrack(byID: "T1"))
         #expect(restoredTrack.artist == "Florence and the Machine")
         #expect(restoredTrack.originalArtist == "Florence and the Machine")
-        let restoredYearTrack = try #require(try await relaunchedTrackStore.getTrack(byID: "T2"))
+        let restoredYearTrack = try #require(try await relaunchedTrackStore.getHistoricalTrack(byID: "T2"))
         #expect(restoredYearTrack.year == 1998)
         #expect(restoredYearTrack.yearBeforeMGU == 1998)
         #expect(restoredYearTrack.yearSetByMGU == 1998)
@@ -62,8 +62,9 @@ struct RunMigrationTests {
             let trackStore = TrackDataStore(modelContainer: currentContainer)
             let changeLogStore = ChangeLogDataStore(modelContainer: currentContainer)
             let bridge = MusicAppTestAccess()
-            let liveTracks = try await trackStore.loadAllTracks()
-            await bridge.setMutationTracks(liveTracks)
+            let firstTrack = try #require(try await trackStore.getHistoricalTrack(byID: "T1"))
+            let secondTrack = try #require(try await trackStore.getHistoricalTrack(byID: "T2"))
+            await bridge.setMutationTracks([firstTrack, secondTrack])
             let coordinator = UndoCoordinator(
                 musicApp: bridge,
                 idMapper: CanonicalUndoMapper(),
@@ -81,7 +82,7 @@ struct RunMigrationTests {
         let relaunchedContainer = try openProductionContainer(at: storeURL)
         let trackStore = TrackDataStore(modelContainer: relaunchedContainer)
         let changeLogStore = ChangeLogDataStore(modelContainer: relaunchedContainer)
-        let restoredTrack = try #require(try await trackStore.getTrack(byID: "T2"))
+        let restoredTrack = try #require(try await trackStore.getHistoricalTrack(byID: "T2"))
         #expect(restoredTrack.year == 2019)
         #expect(restoredTrack.yearBeforeMGU == 1998)
         #expect(restoredTrack.yearSetByMGU == 2019)

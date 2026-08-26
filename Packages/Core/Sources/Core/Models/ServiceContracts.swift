@@ -35,7 +35,10 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
     case missingSource(id: String)
     case targetExists(id: MusicDatabaseTrackID)
     case duplicateUpserts(ids: [MusicDatabaseTrackID])
-    case duplicateDeletions(ids: [MusicDatabaseTrackID])
+    case duplicateMembershipIDs(ids: [MusicDatabaseTrackID])
+    case invalidMembershipIDs(ids: [String])
+    case membershipStampMismatch(expected: MembershipStamp, actual: MembershipStamp)
+    case operationsOutsideMembership(ids: [MusicDatabaseTrackID])
     case identityOverlap(ids: [MusicDatabaseTrackID])
     case identityCollisions(ids: [MusicDatabaseTrackID])
 
@@ -61,8 +64,14 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
             "Track mirror repair target already exists with ID \(id.rawValue)"
         case let .duplicateUpserts(ids):
             "Track mirror update contains duplicate upsert IDs: \(ids.map(\.rawValue).joined(separator: ", "))"
-        case let .duplicateDeletions(ids):
-            "Track mirror update contains duplicate deletion IDs: \(ids.map(\.rawValue).joined(separator: ", "))"
+        case let .duplicateMembershipIDs(ids):
+            "Track mirror update contains duplicate membership IDs: \(ids.map(\.rawValue).joined(separator: ", "))"
+        case let .invalidMembershipIDs(ids):
+            "Stored track mirror membership contains invalid IDs: \(ids.joined(separator: ", "))"
+        case let .membershipStampMismatch(expected, actual):
+            "Track mirror membership stamp \(actual.fingerprint) does not match expected \(expected.fingerprint)"
+        case let .operationsOutsideMembership(ids):
+            "Track mirror operations target IDs outside current membership: \(ids.map(\.rawValue).joined(separator: ", "))"
         case let .identityOverlap(ids):
             "Track mirror update contains overlapping operation IDs: \(ids.map(\.rawValue).joined(separator: ", "))"
         case let .identityCollisions(ids):
@@ -152,38 +161,54 @@ public enum MirrorCoverageChange: Equatable, Sendable {
     case invalidate
 }
 
+/// The canonical-library membership evidence carried by a mirror mutation.
+public enum MembershipChange: Equatable, Sendable {
+    case preserve
+    case replace(stamp: MembershipStamp, ids: [MusicDatabaseTrackID], observedAt: Date)
+}
+
 /// One coherent mutation of the persisted Music library mirror.
 public struct TrackMirrorUpdate: Sendable {
     public let baseRevision: MirrorRevision
     public let coverageChange: MirrorCoverageChange
+    public let membershipChange: MembershipChange
     public let repairs: [TrackMirrorRepair]
     public let upserts: [Track]
-    public let deletions: [MusicDatabaseTrackID]
 
     public init(
         baseRevision: MirrorRevision,
         coverageChange: MirrorCoverageChange,
+        membershipChange: MembershipChange,
         repairs: [TrackMirrorRepair],
-        upserts: [Track],
-        deletions: [MusicDatabaseTrackID]
+        upserts: [Track]
     ) {
         self.baseRevision = baseRevision
         self.coverageChange = coverageChange
+        self.membershipChange = membershipChange
         self.repairs = repairs
         self.upserts = upserts
-        self.deletions = deletions
     }
 }
 
-/// One coherent read of persisted mirror rows and their verified scope evidence.
+/// One coherent read of current library membership, repair input, and scope evidence.
 public struct TrackMirrorSnapshot: Equatable, Sendable {
     public let revision: MirrorRevision
-    public let tracks: [Track]
+    public let membershipStamp: MembershipStamp
+    public let presentTracks: [Track]
+    public let repairCandidates: [Track]
     public let coverage: MirrorCoverage
 
-    public init(revision: MirrorRevision, tracks: [Track], coverage: MirrorCoverage) {
+    public init(
+        revision: MirrorRevision,
+        membershipStamp: MembershipStamp,
+        presentTracks: [Track],
+        repairCandidates: [Track],
+        coverage: MirrorCoverage
+    ) {
         self.revision = revision
-        self.tracks = tracks
+        self.membershipStamp = membershipStamp
+        self.presentTracks = presentTracks
+        self.repairCandidates = repairCandidates
         self.coverage = coverage
     }
 }
@@ -197,12 +222,19 @@ public protocol TrackStateStore: Actor {
     @discardableResult
     func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision
     func getTrack(byID id: String) async throws -> Track?
+    func getHistoricalTrack(byID id: String) async throws -> Track?
     /// Atomically persists metadata and processing flags for a change keyed by
     /// the canonical Music.app database ID. Legacy read IDs are migration input,
     /// not valid identities for newly applied changes.
     func persistAppliedChange(_ change: ChangeLogEntry) async throws
     func getUnprocessedTracks() async throws -> [Track]
     func trackCount() async throws -> Int
+}
+
+extension TrackStateStore {
+    public func getHistoricalTrack(byID id: String) async throws -> Track? {
+        try await getTrack(byID: id)
+    }
 }
 
 /// Protocol for external music metadata API clients.

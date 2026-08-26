@@ -45,16 +45,16 @@ struct TrackMirrorPersistenceTests {
             try await store.applyMirror(TrackMirrorUpdate(
                 baseRevision: .initial,
                 coverageChange: .replace(.fullLibrary),
+                membershipChange: replacementMembership(for: [MusicDatabaseTrackID]()),
                 repairs: [],
-                upserts: [],
-                deletions: []
+                upserts: []
             ))
         }
 
         let relaunched = try TrackDataStore(modelContainer: makeContainer(at: url))
         try await relaunched.initialize()
         let snapshot = try await relaunched.loadMirrorSnapshot()
-        #expect(snapshot.tracks.isEmpty)
+        #expect(snapshot.presentTracks.isEmpty)
         #expect(snapshot.coverage == .verified(.fullLibrary))
     }
 
@@ -69,19 +69,20 @@ struct TrackMirrorPersistenceTests {
         do {
             let store = try TrackDataStore(modelContainer: makeContainer(at: url))
             try await store.initialize()
+            let initialTracks = [track(id: "keep"), track(id: "delete")]
             let first = try await store.applyMirror(TrackMirrorUpdate(
                 baseRevision: .initial,
                 coverageChange: .replace(.fullLibrary),
+                membershipChange: replacementMembership(for: initialTracks),
                 repairs: [],
-                upserts: [track(id: "keep"), track(id: "delete")],
-                deletions: []
+                upserts: initialTracks
             ))
             let second = try await store.applyMirror(TrackMirrorUpdate(
                 baseRevision: first,
                 coverageChange: .preserve,
+                membershipChange: .preserve,
                 repairs: [],
-                upserts: [],
-                deletions: []
+                upserts: []
             ))
             #expect(first == MirrorRevision(value: 1))
             #expect(second == MirrorRevision(value: 2))
@@ -102,9 +103,12 @@ struct TrackMirrorPersistenceTests {
                 try await relaunched.applyMirror(TrackMirrorUpdate(
                     baseRevision: MirrorRevision(value: 1),
                     coverageChange: .invalidate,
+                    membershipChange: replacementMembership(for: [
+                        track(id: "keep", name: "Changed"),
+                        track(id: "insert"),
+                    ]),
                     repairs: [],
-                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")],
-                    deletions: [databaseID("delete")]
+                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")]
                 ))
             }
             #expect(try await relaunched.loadMirrorSnapshot() == expectedSnapshot)
@@ -129,6 +133,16 @@ struct TrackMirrorPersistenceTests {
             context.insert(PersistedMirrorState(revisionValue: .max))
             try context.insert(PersistedTrack(mirror: track(id: "keep"), databaseID: databaseID("keep")))
             try context.insert(PersistedTrack(mirror: track(id: "delete"), databaseID: databaseID("delete")))
+            context.insert(PersistedLibraryMember(
+                databaseID: "keep",
+                isPresent: true,
+                firstSeenRevisionValue: .max
+            ))
+            context.insert(PersistedLibraryMember(
+                databaseID: "delete",
+                isPresent: true,
+                firstSeenRevisionValue: .max
+            ))
             try context.save()
             let store = TrackDataStore(modelContainer: container)
             expectedSnapshot = try await store.loadMirrorSnapshot()
@@ -137,9 +151,12 @@ struct TrackMirrorPersistenceTests {
                 _ = try await store.applyMirror(TrackMirrorUpdate(
                     baseRevision: expectedSnapshot.revision,
                     coverageChange: .replace(.fullLibrary),
+                    membershipChange: replacementMembership(for: [
+                        track(id: "keep", name: "Changed"),
+                        track(id: "insert"),
+                    ]),
                     repairs: [],
-                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")],
-                    deletions: [databaseID("delete")]
+                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")]
                 ))
                 Issue.record("A mirror commit must fail when its revision is exhausted")
             } catch {

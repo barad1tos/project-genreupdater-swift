@@ -5,6 +5,40 @@ import SwiftData
 import Testing
 @testable import Services
 
+private enum DeployedSchemaV3: VersionedSchema {
+    static let versionIdentifier = Schema.Version(3, 0, 0)
+
+    static let models: [any PersistentModel.Type] = StoreSchemaV2.models + [
+        PersistedLibraryMember.self,
+    ]
+
+    @Model
+    final class PersistedLibraryMember {
+        @Attribute(.unique) var databaseID: String
+        var isPresent: Bool
+        var firstSeenRevisionValue: UInt64
+        var lastSeenMembershipFingerprint: String?
+        var removalRevisionValue: UInt64?
+        var removedAt: Date?
+
+        init(
+            databaseID: String,
+            isPresent: Bool,
+            firstSeenRevisionValue: UInt64,
+            lastSeenMembershipFingerprint: String? = nil,
+            removalRevisionValue: UInt64? = nil,
+            removedAt: Date? = nil
+        ) {
+            self.databaseID = databaseID
+            self.isPresent = isPresent
+            self.firstSeenRevisionValue = firstSeenRevisionValue
+            self.lastSeenMembershipFingerprint = lastSeenMembershipFingerprint
+            self.removalRevisionValue = removalRevisionValue
+            self.removedAt = removedAt
+        }
+    }
+}
+
 @Suite("SwiftData store schema migration")
 struct StoreSchemaMigrationTests {
     private enum MirrorFixtureState {
@@ -15,6 +49,8 @@ struct StoreSchemaMigrationTests {
 
     private static let preMirrorChecksum = "4gyxaR3XVbJ4CxMo9jcZdflFXNqaKxs0rO8+kkx/1v0="
     private static let mirrorScopeChecksum = "vrVyyiD+OtvleDs7wa27tSGnDMLj4Bts1NWHukp62k4="
+    private static let membershipChecksum = "lCPA7P84tguSr6BvhsyyK+8Wzw49fLJgWhUikSppAIQ="
+    private static let deployedMembershipChecksum = "whynwE78EfLk6nFo6Pm4ZxQSXWggha8oemCvJY0LlPw="
     private static let runID = fixtureID("00000000-0000-0000-0000-000000000001")
     private static let workItemID = fixtureID("00000000-0000-0000-0000-000000000002")
     private static let planID = fixtureID("00000000-0000-0000-0000-000000000003")
@@ -67,6 +103,63 @@ struct StoreSchemaMigrationTests {
             let snapshot = try await TrackDataStore(modelContainer: container).loadMirrorSnapshot()
             #expect(snapshot.coverage == .unknown)
             #expect(snapshot.revision == .initial)
+        }
+    }
+
+    @Test("Current membership schema remains reopenable without a version change")
+    func pinsMembershipSchema() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+
+        _ = try migratedContainer(at: storeURL)
+        let checksum = try storeChecksum(at: storeURL)
+        #expect(checksum == Self.membershipChecksum)
+        _ = try migratedContainer(at: storeURL)
+    }
+
+    @Test("The deployed V3 membership store migrates without losing membership state")
+    func migratesDeployedStore() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+        let removedAt = Date(timeIntervalSince1970: 1_800_000_100)
+
+        do {
+            let schema = Schema(versionedSchema: DeployedSchemaV3.self)
+            let configuration = ModelConfiguration(
+                "GenreUpdater",
+                schema: schema,
+                url: storeURL,
+                cloudKitDatabase: .none
+            )
+            let container = try ModelContainer(for: schema, configurations: [configuration])
+            let context = ModelContext(container)
+            context.insert(DeployedSchemaV3.PersistedLibraryMember(
+                databaseID: "deployed-member",
+                isPresent: false,
+                firstSeenRevisionValue: 7,
+                lastSeenMembershipFingerprint: "deployed-fingerprint",
+                removalRevisionValue: 9,
+                removedAt: removedAt
+            ))
+            try context.save()
+        }
+
+        #expect(try storeChecksum(at: storeURL) == Self.deployedMembershipChecksum)
+        for _ in 0 ..< 2 {
+            let container = try migratedContainer(at: storeURL)
+            let member = try #require(ModelContext(container).fetch(FetchDescriptor<PersistedLibraryMember>()).first)
+            #expect(member.databaseID == "deployed-member")
+            #expect(!member.isPresent)
+            #expect(member.firstSeenRevisionValue == 7)
+            #expect(member.lastSeenFingerprint == "deployed-fingerprint")
+            #expect(member.removalRevisionValue == 9)
+            #expect(member.removedAt == removedAt)
         }
     }
 

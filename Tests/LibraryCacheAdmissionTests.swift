@@ -6,6 +6,43 @@ import Testing
 @Suite("Library cache admission")
 @MainActor
 struct LibraryCacheAdmissionTests {
+    @Test("Recovered membership replaces stale presentation without gaining write authority")
+    func prefersRecoveredMirror() async throws {
+        let fixture = try makeFixture(testArtists: ["In Flames"], runRecordStore: RunRecordStoreStub())
+        let cachedTracks = (0 ..< 403).map { index in
+            canonicalMirrorTrack(Core.Track(
+                id: "cached-\(index)",
+                name: "Cached Track \(index)",
+                artist: "In Flames",
+                album: "Clayman"
+            ))
+        }
+        let recoveredTracks = (0 ..< 201).map { index in
+            canonicalMirrorTrack(Core.Track(
+                id: "database-\(index)",
+                name: "Library Track \(index)",
+                artist: "In Flames",
+                album: "Clayman"
+            ))
+        }
+        await fixture.snapshotService.installSnapshot(cachedTracks)
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(tracks: recoveredTracks),
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
+        var presentedCounts: [Int] = []
+        fixture.dependencies.onLibraryLoadApplied = { presentedCounts.append($0.count) }
+
+        await fixture.dependencies.loadLibrary()
+
+        #expect(fixture.dependencies.libraryTracks.count == 201)
+        #expect(!fixture.dependencies.isLibraryReadyForUpdates)
+        #expect(presentedCounts == [403, 201])
+        #expect(await fixture.snapshotService.savedSnapshotCount() == 0)
+        #expect(try await fixture.snapshotService.loadSnapshot()?.count == 403)
+    }
+
     @Test("A populated unready mirror keeps a broader cached library visible")
     func unreadyMirrorKeepsCache() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
@@ -44,8 +81,8 @@ struct LibraryCacheAdmissionTests {
         #expect(try await fixture.snapshotService.loadSnapshot()?.map(\.id) == [cachedTrack.id])
     }
 
-    @Test("An unready mirror cannot create a snapshot when no cache exists")
-    func missingCacheStaysEmpty() async throws {
+    @Test("An unknown recovered mirror is presented without creating a durable snapshot")
+    func showsUnverifiedMirror() async throws {
         let snapshotService = SnapshotServiceSpy()
         let partialStore = MirrorTrackStoreStub(tracks: [canonicalMirrorTrack(Core.Track(
             id: "partial",
@@ -64,10 +101,10 @@ struct LibraryCacheAdmissionTests {
         let relaunched = makeLibraryDependencies(trackStore: partialStore, snapshotService: snapshotService)
         await relaunched.loadLibrary()
 
-        #expect(dependencies.libraryTracks.isEmpty)
-        #expect(relaunched.libraryTracks.isEmpty)
+        #expect(dependencies.libraryTracks.map(\.id) == ["partial"])
+        #expect(relaunched.libraryTracks.map(\.id) == ["partial"])
         #expect(!dependencies.isLibraryReadyForUpdates)
-        #expect(browsedTrackIDs.isEmpty)
+        #expect(browsedTrackIDs == [["partial"]])
         #expect(await snapshotService.savedSnapshotCount() == 0)
         #expect(try await snapshotService.loadSnapshot() == nil)
     }
@@ -93,10 +130,10 @@ struct LibraryCacheAdmissionTests {
         let relaunched = makeLibraryDependencies(trackStore: partialStore, snapshotService: snapshotService)
         await relaunched.loadLibrary()
 
-        #expect(dependencies.libraryTracks.isEmpty)
-        #expect(relaunched.libraryTracks.isEmpty)
+        #expect(dependencies.libraryTracks.map(\.id) == ["partial"])
+        #expect(relaunched.libraryTracks.map(\.id) == ["partial"])
         #expect(!dependencies.isLibraryReadyForUpdates)
-        #expect(browsedTrackIDs == [[]])
+        #expect(browsedTrackIDs == [[], ["partial"]])
         #expect(await snapshotService.savedSnapshotCount() == 0)
         #expect(try await snapshotService.loadSnapshot()?.isEmpty == true)
     }

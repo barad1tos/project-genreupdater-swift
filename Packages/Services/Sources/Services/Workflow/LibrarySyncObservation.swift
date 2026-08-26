@@ -31,9 +31,9 @@ struct SyncDetection {
     let baseRevision: MirrorRevision
     let result: SyncResult
     let coverageChange: MirrorCoverageChange
+    let membershipChange: MembershipChange
     let repairs: [TrackMirrorRepair]
     let upserts: [Track]
-    let removedIDs: [MusicDatabaseTrackID]
     let previousTracks: [String: Track]
     let didCompleteForceRefresh: Bool
 }
@@ -41,21 +41,19 @@ struct SyncDetection {
 extension LibrarySyncService {
     func detectObservation(forceMetadataRefresh: Bool = false) async throws -> SyncDetection {
         let snapshot = try await trackStore.loadMirrorSnapshot()
-        let storedTracks = snapshot.tracks
-        let scopedStored = tracksInConfiguredScope(storedTracks)
-        let canonicalTracks = storedTracks.filter(isCanonical)
-        let scopedCanonical = scopedStored.filter(isCanonical)
-        let scopedLegacy = scopedStored.filter { !isCanonical($0) }
-        let canonicalStored = try canonicalMirror(canonicalTracks)
-        let scopedByID = try canonicalMirror(scopedCanonical)
+        let presentTracks = snapshot.presentTracks
+        let scopedPresent = tracksInConfiguredScope(presentTracks)
+        let repairCandidates = tracksInConfiguredScope(snapshot.repairCandidates)
+        let canonicalStored = try canonicalMirror(presentTracks)
+        let scopedByID = try canonicalMirror(scopedPresent)
         let scope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: runtimeConfiguration.testArtists,
-            knownTrackCount: scopedStored.count,
+            knownTrackCount: scopedPresent.count,
             createdAt: currentDate(),
             reason: "library sync"
         )
         let shouldForceRefresh = try await shouldRefreshMetadata(force: forceMetadataRefresh)
-        let refresh: MetadataRefreshPolicy = shouldForceRefresh || !scopedLegacy.isEmpty ? .force : .fast
+        let refresh: MetadataRefreshPolicy = shouldForceRefresh || !repairCandidates.isEmpty ? .force : .fast
         guard let mirror = LibraryMirrorIndex(tracksByID: scopedByID) else {
             throw LibrarySyncObservationError.invalidObservation(detail: "stored mirror index is inconsistent")
         }
@@ -66,7 +64,7 @@ extension LibrarySyncService {
         try validate(observation, request: request)
 
         let repair = try planRepair(
-            legacyTracks: scopedLegacy,
+            legacyTracks: repairCandidates,
             observation: observation
         )
         var mirrorBaseline = canonicalStored
@@ -81,17 +79,46 @@ extension LibrarySyncService {
             guard let databaseID = track.databaseID else { return true }
             return !repairedIDs.contains(databaseID)
         }
-        return SyncDetection(
+        let result = fullMembershipResult(
+            classification.result,
+            storedIDs: Set(canonicalStored.keys),
+            censusIDs: observation.censusIDs
+        )
+        return try SyncDetection(
             baseRevision: snapshot.revision,
-            result: classification.result,
+            result: result,
             coverageChange: coverageChange(for: observation),
+            membershipChange: membershipChange(for: observation),
             repairs: repair.repairs,
             upserts: ordinaryUpserts.sorted { $0.id < $1.id },
-            removedIDs: classification.removedIDs,
             previousTracks: Dictionary(uniqueKeysWithValues: mirrorBaseline.map {
                 ($0.key.rawValue, $0.value)
             }),
             didCompleteForceRefresh: refresh == .force && observation.metadata.isComplete
+        )
+    }
+
+    private func fullMembershipResult(
+        _ scopedResult: SyncResult,
+        storedIDs: Set<MusicDatabaseTrackID>,
+        censusIDs: Set<MusicDatabaseTrackID>
+    ) -> SyncResult {
+        let removedIDs = storedIDs.subtracting(censusIDs).sorted { $0.rawValue < $1.rawValue }
+        return SyncResult(
+            newTracks: scopedResult.newTracks,
+            modifiedTracks: scopedResult.modifiedTracks,
+            identityChangedTracks: scopedResult.identityChangedTracks,
+            refreshedTracks: scopedResult.refreshedTracks,
+            removedTrackIDs: removedIDs.map(\.rawValue)
+        )
+    }
+
+    func membershipChange(for observation: LibraryObservation) throws -> MembershipChange {
+        let censusIDs = observation.censusIDs.sorted { $0.rawValue < $1.rawValue }
+        return try .replace(
+            stamp: MembershipFingerprint.make(ids: censusIDs),
+            ids: censusIDs,
+            observedAt: observation.observedAt
         )
     }
 
@@ -108,11 +135,6 @@ extension LibrarySyncService {
         default:
             return .invalidate
         }
-    }
-
-    private func isCanonical(_ track: Track) -> Bool {
-        guard let databaseID = track.databaseID else { return false }
-        return track.id == databaseID.rawValue
     }
 
     private struct MirrorRepair {

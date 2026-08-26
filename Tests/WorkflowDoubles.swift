@@ -1,4 +1,5 @@
 import Core
+import CryptoKit
 import Foundation
 import Services
 
@@ -13,11 +14,34 @@ extension TrackStateStore {
         try await applyMirror(TrackMirrorUpdate(
             baseRevision: revision,
             coverageChange: .replace(.fullLibrary),
+            membershipChange: testMembership(for: canonicalTracks),
             repairs: [],
-            upserts: canonicalTracks,
-            deletions: []
+            upserts: canonicalTracks
         ))
     }
+}
+
+private func testMembership(for tracks: [Track]) throws -> MembershipChange {
+    let ids = tracks.compactMap(\.databaseID).sorted { $0.rawValue < $1.rawValue }
+    return try .replace(
+        stamp: testMembershipStamp(for: ids),
+        ids: ids,
+        observedAt: Date(timeIntervalSince1970: 1_700_000_000)
+    )
+}
+
+func testMembershipStamp(for ids: [MusicDatabaseTrackID]) throws -> MembershipStamp {
+    var payload = Data()
+    for id in ids.sorted(by: { $0.rawValue < $1.rawValue }) {
+        let bytes = Data(id.rawValue.utf8)
+        var length = UInt64(bytes.count).bigEndian
+        withUnsafeBytes(of: &length) { payload.append(contentsOf: $0) }
+        payload.append(bytes)
+    }
+    let fingerprint = SHA256.hash(data: payload)
+        .map { String(format: "%02x", $0) }
+        .joined()
+    return try MembershipStamp(fingerprint: fingerprint)
 }
 
 func testMusicDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {
@@ -224,7 +248,13 @@ actor DashboardStateTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(revision: .initial, tracks: [], coverage: .unknown)
+        try TrackMirrorSnapshot(
+            revision: .initial,
+            membershipStamp: testMembershipStamp(for: []),
+            presentTracks: [],
+            repairCandidates: [],
+            coverage: .unknown
+        )
     }
 
     @discardableResult

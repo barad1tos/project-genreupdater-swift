@@ -3,6 +3,10 @@ import Testing
 
 @Suite("TokenBucketRateLimiter — token-bucket rate limiting")
 struct RateLimiterTests {
+    private enum Timing {
+        static let reservationRefillInterval: Duration = .seconds(60)
+    }
+
     @Test("Nonpositive limits normalize to usable minimums")
     func normalizesInvalidLimits() async {
         let limiter = TokenBucketRateLimiter(maxTokens: 0, refillInterval: .zero)
@@ -102,7 +106,7 @@ struct RateLimiterTests {
         let queue = EventCounter()
         let limiter = TokenBucketRateLimiter(
             maxTokens: 1,
-            refillInterval: .seconds(5),
+            refillInterval: Timing.reservationRefillInterval,
             hooks: .init(afterEnqueue: { queue.record() })
         )
         _ = await limiter.acquire()

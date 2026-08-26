@@ -109,6 +109,7 @@ final class AppDependencies {
     private(set) var configurationLoadIssue: String?
     @ObservationIgnored private let configurationLoader: () throws -> AppConfiguration
     @ObservationIgnored private let configurationSaver: (AppConfiguration) throws -> Void
+    @ObservationIgnored private let modelContainerFactory: () throws -> ModelContainer
     @ObservationIgnored private var configurationSaveRecoveryState: AppState?
 
     // MARK: - Services (lazy, initialized in initialize())
@@ -169,10 +170,12 @@ final class AppDependencies {
     init(
         configurationLoader: @escaping () throws -> AppConfiguration = AppConfiguration.load,
         configurationSaver: @escaping (AppConfiguration) throws -> Void = { try $0.save() },
+        modelContainerFactory: @escaping () throws -> ModelContainer = makeProcessContainer,
         musicCatalog: any MusicCatalogReading = MusicLibraryReader()
     ) {
         self.configurationLoader = configurationLoader
         self.configurationSaver = configurationSaver
+        self.modelContainerFactory = modelContainerFactory
         self.musicCatalog = MeasuredMusicCatalog(base: musicCatalog)
 
         do {
@@ -188,7 +191,7 @@ final class AppDependencies {
         // Create ModelContainer eagerly so SwiftUI can attach .modelContainer() immediately.
         // ModelContainerFactory.create() is synchronous.
         do {
-            modelContainer = try ModelContainerFactory.create()
+            modelContainer = try modelContainerFactory()
         } catch {
             log.error("Failed to create ModelContainer in init: \(error.localizedDescription, privacy: .public)")
         }
@@ -396,7 +399,7 @@ final class AppDependencies {
         if let existing = modelContainer {
             container = existing
         } else {
-            container = try ModelContainerFactory.create()
+            container = try modelContainerFactory()
             modelContainer = container
         }
 
@@ -411,11 +414,9 @@ final class AppDependencies {
         runRecordStore = RunRecordDataStore(modelContainer: container)
         fixPlanStore = FixPlanDataStore(modelContainer: container)
 
-        let cache = try GRDBCacheService.createDefault(
-            defaultGenericTTL: GRDBCacheService.resolvedGenericTTL(configuration: cacheConfiguration),
-            apiResultTTL: Self.apiResultCacheTTL(configuration: cacheConfiguration),
-            maxGenericEntries: cacheConfiguration.runtime.maxGenericEntries,
-            cleanupInterval: TimeInterval(cacheConfiguration.caching.cleanupIntervalSeconds)
+        let cache = try makeProcessCache(
+            configuration: cacheConfiguration,
+            apiResultTTL: Self.apiResultCacheTTL(configuration: cacheConfiguration)
         )
         try await cache.initialize()
         cacheService = cache

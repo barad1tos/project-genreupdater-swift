@@ -12,6 +12,7 @@ struct LibraryCachedTrackLoad {
 struct LibraryMirrorTrackLoad {
     let tracks: [Track]
     let isLibraryReadyForUpdates: Bool
+    let canReplaceCache: Bool
 }
 
 @MainActor
@@ -42,10 +43,14 @@ enum LibraryTrackLoader {
         try Task.checkCancellation()
         let snapshot = try await store.loadMirrorSnapshot()
         try Task.checkCancellation()
+        let requestedScope = MirrorScope(testArtists: scopedArtists)
+        let isLibraryReadyForUpdates = snapshot.coverage.admits(requestedScope)
+        let tracks = try canonicalTracks(snapshot.presentTracks, scopedArtists: scopedArtists)
 
-        return try LibraryMirrorTrackLoad(
-            tracks: canonicalTracks(snapshot.tracks, scopedArtists: scopedArtists),
-            isLibraryReadyForUpdates: snapshot.coverage.admits(MirrorScope(testArtists: scopedArtists))
+        return LibraryMirrorTrackLoad(
+            tracks: tracks,
+            isLibraryReadyForUpdates: isLibraryReadyForUpdates,
+            canReplaceCache: isLibraryReadyForUpdates || (snapshot.coverage == .unknown && !tracks.isEmpty)
         )
     }
 

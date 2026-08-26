@@ -196,7 +196,7 @@ extension UndoCoordinator {
     ) async throws -> (track: Track, databaseID: MusicDatabaseTrackID)? {
         let storedTrack: Track?
         do {
-            storedTrack = try await trackStore?.getTrack(byID: trackID)
+            storedTrack = try await trackStore?.getHistoricalTrack(byID: trackID)
         } catch is CancellationError {
             throw CancellationError()
         } catch {

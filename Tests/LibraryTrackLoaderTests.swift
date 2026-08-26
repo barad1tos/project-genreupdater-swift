@@ -34,7 +34,27 @@ struct LibraryTrackLoaderTests {
         }
     }
 
-    @Test("Unknown mirror coverage is not update-ready")
+    @Test("Current mirror load excludes legacy repair candidates from the library")
+    func excludesRepairCandidates() async throws {
+        let store = LoaderTrackStore(
+            tracks: [canonicalTrack(id: "DB-1", artist: "In Flames")],
+            repairCandidates: [
+                Track(
+                    id: "catalog-id",
+                    name: "Only for the Weak",
+                    artist: "In Flames",
+                    album: "Clayman",
+                    appleScriptID: "DB-1"
+                ),
+            ]
+        )
+
+        let load = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: ["In Flames"])
+
+        #expect(load.tracks.map(\.id) == ["DB-1"])
+    }
+
+    @Test("Empty unknown mirror neither readies updates nor replaces cache")
     func unknownCoverageNotReady() async throws {
         let store = LoaderTrackStore(tracks: [], coverage: .unknown)
 
@@ -42,6 +62,21 @@ struct LibraryTrackLoaderTests {
 
         #expect(load.tracks.isEmpty)
         #expect(!load.isLibraryReadyForUpdates)
+        #expect(!load.canReplaceCache)
+    }
+
+    @Test("Recovered unknown membership may replace presentation cache")
+    func showsRecoveredMirror() async throws {
+        let store = LoaderTrackStore(
+            tracks: [canonicalTrack(id: "DB-1", artist: "In Flames")],
+            coverage: .unknown
+        )
+
+        let load = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: ["In Flames"])
+
+        #expect(load.tracks.map(\.id) == ["DB-1"])
+        #expect(!load.isLibraryReadyForUpdates)
+        #expect(load.canReplaceCache)
     }
 
     @Test("Matching artist coverage readies that artist scope")
@@ -81,6 +116,7 @@ struct LibraryTrackLoaderTests {
         )
 
         #expect(!load.isLibraryReadyForUpdates)
+        #expect(!load.canReplaceCache)
     }
 
     @Test("Full-library coverage readies every requested scope")
@@ -100,10 +136,16 @@ struct LibraryTrackLoaderTests {
 
 private actor LoaderTrackStore: TrackStateStore {
     private let tracks: [Track]
+    private let repairCandidates: [Track]
     private let coverage: MirrorCoverage
 
-    init(tracks: [Track], coverage: MirrorCoverage = .verified(.fullLibrary)) {
+    init(
+        tracks: [Track],
+        repairCandidates: [Track] = [],
+        coverage: MirrorCoverage = .verified(.fullLibrary)
+    ) {
         self.tracks = tracks
+        self.repairCandidates = repairCandidates
         self.coverage = coverage
     }
 
@@ -114,7 +156,14 @@ private actor LoaderTrackStore: TrackStateStore {
         tracks
     }
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(revision: .initial, tracks: tracks, coverage: coverage)
+        let ids = tracks.compactMap(\.databaseID)
+        return try TrackMirrorSnapshot(
+            revision: .initial,
+            membershipStamp: testMembershipStamp(for: ids),
+            presentTracks: tracks,
+            repairCandidates: repairCandidates,
+            coverage: coverage
+        )
     }
     @discardableResult
     func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {

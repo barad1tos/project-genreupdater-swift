@@ -123,7 +123,7 @@ extension AppDependencies {
                 store: store,
                 scopedArtists: scopedArtists
             )
-            if !mirrorLoad.isLibraryReadyForUpdates {
+            if !mirrorLoad.canReplaceCache {
                 await recordLibraryLoad(startedAt: loadStart)
                 return libraryLoadGate.isCurrent(token)
             }
@@ -179,7 +179,8 @@ extension AppDependencies {
         guard libraryLoadGate.isCurrent(token) else { return }
         await cacheLibraryLoad(
             mirrorLoad.tracks,
-            scopedArtists: scopedArtists
+            scopedArtists: scopedArtists,
+            isAuthoritative: mirrorLoad.isLibraryReadyForUpdates
         )
         guard libraryLoadGate.isCurrent(token) else { return }
         isLibraryReadyForUpdates = mirrorLoad.isLibraryReadyForUpdates

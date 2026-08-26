@@ -1,5 +1,42 @@
 import Foundation
 
+/// A canonical library-membership fingerprint produced from Music database IDs.
+public struct MembershipStamp: Codable, Equatable, Hashable, Sendable {
+    public let fingerprint: String
+
+    public init(fingerprint: String) throws {
+        guard Self.isCanonical(fingerprint) else {
+            throw MembershipStampError.invalidFingerprint
+        }
+        self.fingerprint = fingerprint
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fingerprint = try container.decode(String.self, forKey: .fingerprint)
+        do {
+            try self.init(fingerprint: fingerprint)
+        } catch {
+            throw DecodingError.dataCorruptedError(
+                forKey: .fingerprint,
+                in: container,
+                debugDescription: "Membership fingerprint must be 64 lowercase hexadecimal characters."
+            )
+        }
+    }
+
+    private static func isCanonical(_ fingerprint: String) -> Bool {
+        fingerprint.utf8.count == 64 && fingerprint.utf8.allSatisfy { byte in
+            (48 ... 57).contains(byte) || (97 ... 102).contains(byte)
+        }
+    }
+}
+
+/// A membership fingerprint does not use the canonical SHA-256 representation.
+enum MembershipStampError: Error, Equatable, Sendable {
+    case invalidFingerprint
+}
+
 /// Monotonic local commit sequence for mirror-affecting mutations.
 public struct MirrorRevision: Codable, Comparable, Hashable, Sendable {
     public static let initial = Self(value: 0)
