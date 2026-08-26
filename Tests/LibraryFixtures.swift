@@ -46,9 +46,10 @@ actor MirrorTrackStoreStub: TrackStateStore {
         guard update.baseRevision == revision else {
             throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
         }
+        let nextRevision = try revision.advanced()
         tracks.append(contentsOf: update.upserts)
         coverage = coverage.applying(update.coverageChange)
-        revision = revision.advanced()
+        revision = nextRevision
         return revision
     }
 

@@ -10,21 +10,30 @@ struct MirrorStateTests {
     }
 
     @Test("Advancing a revision increments it exactly once")
-    func advancingRevisionIncrementsOnce() {
+    func advancingRevisionIncrementsOnce() throws {
         let revision = MirrorRevision(value: 41)
 
-        #expect(revision.advanced() == MirrorRevision(value: 42))
+        #expect(try revision.advanced() == MirrorRevision(value: 42))
     }
 
     @Test("Revision ordering follows its monotonic value")
-    func revisionOrderingIsMonotonic() {
+    func revisionOrderingIsMonotonic() throws {
         let first = MirrorRevision.initial
-        let second = first.advanced()
-        let third = second.advanced()
+        let second = try first.advanced()
+        let third = try second.advanced()
 
         #expect(first < second)
         #expect(second < third)
         #expect(first < third)
+    }
+
+    @Test("Advancing the maximum revision returns a recoverable error")
+    func maximumRevisionIsRecoverable() {
+        let revision = MirrorRevision(value: .max)
+
+        #expect(throws: MirrorRevisionExhausted(revision: revision)) {
+            try revision.advanced()
+        }
     }
 
     @Test("Revision Codable preserves numeric boundaries", arguments: [UInt64.min, UInt64.max])

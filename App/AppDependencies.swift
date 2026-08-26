@@ -329,6 +329,10 @@ final class AppDependencies {
         appState = .error(message)
     }
 
+    func reportRuntimeError(_ message: String) {
+        appState = .error(message)
+    }
+
     /// Persists WITHOUT runtime effects (the settings command path owns
     /// the apply); a successful save also repairs a failed initial load.
     @discardableResult
@@ -534,7 +538,7 @@ final class AppDependencies {
         let processor = makeBatchProcessor(checkpoint: checkpoint, gate: gate)
         batchProcessor = processor
 
-        let syncService = makeLibrarySyncService(
+        let syncService = try makeLibrarySyncService(
             bridge: bridge,
             store: store,
             cache: cache
@@ -560,8 +564,8 @@ final class AppDependencies {
         bridge: AppleScriptBridge,
         store: any TrackStateStore,
         cache: any CacheService
-    ) -> LibrarySyncService {
-        LibrarySyncService(
+    ) throws -> LibrarySyncService {
+        try LibrarySyncService(
             trackStore: store,
             cache: cache,
             pendingVerificationService: pendingVerificationService,
@@ -651,11 +655,12 @@ final class AppDependencies {
 }
 
 extension AppDependencies {
-    func applyRuntimeConfigurationHead() -> RuntimeApplyHandoff {
+    func applyRuntimeConfigurationHead() throws -> RuntimeApplyHandoff {
         let canUseAdvancedCache = featureGate?.canAccess(.advancedCache) == true
         let cacheConfiguration = Self.effectiveCacheConfiguration(config, canUseAdvancedCache: canUseAdvancedCache)
         let configuredYearDeterminator = Self.makeYearDeterminator(configuration: config)
-        incrementalRunTracker = Self.makeIncrementalRunTracker(configuration: config)
+        let configuredTracker = Self.makeIncrementalRunTracker(configuration: config)
+        let syncRuntime = try LibrarySyncRuntimeConfiguration(configuration: config)
         let pendingVerificationStore = modelContainer.map {
             PendingVerificationStore(modelContainer: $0, configuration: config)
         }
@@ -668,38 +673,44 @@ extension AppDependencies {
                 self?.setDiscogsIssue(issue)
             })
         )
-        yearDeterminator = configuredYearDeterminator
-        pendingVerificationService = pendingVerificationStore
-        apiOrchestrator = configuredAPIOrchestrator
-        if let librarySyncService {
-            maintenanceCoordinator = MaintenanceCoordinator(
-                databaseVerificationService: librarySyncService,
+        let maintenance = librarySyncService.map { syncService in
+            MaintenanceCoordinator(
+                databaseVerificationService: syncService,
                 pendingVerificationService: pendingVerificationStore
             )
         }
-        let snapshotService: (any LibrarySnapshotService)?
-        if let cacheService {
-            let newSnapshotService = Self.makeSnapshotService(cache: cacheService, configuration: cacheConfiguration)
-            librarySnapshotService = newSnapshotService
-            snapshotService = newSnapshotService
+        let snapshotService: (any LibrarySnapshotService)? = if let cacheService {
+            Self.makeSnapshotService(cache: cacheService, configuration: cacheConfiguration)
         } else {
-            snapshotService = nil
+            nil
         }
 
-        return RuntimeApplyHandoff(
+        let handoff = RuntimeApplyHandoff(
             pendingVerificationStore: pendingVerificationStore,
             snapshotService: snapshotService,
             yearDeterminator: configuredYearDeterminator,
             apiOrchestrator: configuredAPIOrchestrator,
             runtimeConfiguration: UpdateRuntimeConfiguration(configuration: config),
             appleScriptConfiguration: config.applescript,
-            librarySyncRuntimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config),
+            librarySyncRuntimeConfiguration: syncRuntime,
             batchProcessingConfiguration: BatchProcessingConfiguration(configuration: config),
             libraryPath: config.paths.musicLibraryPath,
             analytics: cacheConfiguration.analytics,
             cleaning: config.cleaning,
             cacheConfiguration: cacheConfiguration
         )
+
+        incrementalRunTracker = configuredTracker
+        yearDeterminator = configuredYearDeterminator
+        pendingVerificationService = pendingVerificationStore
+        apiOrchestrator = configuredAPIOrchestrator
+        if let maintenance {
+            maintenanceCoordinator = maintenance
+        }
+        if let snapshotService {
+            librarySnapshotService = snapshotService
+        }
+        return handoff
     }
 
     private static func makeIncrementalRunTracker(configuration: AppConfiguration) -> IncrementalRunTracker {

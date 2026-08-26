@@ -65,6 +65,14 @@ public struct DatabaseVerificationResult: Sendable, Equatable {
 
 /// Retry policy for optimistic mirror commits.
 public struct MirrorRetryPolicy: Sendable, Equatable {
+    public static let defaults: Self = {
+        let configuration = LibrarySyncConfig()
+        return Self(
+            retryLimit: configuration.conflictRetries,
+            delay: .seconds(configuration.conflictDelaySeconds)
+        )
+    }()
+
     public let retryLimit: Int
     public let delay: Duration
 
@@ -73,11 +81,31 @@ public struct MirrorRetryPolicy: Sendable, Equatable {
         self.delay = max(.zero, delay)
     }
 
-    public init(configuration: LibrarySyncConfig) {
+    public init(configuration: LibrarySyncConfig) throws {
+        let delaySeconds = configuration.conflictDelaySeconds
+        let roundedMilliseconds = (delaySeconds * 1000).rounded()
+        guard delaySeconds.isFinite,
+              delaySeconds >= 0,
+              roundedMilliseconds.isFinite,
+              let delayMilliseconds = Int64(exactly: roundedMilliseconds)
+        else {
+            throw MirrorRetryPolicyError.invalidDelay(seconds: delaySeconds)
+        }
         self.init(
             retryLimit: configuration.conflictRetries,
-            delay: .milliseconds(Int64(configuration.conflictDelaySeconds * 1000))
+            delay: .milliseconds(delayMilliseconds)
         )
+    }
+}
+
+enum MirrorRetryPolicyError: LocalizedError, Sendable {
+    case invalidDelay(seconds: Double)
+
+    var errorDescription: String? {
+        switch self {
+        case let .invalidDelay(seconds):
+            "Library sync conflict delay cannot be represented safely: \(seconds) seconds."
+        }
     }
 }
 
@@ -99,7 +127,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         logsBaseDirectory: String = PathsConfig().logsBaseDirectory,
         lastDatabaseVerifyLog: String = LoggingConfig().lastDatabaseVerifyLog,
         testArtists: [String] = [],
-        mirrorRetryPolicy: MirrorRetryPolicy = MirrorRetryPolicy(configuration: LibrarySyncConfig()),
+        mirrorRetryPolicy: MirrorRetryPolicy = .defaults,
         albumTargetIdentity: AlbumIdentity? = nil
     ) {
         self.databaseVerificationIntervalDays = max(0, databaseVerificationIntervalDays)
@@ -111,8 +139,8 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         self.albumTargetIdentity = albumTargetIdentity
     }
 
-    public init(configuration: AppConfiguration, albumTargetIdentity: AlbumIdentity? = nil) {
-        self.init(
+    public init(configuration: AppConfiguration, albumTargetIdentity: AlbumIdentity? = nil) throws {
+        try self.init(
             databaseVerificationIntervalDays: configuration.databaseVerification.autoVerifyDays,
             logsBaseDirectory: configuration.paths.effectiveLogsBaseDirectory,
             lastDatabaseVerifyLog: configuration.logging.lastDatabaseVerifyLog,

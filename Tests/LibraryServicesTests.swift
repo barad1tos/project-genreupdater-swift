@@ -666,8 +666,9 @@ private actor FailingMirrorReadStore: TrackStateStore {
 
     @discardableResult
     func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+        let nextRevision = try update.baseRevision.advanced()
         savedTracks.append(contentsOf: update.upserts)
-        return update.baseRevision.advanced()
+        return nextRevision
     }
 
     func getTrack(byID _: String) async throws -> Core.Track? {

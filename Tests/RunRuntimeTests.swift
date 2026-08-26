@@ -362,7 +362,7 @@ private func makeCompositionFixture(
         fixPlanStore: services.planStore,
         runRecordStore: services.runStore
     ))
-    let syncService = LibrarySyncService(
+    let syncService = try LibrarySyncService(
         trackStore: services.store,
         cache: services.cache,
         runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: configuration),

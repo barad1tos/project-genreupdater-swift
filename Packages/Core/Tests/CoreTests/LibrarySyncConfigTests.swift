@@ -52,4 +52,31 @@ struct LibrarySyncConfigTests {
             ])
         }
     }
+
+    @Test("Library-sync delay overflow is rejected during validated decode")
+    func rejectsDelayOverflow() throws {
+        let data = Data(#"{"librarySync":{"conflictDelaySeconds":1e308}}"#.utf8)
+
+        do {
+            _ = try AppConfiguration.configurationDecoder().decode(AppConfiguration.self, from: data)
+            Issue.record("Expected library-sync delay overflow to fail validation")
+        } catch let error as ConfigurationValidationError {
+            #expect(error.issues.map(\.fieldPath) == ["librarySync.conflictDelaySeconds"])
+            #expect(error.issues.first?.requirement == "must fit the millisecond duration capacity")
+        }
+    }
+
+    @Test("Non-finite library-sync delay is rejected before runtime conversion")
+    func rejectsNonFiniteDelay() throws {
+        var configuration = AppConfiguration()
+        configuration.librarySync.conflictDelaySeconds = .infinity
+
+        do {
+            try configuration.validate()
+            Issue.record("Expected non-finite library-sync delay to fail validation")
+        } catch let error as ConfigurationValidationError {
+            #expect(error.issues.map(\.fieldPath) == ["librarySync.conflictDelaySeconds"])
+            #expect(error.issues.first?.requirement == "must be finite")
+        }
+    }
 }

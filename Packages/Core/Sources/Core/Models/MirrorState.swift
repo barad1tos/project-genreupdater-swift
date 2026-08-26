@@ -10,13 +10,24 @@ public struct MirrorRevision: Codable, Comparable, Hashable, Sendable {
         self.value = value
     }
 
-    public func advanced() -> Self {
-        precondition(value < UInt64.max, "Mirror revision exhausted")
+    public func advanced() throws -> Self {
+        guard value < UInt64.max else {
+            throw MirrorRevisionExhausted(revision: self)
+        }
         return Self(value: value + 1)
     }
 
     public static func < (lhs: Self, rhs: Self) -> Bool {
         lhs.value < rhs.value
+    }
+}
+
+/// The local mirror commit sequence cannot represent another revision.
+struct MirrorRevisionExhausted: LocalizedError, Equatable, Sendable {
+    let revision: MirrorRevision
+
+    var errorDescription: String? {
+        "Mirror revision exhausted at \(revision.value)."
     }
 }
 

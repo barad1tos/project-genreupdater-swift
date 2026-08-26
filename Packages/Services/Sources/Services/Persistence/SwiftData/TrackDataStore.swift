@@ -115,7 +115,7 @@ public actor TrackDataStore: TrackStateStore {
                 }
 
                 try mirrorState.apply(update.coverageChange)
-                committedRevision = mirrorState.advanceRevision()
+                committedRevision = try mirrorState.advanceRevision()
             }
         } catch {
             modelContext.rollback()

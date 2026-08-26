@@ -31,7 +31,7 @@ struct RunRuntimeFactory {
             id: configuration.id,
             configuration: appConfiguration
         )
-        return LibrarySyncService(
+        return try LibrarySyncService(
             trackStore: store,
             cache: cache,
             pendingVerificationService: runServices.pendingVerification,

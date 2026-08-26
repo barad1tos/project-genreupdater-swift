@@ -127,7 +127,7 @@ actor FactoryTrackStore: TrackStateStore {
     @discardableResult
     func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
         // Factory tests do not persist track state.
-        update.baseRevision.advanced()
+        try update.baseRevision.advanced()
     }
 
     func getTrack(byID _: String) async throws -> Track? {

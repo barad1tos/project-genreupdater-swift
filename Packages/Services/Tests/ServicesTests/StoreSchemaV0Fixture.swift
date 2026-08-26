@@ -1,11 +1,10 @@
-import Core
 import Foundation
 import SwiftData
+@testable import Services
 
-/// Writes the synthetic V1 store consumed by the checked-in migration fixture.
-package enum StoreFixtureWriter {
-    package static func writeV1(to storeURL: URL) throws {
-        let schema = Schema(versionedSchema: StoreSchemaV1.self)
+enum StoreSchemaV0Fixture {
+    static func write(to storeURL: URL) throws {
+        let schema = Schema(versionedSchema: StoreSchemaV0.self)
         let configuration = ModelConfiguration(
             "GenreUpdater",
             schema: schema,
@@ -15,12 +14,15 @@ package enum StoreFixtureWriter {
         )
         let container = try ModelContainer(for: schema, configurations: [configuration])
         let context = ModelContext(container)
-        let scopeData = try JSONEncoder().encode(MirrorScope.fullLibrary)
         let track = fixtureTrack()
         let change = fixtureChange(track: track)
         track.changeLog = [change]
 
-        insertLibraryState(into: context, track: track, change: change, scopeData: scopeData)
+        context.insert(track)
+        context.insert(change)
+        context.insert(fixtureMetrics())
+        context.insert(fixturePendingAlbum())
+        context.insert(StoreSchemaV1.PersistedPendingVerificationMetadata(lastAutoVerification: timestamp))
         insertRunState(into: context)
         insertFixPlan(into: context)
         try context.save()
@@ -35,20 +37,6 @@ package enum StoreFixtureWriter {
     private static let priorRunID = identifier("00000000-0000-0000-0000-000000000007")
     private static let timestamp = Date(timeIntervalSince1970: 1_800_000_000)
     private static let payload = Data("migration-sentinel".utf8)
-
-    private static func insertLibraryState(
-        into context: ModelContext,
-        track: StoreSchemaV1.PersistedTrack,
-        change: StoreSchemaV1.PersistedChangeLogEntry,
-        scopeData: Data
-    ) {
-        context.insert(track)
-        context.insert(change)
-        context.insert(StoreSchemaV1.PersistedMirrorState(scopeData: scopeData))
-        context.insert(fixtureMetrics())
-        context.insert(fixturePendingAlbum())
-        context.insert(StoreSchemaV1.PersistedPendingVerificationMetadata(lastAutoVerification: timestamp))
-    }
 
     private static func insertRunState(into context: ModelContext) {
         context.insert(fixtureRun())

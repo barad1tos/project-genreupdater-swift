@@ -76,6 +76,18 @@ jobs:
             fi
           done
 
+      - name: Generate and verify the V1 store fixture
+        timeout-minutes: 5
+        run: |
+          fixture_directory="$(mktemp -d)"
+          trap 'rm -rf -- "${fixture_directory}"' EXIT
+          generated_fixture="${fixture_directory}/StoreSchemaV1.fixture"
+          bash Packages/Services/Tests/LegacyFixtures/generate-v1-store.sh "${generated_fixture}"
+          GENREUPDATER_V1_FIXTURE_PATH="${generated_fixture}" swift test \
+            --package-path Packages/Services \
+            --disable-automatic-resolution \
+            --filter StoreSchemaMigrationTests.migratesMirrorScopeStore
+
       - name: Test Core
         run: swift test --package-path Packages/Core --enable-code-coverage
         timeout-minutes: 5

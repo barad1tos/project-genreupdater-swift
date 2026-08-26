@@ -647,6 +647,7 @@ private actor ObservationMirrorStore: TrackStateStore {
         guard update.baseRevision == revision else {
             throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
         }
+        let nextRevision = try revision.advanced()
 
         let deletedValues = Set(update.deletions.map(\.rawValue))
         stored.removeAll { deletedValues.contains($0.id) }
@@ -658,7 +659,7 @@ private actor ObservationMirrorStore: TrackStateStore {
             }
         }
         stored.sort { $0.id < $1.id }
-        revision = revision.advanced()
+        revision = nextRevision
         return revision
     }
 

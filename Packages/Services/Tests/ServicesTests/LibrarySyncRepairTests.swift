@@ -441,6 +441,7 @@ private actor RepairMirrorStore: TrackStateStore {
         guard update.baseRevision == revision else {
             throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
         }
+        let nextRevision = try revision.advanced()
         updates.append(update)
         for repair in update.repairs {
             stored.removeAll { $0.id == repair.sourceID }
@@ -457,7 +458,7 @@ private actor RepairMirrorStore: TrackStateStore {
             stored.append(track)
         }
         stored.sort { $0.id < $1.id }
-        revision = revision.advanced()
+        revision = nextRevision
         return revision
     }
 

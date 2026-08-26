@@ -136,13 +136,15 @@ actor SyncMockTrackStore: TrackStateStore {
     @discardableResult
     func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
         if conflictsRemaining > 0 {
+            let nextRevision = try revision.advanced()
             conflictsRemaining -= 1
-            revision = revision.advanced()
+            revision = nextRevision
             throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
         }
         guard update.baseRevision == revision else {
             throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
         }
+        let nextRevision = try revision.advanced()
         coverage = coverage.applying(update.coverageChange)
         let deletionIDs = Set(update.deletions.map(\.rawValue))
         storedTracks.removeAll { deletionIDs.contains($0.id) }
@@ -153,7 +155,7 @@ actor SyncMockTrackStore: TrackStateStore {
                 storedTracks.append(track)
             }
         }
-        revision = revision.advanced()
+        revision = nextRevision
         return revision
     }
 

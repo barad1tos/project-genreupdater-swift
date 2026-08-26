@@ -39,8 +39,8 @@ extension StoreSchemaV2 {
             }
         }
 
-        func advanceRevision() -> MirrorRevision {
-            let nextRevision = revision.advanced()
+        func advanceRevision() throws -> MirrorRevision {
+            let nextRevision = try revision.advanced()
             revisionValue = nextRevision.value
             return nextRevision
         }

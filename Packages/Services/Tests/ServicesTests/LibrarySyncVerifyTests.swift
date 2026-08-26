@@ -6,11 +6,11 @@ import Testing
 @Suite("LibrarySyncService — database verification")
 struct LibrarySyncVerifyTests {
     @Test("Runtime configuration maps legacy temporary logs directory to app support token")
-    func runtimeConfigurationMapsLegacyTemporaryLogsDirectory() {
+    func runtimeConfigurationMapsLegacyTemporaryLogsDirectory() throws {
         var configuration = AppConfiguration()
         configuration.paths.logsBaseDirectory = PathsConfig.legacyTemporaryLogsBaseDirectory
 
-        let runtimeConfiguration = LibrarySyncRuntimeConfiguration(configuration: configuration)
+        let runtimeConfiguration = try LibrarySyncRuntimeConfiguration(configuration: configuration)
 
         #expect(runtimeConfiguration.logsBaseDirectory == PathsConfig.defaultLogsBaseDirectory)
     }
@@ -76,6 +76,60 @@ struct LibrarySyncVerifyTests {
         #expect(result.removedTrackIDs == ["T2"])
         #expect(await bridge.recordedObservationRequests().count == 2)
         #expect(try await store.loadAllTracks().map(\.id) == ["T1"])
+    }
+
+    @Test("Database verification stops after the configured conflict retries")
+    func verificationRetryLimit() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let pending = PendingVerificationProbe(
+            entry: PendingAlbumEntry(
+                id: "gone-album",
+                artist: "Gone Artist",
+                album: "Gone Album",
+                reason: "prerelease"
+            ),
+            isVerificationNeeded: true
+        )
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncRetryLimit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logDirectory) }
+
+        await bridge.setLibrary(ids: ["T1"], tracks: [:])
+        await store.setStored([
+            Track(id: "T1", name: "One", artist: "Artist", album: "Album"),
+            Track(id: "T2", name: "Gone", artist: "Gone Artist", album: "Gone Album"),
+        ])
+        await seedSyncCaches(cache, artist: "Gone Artist", album: "Gone Album")
+        await store.rejectNextMirrorCommits(2)
+        let service = LibrarySyncService(
+            trackStore: store,
+            cache: cache,
+            pendingVerificationService: pending,
+            librarySnapshotService: snapshotService,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log",
+                mirrorRetryPolicy: MirrorRetryPolicy(retryLimit: 1, delay: .zero)
+            ),
+            observer: bridge
+        )
+
+        await #expect(throws: MirrorRevisionConflict(
+            expected: MirrorRevision(value: 1),
+            actual: MirrorRevision(value: 2)
+        )) {
+            try await service.verifyAndCleanDatabase(force: true)
+        }
+
+        #expect(await bridge.recordedObservationRequests().count == 2)
+        #expect(try await store.loadAllTracks().map(\.id).sorted() == ["T1", "T2"])
+        #expect(await (pending.removedAlbums).isEmpty)
+        #expect(await !(snapshotService.wasCleared()))
+        await expectSyncCachesPreserved(cache, artist: "Gone Artist", album: "Gone Album")
+        #expect(!FileManager.default.fileExists(atPath: logDirectory.appendingPathComponent("last.log").path))
     }
 
     @Test("Database verification invalidates cache for removed tracks")

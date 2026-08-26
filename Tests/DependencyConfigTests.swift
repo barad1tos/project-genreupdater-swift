@@ -103,9 +103,45 @@ struct DependencyConfigTests {
         dependencies.configureLibraryPersistenceForTesting(cache: cache)
         dependencies.installTestAnalyticsRecorder(recorder)
 
-        _ = dependencies.applyRuntimeConfigurationHead()
+        _ = try dependencies.applyRuntimeConfigurationHead()
 
         #expect(dependencies.analyticsService === recorder)
+    }
+
+    @Test("Invalid library sync delay reports an error without applying runtime consumers")
+    func invalidSyncDelayIsAtomic() async throws {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                Issue.record("Runtime apply must not persist configuration")
+            }
+        )
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let recorder = AnalyticsRecorder(store: cache, configuration: dependencies.config.analytics)
+        dependencies.configureLibraryPersistenceForTesting(cache: cache)
+        dependencies.installTestAnalyticsRecorder(recorder)
+        _ = try dependencies.applyRuntimeConfigurationHead()
+        let initialTracker = try #require(dependencies.incrementalRunTracker)
+        let initialEditionKeywords = try #require(dependencies.yearDeterminator).scorer.editionKeywords
+        let initialAPIOrchestrator = try #require(dependencies.apiOrchestrator)
+        dependencies.setDiscogsIssue(.missingToken)
+
+        dependencies.config.librarySync.conflictDelaySeconds = .nan
+        dependencies.config.cleaning.editionMarkers = ["Mutation Probe"]
+        dependencies.config.yearRetrieval.apiAuth.discogsTokenReference = "configured-token"
+        dependencies.config.analytics.enabled = true
+
+        await dependencies.applyRuntimeConfigurationAndWait()
+
+        #expect(isAppError(dependencies.appState, containing: "Failed to apply runtime configuration"))
+        #expect(isAppError(dependencies.appState, containing: "cannot be represented safely"))
+        #expect(await recorder.projection(for: .currentSession).state == .disabled)
+        #expect(dependencies.incrementalRunTracker === initialTracker)
+        #expect(dependencies.yearDeterminator?.scorer.editionKeywords == initialEditionKeywords)
+        #expect(dependencies.apiOrchestrator === initialAPIOrchestrator)
+        #expect(dependencies.discogsCredentialIssue == .missingToken)
+        #expect(dependencies.isDiscogsAccessAvailable == false)
     }
 
     @Test("Configuration load failure surfaces app error instead of silently using defaults")

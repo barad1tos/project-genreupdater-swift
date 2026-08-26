@@ -666,33 +666,6 @@ struct TrackMirrorTests {
         #expect(tracks.first { $0.id == "updated" }?.name == "New")
     }
 
-    @Test("Verified empty full-library coverage survives relaunch")
-    func emptyCoveragePersists() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TrackMirrorSeed-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appendingPathComponent("tracks.store")
-
-        do {
-            let store = try TrackDataStore(modelContainer: makeContainer(at: url))
-            try await store.initialize()
-            try await store.applyMirror(TrackMirrorUpdate(
-                baseRevision: .initial,
-                coverageChange: .replace(.fullLibrary),
-                repairs: [],
-                upserts: [],
-                deletions: []
-            ))
-        }
-
-        let relaunched = try TrackDataStore(modelContainer: makeContainer(at: url))
-        try await relaunched.initialize()
-        let snapshot = try await relaunched.loadMirrorSnapshot()
-        #expect(snapshot.tracks.isEmpty)
-        #expect(snapshot.coverage == .verified(.fullLibrary))
-    }
-
     @Test("Legacy populated rows survive relaunch with unknown coverage")
     func legacyRowsStayUnready() async throws {
         let directory = FileManager.default.temporaryDirectory

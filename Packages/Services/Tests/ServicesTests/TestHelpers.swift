@@ -231,11 +231,15 @@ struct AppliedTrackUpdate {
 actor MockTrackStore: TrackStateStore {
     var tracks: [Track] = []
     private var coverage = MirrorCoverage.unknown
-    private var revision = MirrorRevision.initial
+    private var revision: MirrorRevision
     private(set) var appliedUpdates: [AppliedTrackUpdate] = []
     private var shouldCancelReads = false
     private var shouldFailMirror = false
     private var appliedUpdateHook: (@Sendable () throws -> Void)?
+
+    init(revision: MirrorRevision = .initial) {
+        self.revision = revision
+    }
 
     func failAppliedUpdates() {
         shouldFailMirror = true
@@ -268,6 +272,7 @@ actor MockTrackStore: TrackStateStore {
         guard update.baseRevision == revision else {
             throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
         }
+        let nextRevision = try revision.advanced()
         coverage = coverage.applying(update.coverageChange)
         let deletionIDs = Set(update.deletions.map(\.rawValue))
         tracks.removeAll { deletionIDs.contains($0.id) }
@@ -278,7 +283,7 @@ actor MockTrackStore: TrackStateStore {
                 tracks.append(track)
             }
         }
-        revision = revision.advanced()
+        revision = nextRevision
         return revision
     }
 
