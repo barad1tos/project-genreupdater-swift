@@ -1,6 +1,5 @@
 import Core
 import Foundation
-import Services
 
 struct LibraryCachedTrackLoad {
     let tracks: [Track]
@@ -10,20 +9,15 @@ struct LibraryCachedTrackLoad {
     }
 }
 
-struct LibraryLiveTrackLoad {
+struct LibraryMirrorTrackLoad {
     let tracks: [Track]
     let isLibraryReadyForUpdates: Bool
-    let scanDate: Date
 }
 
 @MainActor
 enum LibraryTrackLoader {
     static func scopedArtists(from dependencies: AppDependencies) -> [String] {
         ArtistAllowList.normalized(dependencies.config.development.testArtists)
-    }
-
-    static func liveProvider(from dependencies: AppDependencies) -> (any LibraryReadProvider)? {
-        dependencies.libraryReadProvider
     }
 
     static func cachedSnapshot(
@@ -35,27 +29,32 @@ enum LibraryTrackLoader {
             return nil
         }
 
-        let scopedCachedTracks = UpdateTrackScopeResolver.filteredByTestArtists(
-            cachedTracks,
-            testArtists: scopedArtists
-        )
+        guard let scopedCachedTracks = try? canonicalTracks(cachedTracks, scopedArtists: scopedArtists) else {
+            return nil
+        }
         return LibraryCachedTrackLoad(tracks: scopedCachedTracks)
     }
 
-    static func liveTracks(
-        provider: any LibraryReadProvider,
+    static func currentMirror(
+        store: any TrackStateStore,
         scopedArtists: [String]
-    ) async throws -> LibraryLiveTrackLoad {
+    ) async throws -> LibraryMirrorTrackLoad {
         try Task.checkCancellation()
-        let snapshot = try await provider.loadLibrarySnapshot(request: LibraryReadRequest(
-            testArtists: scopedArtists
-        ))
+        let snapshot = try await store.loadMirrorSnapshot()
         try Task.checkCancellation()
 
-        return LibraryLiveTrackLoad(
-            tracks: snapshot.tracks,
-            isLibraryReadyForUpdates: true,
-            scanDate: snapshot.scannedAt
+        return try LibraryMirrorTrackLoad(
+            tracks: canonicalTracks(snapshot.tracks, scopedArtists: scopedArtists),
+            isLibraryReadyForUpdates: snapshot.coverage.admits(MirrorScope(testArtists: scopedArtists))
         )
+    }
+
+    private static func canonicalTracks(_ tracks: [Track], scopedArtists: [String]) throws -> [Track] {
+        for track in tracks {
+            guard let databaseID = track.databaseID, track.id == databaseID.rawValue else {
+                throw LibraryLoadError.nonCanonicalMirror(trackID: track.id)
+            }
+        }
+        return ArtistAllowList.filter(tracks, allowedArtists: scopedArtists)
     }
 }

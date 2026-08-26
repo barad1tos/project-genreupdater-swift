@@ -123,7 +123,12 @@ public actor LibrarySyncService {
     }
 
     private func applyMirrorDeletions(_ ids: [MusicDatabaseTrackID]) async throws {
-        try await trackStore.applyMirror(TrackMirrorUpdate(repairs: [], upserts: [], deletions: ids))
+        try await trackStore.applyMirror(TrackMirrorUpdate(
+            coverageChange: .preserve,
+            repairs: [],
+            upserts: [],
+            deletions: ids
+        ))
     }
 
     /// Detect and persist Music.app library changes in the local store.
@@ -132,6 +137,7 @@ public actor LibrarySyncService {
         let detection = try await detectObservation(forceMetadataRefresh: forceMetadataRefresh)
         let result = detection.result
         try await trackStore.applyMirror(TrackMirrorUpdate(
+            coverageChange: detection.coverageChange,
             repairs: detection.repairs,
             upserts: detection.upserts,
             deletions: detection.removedIDs

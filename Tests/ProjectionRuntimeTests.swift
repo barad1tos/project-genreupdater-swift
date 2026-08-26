@@ -104,7 +104,21 @@ struct ProjectionRuntimeTests {
         // The observer outlives any window (D4): a menu-queued reload
         // must advance even when no host view is subscribed.
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
-        fixture.dependencies.installTestLibraryReadProvider(SnapshotProvider())
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(
+                tracks: [
+                    canonicalMirrorTrack(Core.Track(
+                        id: "live",
+                        name: "Song",
+                        artist: "Clutch",
+                        album: "Blast Tyrant"
+                    )),
+                ],
+                coverage: .verified(.fullLibrary)
+            ),
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
         fixture.dependencies.queuedManualReload = .waitingForQueued
 
         await fixture.dependencies.publishLifecycleBoundary(

@@ -82,20 +82,104 @@ public struct TrackMirrorRepair: Sendable {
     }
 }
 
+/// Processing scope proven by one complete Music library observation.
+public struct MirrorScope: Codable, Sendable {
+    public static let fullLibrary = Self(testArtists: [])
+
+    public let testArtists: [String]
+
+    public var isFullLibrary: Bool {
+        testArtists.isEmpty
+    }
+
+    public init(testArtists: [String]) {
+        self.testArtists = ArtistAllowList.normalized(testArtists).sorted { first, second in
+            let comparison = first.localizedCaseInsensitiveCompare(second)
+            return comparison == .orderedSame ? first < second : comparison == .orderedAscending
+        }
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        try self.init(testArtists: container.decode([String].self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(testArtists)
+    }
+}
+
+extension MirrorScope: Equatable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.testArtists.count == rhs.testArtists.count else { return false }
+        return zip(lhs.testArtists, rhs.testArtists).allSatisfy { first, second in
+            first.localizedCaseInsensitiveCompare(second) == .orderedSame
+        }
+    }
+}
+
+/// Persisted evidence for which processing scope the mirror can authorize.
+public enum MirrorCoverage: Equatable, Sendable {
+    case unknown
+    case verified(MirrorScope)
+
+    public func admits(_ requestedScope: MirrorScope) -> Bool {
+        guard case let .verified(verifiedScope) = self else { return false }
+        guard !verifiedScope.isFullLibrary else { return true }
+        guard !requestedScope.isFullLibrary else { return false }
+        return requestedScope.testArtists.allSatisfy { requestedArtist in
+            ArtistAllowList.containsNormalized(requestedArtist, in: verifiedScope.testArtists)
+        }
+    }
+
+    public func applying(_ change: MirrorCoverageChange) -> Self {
+        switch change {
+        case .preserve:
+            self
+        case let .replace(scope):
+            .verified(scope)
+        case .invalidate:
+            .unknown
+        }
+    }
+}
+
+/// Evidence transition committed atomically with one mirror mutation.
+public enum MirrorCoverageChange: Equatable, Sendable {
+    case preserve
+    case replace(MirrorScope)
+    case invalidate
+}
+
 /// One coherent mutation of the persisted Music library mirror.
 public struct TrackMirrorUpdate: Sendable {
+    public let coverageChange: MirrorCoverageChange
     public let repairs: [TrackMirrorRepair]
     public let upserts: [Track]
     public let deletions: [MusicDatabaseTrackID]
 
     public init(
+        coverageChange: MirrorCoverageChange,
         repairs: [TrackMirrorRepair],
         upserts: [Track],
         deletions: [MusicDatabaseTrackID]
     ) {
+        self.coverageChange = coverageChange
         self.repairs = repairs
         self.upserts = upserts
         self.deletions = deletions
+    }
+}
+
+/// One coherent read of persisted mirror rows and their verified scope evidence.
+public struct TrackMirrorSnapshot: Equatable, Sendable {
+    public let tracks: [Track]
+    public let coverage: MirrorCoverage
+
+    public init(tracks: [Track], coverage: MirrorCoverage) {
+        self.tracks = tracks
+        self.coverage = coverage
     }
 }
 
@@ -103,6 +187,7 @@ public struct TrackMirrorUpdate: Sendable {
 public protocol TrackStateStore: Actor {
     func initialize() async throws
     func loadAllTracks() async throws -> [Track]
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot
     /// Atomically applies one coherent metadata-mirror update.
     func applyMirror(_ update: TrackMirrorUpdate) async throws
     func getTrack(byID id: String) async throws -> Track?

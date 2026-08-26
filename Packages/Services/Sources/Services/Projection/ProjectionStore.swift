@@ -600,7 +600,7 @@ public actor ProjectionStore {
         return stream
     }
 
-    /// Claims ordering before a potentially suspending mirror read.
+    /// Claims ordering before a potentially suspending catalog read.
     public func claimArtistCatalogGeneration() -> UInt64 {
         issuedArtistCatalogGeneration += 1
         return issuedArtistCatalogGeneration
@@ -613,7 +613,8 @@ public actor ProjectionStore {
         inputGeneration: UInt64? = nil
     ) -> ArtistCatalogProjection {
         if let inputGeneration {
-            guard inputGeneration > appliedArtistCatalogGeneration else {
+            guard inputGeneration >= issuedArtistCatalogGeneration,
+                  inputGeneration > appliedArtistCatalogGeneration else {
                 return currentArtistCatalog
             }
             issuedArtistCatalogGeneration = max(issuedArtistCatalogGeneration, inputGeneration)

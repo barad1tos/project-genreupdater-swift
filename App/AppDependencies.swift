@@ -114,8 +114,7 @@ final class AppDependencies {
     // MARK: - Services (lazy, initialized in initialize())
 
     private(set) var scriptInstaller: ScriptInstaller?
-    private(set) var musicReader: MusicLibraryReader?
-    private(set) var libraryReadProvider: (any LibraryReadProvider)?
+    @ObservationIgnored private(set) var musicCatalog: any MusicCatalogReading
     private(set) var applescriptBridge: AppleScriptBridge?
     /// Verifier used to re-read attempted work during recovery clearance;
     /// production wiring points it at the AppleScript bridge.
@@ -169,10 +168,12 @@ final class AppDependencies {
 
     init(
         configurationLoader: @escaping () throws -> AppConfiguration = AppConfiguration.load,
-        configurationSaver: @escaping (AppConfiguration) throws -> Void = { try $0.save() }
+        configurationSaver: @escaping (AppConfiguration) throws -> Void = { try $0.save() },
+        musicCatalog: any MusicCatalogReading = MusicLibraryReader()
     ) {
         self.configurationLoader = configurationLoader
         self.configurationSaver = configurationSaver
+        self.musicCatalog = MeasuredMusicCatalog(base: musicCatalog)
 
         do {
             config = try configurationLoader()
@@ -264,10 +265,6 @@ final class AppDependencies {
             applescriptBridge = bridge
             recoveryVerifier = bridge
             recoveryAvailability = RecoveryAvailability(checks: .live(installer: installer))
-
-            let reader = MusicLibraryReader()
-            musicReader = reader
-            libraryReadProvider = MusicKitReadProvider(reader: reader)
 
             // Step 4: Start subscription service + feature gate
             let subscription = makeSubscriptionService()
@@ -429,11 +426,8 @@ final class AppDependencies {
         if let applescriptBridge {
             await applescriptBridge.updateAnalytics(analyticsRecorder)
         }
-        if let libraryReadProvider {
-            self.libraryReadProvider = MeasuredLibraryProvider(
-                base: libraryReadProvider,
-                analytics: analyticsRecorder
-            )
+        if let measuredCatalog = musicCatalog as? MeasuredMusicCatalog {
+            await measuredCatalog.updateAnalytics(analyticsRecorder)
         }
     }
 
@@ -730,19 +724,17 @@ extension AppDependencies {
     func configureLibraryPersistenceForTesting(
         trackStore: (any TrackStateStore)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
+        metricsSnapshotStore: MetricsSnapshotStore? = nil,
         runRecordStore: (any RunRecordStore)? = nil,
         fixPlanStore: (any FixPlanStore)? = nil,
         cache: GRDBCacheService? = nil
     ) {
         self.trackStore = trackStore
         self.librarySnapshotService = librarySnapshotService
+        self.metricsSnapshotStore = metricsSnapshotStore
         self.runRecordStore = runRecordStore
         self.fixPlanStore = fixPlanStore
         cacheService = cache
-    }
-
-    func installTestLibraryReadProvider(_ provider: any LibraryReadProvider) {
-        libraryReadProvider = provider
     }
 
     func installTestChangeLogStore(_ store: ChangeLogDataStore) {

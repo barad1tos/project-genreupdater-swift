@@ -52,9 +52,10 @@ struct MetricsSnapshotStoreTests {
         #expect(values?.protectedFileCount == 1)
     }
 
-    @Test("an empty library persists nothing")
-    func emptyLibraryPersistsNothing() async throws {
+    @Test("an empty library clears previous metrics")
+    func emptyLibraryClears() async throws {
         let store = try makeStore()
+        await store.upsert(from: [track(id: "existing", genre: "Rock", status: "purchased")])
 
         #expect(await store.upsert(from: []) == nil)
         #expect(await store.loadLatest() == nil)

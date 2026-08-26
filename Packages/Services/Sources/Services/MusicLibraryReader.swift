@@ -1,17 +1,10 @@
-// MusicLibraryReader.swift — MusicKit presentation and catalog projection.
-//
-// MusicKit provides fast, type-safe library browsing for UI surfaces. Writable
-// metadata and canonical Music.app database identity come from the explicit
-// AppleScript-backed Services capabilities instead.
+// MusicLibraryReader.swift — semantic access to the MusicKit presentation catalog.
 
 import Core
 import Foundation
-import MusicKit
 import OSLog
 
 private let log = AppLogger.make(category: "music-reader")
-
-// MARK: - Errors
 
 public enum MusicLibraryError: Error, LocalizedError {
     case authorizationDenied
@@ -35,204 +28,54 @@ public enum MusicLibraryError: Error, LocalizedError {
     }
 }
 
-// MARK: - Music Library Reader
-
-/// Reads the user's MusicKit presentation projection.
-///
-/// Provides fast, type-safe access to tracks, albums, and artists for UI and
-/// catalog selection. It does not establish writable metadata or canonical
-/// Music.app database identity.
-public actor MusicLibraryReader {
-    struct MusicKitTrackMetadata {
-        let id: String
-        let name: String
-        let artist: String
-        let album: String?
-        let genres: [String]
-        let releaseDate: Date?
-        let libraryAddedDate: Date?
-    }
+/// Reads the user's MusicKit presentation catalog without creating processing tracks.
+public actor MusicLibraryReader: MusicCatalogReading {
+    private let source: any MusicKitCatalogSource
 
     public init() {
-        // Artist scope is request-local, so the reader has no state to initialize.
+        self.init(source: MusicKitCatalogAdapter())
     }
 
-    /// Request access to the user's music library.
-    public func requestAuthorization() async throws {
-        let status = await MusicAuthorization.request()
-        switch status {
-        case .authorized:
-            log.info("Music library access authorized")
-        case .denied:
-            throw MusicLibraryError.authorizationDenied
-        case .restricted:
-            throw MusicLibraryError.authorizationRestricted
-        case .notDetermined:
-            log.warning("Music authorization not determined after request")
-            throw MusicLibraryError.authorizationDenied
-        @unknown default:
-            log.warning("Unknown music authorization status: \(String(describing: status), privacy: .public)")
-            throw MusicLibraryError.authorizationDenied
-        }
+    init(source: any MusicKitCatalogSource) {
+        self.source = source
     }
 
-    /// Check current authorization status without triggering a prompt.
     public var isAuthorized: Bool {
-        MusicAuthorization.currentStatus == .authorized
+        get async {
+            await source.isAuthorized
+        }
     }
 
-    // MARK: - Fetch Operations
+    public func requestAuthorization() async throws {
+        try await source.requestAuthorization()
+        log.info("Music library access authorized")
+    }
 
-    /// Fetch all tracks from the user's library.
-    public func fetchAllTracks(
-        artist: String? = nil,
-        testArtists: [String] = [],
-        ignoreTestFilter: Bool = false
-    ) async throws -> [Core.Track] {
-        let artistScope = ArtistAllowList.normalized(testArtists)
-        guard isAuthorized else {
+    public func loadCatalog(testArtists: [String] = []) async throws -> CatalogSnapshot {
+        if await !isAuthorized {
             try await requestAuthorization()
-            return try await fetchAllTracks(
-                artist: artist,
-                testArtists: artistScope,
-                ignoreTestFilter: ignoreTestFilter
-            )
         }
 
-        let signpostState = AppSignpost.libraryLoad.beginInterval("fetchAllTracks")
-        defer { AppSignpost.libraryLoad.endInterval("fetchAllTracks", signpostState) }
+        let signpostState = AppSignpost.libraryLoad.beginInterval("loadCatalog")
+        defer { AppSignpost.libraryLoad.endInterval("loadCatalog", signpostState) }
 
         do {
-            var tracks: [Core.Track] = []
-            let targets = Self.fetchTargets(
-                requestedArtist: artist,
-                testArtists: artistScope,
-                ignoreTestFilter: ignoreTestFilter
+            let metadata = try await source.loadTracks()
+            let snapshot = MusicKitCatalogAdapter.makeSnapshot(
+                from: metadata,
+                testArtists: testArtists
             )
-
-            for target in targets {
-                let scopedTracks = try await fetchTracks(matchingArtist: target)
-                tracks.append(contentsOf: scopedTracks)
-            }
-
-            if !ignoreTestFilter {
-                tracks = Self.filterByTestArtists(
-                    tracks,
-                    testArtists: artistScope
-                )
-            }
-
-            log
-                .info(
-                    "Fetched \(tracks.count, privacy: .public) tracks from MusicKit\(artist.map { " (artist: \($0))" } ?? "", privacy: .private)"
-                )
-            return tracks
+            log.info("Fetched \(snapshot.tracks.count, privacy: .public) catalog tracks from MusicKit")
+            return snapshot
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            log.error("MusicKit fetch failed: \(error.localizedDescription, privacy: .public)")
+            log.error("MusicKit catalog fetch failed: \(error.localizedDescription, privacy: .public)")
             throw MusicLibraryError.fetchFailed(detail: error.localizedDescription)
         }
     }
 
-    /// Fetch a single track by its MusicKit item ID.
-    public func fetchTrack(byID id: String) async throws -> Core.Track? {
-        let musicItemID = MusicItemID(id)
-
-        var request = MusicLibraryRequest<Song>()
-        request.filter(matching: \.id, equalTo: musicItemID)
-
-        let response = try await request.response()
-        return response.items.first.map { songToTrack($0) }
-    }
-
-    /// Get the total track count (fast, no full fetch needed).
     public func trackCount() async throws -> Int {
-        let request = MusicLibraryRequest<Song>()
-        let response = try await request.response()
-        return response.items.count
-    }
-
-    // MARK: - Test Artist Filtering
-
-    /// Resolve MusicKit fetch targets for a requested artist and active test
-    /// artist scope.
-    public static func fetchTargets(
-        requestedArtist: String?,
-        testArtists: [String],
-        ignoreTestFilter: Bool
-    ) -> [String?] {
-        if let artist = ArtistAllowList.normalizedName(requestedArtist) {
-            return [artist]
-        }
-
-        guard !ignoreTestFilter else { return [nil] }
-
-        let scopedArtists = ArtistAllowList.normalized(testArtists)
-        guard !scopedArtists.isEmpty else { return [nil] }
-        return scopedArtists.map(Optional.some)
-    }
-
-    /// Filter tracks to only those whose `effectiveArtist` matches
-    /// one of the given test artist names (case-insensitive).
-    ///
-    /// Returns the original array unmodified when `testArtists` is empty.
-    /// Exposed as `static` so the logic is testable without MusicKit.
-    ///
-    /// - Parameters:
-    ///   - tracks: The full set of tracks to filter.
-    ///   - testArtists: Artist names to keep. Empty means no filtering.
-    /// - Returns: Filtered tracks, or the original array if `testArtists`
-    ///   is empty.
-    public static func filterByTestArtists(
-        _ tracks: [Core.Track],
-        testArtists: [String]
-    ) -> [Core.Track] {
-        ArtistAllowList.filter(tracks, allowedArtists: testArtists)
-    }
-
-    private func fetchTracks(matchingArtist artist: String?) async throws -> [Core.Track] {
-        var request = MusicLibraryRequest<Song>()
-        request.sort(by: \.artistName, ascending: true)
-
-        if let artist {
-            request.filter(matching: \.artistName, equalTo: artist)
-        }
-
-        let response = try await request.response()
-        return response.items.map { song in
-            songToTrack(song)
-        }
-    }
-
-    // MARK: - Conversion
-
-    /// Convert a MusicKit Song to our domain Track model.
-    private func songToTrack(_ song: Song) -> Core.Track {
-        Self.makeTrackFromMusicKitMetadata(MusicKitTrackMetadata(
-            id: song.id.rawValue,
-            name: song.title,
-            artist: song.artistName,
-            album: song.albumTitle,
-            genres: song.genreNames,
-            releaseDate: song.releaseDate,
-            libraryAddedDate: song.libraryAddedDate
-        ))
-    }
-
-    static func makeTrackFromMusicKitMetadata(_ metadata: MusicKitTrackMetadata) -> Core.Track {
-        Core.Track(
-            id: metadata.id,
-            name: metadata.name,
-            artist: metadata.artist,
-            album: metadata.album ?? "",
-            genre: metadata.genres.first,
-            year: nil,
-            dateAdded: metadata.libraryAddedDate,
-            lastModified: nil,
-            trackStatus: nil,
-            releaseYear: metadata.releaseDate.map { Calendar.current.component(.year, from: $0) },
-            albumArtist: nil
-        )
+        try await source.trackCount()
     }
 }

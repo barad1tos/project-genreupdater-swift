@@ -1,8 +1,26 @@
 import Core
 
+struct ProcessingTrackScope: Sendable, Equatable {
+    let testArtists: [String]
+    let albumIdentity: AlbumIdentity?
+
+    init(testArtists: [String] = [], albumIdentity: AlbumIdentity? = nil) {
+        self.testArtists = ArtistAllowList.normalized(testArtists)
+        self.albumIdentity = albumIdentity
+    }
+
+    func admits(_ track: Track) -> Bool {
+        guard ArtistAllowList.containsNormalized(track, in: testArtists) else {
+            return false
+        }
+        guard let albumIdentity else { return true }
+        return AlbumIdentity.lookupKeys(for: track).contains(albumIdentity.key)
+    }
+}
+
 extension LibrarySyncService {
-    var libraryReadRequest: LibraryReadRequest {
-        LibraryReadRequest(
+    var processingScope: ProcessingTrackScope {
+        ProcessingTrackScope(
             testArtists: runtimeConfiguration.testArtists,
             albumIdentity: runtimeConfiguration.albumTargetIdentity
         )
@@ -19,7 +37,7 @@ extension LibrarySyncService {
     /// RESULT admission: the full predicate (allow-list + album identity),
     /// applied after the observer supplies authoritative source metadata.
     func tracksAdmittedByRequest(_ tracks: [Track]) -> [Track] {
-        let request = libraryReadRequest
-        return tracks.filter { request.admits($0) }
+        let scope = processingScope
+        return tracks.filter { scope.admits($0) }
     }
 }

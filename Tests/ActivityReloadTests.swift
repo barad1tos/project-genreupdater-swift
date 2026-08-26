@@ -109,7 +109,7 @@ struct ActivityReloadTests {
     @Test("a terminal boundary consumes the queue and reloads")
     func terminalReloadsLibrary() async throws {
         let dependencies = try makeDependencies()
-        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        installMenuMirror(on: dependencies)
         dependencies.queuedManualReload = .waitingForQueued
 
         await dependencies.advanceQueuedReloadForBoundary(ActivityFixtures.lifecycle(
@@ -123,7 +123,7 @@ struct ActivityReloadTests {
     @Test("a matching terminal advances to waiting-for-queued without reloading")
     func matchingTerminalWaits() async throws {
         let dependencies = try makeDependencies()
-        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        installMenuMirror(on: dependencies)
         let activeRunID = RunID()
         dependencies.queuedManualReload = .waitingForActive(activeRunID)
 
@@ -139,7 +139,7 @@ struct ActivityReloadTests {
     @Test("an active boundary leaves the queue and library untouched")
     func activeBoundaryKeepsQueue() async throws {
         let dependencies = try makeDependencies()
-        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        installMenuMirror(on: dependencies)
         dependencies.queuedManualReload = .waitingForQueued
 
         await dependencies.advanceQueuedReloadForBoundary(ActivityFixtures.lifecycle(
@@ -166,7 +166,7 @@ struct ActivityReloadTests {
     @Test("the menu reload closure loads the library headlessly")
     func menuReloadsLibrary() async throws {
         let dependencies = try makeDependencies()
-        dependencies.installTestLibraryReadProvider(MenuSnapshotLibraryReadProvider())
+        installMenuMirror(on: dependencies)
         let commands = dependencies.makeMenuActivityCommands()
 
         await commands.reloadLibrary(true)
@@ -177,12 +177,21 @@ struct ActivityReloadTests {
     private func makeDependencies() throws -> AppDependencies {
         try makeFixture(testArtists: []).dependencies
     }
-}
 
-private actor MenuSnapshotLibraryReadProvider: LibraryReadProvider {
-    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        LibraryReadSnapshot(tracks: [
-            Core.Track(id: "menu-live", name: "Song", artist: "Clutch", album: "Blast Tyrant"),
-        ], scannedAt: Date(timeIntervalSince1970: 300))
+    private func installMenuMirror(on dependencies: AppDependencies) {
+        dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(
+                tracks: [
+                    canonicalMirrorTrack(Core.Track(
+                        id: "menu-live",
+                        name: "Song",
+                        artist: "Clutch",
+                        album: "Blast Tyrant"
+                    )),
+                ],
+                coverage: .verified(.fullLibrary)
+            ),
+            runRecordStore: RunRecordStoreStub()
+        )
     }
 }

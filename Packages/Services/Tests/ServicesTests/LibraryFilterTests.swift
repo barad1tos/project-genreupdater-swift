@@ -1,131 +1,58 @@
 import Testing
-@testable import Core
 @testable import Services
 
-// MARK: - Helpers
+@Suite("Music catalog Test Artists filtering")
+struct LibraryFilterTests {
+    @Test("Empty Test Artists returns every catalog row")
+    func keepsAllUnscoped() {
+        let snapshot = MusicKitCatalogAdapter.makeSnapshot(
+            from: library,
+            testArtists: []
+        )
 
-private func makeTrack(
+        #expect(snapshot.tracks.count == library.count)
+    }
+
+    @Test("Filtering is case-insensitive and uses the album-artist hint")
+    func usesAlbumArtistHint() {
+        let snapshot = MusicKitCatalogAdapter.makeSnapshot(
+            from: library,
+            testArtists: ["beatles"]
+        )
+
+        #expect(snapshot.tracks.map(\.id.displayValue) == ["1"])
+    }
+
+    @Test("Multiple Test Artists retain matching rows")
+    func retainsAllowedArtists() {
+        let snapshot = MusicKitCatalogAdapter.makeSnapshot(
+            from: library,
+            testArtists: ["Beatles", "Queen"]
+        )
+
+        #expect(snapshot.tracks.map(\.id.displayValue) == ["1", "2"])
+    }
+
+    private let library = [
+        metadata(id: "1", artist: "John Lennon", albumArtist: "Beatles"),
+        metadata(id: "2", artist: "Queen"),
+        metadata(id: "3", artist: "Pink Floyd"),
+    ]
+}
+
+private func metadata(
     id: String,
     artist: String,
     albumArtist: String? = nil
-) -> Track {
-    Track(
+) -> MusicKitTrackMetadata {
+    MusicKitTrackMetadata(
         id: id,
-        name: "Song",
+        title: "Song",
         artist: artist,
         album: "Album",
-        albumArtist: albumArtist
+        albumArtist: albumArtist,
+        genres: [],
+        releaseDate: nil,
+        dateAdded: nil
     )
-}
-
-// MARK: - Tests
-
-@Suite("MusicLibraryReader — testArtists filtering")
-struct LibraryFilterTests {
-    private let library = [
-        makeTrack(id: "1", artist: "Beatles"),
-        makeTrack(id: "2", artist: "Queen"),
-        makeTrack(id: "3", artist: "Pink Floyd"),
-        makeTrack(id: "4", artist: "Led Zeppelin"),
-    ]
-
-    @Test("Empty testArtists returns all tracks unfiltered")
-    func emptyTestArtistsPassesAll() {
-        let result = MusicLibraryReader.filterByTestArtists(
-            library,
-            testArtists: []
-        )
-        #expect(result.count == library.count)
-    }
-
-    @Test("Single testArtist filters to matching tracks only")
-    func singleArtistFilter() {
-        let result = MusicLibraryReader.filterByTestArtists(
-            library,
-            testArtists: ["Beatles"]
-        )
-        #expect(result.count == 1)
-        #expect(result.first?.artist == "Beatles")
-    }
-
-    @Test("Filtering is case-insensitive")
-    func caseInsensitiveMatch() {
-        let result = MusicLibraryReader.filterByTestArtists(
-            library,
-            testArtists: ["beatles"]
-        )
-        #expect(result.count == 1)
-        #expect(result.first?.artist == "Beatles")
-    }
-
-    @Test("Multiple testArtists returns tracks from all listed artists")
-    func multipleArtistFilter() {
-        let result = MusicLibraryReader.filterByTestArtists(
-            library,
-            testArtists: ["Beatles", "Queen"]
-        )
-        #expect(result.count == 2)
-        let artists = Set(result.map(\.artist))
-        #expect(artists == ["Beatles", "Queen"])
-    }
-
-    @Test("Filtering uses effectiveArtist (prefers albumArtist)")
-    func usesEffectiveArtist() {
-        let tracks = [
-            makeTrack(
-                id: "10",
-                artist: "John Lennon",
-                albumArtist: "Beatles"
-            ),
-            makeTrack(id: "11", artist: "Queen"),
-        ]
-        let result = MusicLibraryReader.filterByTestArtists(
-            tracks,
-            testArtists: ["Beatles"]
-        )
-        #expect(result.count == 1)
-        #expect(result.first?.id == "10")
-    }
-
-    @Test("No matching artists returns empty array")
-    func noMatchReturnsEmpty() {
-        let result = MusicLibraryReader.filterByTestArtists(
-            library,
-            testArtists: ["Radiohead"]
-        )
-        #expect(result.isEmpty)
-    }
-
-    @Test("Test artists create artist-scoped fetch targets")
-    func artistsCreateArtistScopedFetchTargets() {
-        let targets = MusicLibraryReader.fetchTargets(
-            requestedArtist: nil,
-            testArtists: [" In Flames ", "Metallica", "in flames"],
-            ignoreTestFilter: false
-        )
-
-        #expect(targets == ["In Flames", "Metallica"])
-    }
-
-    @Test("Empty test artists keep full-library fetch target")
-    func emptyTestArtistsKeepFullLibraryFetchTarget() {
-        let targets = MusicLibraryReader.fetchTargets(
-            requestedArtist: nil,
-            testArtists: [],
-            ignoreTestFilter: false
-        )
-
-        #expect(targets == [nil])
-    }
-
-    @Test("Explicit artist fetch is preserved when test filtering is ignored")
-    func explicitArtistFetchIsPreservedWhenTestFilteringIsIgnored() {
-        let targets = MusicLibraryReader.fetchTargets(
-            requestedArtist: "Massive Attack",
-            testArtists: ["In Flames"],
-            ignoreTestFilter: true
-        )
-
-        #expect(targets == ["Massive Attack"])
-    }
 }

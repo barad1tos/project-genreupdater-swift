@@ -43,6 +43,24 @@ struct LibrarySnapshotCacheTests {
         #expect(await service.isSnapshotValid())
     }
 
+    @Test("An empty snapshot replaces previously cached tracks")
+    func emptySnapshotPersists() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let service = CachedLibrarySnapshotService(
+            cache: cache,
+            configuration: LibrarySnapshotConfig()
+        )
+        _ = try await service.saveSnapshot([
+            Track(id: "1", name: "Song", artist: "Artist", album: "Album"),
+        ])
+
+        _ = try await service.saveSnapshot([])
+
+        #expect(try await service.loadSnapshot()?.isEmpty == true)
+        #expect(await service.getSnapshotMetadata()?.trackCount == 0)
+    }
+
     @Test("Refreshing a snapshot preserves the last force scan date")
     func refreshKeepsForceScanDate() async throws {
         let cache = try GRDBCacheService.createInMemory()

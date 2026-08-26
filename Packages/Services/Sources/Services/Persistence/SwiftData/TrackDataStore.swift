@@ -18,12 +18,29 @@ public actor TrackDataStore: TrackStateStore {
 
     public func initialize() async throws {
         let repairedCount = try normalizeStoredYears()
+        let mirrorCoverage = try initializeMirrorState()
         log.info("SwiftData track store initialized; repaired zero-year rows: \(repairedCount, privacy: .public)")
+        log.info(
+            "SwiftData track mirror initialized; verified scope: \(mirrorCoverage != .unknown, privacy: .public)"
+        )
     }
 
     // MARK: - Read Operations
 
     public func loadAllTracks() async throws -> [Track] {
+        try fetchAllTracks()
+    }
+
+    public func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        let tracks = try fetchAllTracks()
+        let state = try fetchMirrorState()
+        return try TrackMirrorSnapshot(
+            tracks: tracks,
+            coverage: state?.coverage() ?? .unknown
+        )
+    }
+
+    private func fetchAllTracks() throws -> [Track] {
         let descriptor = FetchDescriptor<PersistedTrack>(
             sortBy: [SortDescriptor(\.name)]
         )
@@ -85,6 +102,16 @@ public actor TrackDataStore: TrackStateStore {
                     modelContext.delete(persistedTrack)
                     deletedCount += 1
                 }
+
+                let mirrorState: PersistedMirrorState
+                if let storedMirrorState = try fetchMirrorState() {
+                    mirrorState = storedMirrorState
+                } else {
+                    let newMirrorState = PersistedMirrorState()
+                    modelContext.insert(newMirrorState)
+                    mirrorState = newMirrorState
+                }
+                try mirrorState.apply(update.coverageChange)
             }
         } catch {
             modelContext.rollback()
@@ -147,6 +174,24 @@ public actor TrackDataStore: TrackStateStore {
             modelContext.rollback()
             throw error
         }
+    }
+
+    private func initializeMirrorState() throws -> MirrorCoverage {
+        if let state = try fetchMirrorState() {
+            return try state.coverage()
+        }
+
+        modelContext.insert(PersistedMirrorState())
+        try modelContext.save()
+        return .unknown
+    }
+
+    private func fetchMirrorState() throws -> PersistedMirrorState? {
+        let key = PersistedMirrorState.primaryKey
+        let descriptor = FetchDescriptor<PersistedMirrorState>(
+            predicate: #Predicate { $0.key == key }
+        )
+        return try modelContext.fetch(descriptor).first
     }
 
     private static func duplicateIDs(in ids: [MusicDatabaseTrackID]) -> [MusicDatabaseTrackID] {

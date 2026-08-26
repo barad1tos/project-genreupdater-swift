@@ -370,7 +370,7 @@ struct UndoMirrorTests {
     }
 
     private func makeContainer(at storeURL: URL) throws -> ModelContainer {
-        let schema = Schema([PersistedTrack.self, PersistedChangeLogEntry.self])
+        let schema = Schema([PersistedTrack.self, PersistedMirrorState.self, PersistedChangeLogEntry.self])
         let configuration = ModelConfiguration(
             "UndoMirrorTests",
             schema: schema,

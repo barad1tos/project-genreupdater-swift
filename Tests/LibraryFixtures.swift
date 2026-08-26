@@ -11,6 +11,55 @@ struct LibraryPersistenceFixture {
     let snapshotService: SnapshotServiceSpy
 }
 
+actor MirrorTrackStoreStub: TrackStateStore {
+    private var tracks: [Track]
+    private var coverage: MirrorCoverage
+    private let beforeLoad: (@Sendable () async throws -> Void)?
+
+    init(
+        tracks: [Track] = [],
+        coverage: MirrorCoverage = .unknown,
+        beforeLoad: (@Sendable () async throws -> Void)? = nil
+    ) {
+        self.tracks = tracks
+        self.coverage = coverage
+        self.beforeLoad = beforeLoad
+    }
+
+    func initialize() async throws {
+        // This in-memory mirror stub requires no setup.
+    }
+
+    func loadAllTracks() async throws -> [Track] {
+        try await beforeLoad?()
+        return tracks
+    }
+
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        try await beforeLoad?()
+        return TrackMirrorSnapshot(tracks: tracks, coverage: coverage)
+    }
+
+    func applyMirror(_ update: TrackMirrorUpdate) async throws {
+        tracks.append(contentsOf: update.upserts)
+        coverage = coverage.applying(update.coverageChange)
+    }
+
+    func getTrack(byID id: String) async throws -> Track? {
+        tracks.first { $0.id == id }
+    }
+
+    func persistAppliedChange(_: ChangeLogEntry) async throws {
+        // Library-load tests do not model applied-change persistence.
+    }
+    func getUnprocessedTracks() async throws -> [Track] {
+        tracks
+    }
+    func trackCount() async throws -> Int {
+        tracks.count
+    }
+}
+
 @MainActor
 func makeFixture(
     testArtists: [String],
@@ -38,6 +87,25 @@ func makeFixture(
         trackStore: trackStore,
         snapshotService: snapshotService
     )
+}
+
+@MainActor
+func makeLibraryDependencies(
+    trackStore: any TrackStateStore,
+    snapshotService: any LibrarySnapshotService = SnapshotServiceSpy()
+) -> AppDependencies {
+    let dependencies = AppDependencies(
+        configurationLoader: { AppConfiguration() },
+        configurationSaver: { _ in
+            // Relaunch fixtures exercise track persistence only.
+        }
+    )
+    dependencies.configureLibraryPersistenceForTesting(
+        trackStore: trackStore,
+        librarySnapshotService: snapshotService,
+        runRecordStore: RunRecordStoreStub()
+    )
+    return dependencies
 }
 
 actor RunRecordStoreStub: RunRecordStore {
@@ -288,6 +356,7 @@ actor SnapshotServiceSpy: LibrarySnapshotService {
     func saveSnapshot(_ tracks: [Track]) async throws -> String {
         saveSnapshotCallCount += 1
         savedTracks = tracks
+        seededSnapshot = tracks
         return "snapshot"
     }
 
@@ -318,4 +387,10 @@ actor SnapshotServiceSpy: LibrarySnapshotService {
     func savedTrackIDs() -> [String] {
         savedTracks.map(\.id)
     }
+}
+
+func canonicalMirrorTrack(_ track: Track) -> Track {
+    var canonical = track
+    canonical.appleScriptID = canonical.id
+    return canonical
 }

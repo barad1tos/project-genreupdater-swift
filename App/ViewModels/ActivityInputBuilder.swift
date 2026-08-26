@@ -175,7 +175,7 @@ enum ActivityInputBuilder {
             switch loadError {
             case .permissionDenied:
                 return .permissionDenied(loadError.message)
-            case .restricted, .failed:
+            case .restricted, .nonCanonicalMirror, .failed:
                 return .failed(loadError.message)
             }
         }

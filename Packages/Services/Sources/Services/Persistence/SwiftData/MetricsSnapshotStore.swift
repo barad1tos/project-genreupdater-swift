@@ -1,5 +1,6 @@
 import Core
 import Foundation
+import OSLog
 import SwiftData
 
 /// Sendable currency of the metrics snapshot store: the persisted
@@ -105,6 +106,8 @@ public struct MetricsSnapshotValues: Equatable, Sendable {
 /// metrics.
 @ModelActor
 public actor MetricsSnapshotStore {
+    private let log = AppLogger.make(category: "metrics-snapshot")
+
     public func loadLatest() -> MetricsSnapshotValues? {
         let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
         guard let row = try? modelContext.fetch(descriptor).first else { return nil }
@@ -113,49 +116,65 @@ public actor MetricsSnapshotStore {
 
     /// Upserts values counted from a finished load; the previous scan's
     /// numbers rotate into the `previous*` trend baseline. Returns the
-    /// persisted values (with the rotated baseline) or nil when the
-    /// library was empty.
+    /// persisted values with the rotated baseline. An empty library clears
+    /// any previous metrics snapshot and returns nil.
     @discardableResult
     public func upsert(from loadedTracks: [Core.Track], timestamp: Date = .now) -> MetricsSnapshotValues? {
-        guard let values = MetricsSnapshotValues.make(from: loadedTracks, timestamp: timestamp) else {
+        let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
+        do {
+            guard let values = MetricsSnapshotValues.make(from: loadedTracks, timestamp: timestamp) else {
+                if let existing = try modelContext.fetch(descriptor).first {
+                    modelContext.delete(existing)
+                    try modelContext.save()
+                }
+                return nil
+            }
+
+            let existing = try modelContext.fetch(descriptor).first
+
+            if let snapshot = existing {
+                snapshot.previousTotalTracks = snapshot.totalTracks
+                snapshot.previousTracksNeedingGenre = snapshot.tracksNeedingGenre
+                snapshot.previousTracksNeedingYear = snapshot.tracksNeedingYear
+                snapshot.previousRecentlyAdded = snapshot.recentlyAdded
+
+                snapshot.totalTracks = values.totalTracks
+                snapshot.tracksWithGenre = values.tracksWithGenre
+                snapshot.tracksWithYear = values.tracksWithYear
+                snapshot.tracksWithBoth = values.tracksWithBoth
+                snapshot.tracksNeedingGenre = values.tracksNeedingGenre
+                snapshot.tracksNeedingYear = values.tracksNeedingYear
+                snapshot.protectedFileCount = values.protectedFileCount
+                snapshot.recentlyAdded = values.recentlyAdded
+                snapshot.timestamp = values.timestamp
+            } else {
+                modelContext.insert(PersistedMetricsSnapshot(
+                    totalTracks: values.totalTracks,
+                    tracksWithGenre: values.tracksWithGenre,
+                    tracksWithYear: values.tracksWithYear,
+                    tracksWithBoth: values.tracksWithBoth,
+                    tracksNeedingGenre: values.tracksNeedingGenre,
+                    tracksNeedingYear: values.tracksNeedingYear,
+                    protectedFileCount: values.protectedFileCount,
+                    recentlyAdded: values.recentlyAdded,
+                    timestamp: values.timestamp
+                ))
+            }
+
+            try modelContext.save()
+            guard let row = try modelContext.fetch(descriptor).first else { return nil }
+            return makeValues(from: row)
+        } catch {
+            modelContext.rollback()
+            log.error(
+                """
+                Metrics snapshot update failed: \
+                \(String(describing: type(of: error)), privacy: .public): \
+                \(error.localizedDescription, privacy: .private)
+                """
+            )
             return nil
         }
-
-        let descriptor = FetchDescriptor<PersistedMetricsSnapshot>()
-        let existing = try? modelContext.fetch(descriptor).first
-
-        if let snapshot = existing {
-            snapshot.previousTotalTracks = snapshot.totalTracks
-            snapshot.previousTracksNeedingGenre = snapshot.tracksNeedingGenre
-            snapshot.previousTracksNeedingYear = snapshot.tracksNeedingYear
-            snapshot.previousRecentlyAdded = snapshot.recentlyAdded
-
-            snapshot.totalTracks = values.totalTracks
-            snapshot.tracksWithGenre = values.tracksWithGenre
-            snapshot.tracksWithYear = values.tracksWithYear
-            snapshot.tracksWithBoth = values.tracksWithBoth
-            snapshot.tracksNeedingGenre = values.tracksNeedingGenre
-            snapshot.tracksNeedingYear = values.tracksNeedingYear
-            snapshot.protectedFileCount = values.protectedFileCount
-            snapshot.recentlyAdded = values.recentlyAdded
-            snapshot.timestamp = values.timestamp
-        } else {
-            modelContext.insert(PersistedMetricsSnapshot(
-                totalTracks: values.totalTracks,
-                tracksWithGenre: values.tracksWithGenre,
-                tracksWithYear: values.tracksWithYear,
-                tracksWithBoth: values.tracksWithBoth,
-                tracksNeedingGenre: values.tracksNeedingGenre,
-                tracksNeedingYear: values.tracksNeedingYear,
-                protectedFileCount: values.protectedFileCount,
-                recentlyAdded: values.recentlyAdded,
-                timestamp: values.timestamp
-            ))
-        }
-
-        try? modelContext.save()
-        guard let row = try? modelContext.fetch(descriptor).first else { return nil }
-        return makeValues(from: row)
     }
 
     private func makeValues(from row: PersistedMetricsSnapshot) -> MetricsSnapshotValues {

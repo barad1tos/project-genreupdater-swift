@@ -414,21 +414,6 @@ private func makeCompositionServices(
     )
 }
 
-private actor RuntimeReadProvider: LibraryReadProvider {
-    private let track: Track
-
-    init(track: Track) {
-        self.track = track
-    }
-
-    func loadLibrarySnapshot(request: LibraryReadRequest) async throws -> LibraryReadSnapshot {
-        LibraryReadSnapshot(
-            tracks: request.admits(track) ? [track] : [],
-            scannedAt: Date(timeIntervalSince1970: 100)
-        )
-    }
-}
-
 private actor RuntimeConfigProbe {
     private(set) var last: AppConfiguration?
 

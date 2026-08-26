@@ -111,7 +111,6 @@ public struct BrowseScopeFacts: Equatable, Sendable {
 public enum BrowseReadSource: Equatable, Sendable {
     /// The persisted mirror records no scan date today; nil stays honest.
     case cachedMirror(scannedAt: Date?)
-    case liveLibrary(scannedAt: Date)
 }
 
 /// The Browse surface truth (ADR 0012): the scoped library index with

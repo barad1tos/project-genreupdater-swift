@@ -5,19 +5,16 @@ import Testing
 
 @Suite("Analytics instrumentation")
 struct AnalyticsBoundaryTests {
-    @Test("MusicKit snapshot loading records one successful fetch without changing its result")
-    func musicKitFetch() async throws {
+    @Test("A measured catalog load records one successful fetch without changing its result")
+    func measuredCatalogLoad() async throws {
         let analytics = InstrumentationAnalytics()
-        let expected = LibraryReadSnapshot(
-            tracks: [instrumentationTrack(id: "T1")],
-            scannedAt: Date(timeIntervalSince1970: 1_700_000_000)
-        )
-        let provider = MeasuredLibraryProvider(
-            base: AnalyticsLibraryProvider(snapshot: expected),
+        let expected = CatalogSnapshot(tracks: [instrumentationCatalogTrack(id: "T1")])
+        let catalog = MeasuredMusicCatalog(
+            base: AnalyticsMusicCatalog(snapshot: expected),
             analytics: analytics
         )
 
-        let actual = try await provider.loadLibrarySnapshot(request: LibraryReadRequest())
+        let actual = try await catalog.loadCatalog(testArtists: [])
 
         #expect(actual == expected)
         #expect(await analytics.results == [
@@ -169,16 +166,43 @@ struct AnalyticsBoundaryTests {
     }
 }
 
-private actor AnalyticsLibraryProvider: LibraryReadProvider {
-    let snapshot: LibraryReadSnapshot
+private actor AnalyticsMusicCatalog: MusicCatalogReading {
+    let snapshot: CatalogSnapshot
 
-    init(snapshot: LibraryReadSnapshot) {
+    init(snapshot: CatalogSnapshot) {
         self.snapshot = snapshot
     }
 
-    func loadLibrarySnapshot(request _: LibraryReadRequest) async throws -> LibraryReadSnapshot {
+    var isAuthorized: Bool {
+        true
+    }
+
+    func requestAuthorization() async throws {
+        // This catalog test double is permanently authorized.
+    }
+
+    func loadCatalog(testArtists _: [String]) async throws -> CatalogSnapshot {
         snapshot
     }
+
+    func trackCount() async throws -> Int {
+        snapshot.tracks.count
+    }
+}
+
+private func instrumentationCatalogTrack(id: String) -> CatalogTrack {
+    guard let catalogID = CatalogTrackID(displayValue: id) else {
+        preconditionFailure("Invalid catalog ID")
+    }
+    return CatalogTrack(
+        id: catalogID,
+        title: "Track",
+        artist: "Artist",
+        album: "Album",
+        albumArtist: nil,
+        genres: [],
+        dates: CatalogDates(releaseYear: nil, dateAdded: nil)
+    )
 }
 
 private struct InstrumentationResult: Equatable, Sendable {

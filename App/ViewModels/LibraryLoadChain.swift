@@ -3,12 +3,16 @@ import Foundation
 import Services
 
 /// Library load failures surfaced by the backend load chain.
-enum LibraryLoadError: Equatable {
+enum LibraryLoadError: Error, Equatable, LocalizedError {
     case permissionDenied
     case restricted
+    case nonCanonicalMirror(trackID: String)
     case failed(String)
 
     static func make(from error: Error) -> Self {
+        if let libraryLoadError = error as? Self {
+            return libraryLoadError
+        }
         guard let musicLibraryError = error as? MusicLibraryError else {
             return .failed(error.localizedDescription)
         }
@@ -29,9 +33,15 @@ enum LibraryLoadError: Equatable {
             "Music library permission denied"
         case .restricted:
             "Music library access is restricted on this device"
+        case let .nonCanonicalMirror(trackID):
+            "Stored track \(trackID) lacks canonical Music database identity. Repair the library mirror before loading."
         case let .failed(message):
             message
         }
+    }
+
+    var errorDescription: String? {
+        message
     }
 }
 
@@ -79,7 +89,7 @@ extension AppDependencies {
         )
         guard libraryLoadGate.isCurrent(token) else { return }
 
-        guard let provider = LibraryTrackLoader.liveProvider(from: self) else {
+        guard let trackStore else {
             finishLibraryLoadIfCurrent(token)
             await republishActivityProjection()
             return
@@ -88,8 +98,8 @@ extension AppDependencies {
         isLibraryLoading = true
         await republishActivityProjection()
 
-        let shouldRepublish = await loadLiveLibrary(
-            provider: provider,
+        let shouldRepublish = await loadCurrentMirror(
+            store: trackStore,
             token: token,
             scopedArtists: scopedArtists,
             loadStart: loadStart,
@@ -99,8 +109,8 @@ extension AppDependencies {
         await republishActivityProjection()
     }
 
-    private func loadLiveLibrary(
-        provider: LibraryReadProvider,
+    private func loadCurrentMirror(
+        store: any TrackStateStore,
         token: UInt64,
         scopedArtists: [String],
         loadStart: ContinuousClock.Instant,
@@ -109,12 +119,16 @@ extension AppDependencies {
         defer { finishLibraryLoadIfCurrent(token) }
 
         do {
-            let liveLoad = try await LibraryTrackLoader.liveTracks(
-                provider: provider,
+            let mirrorLoad = try await LibraryTrackLoader.currentMirror(
+                store: store,
                 scopedArtists: scopedArtists
             )
-            await applyLiveLibraryLoad(
-                liveLoad,
+            if !mirrorLoad.isLibraryReadyForUpdates {
+                await recordLibraryLoad(startedAt: loadStart)
+                return libraryLoadGate.isCurrent(token)
+            }
+            await applyCurrentMirrorLoad(
+                mirrorLoad,
                 token: token,
                 scopedArtists: scopedArtists,
                 loadStart: loadStart
@@ -156,27 +170,27 @@ extension AppDependencies {
         return cachedLoad.hasTracks
     }
 
-    private func applyLiveLibraryLoad(
-        _ liveLoad: LibraryLiveTrackLoad,
+    private func applyCurrentMirrorLoad(
+        _ mirrorLoad: LibraryMirrorTrackLoad,
         token: UInt64,
         scopedArtists: [String],
         loadStart: ContinuousClock.Instant
     ) async {
         guard libraryLoadGate.isCurrent(token) else { return }
         await cacheLibraryLoad(
-            liveLoad.tracks,
+            mirrorLoad.tracks,
             scopedArtists: scopedArtists
         )
         guard libraryLoadGate.isCurrent(token) else { return }
-        isLibraryReadyForUpdates = liveLoad.isLibraryReadyForUpdates
-        libraryTracks = liveLoad.tracks
-        await applyBrowseTruthForLoad?(liveLoad.tracks, .liveLibrary(scannedAt: liveLoad.scanDate), token)
+        isLibraryReadyForUpdates = mirrorLoad.isLibraryReadyForUpdates
+        libraryTracks = mirrorLoad.tracks
+        await applyBrowseTruthForLoad?(mirrorLoad.tracks, .cachedMirror(scannedAt: nil), token)
         guard libraryLoadGate.isCurrent(token) else { return }
-        let upsertedMetrics = await metricsSnapshotStore?.upsert(from: liveLoad.tracks)
+        let upsertedMetrics = await metricsSnapshotStore?.upsert(from: mirrorLoad.tracks)
         guard libraryLoadGate.isCurrent(token) else { return }
-        lastLibraryScanDate = liveLoad.scanDate
+        lastLibraryScanDate = nil
         libraryMetrics = upsertedMetrics
-        onLibraryLoadApplied?(liveLoad.tracks)
+        onLibraryLoadApplied?(mirrorLoad.tracks)
         await recordLibraryLoad(startedAt: loadStart)
     }
 

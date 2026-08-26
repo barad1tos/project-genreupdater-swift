@@ -49,16 +49,18 @@ struct UpdateTrackScope: Sendable {
 enum UpdateTrackScopeResolver {
     static func tracksForWorkflow(
         libraryTracks: [Track],
-        testArtists: [String] = []
+        testArtists: [String],
+        isLibraryReadyForUpdates: Bool
     ) -> [Track] {
-        filteredByTestArtists(libraryTracks, testArtists: testArtists)
+        guard isLibraryReadyForUpdates else { return [] }
+        return filteredByTestArtists(libraryTracks, testArtists: testArtists)
     }
 
     static func filteredByTestArtists(
         _ tracks: [Track],
         testArtists: [String]
     ) -> [Track] {
-        MusicLibraryReader.filterByTestArtists(tracks, testArtists: testArtists)
+        ArtistAllowList.filter(tracks, allowedArtists: testArtists)
     }
 
     static func incrementalTracks(
