@@ -4,12 +4,14 @@ import Services
 
 extension TrackStateStore {
     func seedMirror(_ tracks: [Track]) async throws {
+        let revision = try await loadMirrorSnapshot().revision
         let canonicalTracks = tracks.map { track in
             var canonical = track
             canonical.appleScriptID = canonical.id
             return canonical
         }
         try await applyMirror(TrackMirrorUpdate(
+            baseRevision: revision,
             coverageChange: .replace(.fullLibrary),
             repairs: [],
             upserts: canonicalTracks,
@@ -222,11 +224,13 @@ actor DashboardStateTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(tracks: [], coverage: .unknown)
+        TrackMirrorSnapshot(revision: .initial, tracks: [], coverage: .unknown)
     }
 
-    func applyMirror(_: TrackMirrorUpdate) async throws {
+    @discardableResult
+    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
         // These tests do not assert persisted track state.
+        try update.baseRevision.advanced()
     }
 
     func getTrack(byID _: String) async throws -> Track? {

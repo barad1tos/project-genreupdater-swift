@@ -31,9 +31,7 @@ public struct PathsConfig: Sendable, Codable {
         case legacyApiCacheFile = "api_cache_file"
     }
 
-    public init() {
-        // Defaults are declared inline on each property.
-    }
+    public init() {}
 
     public init(from decoder: any Decoder) throws {
         let defaults = Self()
@@ -56,9 +54,7 @@ public struct PathsConfig: Sendable, Codable {
 public struct PythonSettingsConfig: Sendable, Codable {
     public var preventBytecode: Bool = true
 
-    public init() {
-        // Defaults are declared inline on each property.
-    }
+    public init() {}
 }
 
 /// The automation strategy is a domain value, not a boolean (ADR 0003):
@@ -126,6 +122,35 @@ public struct RuntimeConfig: Sendable, Codable {
         maxRetries = try container.decodeIfPresent(Int.self, forKey: .maxRetries) ?? 3
         retryDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .retryDelaySeconds) ?? 1
         maxGenericEntries = try container.decodeIfPresent(Int.self, forKey: .maxGenericEntries) ?? 10000
+    }
+}
+
+/// Retry policy for optimistic mirror commits owned by library synchronization.
+public struct LibrarySyncConfig: Sendable, Codable, Equatable {
+    public var conflictRetries: Int = Defaults.conflictRetries
+    public var conflictDelaySeconds: Double = Defaults.conflictDelaySeconds
+
+    private enum Defaults {
+        static let conflictRetries = 3
+        static let conflictDelaySeconds = 0.1
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case conflictRetries, conflictDelaySeconds
+    }
+
+    public init() {
+        // Defaults are declared inline on each property.
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        conflictRetries = try container.decodeIfPresent(Int.self, forKey: .conflictRetries)
+            ?? Defaults.conflictRetries
+        conflictDelaySeconds = try container.decodeIfPresent(
+            Double.self,
+            forKey: .conflictDelaySeconds
+        ) ?? Defaults.conflictDelaySeconds
     }
 }
 

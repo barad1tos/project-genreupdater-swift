@@ -26,7 +26,15 @@ extension AppDependencies {
     }
 
     func applyRuntimeConfigurationAndWait() async {
-        let handoff = applyRuntimeConfigurationHead()
+        let handoff: RuntimeApplyHandoff
+        do {
+            handoff = try applyRuntimeConfigurationHead()
+        } catch {
+            let message = "Failed to apply runtime configuration: \(error.localizedDescription)"
+            log.error("\(message, privacy: .public)")
+            reportRuntimeError(message)
+            return
+        }
         await applyRuntimeConfigurationTail(handoff)
         // The head rebuilt the tracker; the chrome cache must follow (D6).
         await refreshIncrementalRunTimestamp()

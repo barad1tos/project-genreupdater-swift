@@ -114,10 +114,12 @@ private actor LoaderTrackStore: TrackStateStore {
         tracks
     }
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(tracks: tracks, coverage: coverage)
+        TrackMirrorSnapshot(revision: .initial, tracks: tracks, coverage: coverage)
     }
-    func applyMirror(_: TrackMirrorUpdate) async throws {
+    @discardableResult
+    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
         // Loader tests exercise reads only, so mirror writes are intentionally inert.
+        try update.baseRevision.advanced()
     }
     func getTrack(byID _: String) async throws -> Track? {
         nil

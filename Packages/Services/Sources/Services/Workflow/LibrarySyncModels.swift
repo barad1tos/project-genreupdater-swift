@@ -63,6 +63,52 @@ public struct DatabaseVerificationResult: Sendable, Equatable {
     }
 }
 
+/// Retry policy for optimistic mirror commits.
+public struct MirrorRetryPolicy: Sendable, Equatable {
+    public static let defaults: Self = {
+        let configuration = LibrarySyncConfig()
+        return Self(
+            retryLimit: configuration.conflictRetries,
+            delay: .seconds(configuration.conflictDelaySeconds)
+        )
+    }()
+
+    public let retryLimit: Int
+    public let delay: Duration
+
+    public init(retryLimit: Int, delay: Duration) {
+        self.retryLimit = max(0, retryLimit)
+        self.delay = max(.zero, delay)
+    }
+
+    public init(configuration: LibrarySyncConfig) throws {
+        let delaySeconds = configuration.conflictDelaySeconds
+        let roundedMilliseconds = (delaySeconds * 1000).rounded()
+        guard delaySeconds.isFinite,
+              delaySeconds >= 0,
+              roundedMilliseconds.isFinite,
+              let delayMilliseconds = Int64(exactly: roundedMilliseconds)
+        else {
+            throw MirrorRetryPolicyError.invalidDelay(seconds: delaySeconds)
+        }
+        self.init(
+            retryLimit: configuration.conflictRetries,
+            delay: .milliseconds(delayMilliseconds)
+        )
+    }
+}
+
+enum MirrorRetryPolicyError: LocalizedError, Sendable {
+    case invalidDelay(seconds: Double)
+
+    var errorDescription: String? {
+        switch self {
+        case let .invalidDelay(seconds):
+            "Library sync conflict delay cannot be represented safely: \(seconds) seconds."
+        }
+    }
+}
+
 /// Runtime policy for library sync scope, refresh cadence, and verification logs.
 public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
     public let databaseVerificationIntervalDays: Int
@@ -70,6 +116,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
     public let logsBaseDirectory: String
     public let lastDatabaseVerifyLog: String
     public let testArtists: [String]
+    public let mirrorRetryPolicy: MirrorRetryPolicy
     /// A preview's album target: every load path narrows through the
     /// read request's admission predicate when this is set.
     public let albumTargetIdentity: AlbumIdentity?
@@ -80,6 +127,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         logsBaseDirectory: String = PathsConfig().logsBaseDirectory,
         lastDatabaseVerifyLog: String = LoggingConfig().lastDatabaseVerifyLog,
         testArtists: [String] = [],
+        mirrorRetryPolicy: MirrorRetryPolicy = .defaults,
         albumTargetIdentity: AlbumIdentity? = nil
     ) {
         self.databaseVerificationIntervalDays = max(0, databaseVerificationIntervalDays)
@@ -87,15 +135,17 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         self.logsBaseDirectory = logsBaseDirectory
         self.lastDatabaseVerifyLog = lastDatabaseVerifyLog
         self.testArtists = ArtistAllowList.normalized(testArtists)
+        self.mirrorRetryPolicy = mirrorRetryPolicy
         self.albumTargetIdentity = albumTargetIdentity
     }
 
-    public init(configuration: AppConfiguration, albumTargetIdentity: AlbumIdentity? = nil) {
-        self.init(
+    public init(configuration: AppConfiguration, albumTargetIdentity: AlbumIdentity? = nil) throws {
+        try self.init(
             databaseVerificationIntervalDays: configuration.databaseVerification.autoVerifyDays,
             logsBaseDirectory: configuration.paths.effectiveLogsBaseDirectory,
             lastDatabaseVerifyLog: configuration.logging.lastDatabaseVerifyLog,
             testArtists: configuration.development.testArtists,
+            mirrorRetryPolicy: MirrorRetryPolicy(configuration: configuration.librarySync),
             albumTargetIdentity: albumTargetIdentity
         )
     }

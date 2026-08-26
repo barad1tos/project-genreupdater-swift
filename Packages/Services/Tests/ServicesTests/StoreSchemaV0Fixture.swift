@@ -1,0 +1,192 @@
+import Foundation
+import SwiftData
+@testable import Services
+
+enum StoreSchemaV0Fixture {
+    static func write(to storeURL: URL) throws {
+        let schema = Schema(versionedSchema: StoreSchemaV0.self)
+        let configuration = ModelConfiguration(
+            "GenreUpdater",
+            schema: schema,
+            url: storeURL,
+            allowsSave: true,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = ModelContext(container)
+        let track = fixtureTrack()
+        let change = fixtureChange(track: track)
+        track.changeLog = [change]
+
+        context.insert(track)
+        context.insert(change)
+        context.insert(fixtureMetrics())
+        context.insert(fixturePendingAlbum())
+        context.insert(StoreSchemaV1.PersistedPendingVerificationMetadata(lastAutoVerification: timestamp))
+        insertRunState(into: context)
+        insertFixPlan(into: context)
+        try context.save()
+    }
+
+    private static let runID = identifier("00000000-0000-0000-0000-000000000001")
+    private static let workItemID = identifier("00000000-0000-0000-0000-000000000002")
+    private static let planID = identifier("00000000-0000-0000-0000-000000000003")
+    private static let changeID = identifier("00000000-0000-0000-0000-000000000004")
+    private static let requestID = identifier("00000000-0000-0000-0000-000000000005")
+    private static let recoveryID = identifier("00000000-0000-0000-0000-000000000006")
+    private static let priorRunID = identifier("00000000-0000-0000-0000-000000000007")
+    private static let timestamp = Date(timeIntervalSince1970: 1_800_000_000)
+    private static let payload = Data("migration-sentinel".utf8)
+
+    private static func insertRunState(into context: ModelContext) {
+        context.insert(fixtureRun())
+        context.insert(StoreSchemaV1.PersistedRunWorkItem(
+            key: "work-sentinel",
+            runID: runID,
+            itemID: workItemID,
+            position: 7,
+            itemData: payload
+        ))
+        let report = StoreSchemaV1.PersistedRunReportItem(
+            key: "report-sentinel",
+            runID: runID,
+            itemID: workItemID,
+            position: 7,
+            timestamp: timestamp,
+            data: payload
+        )
+        report.artist = "Report Artist"
+        report.album = "Report Album"
+        report.trackName = "Report Track"
+        report.targetKindRaw = "track"
+        context.insert(report)
+    }
+
+    private static func insertFixPlan(into context: ModelContext) {
+        context.insert(StoreSchemaV1.PersistedFixPlan(
+            planID: planID,
+            sourceRunID: runID,
+            timestamp: timestamp,
+            data: payload
+        ))
+        context.insert(StoreSchemaV1.PersistedFixPlanDecision(
+            planID: planID,
+            timestamp: timestamp,
+            data: payload
+        ))
+    }
+
+    private static func fixtureTrack() -> StoreSchemaV1.PersistedTrack {
+        let track = StoreSchemaV1.PersistedTrack(
+            trackID: "track-sentinel",
+            name: "Migration Track",
+            artist: "Migration Artist",
+            album: "Migration Album"
+        )
+        track.appleScriptID = "track-sentinel"
+        track.genre = "Migration Genre"
+        track.year = 2026
+        track.genreUpdated = true
+        track.yearUpdated = true
+        track.processedDate = timestamp
+        track.lastError = "migration-error-sentinel"
+        track.dateAdded = timestamp
+        track.albumArtist = "Migration Album Artist"
+        track.trackStatus = "local"
+        track.originalArtist = "Original Artist"
+        track.originalAlbum = "Original Album"
+        track.yearBeforeMGU = 2025
+        track.yearSetByMGU = 2026
+        track.releaseYear = 2024
+        return track
+    }
+
+    private static func fixtureChange(
+        track: StoreSchemaV1.PersistedTrack
+    ) -> StoreSchemaV1.PersistedChangeLogEntry {
+        let change = StoreSchemaV1.PersistedChangeLogEntry(
+            entryID: changeID,
+            timestamp: timestamp,
+            trackID: track.trackID,
+            track: track
+        )
+        change.changeTypeRaw = "artistRename"
+        change.artist = "Migration Artist"
+        change.trackName = "Migration Track"
+        change.albumName = "Migration Album"
+        change.oldGenre = "Old Genre"
+        change.newGenre = "Migration Genre"
+        change.oldYear = 2025
+        change.newYear = 2026
+        change.oldTrackName = "Old Track"
+        change.newTrackName = "Migration Track"
+        change.oldAlbumName = "Old Album"
+        change.newAlbumName = "Migration Album"
+        change.oldArtist = "Original Artist"
+        change.newArtist = "Migration Artist"
+        change.oldAlbumArtist = "Original Album Artist"
+        change.newAlbumArtist = "Migration Album Artist"
+        change.runID = runID
+        return change
+    }
+
+    private static func fixtureMetrics() -> StoreSchemaV1.PersistedMetricsSnapshot {
+        let metrics = StoreSchemaV1.PersistedMetricsSnapshot(totalTracks: 11, timestamp: timestamp)
+        metrics.tracksWithGenre = 10
+        metrics.tracksWithYear = 9
+        metrics.tracksWithBoth = 8
+        metrics.tracksNeedingGenre = 1
+        metrics.tracksNeedingYear = 2
+        metrics.protectedFileCount = 3
+        metrics.recentlyAdded = 4
+        metrics.previousTotalTracks = 7
+        metrics.previousTracksNeedingGenre = 6
+        metrics.previousTracksNeedingYear = 5
+        metrics.previousRecentlyAdded = 4
+        return metrics
+    }
+
+    private static func fixturePendingAlbum() -> StoreSchemaV1.PersistedPendingAlbumEntry {
+        let pending = StoreSchemaV1.PersistedPendingAlbumEntry(
+            entryID: "pending-sentinel",
+            timestamp: timestamp
+        )
+        pending.artist = "Pending Artist"
+        pending.album = "Pending Album"
+        pending.reason = "prerelease"
+        pending.attemptCount = 3
+        pending.recheckInterval = 86400
+        pending.metadataData = payload
+        return pending
+    }
+
+    private static func fixtureRun() -> StoreSchemaV1.PersistedRunRecord {
+        let run = StoreSchemaV1.PersistedRunRecord(
+            runID: runID,
+            data: payload,
+            timestamp: timestamp
+        )
+        run.requestID = requestID
+        run.triggerRaw = "manualRun"
+        run.intentRaw = "write"
+        run.stateRaw = "failed"
+        run.writeAuthorityRaw = "approved"
+        run.recoveryID = recoveryID
+        run.continuesRunID = priorRunID
+        run.syncNewCount = 1
+        run.syncModifiedCount = 2
+        run.syncIdentityChangedCount = 3
+        run.syncRefreshedCount = 4
+        run.syncRemovedCount = 5
+        run.failureMessage = "migration-failure-sentinel"
+        run.finishedAt = timestamp
+        return run
+    }
+
+    private static func identifier(_ value: String) -> UUID {
+        guard let identifier = UUID(uuidString: value) else {
+            preconditionFailure("Invalid synthetic migration fixture UUID")
+        }
+        return identifier
+    }
+}

@@ -207,8 +207,10 @@ struct TrackDataTests {
         ])
         let deletedID = try databaseID("2")
         let missingID = try databaseID("missing")
+        let revision = try await store.loadMirrorSnapshot().revision
 
         try await store.applyMirror(TrackMirrorUpdate(
+            baseRevision: revision,
             coverageChange: .preserve,
             repairs: [],
             upserts: [],
@@ -218,6 +220,46 @@ struct TrackDataTests {
         let remainingIDs = remainingTracks.map(\.id).sorted()
 
         #expect(remainingIDs == ["1", "3"])
+    }
+
+    @Test("Mirror compare-and-swap rejects a stale base without partial rows")
+    func mirrorCompareAndSwapRejectsStaleBase() async throws {
+        let store = try makeStore()
+        try await store.initialize()
+        var acceptedTrack = sampleTrack(id: "accepted")
+        acceptedTrack.appleScriptID = acceptedTrack.id
+        var rejectedTrack = sampleTrack(id: "rejected")
+        rejectedTrack.appleScriptID = rejectedTrack.id
+
+        let committedRevision = try await store.applyMirror(TrackMirrorUpdate(
+            baseRevision: .initial,
+            coverageChange: .replace(.fullLibrary),
+            repairs: [],
+            upserts: [acceptedTrack],
+            deletions: []
+        ))
+
+        #expect(committedRevision == MirrorRevision(value: 1))
+        do {
+            _ = try await store.applyMirror(TrackMirrorUpdate(
+                baseRevision: .initial,
+                coverageChange: .invalidate,
+                repairs: [],
+                upserts: [rejectedTrack],
+                deletions: []
+            ))
+            Issue.record("A stale mirror update unexpectedly committed")
+        } catch let conflict as MirrorRevisionConflict {
+            #expect(conflict == MirrorRevisionConflict(
+                expected: .initial,
+                actual: MirrorRevision(value: 1)
+            ))
+        }
+
+        let snapshot = try await store.loadMirrorSnapshot()
+        #expect(snapshot.revision == MirrorRevision(value: 1))
+        #expect(snapshot.coverage == .verified(.fullLibrary))
+        #expect(snapshot.tracks.map(\.id) == ["accepted"])
     }
 
     // MARK: - Upsert

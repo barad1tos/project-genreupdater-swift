@@ -35,6 +35,7 @@ public actor TrackDataStore: TrackStateStore {
         let tracks = try fetchAllTracks()
         let state = try fetchMirrorState()
         return try TrackMirrorSnapshot(
+            revision: state?.revision ?? .initial,
             tracks: tracks,
             coverage: state?.coverage() ?? .unknown
         )
@@ -72,14 +73,24 @@ public actor TrackDataStore: TrackStateStore {
 
     // MARK: - Write Operations
 
-    public func applyMirror(_ update: TrackMirrorUpdate) async throws {
-        let plan = try Self.validate(update)
-        let currentTracks = try modelContext.fetch(FetchDescriptor<PersistedTrack>())
-        try Self.validateStored(plan, tracks: currentTracks)
-
+    @discardableResult
+    public func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
         var deletedCount = 0
+        var committedRevision = update.baseRevision
         do {
             try modelContext.transaction {
+                let mirrorState: PersistedMirrorState
+                if let storedMirrorState = try fetchMirrorState() {
+                    mirrorState = storedMirrorState
+                } else {
+                    let newMirrorState = PersistedMirrorState()
+                    modelContext.insert(newMirrorState)
+                    mirrorState = newMirrorState
+                }
+                guard mirrorState.revision == update.baseRevision else {
+                    throw MirrorRevisionConflict(expected: update.baseRevision, actual: mirrorState.revision)
+                }
+
                 let transactionPlan = try Self.validate(update)
                 let storedTracks = try modelContext.fetch(FetchDescriptor<PersistedTrack>())
                 let storedState = try Self.validateStored(transactionPlan, tracks: storedTracks)
@@ -103,15 +114,8 @@ public actor TrackDataStore: TrackStateStore {
                     deletedCount += 1
                 }
 
-                let mirrorState: PersistedMirrorState
-                if let storedMirrorState = try fetchMirrorState() {
-                    mirrorState = storedMirrorState
-                } else {
-                    let newMirrorState = PersistedMirrorState()
-                    modelContext.insert(newMirrorState)
-                    mirrorState = newMirrorState
-                }
                 try mirrorState.apply(update.coverageChange)
+                committedRevision = try mirrorState.advanceRevision()
             }
         } catch {
             modelContext.rollback()
@@ -123,6 +127,7 @@ public actor TrackDataStore: TrackStateStore {
             .info(
                 "Applied mirror upserts: \(update.upserts.count, privacy: .public); deletions: \(deletedCount, privacy: .public)"
             )
+        return committedRevision
     }
 
     public func persistAppliedChange(_ change: ChangeLogEntry) async throws {

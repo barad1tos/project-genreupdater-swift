@@ -206,12 +206,14 @@ actor PendingRecorder: PendingVerificationService {
 
 extension TrackStateStore {
     func seedMirror(_ tracks: [Track]) async throws {
+        let revision = try await loadMirrorSnapshot().revision
         let canonicalTracks = tracks.map { track in
             var canonical = track
             canonical.appleScriptID = canonical.id
             return canonical
         }
         try await applyMirror(TrackMirrorUpdate(
+            baseRevision: revision,
             coverageChange: .replace(.fullLibrary),
             repairs: [],
             upserts: canonicalTracks,
@@ -229,10 +231,15 @@ struct AppliedTrackUpdate {
 actor MockTrackStore: TrackStateStore {
     var tracks: [Track] = []
     private var coverage = MirrorCoverage.unknown
+    private var revision: MirrorRevision
     private(set) var appliedUpdates: [AppliedTrackUpdate] = []
     private var shouldCancelReads = false
     private var shouldFailMirror = false
     private var appliedUpdateHook: (@Sendable () throws -> Void)?
+
+    init(revision: MirrorRevision = .initial) {
+        self.revision = revision
+    }
 
     func failAppliedUpdates() {
         shouldFailMirror = true
@@ -257,10 +264,15 @@ actor MockTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(tracks: tracks, coverage: coverage)
+        TrackMirrorSnapshot(revision: revision, tracks: tracks, coverage: coverage)
     }
 
-    func applyMirror(_ update: TrackMirrorUpdate) async throws {
+    @discardableResult
+    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+        guard update.baseRevision == revision else {
+            throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
+        }
+        let nextRevision = try revision.advanced()
         coverage = coverage.applying(update.coverageChange)
         let deletionIDs = Set(update.deletions.map(\.rawValue))
         tracks.removeAll { deletionIDs.contains($0.id) }
@@ -271,6 +283,8 @@ actor MockTrackStore: TrackStateStore {
                 tracks.append(track)
             }
         }
+        revision = nextRevision
+        return revision
     }
 
     func getTrack(byID id: String) async throws -> Track? {

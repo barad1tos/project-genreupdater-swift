@@ -1,3 +1,4 @@
+import Core
 import Testing
 @testable import Services
 
@@ -23,6 +24,29 @@ struct TestHelpersTests {
         await #expect(throws: CancellationError.self) {
             _ = try await task.value
         }
+    }
+
+    @Test("Mirror revision exhaustion leaves the in-memory store unchanged")
+    func mirrorRevisionExhaustionIsAtomic() async throws {
+        let store = MockTrackStore(revision: MirrorRevision(value: .max))
+        let update = TrackMirrorUpdate(
+            baseRevision: MirrorRevision(value: .max),
+            coverageChange: .replace(.fullLibrary),
+            repairs: [],
+            upserts: [Track(id: "new-track", name: "New", artist: "Artist", album: "Album")],
+            deletions: []
+        )
+        let before = try await store.loadMirrorSnapshot()
+
+        do {
+            _ = try await store.applyMirror(update)
+            Issue.record("A mirror commit must fail when its revision is exhausted")
+        } catch {
+            #expect(error.localizedDescription == "Mirror revision exhausted at \(UInt64.max).")
+        }
+
+        let after = try await store.loadMirrorSnapshot()
+        #expect(after == before)
     }
 }
 

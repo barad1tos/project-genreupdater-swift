@@ -14,6 +14,7 @@ struct LibraryPersistenceFixture {
 actor MirrorTrackStoreStub: TrackStateStore {
     private var tracks: [Track]
     private var coverage: MirrorCoverage
+    private var revision = MirrorRevision.initial
     private let beforeLoad: (@Sendable () async throws -> Void)?
 
     init(
@@ -37,12 +38,19 @@ actor MirrorTrackStoreStub: TrackStateStore {
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try await beforeLoad?()
-        return TrackMirrorSnapshot(tracks: tracks, coverage: coverage)
+        return TrackMirrorSnapshot(revision: revision, tracks: tracks, coverage: coverage)
     }
 
-    func applyMirror(_ update: TrackMirrorUpdate) async throws {
+    @discardableResult
+    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+        guard update.baseRevision == revision else {
+            throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
+        }
+        let nextRevision = try revision.advanced()
         tracks.append(contentsOf: update.upserts)
         coverage = coverage.applying(update.coverageChange)
+        revision = nextRevision
+        return revision
     }
 
     func getTrack(byID id: String) async throws -> Track? {

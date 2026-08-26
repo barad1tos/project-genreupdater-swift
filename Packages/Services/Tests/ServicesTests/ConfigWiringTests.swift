@@ -56,6 +56,33 @@ struct ConfigWiringTests {
         #expect(restrictedScope.adaptiveDelay == false)
     }
 
+    @Test("Library sync retry policy follows its dedicated configuration")
+    func mapsSyncRetry() throws {
+        var configuration = AppConfiguration()
+        configuration.librarySync.conflictRetries = 4
+        configuration.librarySync.conflictDelaySeconds = 0.25
+
+        let runtimeConfiguration = try LibrarySyncRuntimeConfiguration(configuration: configuration)
+
+        #expect(runtimeConfiguration.mirrorRetryPolicy == MirrorRetryPolicy(
+            retryLimit: 4,
+            delay: .milliseconds(250)
+        ))
+    }
+
+    @Test(
+        "Library sync retry policy rejects unsafe programmatic delays",
+        arguments: [-0.1, Double.nan, Double.infinity, 1e308]
+    )
+    func rejectsUnsafeSyncDelay(delaySeconds: Double) {
+        var configuration = AppConfiguration()
+        configuration.librarySync.conflictDelaySeconds = delaySeconds
+
+        #expect(throws: MirrorRetryPolicyError.self) {
+            try LibrarySyncRuntimeConfiguration(configuration: configuration)
+        }
+    }
+
     @Test("Python-era configuration keys feed runtime configuration owners")
     func pythonEraConfigurationKeysFeedRuntimeConfigurationOwners() throws {
         let jsonString = """
@@ -102,7 +129,7 @@ struct ConfigWiringTests {
         #expect(updateRuntime.prereleaseRecheckDays == 10)
         #expect(updateRuntime.idsBatchSize == 22)
 
-        let syncRuntime = LibrarySyncRuntimeConfiguration(configuration: configuration)
+        let syncRuntime = try LibrarySyncRuntimeConfiguration(configuration: configuration)
         #expect(syncRuntime.testArtists == ["Паліндром"])
 
         let sourcePriority = APISourcePriorityConfiguration(configuration: configuration)

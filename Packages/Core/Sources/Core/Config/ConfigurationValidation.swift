@@ -106,6 +106,20 @@ extension AppConfiguration {
             runtime.retryDelaySeconds,
             path: "runtime.retryDelaySeconds"
         )
+        validation.requireAtLeast(
+            librarySync.conflictRetries,
+            minimum: 0,
+            path: "librarySync.conflictRetries"
+        )
+        validation.requireAtLeast(
+            librarySync.conflictDelaySeconds,
+            minimum: 0,
+            path: "librarySync.conflictDelaySeconds"
+        )
+        validation.requireMillisecondCapacity(
+            librarySync.conflictDelaySeconds,
+            path: "librarySync.conflictDelaySeconds"
+        )
         validation.requireAtLeast(runtime.maxGenericEntries, minimum: 1, path: "runtime.maxGenericEntries")
         validation.requireAtLeast(experimental.maxBatchSize, minimum: 1, path: "experimental.maxBatchSize")
         validation.requireAtLeast(

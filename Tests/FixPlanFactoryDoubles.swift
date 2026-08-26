@@ -121,11 +121,13 @@ actor FactoryTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(tracks: [], coverage: .unknown)
+        TrackMirrorSnapshot(revision: .initial, tracks: [], coverage: .unknown)
     }
 
-    func applyMirror(_: TrackMirrorUpdate) async throws {
+    @discardableResult
+    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
         // Factory tests do not persist track state.
+        try update.baseRevision.advanced()
     }
 
     func getTrack(byID _: String) async throws -> Track? {

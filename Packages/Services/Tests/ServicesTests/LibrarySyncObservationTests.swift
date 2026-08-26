@@ -616,6 +616,7 @@ private actor ObservationMirrorStore: TrackStateStore {
     private(set) var stored: [Track]
     private(set) var applyCalls: [ApplyCall] = []
     private let applyError: SyncObservationTestError?
+    private var revision = MirrorRevision.initial
 
     init(
         stored: [Track],
@@ -634,14 +635,19 @@ private actor ObservationMirrorStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(tracks: stored, coverage: .verified(.fullLibrary))
+        TrackMirrorSnapshot(revision: revision, tracks: stored, coverage: .verified(.fullLibrary))
     }
 
-    func applyMirror(_ update: TrackMirrorUpdate) async throws {
+    @discardableResult
+    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
         applyCalls.append(ApplyCall(upserting: update.upserts, deleting: update.deletions))
         if let applyError {
             throw applyError
         }
+        guard update.baseRevision == revision else {
+            throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
+        }
+        let nextRevision = try revision.advanced()
 
         let deletedValues = Set(update.deletions.map(\.rawValue))
         stored.removeAll { deletedValues.contains($0.id) }
@@ -653,6 +659,8 @@ private actor ObservationMirrorStore: TrackStateStore {
             }
         }
         stored.sort { $0.id < $1.id }
+        revision = nextRevision
+        return revision
     }
 
     func getTrack(byID id: String) async throws -> Track? {

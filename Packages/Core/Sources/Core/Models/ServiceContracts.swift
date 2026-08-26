@@ -154,17 +154,20 @@ public enum MirrorCoverageChange: Equatable, Sendable {
 
 /// One coherent mutation of the persisted Music library mirror.
 public struct TrackMirrorUpdate: Sendable {
+    public let baseRevision: MirrorRevision
     public let coverageChange: MirrorCoverageChange
     public let repairs: [TrackMirrorRepair]
     public let upserts: [Track]
     public let deletions: [MusicDatabaseTrackID]
 
     public init(
+        baseRevision: MirrorRevision,
         coverageChange: MirrorCoverageChange,
         repairs: [TrackMirrorRepair],
         upserts: [Track],
         deletions: [MusicDatabaseTrackID]
     ) {
+        self.baseRevision = baseRevision
         self.coverageChange = coverageChange
         self.repairs = repairs
         self.upserts = upserts
@@ -174,10 +177,12 @@ public struct TrackMirrorUpdate: Sendable {
 
 /// One coherent read of persisted mirror rows and their verified scope evidence.
 public struct TrackMirrorSnapshot: Equatable, Sendable {
+    public let revision: MirrorRevision
     public let tracks: [Track]
     public let coverage: MirrorCoverage
 
-    public init(tracks: [Track], coverage: MirrorCoverage) {
+    public init(revision: MirrorRevision, tracks: [Track], coverage: MirrorCoverage) {
+        self.revision = revision
         self.tracks = tracks
         self.coverage = coverage
     }
@@ -189,7 +194,8 @@ public protocol TrackStateStore: Actor {
     func loadAllTracks() async throws -> [Track]
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot
     /// Atomically applies one coherent metadata-mirror update.
-    func applyMirror(_ update: TrackMirrorUpdate) async throws
+    @discardableResult
+    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision
     func getTrack(byID id: String) async throws -> Track?
     /// Atomically persists metadata and processing flags for a change keyed by
     /// the canonical Music.app database ID. Legacy read IDs are migration input,

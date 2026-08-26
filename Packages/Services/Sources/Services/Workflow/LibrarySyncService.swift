@@ -57,8 +57,14 @@ public actor LibrarySyncService {
     }
 
     public func verifyAndCleanDatabase(force: Bool = false) async throws -> DatabaseVerificationResult {
-        let allStoredTracks = try await trackStore.loadAllTracks()
-        let storedTracks = tracksInConfiguredScope(allStoredTracks)
+        try await retryingMirrorConflicts {
+            try await verificationAttempt(force: force)
+        }
+    }
+
+    private func verificationAttempt(force: Bool) async throws -> DatabaseVerificationResult {
+        let snapshot = try await trackStore.loadMirrorSnapshot()
+        let storedTracks = tracksInConfiguredScope(snapshot.tracks)
         guard !storedTracks.isEmpty else {
             return DatabaseVerificationResult(verifiedTrackCount: 0, removedTrackIDs: [])
         }
@@ -99,7 +105,7 @@ public actor LibrarySyncService {
             .subtracting(observation.censusIDs)
             .sorted { $0.rawValue < $1.rawValue }
         if !removedDatabaseIDs.isEmpty {
-            try await applyMirrorDeletions(removedDatabaseIDs)
+            try await applyMirrorDeletions(removedDatabaseIDs, baseRevision: snapshot.revision)
         }
         let removedIDSet = Set(removedDatabaseIDs)
         let removedTracks = storedTracks.filter { track in
@@ -122,8 +128,12 @@ public actor LibrarySyncService {
         )
     }
 
-    private func applyMirrorDeletions(_ ids: [MusicDatabaseTrackID]) async throws {
+    private func applyMirrorDeletions(
+        _ ids: [MusicDatabaseTrackID],
+        baseRevision: MirrorRevision
+    ) async throws {
         try await trackStore.applyMirror(TrackMirrorUpdate(
+            baseRevision: baseRevision,
             coverageChange: .preserve,
             repairs: [],
             upserts: [],
@@ -134,9 +144,33 @@ public actor LibrarySyncService {
     /// Detect and persist Music.app library changes in the local store.
     @discardableResult
     public func synchronizeNow(forceMetadataRefresh: Bool = false) async throws -> SyncResult {
+        try await retryingMirrorConflicts {
+            try await synchronizeAttempt(forceMetadataRefresh: forceMetadataRefresh)
+        }
+    }
+
+    private func retryingMirrorConflicts<Result: Sendable>(
+        _ operation: () async throws -> Result
+    ) async throws -> Result {
+        var conflictCount = 0
+        while true {
+            do {
+                return try await operation()
+            } catch let conflict as MirrorRevisionConflict {
+                guard conflictCount < runtimeConfiguration.mirrorRetryPolicy.retryLimit else {
+                    throw conflict
+                }
+                conflictCount += 1
+                try await Task.sleep(for: runtimeConfiguration.mirrorRetryPolicy.delay)
+            }
+        }
+    }
+
+    private func synchronizeAttempt(forceMetadataRefresh: Bool) async throws -> SyncResult {
         let detection = try await detectObservation(forceMetadataRefresh: forceMetadataRefresh)
         let result = detection.result
         try await trackStore.applyMirror(TrackMirrorUpdate(
+            baseRevision: detection.baseRevision,
             coverageChange: detection.coverageChange,
             repairs: detection.repairs,
             upserts: detection.upserts,

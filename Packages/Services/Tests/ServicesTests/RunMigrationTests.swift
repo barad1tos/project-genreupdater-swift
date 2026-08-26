@@ -12,14 +12,7 @@ struct RunMigrationTests {
         try copyLegacyStore(to: storeURL)
 
         do {
-            let currentSchema = ModelContainerFactory.makeSchema()
-            let currentConfig = ModelConfiguration(
-                "GenreUpdaterTrackMigration",
-                schema: currentSchema,
-                url: storeURL,
-                cloudKitDatabase: .none
-            )
-            let currentContainer = try ModelContainer(for: currentSchema, configurations: [currentConfig])
+            let currentContainer = try openProductionContainer(at: storeURL)
             let trackStore = TrackDataStore(modelContainer: currentContainer)
             let changeLogStore = ChangeLogDataStore(modelContainer: currentContainer)
             let migratedTrack = try #require(try await trackStore.getTrack(byID: "T1"))
@@ -45,14 +38,7 @@ struct RunMigrationTests {
             try await coordinator.revertBatch(history)
         }
 
-        let relaunchedSchema = ModelContainerFactory.makeSchema()
-        let relaunchedConfig = ModelConfiguration(
-            "GenreUpdaterTrackMigration",
-            schema: relaunchedSchema,
-            url: storeURL,
-            cloudKitDatabase: .none
-        )
-        let relaunchedContainer = try ModelContainer(for: relaunchedSchema, configurations: [relaunchedConfig])
+        let relaunchedContainer = try openProductionContainer(at: storeURL)
         let relaunchedTrackStore = TrackDataStore(modelContainer: relaunchedContainer)
         let relaunchedLogStore = ChangeLogDataStore(modelContainer: relaunchedContainer)
         let restoredTrack = try #require(try await relaunchedTrackStore.getTrack(byID: "T1"))
@@ -72,14 +58,7 @@ struct RunMigrationTests {
         try copyLegacyStore(to: storeURL)
 
         do {
-            let currentSchema = ModelContainerFactory.makeSchema()
-            let currentConfig = ModelConfiguration(
-                "GenreUpdaterTrackMigration",
-                schema: currentSchema,
-                url: storeURL,
-                cloudKitDatabase: .none
-            )
-            let currentContainer = try ModelContainer(for: currentSchema, configurations: [currentConfig])
+            let currentContainer = try openProductionContainer(at: storeURL)
             let trackStore = TrackDataStore(modelContainer: currentContainer)
             let changeLogStore = ChangeLogDataStore(modelContainer: currentContainer)
             let bridge = MusicAppTestAccess()
@@ -99,14 +78,7 @@ struct RunMigrationTests {
             try await coordinator.revertSelective([yearRevert])
         }
 
-        let relaunchedSchema = ModelContainerFactory.makeSchema()
-        let relaunchedConfig = ModelConfiguration(
-            "GenreUpdaterTrackMigration",
-            schema: relaunchedSchema,
-            url: storeURL,
-            cloudKitDatabase: .none
-        )
-        let relaunchedContainer = try ModelContainer(for: relaunchedSchema, configurations: [relaunchedConfig])
+        let relaunchedContainer = try openProductionContainer(at: storeURL)
         let trackStore = TrackDataStore(modelContainer: relaunchedContainer)
         let changeLogStore = ChangeLogDataStore(modelContainer: relaunchedContainer)
         let restoredTrack = try #require(try await trackStore.getTrack(byID: "T2"))
@@ -220,6 +192,17 @@ struct RunMigrationTests {
             .deletingLastPathComponent()
             .appendingPathComponent("LegacyFixtures/TrackRecoveryLegacy.fixture")
         try FileManager.default.copyItem(at: fixtureURL, to: storeURL)
+    }
+
+    private func openProductionContainer(at storeURL: URL) throws -> ModelContainer {
+        let schema = ModelContainerFactory.makeSchema()
+        let configuration = ModelConfiguration(
+            "GenreUpdaterTrackMigration",
+            schema: schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainerFactory.create(schema: schema, configuration: configuration)
     }
 }
 
