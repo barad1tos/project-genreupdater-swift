@@ -1,4 +1,5 @@
 import Core
+import Darwin
 import Foundation
 import SwiftData
 
@@ -24,6 +25,17 @@ package struct MembershipMigrationEvidence: Codable, Sendable {
     package let usesAutomaticMigration: Bool
 }
 
+package struct ConcurrentOpenEvidence: Codable, Sendable {
+    package let isBlocked: Bool
+    package let isFinished: Bool
+    package let openCount: Int
+    package let hasOneContainer: Bool
+    package let sameURLErrors: [String]
+    package let canOpenOther: Bool
+    package let otherURLOpenCount: Int
+    package let otherURLErrors: [String]
+}
+
 package struct V4MigrationEvidence: Codable, Sendable {
     package let trackID: String
     package let appleScriptID: String?
@@ -43,6 +55,73 @@ package struct V4MigrationEvidence: Codable, Sendable {
 package enum StoreFixtureVerifier {
     package static func migrate(at storeURL: URL) throws {
         _ = try migratedContainer(at: storeURL)
+    }
+
+    package static func seedCertificate(at storeURL: URL) throws {
+        let container = try migratedContainer(at: storeURL)
+        let databaseID = try requireDatabaseID("track-sentinel")
+        let membership = try MembershipFingerprint.make(ids: [databaseID])
+        guard let certificateID = UUID(uuidString: "00000000-0000-0000-0000-000000000008") else {
+            throw StoreFixtureVerificationError.missingEntity("certificate ID")
+        }
+        let certificate = ScopeCertificate(
+            id: certificateID,
+            revision: .initial,
+            membership: membership,
+            testArtists: [],
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: membership.fingerprint,
+                observedFingerprint: membership.fingerprint,
+                trackCount: 1
+            ),
+            observedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let context = ModelContext(container)
+        try context.insert(PersistedScopeCertificate(certificate: certificate))
+        try context.save()
+    }
+
+    package static func verifyConcurrentOpen(at storeURL: URL) throws -> ConcurrentOpenEvidence {
+        let lockURL = storeURL.appendingPathExtension("migration.lock")
+        let descriptor = Darwin.open(
+            lockURL.path,
+            O_CREAT | O_RDWR | O_CLOEXEC,
+            S_IRUSR | S_IWUSR
+        )
+        guard descriptor >= 0 else {
+            throw StoreFixtureVerificationError.lockFailed(operation: "open", code: errno)
+        }
+        defer { Darwin.close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else {
+            throw StoreFixtureVerificationError.lockFailed(operation: "acquire", code: errno)
+        }
+
+        let sameRecorder = FixtureOpenRecorder()
+        let sameGroup = startOpeners(count: 2, at: storeURL, recorder: sameRecorder)
+        let isBlocked = sameGroup.wait(timeout: .now() + 2) == .timedOut
+
+        let otherURL = storeURL.deletingLastPathComponent().appending(path: "Other.store")
+        let otherRecorder = FixtureOpenRecorder()
+        let otherGroup = startOpeners(count: 1, at: otherURL, recorder: otherRecorder)
+        let canOpenOther = otherGroup.wait(timeout: .now() + 10) == .success
+
+        guard flock(descriptor, LOCK_UN) == 0 else {
+            throw StoreFixtureVerificationError.lockFailed(operation: "release", code: errno)
+        }
+        let isFinished = sameGroup.wait(timeout: .now() + 30) == .success
+        let sameResult = sameRecorder.result
+        let otherResult = otherRecorder.result
+        return ConcurrentOpenEvidence(
+            isBlocked: isBlocked,
+            isFinished: isFinished,
+            openCount: sameResult.openCount,
+            hasOneContainer: sameRecorder.hasOneContainer,
+            sameURLErrors: sameResult.errors,
+            canOpenOther: canOpenOther,
+            otherURLOpenCount: otherResult.openCount,
+            otherURLErrors: otherResult.errors
+        )
     }
 
     package static func verifyV3Migration(at storeURL: URL) throws -> [V3MigrationEvidence] {
@@ -151,15 +230,75 @@ package enum StoreFixtureVerifier {
         }
         return value
     }
+
+    private static func requireDatabaseID(_ value: String) throws -> MusicDatabaseTrackID {
+        guard let databaseID = MusicDatabaseTrackID(rawValue: value) else {
+            throw StoreFixtureVerificationError.missingEntity("database ID")
+        }
+        return databaseID
+    }
+
+    private static func startOpeners(
+        count: Int,
+        at storeURL: URL,
+        recorder: FixtureOpenRecorder
+    ) -> DispatchGroup {
+        let group = DispatchGroup()
+        for _ in 0 ..< count {
+            group.enter()
+            DispatchQueue.global().async {
+                defer { group.leave() }
+                do {
+                    let container = try migratedContainer(at: storeURL)
+                    recorder.recordOpen(container)
+                } catch {
+                    recorder.record(error)
+                }
+            }
+        }
+        return group
+    }
+}
+
+private final class FixtureOpenRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var containers: [ModelContainer] = []
+    private var errors: [String] = []
+
+    var result: (openCount: Int, errors: [String]) {
+        lock.withLock { (containers.count, errors) }
+    }
+
+    var hasOneContainer: Bool {
+        lock.withLock {
+            guard let first = containers.first else { return false }
+            return containers.allSatisfy { $0 === first }
+        }
+    }
+
+    func recordOpen(_ container: ModelContainer) {
+        lock.withLock {
+            containers.append(container)
+        }
+    }
+
+    func record(_ error: any Error) {
+        lock.withLock {
+            errors.append(String(reflecting: error))
+        }
+    }
 }
 
 package enum StoreFixtureVerificationError: LocalizedError {
     case missingEntity(String)
+    case lockFailed(operation: String, code: Int32)
 
     package var errorDescription: String? {
         switch self {
         case let .missingEntity(entity):
             "The migrated V4 fixture has no \(entity) entity."
+        case let .lockFailed(operation, code):
+            "Fixture store lock \(operation) failed: \(String(cString: strerror(code)))"
         }
     }
 }

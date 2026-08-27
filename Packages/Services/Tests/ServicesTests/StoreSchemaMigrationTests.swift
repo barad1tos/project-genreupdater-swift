@@ -1,5 +1,6 @@
 import Core
 import CoreData
+import Darwin
 import Foundation
 @preconcurrency import SwiftData
 import Testing
@@ -65,6 +66,8 @@ struct StoreSchemaMigrationTests {
             let snapshot = try await store.loadMirrorSnapshot()
             #expect(snapshot.certificates.isEmpty)
             #expect(snapshot.revision == .initial)
+            #expect(snapshot.presentIDs.map(\.rawValue) == ["track-sentinel"])
+            #expect(snapshot.presentTracks.map(\.id) == ["track-sentinel"])
             try verifyMigratedStore(container, mirrorState: .unknown)
         }
         do {
@@ -73,6 +76,8 @@ struct StoreSchemaMigrationTests {
             let snapshot = try await TrackDataStore(modelContainer: container).loadMirrorSnapshot()
             #expect(snapshot.certificates.isEmpty)
             #expect(snapshot.revision == .initial)
+            #expect(snapshot.presentIDs.map(\.rawValue) == ["track-sentinel"])
+            #expect(snapshot.presentTracks.map(\.id) == ["track-sentinel"])
         }
     }
 
@@ -212,6 +217,75 @@ struct StoreSchemaMigrationTests {
         }
     }
 
+    @Test("Concurrent processes serialize legacy preparation and preserve V5 rows")
+    func coordinatesStoreProcesses() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+        let lockURL = storeURL.appendingPathExtension("migration.lock")
+
+        try FileManager.default.copyItem(at: Self.fixtureURL, to: storeURL)
+        let lockDescriptor = try acquireLock(at: lockURL)
+        defer { Darwin.close(lockDescriptor) }
+        let firstMigration = try startFixtureProcess(mode: "migrate", at: storeURL)
+        let secondMigration = try startFixtureProcess(mode: "migrate", at: storeURL)
+        defer {
+            firstMigration.cleanup()
+            secondMigration.cleanup()
+        }
+
+        #expect(processesRemainRunning([firstMigration, secondMigration], for: 2))
+        try #require(flock(lockDescriptor, LOCK_UN) == 0)
+        _ = try firstMigration.wait()
+        _ = try secondMigration.wait()
+
+        let initialEvidence: [MembershipMigrationEvidence] = try fixtureEvidence(
+            mode: "verify-v2-membership",
+            at: storeURL
+        )
+        assertConcurrentEvidence(initialEvidence, certificateCount: 0)
+
+        _ = try fixtureProcess(mode: "seed-certificate", at: storeURL)
+
+        let firstReopen = try startFixtureProcess(mode: "migrate", at: storeURL)
+        let secondReopen = try startFixtureProcess(mode: "migrate", at: storeURL)
+        defer {
+            firstReopen.cleanup()
+            secondReopen.cleanup()
+        }
+        _ = try firstReopen.wait()
+        _ = try secondReopen.wait()
+
+        let finalEvidence: [MembershipMigrationEvidence] = try fixtureEvidence(
+            mode: "verify-v2-membership",
+            at: storeURL
+        )
+        assertConcurrentEvidence(finalEvidence, certificateCount: 1)
+    }
+
+    @Test("Same-process openers coalesce per store URL")
+    func coalescesStoreOpeners() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+        let evidence: ConcurrentOpenEvidence = try fixtureEvidence(
+            mode: "verify-concurrent-open",
+            at: storeURL
+        )
+        #expect(evidence.isBlocked)
+        #expect(evidence.isFinished)
+        #expect(evidence.openCount == 2)
+        #expect(evidence.hasOneContainer)
+        #expect(evidence.sameURLErrors.isEmpty)
+        #expect(evidence.canOpenOther)
+        #expect(evidence.otherURLOpenCount == 1)
+        #expect(evidence.otherURLErrors.isEmpty)
+    }
+
     @Test("Current stores never infer membership from track rows", arguments: [nil, false])
     func skipsCurrentInference(isPresent: Bool?) async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -326,6 +400,42 @@ struct StoreSchemaMigrationTests {
         return try ModelContainerFactory.create(schema: schema, configuration: configuration)
     }
 
+    private func acquireLock(at lockURL: URL) throws -> Int32 {
+        let descriptor = Darwin.open(
+            lockURL.path,
+            O_CREAT | O_RDWR | O_CLOEXEC,
+            S_IRUSR | S_IWUSR
+        )
+        try #require(descriptor >= 0)
+        try #require(flock(descriptor, LOCK_EX) == 0)
+        return descriptor
+    }
+
+    private func processesRemainRunning(_ processes: [RunningFixtureProcess], for seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            guard processes.allSatisfy(\.isRunning) else { return false }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return processes.allSatisfy(\.isRunning)
+    }
+
+    private func assertConcurrentEvidence(
+        _ evidence: [MembershipMigrationEvidence],
+        certificateCount: Int
+    ) {
+        #expect(evidence.count == 2)
+        for pass in evidence {
+            #expect(pass.members.count == 1)
+            #expect(pass.members.first?.databaseID == "track-sentinel")
+            #expect(pass.members.first?.isPresent == true)
+            #expect(pass.members.first?.firstSeenRevision == 0)
+            #expect(pass.trackIDs == ["track-sentinel"])
+            #expect(pass.certificateCount == certificateCount)
+            #expect(pass.usesAutomaticMigration)
+        }
+    }
+
     private func writeCurrentStore(at storeURL: URL, isPresent: Bool?) throws {
         let schema = ModelContainerFactory.makeSchema()
         let configuration = ModelConfiguration(
@@ -365,41 +475,42 @@ struct StoreSchemaMigrationTests {
     }
 
     private func fixtureProcess(mode: String, at storeURL: URL) throws -> Data {
+        let process = try startFixtureProcess(mode: mode, at: storeURL)
+        defer { process.cleanup() }
+        return try process.wait()
+    }
+
+    private func startFixtureProcess(mode: String, at storeURL: URL) throws -> RunningFixtureProcess {
         let process = Process()
         let outputDirectory = FileManager.default.temporaryDirectory
             .appending(path: "StoreFixtureProcess-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: outputDirectory) }
         let outputURL = outputDirectory.appending(path: "stdout")
         let errorURL = outputDirectory.appending(path: "stderr")
         FileManager.default.createFile(atPath: outputURL.path, contents: nil)
         FileManager.default.createFile(atPath: errorURL.path, contents: nil)
         let standardOutput = try FileHandle(forWritingTo: outputURL)
         let standardError = try FileHandle(forWritingTo: errorURL)
-        defer {
-            try? standardOutput.close()
-            try? standardError.close()
-        }
         process.executableURL = try fixtureGeneratorURL()
         process.arguments = [mode, storeURL.path]
         process.standardOutput = standardOutput
         process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
-        try standardOutput.close()
-        try standardError.close()
-
-        let output = try Data(contentsOf: outputURL)
-        let errorOutput = try Data(contentsOf: errorURL)
-        guard process.terminationStatus == 0 else {
-            throw FixtureProcessError.failed(
-                reason: process.terminationReason,
-                status: process.terminationStatus,
-                standardOutput: String(data: output, encoding: .utf8) ?? "<non-UTF-8 output>",
-                standardError: String(data: errorOutput, encoding: .utf8) ?? "<non-UTF-8 output>"
-            )
+        do {
+            try process.run()
+        } catch {
+            try? standardOutput.close()
+            try? standardError.close()
+            try? FileManager.default.removeItem(at: outputDirectory)
+            throw error
         }
-        return output
+        return RunningFixtureProcess(
+            process: process,
+            outputDirectory: outputDirectory,
+            outputURL: outputURL,
+            errorURL: errorURL,
+            standardOutput: standardOutput,
+            standardError: standardError
+        )
     }
 
     private func fixtureGeneratorURL() throws -> URL {
@@ -419,9 +530,19 @@ struct StoreSchemaMigrationTests {
         let context = ModelContext(container)
         try verifyTrackState(context)
         try verifyMirrorState(context, expected: mirrorState)
+        try verifyMembershipState(context)
         try verifyLibraryState(context)
         try verifyRunState(context)
         try verifyFixPlanState(context)
+    }
+
+    private func verifyMembershipState(_ context: ModelContext) throws {
+        let members = try context.fetch(FetchDescriptor<PersistedLibraryMember>())
+        let member = try #require(members.first)
+        #expect(members.count == 1)
+        #expect(member.databaseID == "track-sentinel")
+        #expect(member.isPresent)
+        #expect(member.firstSeenRevisionValue == 0)
     }
 
     private func verifyTrackState(_ context: ModelContext) throws {
@@ -555,6 +676,61 @@ struct StoreSchemaMigrationTests {
         #expect(decision.planID == Self.planID)
         #expect(decision.planRevision == 1 && decision.decisionRevision == 1)
         #expect(decision.decidedAt == Self.timestamp && decision.itemDecisionsData == Self.payload)
+    }
+}
+
+private final class RunningFixtureProcess {
+    let process: Process
+    let outputDirectory: URL
+    let outputURL: URL
+    let errorURL: URL
+    let standardOutput: FileHandle
+    let standardError: FileHandle
+
+    var isRunning: Bool {
+        process.isRunning
+    }
+
+    init(
+        process: Process,
+        outputDirectory: URL,
+        outputURL: URL,
+        errorURL: URL,
+        standardOutput: FileHandle,
+        standardError: FileHandle
+    ) {
+        self.process = process
+        self.outputDirectory = outputDirectory
+        self.outputURL = outputURL
+        self.errorURL = errorURL
+        self.standardOutput = standardOutput
+        self.standardError = standardError
+    }
+
+    func wait() throws -> Data {
+        process.waitUntilExit()
+        try standardOutput.close()
+        try standardError.close()
+
+        let output = try Data(contentsOf: outputURL)
+        let errorOutput = try Data(contentsOf: errorURL)
+        let outputText = String(data: output, encoding: .utf8) ?? "<non-UTF-8 output>"
+        let errorText = String(data: errorOutput, encoding: .utf8) ?? "<non-UTF-8 output>"
+        guard process.terminationStatus == 0 else {
+            throw FixtureProcessError.failed(
+                reason: process.terminationReason,
+                status: process.terminationStatus,
+                standardOutput: outputText,
+                standardError: errorText
+            )
+        }
+        return output
+    }
+
+    func cleanup() {
+        try? standardOutput.close()
+        try? standardError.close()
+        try? FileManager.default.removeItem(at: outputDirectory)
     }
 }
 

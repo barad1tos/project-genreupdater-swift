@@ -3,6 +3,7 @@
 
 import Core
 import CoreData
+import Darwin
 import Foundation
 import SwiftData
 
@@ -12,6 +13,8 @@ import SwiftData
 /// `PersistedChangeLogEntry` share one container and can maintain
 /// relationships.
 public enum ModelContainerFactory {
+    private static let openCoordinator = StoreOpenCoordinator()
+
     /// Create a production container persisted to disk.
     public static func create() throws -> ModelContainer {
         let schema = makeSchema()
@@ -40,11 +43,19 @@ public enum ModelContainerFactory {
     }
 
     static func create(schema: Schema, configuration: ModelConfiguration) throws -> ModelContainer {
-        if try needsRecoveryBootstrap(configuration) {
-            try bootstrapRecoveryStore(configuration)
+        guard !configuration.isStoredInMemoryOnly else {
+            return try ModelContainer(for: schema, configurations: [configuration])
         }
-        try prepareLegacyStore(configuration)
-        return try ModelContainer(for: schema, configurations: [configuration])
+        let storeURL = configuration.url.standardizedFileURL.resolvingSymlinksInPath()
+        return try openCoordinator.open(at: storeURL) {
+            try withStoreLock(at: storeURL) {
+                if try needsRecoveryBootstrap(configuration) {
+                    try bootstrapRecoveryStore(configuration)
+                }
+                try prepareLegacyStore(configuration)
+                return try ModelContainer(for: schema, configurations: [configuration])
+            }
+        }
     }
 
     private static let trackRecoveryChecksum = "i2Q0M3v/JLttbprhy5I8T0nCkA5O9AYoi9OSQRGpY2s="
@@ -56,6 +67,27 @@ public enum ModelContainerFactory {
         StoreSchemaV3.versionIdentifier,
         StoreSchemaV4.versionIdentifier,
     ].map(\.description)
+
+    private static func withStoreLock<Value>(at storeURL: URL, operation: () throws -> Value) throws -> Value {
+        let lockURL = storeURL.appendingPathExtension("migration.lock")
+        let descriptor = Darwin.open(
+            lockURL.path,
+            O_CREAT | O_RDWR | O_CLOEXEC,
+            S_IRUSR | S_IWUSR
+        )
+        guard descriptor >= 0 else {
+            throw StoreLockError.openFailed(url: lockURL, code: errno)
+        }
+        defer { Darwin.close(descriptor) }
+
+        while flock(descriptor, LOCK_EX) != 0 {
+            let code = errno
+            guard code == EINTR else {
+                throw StoreLockError.lockFailed(url: lockURL, code: code)
+            }
+        }
+        return try operation()
+    }
 
     private static func prepareLegacyStore(_ configuration: ModelConfiguration) throws {
         guard try isLegacyStore(configuration) else { return }
@@ -127,5 +159,89 @@ public enum ModelContainerFactory {
             at: configuration.url
         )
         return metadata[NSPersistentStoreModelVersionChecksumKey] as? String == trackRecoveryChecksum
+    }
+}
+
+private final class StoreOpenCoordinator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pendingByURL: [URL: PendingStoreOpen] = [:]
+
+    func open(at storeURL: URL, operation: () throws -> ModelContainer) throws -> ModelContainer {
+        let entry: PendingStoreOpen
+        let isOwner: Bool
+        lock.lock()
+        if let pending = pendingByURL[storeURL] {
+            entry = pending
+            isOwner = false
+        } else {
+            entry = PendingStoreOpen()
+            pendingByURL[storeURL] = entry
+            isOwner = true
+        }
+        lock.unlock()
+
+        guard isOwner else {
+            return try entry.wait()
+        }
+
+        let result: Result<ModelContainer, any Error>
+        do {
+            result = try .success(operation())
+        } catch {
+            result = .failure(error)
+        }
+        entry.resolve(result)
+        lock.withLock {
+            if pendingByURL[storeURL] === entry {
+                pendingByURL.removeValue(forKey: storeURL)
+            }
+        }
+        return try result.get()
+    }
+}
+
+private final class PendingStoreOpen: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var result: Result<ModelContainer, any Error>?
+
+    func wait() throws -> ModelContainer {
+        condition.lock()
+        while result == nil {
+            condition.wait()
+        }
+        guard let result else {
+            condition.unlock()
+            throw StoreLockError.missingResult
+        }
+        condition.unlock()
+        return try result.get()
+    }
+
+    func resolve(_ result: Result<ModelContainer, any Error>) {
+        condition.lock()
+        self.result = result
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
+private enum StoreLockError: LocalizedError {
+    case openFailed(url: URL, code: Int32)
+    case lockFailed(url: URL, code: Int32)
+    case missingResult
+
+    var errorDescription: String? {
+        switch self {
+        case let .openFailed(url, code):
+            "Failed to open store lock at \(url.path): \(Self.message(for: code))"
+        case let .lockFailed(url, code):
+            "Failed to acquire store lock at \(url.path): \(Self.message(for: code))"
+        case .missingResult:
+            "Store open coordination completed without a result."
+        }
+    }
+
+    private static func message(for code: Int32) -> String {
+        String(cString: strerror(code))
     }
 }

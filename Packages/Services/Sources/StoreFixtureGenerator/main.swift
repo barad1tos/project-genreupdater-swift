@@ -20,6 +20,8 @@ struct StoreFixtureGenerator {
         switch mode {
         case "migrate":
             try StoreFixtureVerifier.migrate(at: storeURL)
+        case "seed-certificate", "verify-concurrent-open":
+            try runOpenMode(mode, storeURL: storeURL)
         case "v0":
             try StoreFixtureWriter.writeV0(to: storeURL)
         case "v3":
@@ -36,6 +38,18 @@ struct StoreFixtureGenerator {
         case "diagnostic-failure":
             writeLargeDiagnostics()
             throw GeneratorError.diagnosticFailure
+        default:
+            throw GeneratorError.invalidArguments
+        }
+    }
+
+    private static func runOpenMode(_ mode: String, storeURL: URL) throws {
+        switch mode {
+        case "seed-certificate":
+            try StoreFixtureVerifier.seedCertificate(at: storeURL)
+        case "verify-concurrent-open":
+            let evidence = try StoreFixtureVerifier.verifyConcurrentOpen(at: storeURL)
+            try FileHandle.standardOutput.write(JSONEncoder().encode(evidence))
         default:
             throw GeneratorError.invalidArguments
         }
@@ -84,7 +98,8 @@ struct StoreFixtureGenerator {
             switch self {
             case .invalidArguments:
                 "Usage: StoreFixtureGenerator "
-                    + "[migrate|v0|v2-membership|verify-v2-membership|v2-recovery|v3|verify-v3|"
+                    + "[migrate|seed-certificate|verify-concurrent-open|v0|v2-membership|"
+                    + "verify-v2-membership|v2-recovery|v3|verify-v3|"
                     + "v4|v4-interrupted|verify-v4] "
                     + "<store-path>"
             case .diagnosticFailure:
