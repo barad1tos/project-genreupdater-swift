@@ -149,4 +149,16 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
             albumTargetIdentity: albumTargetIdentity
         )
     }
+
+    /// The configured scope and freshness policy required before processing mirror rows.
+    public var processingRequirement: MirrorRequirement {
+        let maximumAge = forceMetadataScanIntervalDays > 0
+            ? TimeInterval(forceMetadataScanIntervalDays) * 86400
+            : nil
+        return MirrorRequirement(
+            testArtists: testArtists,
+            fieldSet: .processingV1,
+            maximumMetadataAge: maximumAge
+        )
+    }
 }

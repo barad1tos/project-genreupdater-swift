@@ -123,7 +123,8 @@ extension AppDependencies {
         defer { finishLibraryLoadIfCurrent(token) }
 
         do {
-            let requirement = try mirrorRequirement(scopedArtists: scopedArtists)
+            let runtimeConfiguration = try LibrarySyncRuntimeConfiguration(configuration: config)
+            let requirement = runtimeConfiguration.processingRequirement
             let mirrorLoad = try await LibraryTrackLoader.currentMirror(
                 store: store,
                 cachedTracks: cachedTracks ?? [],
@@ -179,17 +180,6 @@ extension AppDependencies {
         await recordLibraryLoad(
             startedAt: loadStart,
             outcome: mirrorLoad.readiness.isReady ? .succeeded : .degraded
-        )
-    }
-
-    private func mirrorRequirement(scopedArtists: [String]) throws -> MirrorRequirement {
-        let runtimeConfiguration = try LibrarySyncRuntimeConfiguration(configuration: config)
-        let scanDays = runtimeConfiguration.forceMetadataScanIntervalDays
-        let maximumAge = scanDays > 0 ? TimeInterval(scanDays) * 86400 : nil
-        return MirrorRequirement(
-            testArtists: scopedArtists,
-            fieldSet: .processingV1,
-            maximumMetadataAge: maximumAge
         )
     }
 

@@ -70,6 +70,29 @@ struct ConfigWiringTests {
         ))
     }
 
+    @Test("Library sync runtime owns the processing mirror requirement")
+    func mapsProcessingRequirement() {
+        let expiringConfiguration = LibrarySyncRuntimeConfiguration(
+            forceMetadataScanIntervalDays: 3,
+            testArtists: [" Aphex Twin "]
+        )
+        let nonExpiringConfiguration = LibrarySyncRuntimeConfiguration(
+            forceMetadataScanIntervalDays: 0,
+            testArtists: []
+        )
+
+        #expect(expiringConfiguration.processingRequirement == MirrorRequirement(
+            testArtists: ["Aphex Twin"],
+            fieldSet: .processingV1,
+            maximumMetadataAge: 259_200
+        ))
+        #expect(nonExpiringConfiguration.processingRequirement == MirrorRequirement(
+            testArtists: [],
+            fieldSet: .processingV1,
+            maximumMetadataAge: nil
+        ))
+    }
+
     @Test(
         "Library sync retry policy rejects unsafe programmatic delays",
         arguments: [-0.1, Double.nan, Double.infinity, 1e308]
