@@ -64,7 +64,7 @@ struct LibraryServicesTests {
             canonicalMirrorTrack(sampleTrack()),
         ])
         fixture.dependencies.configureLibraryPersistenceForTesting(
-            trackStore: MirrorTrackStoreStub(tracks: [], coverage: .verified(.fullLibrary)),
+            trackStore: MirrorTrackStoreStub(tracks: [], certifiedArtists: []),
             librarySnapshotService: fixture.snapshotService,
             metricsSnapshotStore: metricsStore,
             runRecordStore: RunRecordStoreStub()
@@ -665,10 +665,10 @@ private actor FailingMirrorReadStore: TrackStateStore {
     }
 
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
-        let nextRevision = try update.baseRevision.advanced()
-        savedTracks.append(contentsOf: update.upserts)
-        return nextRevision
+    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
+        let nextRevision = try commit.baseRevision.advanced()
+        savedTracks.append(contentsOf: commit.upserts)
+        return MirrorCommitResult(revision: nextRevision)
     }
 
     func getTrack(byID _: String) async throws -> Core.Track? {

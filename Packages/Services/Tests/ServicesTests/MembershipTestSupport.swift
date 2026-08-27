@@ -20,12 +20,19 @@ extension TrackStateStore {
             canonical.appleScriptID = canonical.id
             return canonical
         }
-        try await applyMirror(TrackMirrorUpdate(
+        let membership = try replacementMembership(for: canonicalTracks)
+        let nextRevision = try revision.advanced()
+        try await commitMirror(MirrorCommit(
             baseRevision: revision,
-            coverageChange: .replace(.fullLibrary),
-            membershipChange: replacementMembership(for: canonicalTracks),
+            observation: ObservationID(),
+            membershipChange: membership,
             repairs: [],
-            upserts: canonicalTracks
+            upserts: canonicalTracks,
+            certificates: .replace(scopeCertificate(
+                revision: nextRevision,
+                membershipChange: membership,
+                trackIDs: canonicalTracks.compactMap(\.databaseID)
+            ))
         ))
     }
 }
@@ -51,7 +58,7 @@ func mirrorSnapshot(
     revision: MirrorRevision,
     tracks: [Track],
     presentIDs: Set<MusicDatabaseTrackID>? = nil,
-    coverage: MirrorCoverage
+    certificates: [ScopeCertificate] = []
 ) throws -> TrackMirrorSnapshot {
     let presentTracks = tracks.filter { track in
         guard let databaseID = track.databaseID else { return false }
@@ -64,7 +71,31 @@ func mirrorSnapshot(
         presentIDs: membership,
         presentTracks: presentTracks,
         repairCandidates: tracks.filter { !presentTracks.contains($0) },
-        coverage: coverage
+        certificates: certificates
+    )
+}
+
+func scopeCertificate(
+    revision: MirrorRevision,
+    membershipChange: MembershipChange,
+    testArtists: [String] = [],
+    trackIDs: [MusicDatabaseTrackID],
+    observedAt: Date = Date(timeIntervalSince1970: 1_700_000_000)
+) throws -> ScopeCertificate {
+    guard case let .replace(membership, _, _) = membershipChange else {
+        preconditionFailure("A scope certificate requires replacement membership")
+    }
+    let fingerprint = try MembershipFingerprint.make(ids: trackIDs).fingerprint
+    return ScopeCertificate(
+        id: UUID(),
+        revision: revision,
+        membership: membership,
+        testArtists: testArtists,
+        fieldSet: .processingV1,
+        requestedFingerprint: fingerprint,
+        observedFingerprint: fingerprint,
+        trackCount: trackIDs.count,
+        observedAt: observedAt
     )
 }
 

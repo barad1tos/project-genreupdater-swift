@@ -6,50 +6,50 @@ func repairValidationCases(
     occupied: Track,
     other: Track,
     legacy: Track
-) -> [(TrackMirrorUpdate, TrackStoreError)] {
+) -> [(MirrorCommit, TrackStoreError)] {
     [
-        (TrackMirrorUpdate(
+        (MirrorCommit(
             baseRevision: revision,
-            coverageChange: .preserve,
+            certificates: .preserve,
             membershipChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "missing", target: target)],
             upserts: []
         ), .missingSource(id: "missing")),
-        (TrackMirrorUpdate(
+        (MirrorCommit(
             baseRevision: revision,
-            coverageChange: .preserve,
+            certificates: .preserve,
             membershipChange: .preserve,
             repairs: [
                 TrackMirrorRepair(sourceID: "legacy", target: target),
                 TrackMirrorRepair(sourceID: "legacy", target: other),
             ], upserts: []
         ), .duplicateRepairSources(ids: ["legacy"])),
-        (TrackMirrorUpdate(
+        (MirrorCommit(
             baseRevision: revision,
-            coverageChange: .preserve,
+            certificates: .preserve,
             membershipChange: .preserve,
             repairs: [
                 TrackMirrorRepair(sourceID: "legacy", target: target),
                 TrackMirrorRepair(sourceID: "occupied", target: target),
             ], upserts: []
         ), .duplicateRepairTargets(ids: [testDatabaseID("target")])),
-        (TrackMirrorUpdate(
+        (MirrorCommit(
             baseRevision: revision,
-            coverageChange: .preserve,
+            certificates: .preserve,
             membershipChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "legacy", target: occupied)],
             upserts: []
         ), .targetExists(id: testDatabaseID("occupied"))),
-        (TrackMirrorUpdate(
+        (MirrorCommit(
             baseRevision: revision,
-            coverageChange: .preserve,
+            certificates: .preserve,
             membershipChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "legacy", target: target)],
             upserts: [target]
         ), .identityOverlap(ids: [testDatabaseID("target")])),
-        (TrackMirrorUpdate(
+        (MirrorCommit(
             baseRevision: revision,
-            coverageChange: .preserve,
+            certificates: .preserve,
             membershipChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "legacy", target: legacy)],
             upserts: []

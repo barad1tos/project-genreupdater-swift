@@ -57,7 +57,7 @@ struct LibraryCacheAdmissionTests {
         fixture.dependencies.configureLibraryPersistenceForTesting(
             trackStore: MirrorTrackStoreStub(
                 tracks: [partialTrack],
-                coverage: .verified(MirrorScope(testArtists: ["Metallica"]))
+                certifiedArtists: ["Metallica"]
             ),
             librarySnapshotService: fixture.snapshotService,
             runRecordStore: RunRecordStoreStub()

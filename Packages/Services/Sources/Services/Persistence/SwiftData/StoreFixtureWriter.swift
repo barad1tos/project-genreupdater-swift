@@ -15,7 +15,7 @@ package enum StoreFixtureWriter {
         )
         let container = try ModelContainer(for: schema, configurations: [configuration])
         let context = ModelContext(container)
-        let scopeData = try JSONEncoder().encode(MirrorScope.fullLibrary)
+        let scopeData = try JSONEncoder().encode([String]())
         let track = fixtureTrack()
         let change = fixtureChange(track: track)
         track.changeLog = [change]

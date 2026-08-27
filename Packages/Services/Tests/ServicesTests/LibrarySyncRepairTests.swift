@@ -432,7 +432,7 @@ private actor RepairObservationReader: MusicAppReading {
 
 private actor RepairMirrorStore: TrackStateStore {
     private(set) var stored: [Track]
-    private(set) var updates: [TrackMirrorUpdate] = []
+    private(set) var updates: [MirrorCommit] = []
     private var revision = MirrorRevision.initial
 
     init(stored: [Track]) {
@@ -448,11 +448,11 @@ private actor RepairMirrorStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        try mirrorSnapshot(revision: revision, tracks: stored, coverage: .verified(.fullLibrary))
+        try mirrorSnapshot(revision: revision, tracks: stored, certificates: [])
     }
 
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+    func commitMirror(_ update: MirrorCommit) async throws -> MirrorCommitResult {
         guard update.baseRevision == revision else {
             throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
         }
@@ -473,7 +473,7 @@ private actor RepairMirrorStore: TrackStateStore {
         }
         stored.sort { $0.id < $1.id }
         revision = nextRevision
-        return revision
+        return MirrorCommitResult(revision: revision)
     }
 
     func getTrack(byID id: String) async throws -> Track? {

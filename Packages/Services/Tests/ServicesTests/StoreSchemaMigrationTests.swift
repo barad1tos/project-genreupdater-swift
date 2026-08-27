@@ -39,7 +39,7 @@ private enum DeployedSchemaV3: VersionedSchema {
     }
 }
 
-@Suite("SwiftData store schema migration")
+@Suite("SwiftData store schema migration", .serialized)
 struct StoreSchemaMigrationTests {
     private enum MirrorFixtureState {
         case missing
@@ -49,7 +49,7 @@ struct StoreSchemaMigrationTests {
 
     private static let preMirrorChecksum = "4gyxaR3XVbJ4CxMo9jcZdflFXNqaKxs0rO8+kkx/1v0="
     private static let mirrorScopeChecksum = "vrVyyiD+OtvleDs7wa27tSGnDMLj4Bts1NWHukp62k4="
-    private static let membershipChecksum = "lCPA7P84tguSr6BvhsyyK+8Wzw49fLJgWhUikSppAIQ="
+    private static let certificateChecksum = "ZSXa0kgQOGc2k4E+9dCVjwRM05iEMOGympXy2vSo6HE="
     private static let deployedMembershipChecksum = "whynwE78EfLk6nFo6Pm4ZxQSXWggha8oemCvJY0LlPw="
     private static let recoveryChecksum = "i2Q0M3v/JLttbprhy5I8T0nCkA5O9AYoi9OSQRGpY2s="
     private static let runID = fixtureID("00000000-0000-0000-0000-000000000001")
@@ -94,7 +94,7 @@ struct StoreSchemaMigrationTests {
             let store = TrackDataStore(modelContainer: container)
             try await store.initialize()
             let snapshot = try await store.loadMirrorSnapshot()
-            #expect(snapshot.coverage == .unknown)
+            #expect(snapshot.certificates.isEmpty)
             #expect(snapshot.revision == .initial)
             try verifyMigratedStore(container, mirrorState: .unknown)
         }
@@ -102,7 +102,7 @@ struct StoreSchemaMigrationTests {
             let container = try migratedContainer(at: storeURL)
             try verifyMigratedStore(container, mirrorState: .unknown)
             let snapshot = try await TrackDataStore(modelContainer: container).loadMirrorSnapshot()
-            #expect(snapshot.coverage == .unknown)
+            #expect(snapshot.certificates.isEmpty)
             #expect(snapshot.revision == .initial)
         }
     }
@@ -117,8 +117,43 @@ struct StoreSchemaMigrationTests {
 
         _ = try migratedContainer(at: storeURL)
         let checksum = try storeChecksum(at: storeURL)
-        #expect(checksum == Self.membershipChecksum)
+        #expect(checksum == Self.certificateChecksum)
         _ = try migratedContainer(at: storeURL)
+    }
+
+    @Test("The exact deployed V4 coverage store migrates with no admissible certificates")
+    func migratesDeployedCoverageFailClosed() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+
+        do {
+            let schema = Schema(versionedSchema: StoreSchemaV4.self)
+            let configuration = ModelConfiguration(
+                "GenreUpdater",
+                schema: schema,
+                url: storeURL,
+                cloudKitDatabase: .none
+            )
+            let container = try ModelContainer(for: schema, configurations: [configuration])
+            let context = ModelContext(container)
+            try context.insert(StoreSchemaV2.PersistedMirrorState(
+                scopeData: JSONEncoder().encode([String]()),
+                revisionValue: 7
+            ))
+            try context.save()
+        }
+
+        let store = try TrackDataStore(modelContainer: migratedContainer(at: storeURL))
+        let snapshot = try await store.loadMirrorSnapshot()
+        #expect(snapshot.revision == MirrorRevision(value: 7))
+        #expect(snapshot.certificates.isEmpty)
+        #expect(snapshot.readiness(
+            for: MirrorRequirement(testArtists: [], fieldSet: .processingV1, maximumMetadataAge: nil),
+            at: Self.timestamp
+        ) == .incomplete(.freshObservationRequired))
     }
 
     @Test("The deployed V3 membership store migrates without losing membership state")
@@ -189,7 +224,7 @@ struct StoreSchemaMigrationTests {
                 artist: "Recovery Artist",
                 album: "Recovery Album"
             ))
-            context.insert(PersistedMirrorState(scopeData: nil, revisionValue: 7))
+            context.insert(StoreSchemaV2.PersistedMirrorState(scopeData: nil, revisionValue: 7))
             try context.save()
         }
 
@@ -307,16 +342,7 @@ struct StoreSchemaMigrationTests {
         #expect(mirrors.count == 1)
         let mirror = try #require(mirrors.first)
         #expect(mirror.revisionValue == 0)
-        switch expected {
-        case .missing:
-            Issue.record("Missing mirror state should return before decoding")
-        case .unknown:
-            #expect(mirror.scopeData == nil)
-            #expect(try mirror.coverage() == .unknown)
-        case .fullLibrary:
-            #expect(try mirror.scopeData == JSONEncoder().encode(MirrorScope.fullLibrary))
-            #expect(try mirror.coverage() == .verified(.fullLibrary))
-        }
+        #expect(try context.fetch(FetchDescriptor<PersistedScopeCertificate>()).isEmpty)
     }
 
     private func verifyLibraryState(_ context: ModelContext) throws {

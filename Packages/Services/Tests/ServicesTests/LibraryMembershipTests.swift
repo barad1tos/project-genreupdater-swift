@@ -329,13 +329,13 @@ struct LibraryMembershipTests {
     ) async throws -> MirrorRevision {
         let revision = try await store.loadMirrorSnapshot().revision
         let stamp = try MembershipFingerprint.make(ids: ids)
-        return try await store.applyMirror(TrackMirrorUpdate(
+        return try await store.commitMirror(MirrorCommit(
             baseRevision: revision,
-            coverageChange: .preserve,
+            certificates: .preserve,
             membershipChange: .replace(stamp: stamp, ids: ids, observedAt: observedAt),
             repairs: [],
             upserts: tracks
-        ))
+        )).revision
     }
 
     private func loadMembers(from container: ModelContainer) throws -> [PersistedLibraryMember] {

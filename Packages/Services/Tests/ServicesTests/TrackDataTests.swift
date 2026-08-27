@@ -213,9 +213,9 @@ struct TrackDataTests {
         let remainingIDs = try [databaseID("1"), databaseID("3")]
         let revision = try await store.loadMirrorSnapshot().revision
 
-        try await store.applyMirror(TrackMirrorUpdate(
+        try await store.commitMirror(MirrorCommit(
             baseRevision: revision,
-            coverageChange: .preserve,
+            certificates: .preserve,
             membershipChange: replacementMembership(for: remainingIDs),
             repairs: [],
             upserts: []
@@ -235,19 +235,19 @@ struct TrackDataTests {
         var rejectedTrack = sampleTrack(id: "rejected")
         rejectedTrack.appleScriptID = rejectedTrack.id
 
-        let committedRevision = try await store.applyMirror(TrackMirrorUpdate(
+        let committedRevision = try await store.commitMirror(MirrorCommit(
             baseRevision: .initial,
-            coverageChange: .replace(.fullLibrary),
+            certificates: .preserve,
             membershipChange: replacementMembership(for: [acceptedTrack]),
             repairs: [],
             upserts: [acceptedTrack]
         ))
 
-        #expect(committedRevision == MirrorRevision(value: 1))
+        #expect(committedRevision.revision == MirrorRevision(value: 1))
         do {
-            _ = try await store.applyMirror(TrackMirrorUpdate(
+            _ = try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                coverageChange: .invalidate,
+                certificates: .invalidate(.incompleteObservation),
                 membershipChange: replacementMembership(for: [rejectedTrack]),
                 repairs: [],
                 upserts: [rejectedTrack]
@@ -262,7 +262,7 @@ struct TrackDataTests {
 
         let snapshot = try await store.loadMirrorSnapshot()
         #expect(snapshot.revision == MirrorRevision(value: 1))
-        #expect(snapshot.coverage == .verified(.fullLibrary))
+        #expect(snapshot.certificates.isEmpty)
         #expect(snapshot.presentTracks.map(\.id) == ["accepted"])
     }
 

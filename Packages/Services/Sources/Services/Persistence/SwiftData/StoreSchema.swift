@@ -352,6 +352,26 @@ enum StoreSchemaV4: VersionedSchema {
     ]
 }
 
+enum StoreSchemaV5: VersionedSchema {
+    static let versionIdentifier = Schema.Version(5, 0, 0)
+
+    static let models: [any PersistentModel.Type] = [
+        StoreSchemaV2.PersistedTrack.self,
+        PersistedMirrorState.self,
+        StoreSchemaV2.PersistedChangeLogEntry.self,
+        StoreSchemaV2.PersistedMetricsSnapshot.self,
+        StoreSchemaV2.PersistedPendingAlbumEntry.self,
+        StoreSchemaV2.PersistedPendingVerificationMetadata.self,
+        StoreSchemaV2.PersistedRunRecord.self,
+        StoreSchemaV2.PersistedRunWorkItem.self,
+        StoreSchemaV2.PersistedRunReportItem.self,
+        StoreSchemaV2.PersistedFixPlan.self,
+        StoreSchemaV2.PersistedFixPlanDecision.self,
+        StoreSchemaV4.PersistedLibraryMember.self,
+        PersistedScopeCertificate.self,
+    ]
+}
+
 enum StoreMigrationPlan: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
         StoreSchemaV0.self,
@@ -359,6 +379,7 @@ enum StoreMigrationPlan: SchemaMigrationPlan {
         StoreSchemaV2.self,
         StoreSchemaV3.self,
         StoreSchemaV4.self,
+        StoreSchemaV5.self,
     ]
 
     static let stages: [MigrationStage] = [
@@ -371,6 +392,12 @@ enum StoreMigrationPlan: SchemaMigrationPlan {
             didMigrate: migrateMembership
         ),
         .lightweight(fromVersion: StoreSchemaV3.self, toVersion: StoreSchemaV4.self),
+        .custom(
+            fromVersion: StoreSchemaV4.self,
+            toVersion: StoreSchemaV5.self,
+            willMigrate: nil,
+            didMigrate: clearLegacyCoverage
+        ),
     ]
 
     private static func migrateMembership(context: ModelContext) throws {
@@ -385,6 +412,14 @@ enum StoreMigrationPlan: SchemaMigrationPlan {
                 isPresent: true,
                 firstSeenRevisionValue: revision
             ))
+        }
+        try context.save()
+    }
+
+    private static func clearLegacyCoverage(context: ModelContext) throws {
+        let certificates = try context.fetch(FetchDescriptor<StoreSchemaV5.PersistedScopeCertificate>())
+        for certificate in certificates {
+            context.delete(certificate)
         }
         try context.save()
     }

@@ -29,8 +29,9 @@ enum LibrarySyncObservationError: Error, Equatable, LocalizedError, Sendable {
 
 struct SyncDetection {
     let baseRevision: MirrorRevision
+    let observation: ObservationID
     let result: SyncResult
-    let coverageChange: MirrorCoverageChange
+    let certificateChange: CertificateChange
     let membershipChange: MembershipChange
     let repairs: [TrackMirrorRepair]
     let upserts: [Track]
@@ -57,16 +58,14 @@ extension LibrarySyncService {
         guard let mirror = LibraryMirrorIndex(tracksByID: scopedByID) else {
             throw LibrarySyncObservationError.invalidObservation(detail: "stored mirror index is inconsistent")
         }
-        let requestedScope = MirrorScope(testArtists: runtimeConfiguration.testArtists)
-        let previous: LibraryMirrorReference = snapshot.coverage.admits(requestedScope) ? .verified(mirror) : .initial
+        let requirement = mirrorRequirement()
+        let readiness = snapshot.readiness(for: requirement, at: currentDate())
+        let previous: LibraryMirrorReference = readiness.isReady ? .verified(mirror) : .initial
         let request = LibraryObservationRequest(scope: scope, refresh: refresh, previous: previous)
         let observation = try await observer.observe(request)
         try validate(observation, request: request)
 
-        let repair = try planRepair(
-            legacyTracks: repairCandidates,
-            observation: observation
-        )
+        let repair = try planRepair(legacyTracks: repairCandidates, observation: observation)
         var mirrorBaseline = canonicalStored
         mirrorBaseline.merge(repair.baseline) { existing, _ in existing }
         let classification = try reconcile(
@@ -84,10 +83,16 @@ extension LibrarySyncService {
             storedIDs: Set(canonicalStored.keys),
             censusIDs: observation.censusIDs
         )
+        let certificateTransition = try certificateChange(
+            for: observation,
+            baseRevision: snapshot.revision,
+            previousReadiness: readiness
+        )
         return try SyncDetection(
             baseRevision: snapshot.revision,
+            observation: ObservationID(),
             result: result,
-            coverageChange: coverageChange(for: observation),
+            certificateChange: certificateTransition,
             membershipChange: membershipChange(for: observation),
             repairs: repair.repairs,
             upserts: ordinaryUpserts.sorted { $0.id < $1.id },
@@ -122,19 +127,62 @@ extension LibrarySyncService {
         )
     }
 
-    private func coverageChange(for observation: LibraryObservation) -> MirrorCoverageChange {
-        guard runtimeConfiguration.albumTargetIdentity == nil,
-              observation.metadata.isComplete
-        else { return .invalidate }
-
-        switch (observation.scope.source, observation.membership) {
-        case (.fullLibrary, .full):
-            return .replace(.fullLibrary)
-        case let (.testArtists, .scoped(unobservedIDs)) where unobservedIDs.isEmpty:
-            return .replace(MirrorScope(testArtists: observation.scope.normalizedTestArtists))
-        default:
-            return .invalidate
+    private func certificateChange(
+        for observation: LibraryObservation,
+        baseRevision: MirrorRevision,
+        previousReadiness: MirrorReadiness
+    ) throws -> CertificateChange {
+        guard runtimeConfiguration.albumTargetIdentity == nil else {
+            return .invalidate(.narrowedObservation)
         }
+        guard observation.metadata.isComplete else {
+            return .invalidate(.incompleteObservation)
+        }
+        let hasCompleteMembership = switch (observation.scope.source, observation.membership) {
+        case (.fullLibrary, .full):
+            true
+        case let (.testArtists, .scoped(unobservedIDs)):
+            unobservedIDs.isEmpty
+        default:
+            false
+        }
+        guard hasCompleteMembership else {
+            return .invalidate(.incompleteObservation)
+        }
+
+        let membership = try MembershipFingerprint.make(ids: Array(observation.censusIDs))
+        if case let .ready(previousCertificate) = previousReadiness,
+           previousCertificate.membership == membership,
+           Set(observation.tracks.map(\.databaseID)) != observation.currentIDs {
+            return .preserve
+        }
+
+        let observedIDs = Set(observation.tracks.map(\.databaseID))
+        guard observedIDs == observation.currentIDs else {
+            return .invalidate(.membershipChanged)
+        }
+        let scopeFingerprint = try MembershipFingerprint.make(ids: Array(observation.currentIDs)).fingerprint
+        return try .replace(ScopeCertificate(
+            id: UUID(),
+            revision: baseRevision.advanced(),
+            membership: membership,
+            testArtists: observation.scope.normalizedTestArtists,
+            fieldSet: .processingV1,
+            requestedFingerprint: scopeFingerprint,
+            observedFingerprint: scopeFingerprint,
+            trackCount: observation.currentIDs.count,
+            observedAt: observation.observedAt
+        ))
+    }
+
+    private func mirrorRequirement() -> MirrorRequirement {
+        let scanDays = runtimeConfiguration.forceMetadataScanIntervalDays
+        let maximumAge = scanDays > 0 ? TimeInterval(scanDays) * 86400 : nil
+        return MirrorRequirement(
+            testArtists: runtimeConfiguration.testArtists,
+            fieldSet: .processingV1,
+            maximumMetadataAge: maximumAge
+        )
     }
 
     private struct MirrorRepair {

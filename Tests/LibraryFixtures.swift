@@ -13,17 +13,19 @@ struct LibraryPersistenceFixture {
 
 actor MirrorTrackStoreStub: TrackStateStore {
     private var tracks: [Track]
-    private var coverage: MirrorCoverage
+    private var certificates: [ScopeCertificate]?
+    private let certifiedArtists: [String]?
     private var revision = MirrorRevision.initial
     private let beforeLoad: (@Sendable () async throws -> Void)?
 
     init(
         tracks: [Track] = [],
-        coverage: MirrorCoverage = .unknown,
+        certifiedArtists: [String]? = nil,
         beforeLoad: (@Sendable () async throws -> Void)? = nil
     ) {
         self.tracks = tracks
-        self.coverage = coverage
+        certificates = nil
+        self.certifiedArtists = certifiedArtists
         self.beforeLoad = beforeLoad
     }
 
@@ -38,26 +40,51 @@ actor MirrorTrackStoreStub: TrackStateStore {
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try await beforeLoad?()
-        return try TrackMirrorSnapshot(
+        let membership = try MembershipFingerprint.make(ids: tracks.compactMap(\.databaseID))
+        let loadedCertificates: [ScopeCertificate] = if let certificates {
+            certificates
+        } else if let certifiedArtists {
+            [ScopeCertificate(
+                id: UUID(),
+                revision: revision,
+                membership: membership,
+                testArtists: certifiedArtists,
+                fieldSet: .processingV1,
+                requestedFingerprint: "test-observation",
+                observedFingerprint: "test-observation",
+                trackCount: tracks.count,
+                observedAt: Date()
+            )]
+        } else {
+            []
+        }
+        return TrackMirrorSnapshot(
             revision: revision,
-            membershipStamp: MembershipFingerprint.make(ids: tracks.compactMap(\.databaseID)),
+            membershipStamp: membership,
             presentIDs: Set(tracks.compactMap(\.databaseID)),
             presentTracks: tracks,
             repairCandidates: [],
-            coverage: coverage
+            certificates: loadedCertificates
         )
     }
 
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
-        guard update.baseRevision == revision else {
-            throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
+    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
+        guard commit.baseRevision == revision else {
+            throw MirrorRevisionConflict(expected: commit.baseRevision, actual: revision)
         }
         let nextRevision = try revision.advanced()
-        tracks.append(contentsOf: update.upserts)
-        coverage = coverage.applying(update.coverageChange)
+        tracks.append(contentsOf: commit.upserts)
+        switch commit.certificates {
+        case .preserve:
+            break
+        case let .replace(certificate), let .rebase(certificate):
+            certificates = [certificate]
+        case .invalidate:
+            certificates = []
+        }
         revision = nextRevision
-        return revision
+        return MirrorCommitResult(revision: revision)
     }
 
     func getTrack(byID id: String) async throws -> Track? {

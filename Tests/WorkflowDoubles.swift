@@ -11,12 +11,27 @@ extension TrackStateStore {
             canonical.appleScriptID = canonical.id
             return canonical
         }
-        try await applyMirror(TrackMirrorUpdate(
+        let ids = canonicalTracks.compactMap(\.databaseID)
+        let membership = try testMembershipStamp(for: ids)
+        let fingerprint = "test-observation"
+        let certificate = try ScopeCertificate(
+            id: UUID(),
+            revision: revision.advanced(),
+            membership: membership,
+            testArtists: [],
+            fieldSet: .processingV1,
+            requestedFingerprint: fingerprint,
+            observedFingerprint: fingerprint,
+            trackCount: canonicalTracks.count,
+            observedAt: Date()
+        )
+        try await commitMirror(MirrorCommit(
             baseRevision: revision,
-            coverageChange: .replace(.fullLibrary),
+            observation: ObservationID(),
             membershipChange: testMembership(for: canonicalTracks),
             repairs: [],
-            upserts: canonicalTracks
+            upserts: canonicalTracks,
+            certificates: .replace(certificate)
         ))
     }
 }
@@ -254,14 +269,14 @@ actor DashboardStateTrackStore: TrackStateStore {
             presentIDs: [],
             presentTracks: [],
             repairCandidates: [],
-            coverage: .unknown
+            certificates: []
         )
     }
 
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
         // These tests do not assert persisted track state.
-        try update.baseRevision.advanced()
+        try MirrorCommitResult(revision: commit.baseRevision.advanced())
     }
 
     func getTrack(byID _: String) async throws -> Track? {

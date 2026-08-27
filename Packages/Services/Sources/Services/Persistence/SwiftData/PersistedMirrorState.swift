@@ -21,22 +21,28 @@ extension StoreSchemaV2 {
             self.revisionValue = revisionValue
         }
 
+        static let primaryKey = "track-mirror"
+    }
+}
+
+extension StoreSchemaV5 {
+    @Model
+    final class PersistedMirrorState {
+        @Attribute(.unique)
+        var key: String
+
+        var revisionValue: UInt64 = MirrorRevision.initial.value
+
+        init(
+            key: String = PersistedMirrorState.primaryKey,
+            revisionValue: UInt64 = MirrorRevision.initial.value
+        ) {
+            self.key = key
+            self.revisionValue = revisionValue
+        }
+
         var revision: MirrorRevision {
             MirrorRevision(value: revisionValue)
-        }
-
-        func coverage() throws -> MirrorCoverage {
-            guard let scopeData else { return .unknown }
-            return try .verified(JSONDecoder().decode(MirrorScope.self, from: scopeData))
-        }
-
-        func apply(_ change: MirrorCoverageChange) throws {
-            switch try coverage().applying(change) {
-            case let .verified(scope):
-                scopeData = try JSONEncoder().encode(scope)
-            case .unknown:
-                scopeData = nil
-            }
         }
 
         func advanceRevision() throws -> MirrorRevision {
@@ -49,4 +55,4 @@ extension StoreSchemaV2 {
     }
 }
 
-typealias PersistedMirrorState = StoreSchemaV2.PersistedMirrorState
+typealias PersistedMirrorState = StoreSchemaV5.PersistedMirrorState

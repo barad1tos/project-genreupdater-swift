@@ -119,7 +119,8 @@ actor SyncMockScriptClient: MusicAppReading {
 
 actor SyncMockTrackStore: TrackStateStore {
     var storedTracks: [Track] = []
-    private var coverage = MirrorCoverage.unknown
+    private var presentIDs: Set<MusicDatabaseTrackID> = []
+    private var certificates: [ScopeCertificate] = []
     private var revision = MirrorRevision.initial
     private var conflictsRemaining = 0
 
@@ -130,11 +131,16 @@ actor SyncMockTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        try mirrorSnapshot(revision: revision, tracks: storedTracks, coverage: coverage)
+        try mirrorSnapshot(
+            revision: revision,
+            tracks: storedTracks,
+            presentIDs: presentIDs,
+            certificates: certificates
+        )
     }
 
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+    func commitMirror(_ update: MirrorCommit) async throws -> MirrorCommitResult {
         if conflictsRemaining > 0 {
             let nextRevision = try revision.advanced()
             conflictsRemaining -= 1
@@ -145,7 +151,17 @@ actor SyncMockTrackStore: TrackStateStore {
             throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
         }
         let nextRevision = try revision.advanced()
-        coverage = coverage.applying(update.coverageChange)
+        switch update.certificates {
+        case .preserve:
+            break
+        case .invalidate:
+            certificates = []
+        case let .replace(certificate), let .rebase(certificate):
+            certificates = [certificate]
+        }
+        if let membershipIDs = membershipIDs(update.membershipChange) {
+            presentIDs = Set(membershipIDs)
+        }
         applyMembership(update.membershipChange, to: &storedTracks)
         for track in update.upserts {
             if let index = storedTracks.firstIndex(where: { $0.id == track.id }) {
@@ -155,7 +171,7 @@ actor SyncMockTrackStore: TrackStateStore {
             }
         }
         revision = nextRevision
-        return revision
+        return MirrorCommitResult(revision: revision)
     }
 
     func getTrack(byID id: String) async throws -> Track? {
@@ -194,8 +210,7 @@ extension SyncMockScriptClient {
 }
 
 extension SyncMockTrackStore {
-    func setStored(_ tracks: [Track]) {
-        coverage = .verified(.fullLibrary)
+    func setStored(_ tracks: [Track], certificateDate: Date = Date()) {
         storedTracks = tracks.map { track in
             var canonical = track
             if canonical.appleScriptID == nil {
@@ -203,14 +218,37 @@ extension SyncMockTrackStore {
             }
             return canonical
         }
+        presentIDs = Set(storedTracks.compactMap(\.databaseID))
+        setScopeCertificate(testArtists: [], observedAt: certificateDate)
     }
 
-    func setMirrorCoverage(_ coverage: MirrorCoverage) {
-        self.coverage = coverage
+    func setScopeCertificate(testArtists: [String], observedAt: Date = Date()) {
+        do {
+            let membership = try replacementMembership(for: storedTracks)
+            certificates = try [scopeCertificate(
+                revision: revision,
+                membershipChange: membership,
+                testArtists: testArtists,
+                trackIDs: storedTracks.compactMap(\.databaseID),
+                observedAt: observedAt
+            )]
+        } catch {
+            preconditionFailure("Invalid sync mock certificate: \(error.localizedDescription)")
+        }
     }
 
-    func mirrorCoverage() -> MirrorCoverage {
-        coverage
+    func readiness(testArtists: [String]) throws -> MirrorReadiness {
+        try mirrorSnapshot(
+            revision: revision,
+            tracks: storedTracks,
+            presentIDs: presentIDs,
+            certificates: certificates
+        )
+        .readiness(for: MirrorRequirement(
+            testArtists: testArtists,
+            fieldSet: .processingV1,
+            maximumMetadataAge: nil
+        ))
     }
 
     func rejectNextMirrorCommits(_ count: Int = 1) {

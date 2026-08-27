@@ -171,7 +171,7 @@ struct SyncForceScanTests {
         }
 
         await bridge.setLibrary(ids: ["T1"], tracks: ["T1": current])
-        await store.setStored([stored])
+        await store.setStored([stored], certificateDate: now)
         if let metadata {
             await snapshotService.setMetadata(metadata)
         }

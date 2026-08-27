@@ -210,7 +210,7 @@ struct AppliedTrackUpdate {
 
 actor MockTrackStore: TrackStateStore {
     var tracks: [Track] = []
-    private var coverage = MirrorCoverage.unknown
+    private var certificates: [ScopeCertificate] = []
     private var revision: MirrorRevision
     private(set) var appliedUpdates: [AppliedTrackUpdate] = []
     private var shouldCancelReads = false
@@ -244,21 +244,28 @@ actor MockTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        try mirrorSnapshot(revision: revision, tracks: tracks, coverage: coverage)
+        try mirrorSnapshot(revision: revision, tracks: tracks, certificates: certificates)
     }
 
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
-        guard update.baseRevision == revision else {
-            throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
+    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
+        guard commit.baseRevision == revision else {
+            throw MirrorRevisionConflict(expected: commit.baseRevision, actual: revision)
         }
         let nextRevision = try revision.advanced()
-        coverage = coverage.applying(update.coverageChange)
-        if case let .replace(_, ids, _) = update.membershipChange {
+        switch commit.certificates {
+        case .preserve:
+            break
+        case .invalidate:
+            certificates = []
+        case let .replace(certificate), let .rebase(certificate):
+            certificates = [certificate]
+        }
+        if case let .replace(_, ids, _) = commit.membershipChange {
             let presentIDs = Set(ids.map(\.rawValue))
             tracks.removeAll { !presentIDs.contains($0.id) }
         }
-        for track in update.upserts {
+        for track in commit.upserts {
             if let index = tracks.firstIndex(where: { $0.id == track.id }) {
                 tracks[index] = track
             } else {
@@ -266,7 +273,7 @@ actor MockTrackStore: TrackStateStore {
             }
         }
         revision = nextRevision
-        return revision
+        return MirrorCommitResult(revision: revision)
     }
 
     func getTrack(byID id: String) async throws -> Track? {

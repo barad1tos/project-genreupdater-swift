@@ -19,7 +19,7 @@ struct LibrarySyncCoverageTests {
         )
 
         _ = try await service.synchronizeNow(forceMetadataRefresh: true)
-        #expect(await store.mirrorCoverage() == .verified(MirrorScope(testArtists: ["Metallica"])))
+        #expect(try await store.readiness(testArtists: ["Metallica"]).isReady)
 
         await service.updateRuntimeConfiguration(LibrarySyncRuntimeConfiguration(testArtists: []))
         _ = try await service.synchronizeNow()
@@ -31,7 +31,7 @@ struct LibrarySyncCoverageTests {
         } else {
             Issue.record("Expected a full-library observation without reused artist-scoped evidence")
         }
-        #expect(await store.mirrorCoverage() == .verified(.fullLibrary))
+        #expect(try await store.readiness(testArtists: []).isReady)
     }
 
     @Test("Incomplete metadata invalidates prior full-library evidence")
@@ -44,26 +44,25 @@ struct LibrarySyncCoverageTests {
 
         _ = try await service.synchronizeNow(forceMetadataRefresh: true)
 
-        #expect(await store.mirrorCoverage() == .unknown)
+        #expect(try await !(store.readiness(testArtists: []).isReady))
     }
 
     @Test("Incomplete scoped membership invalidates prior artist evidence")
     func membershipGapInvalidates() async throws {
         let observer = SyncMockScriptClient()
         let store = SyncMockTrackStore()
-        let scope = MirrorScope(testArtists: ["Metallica"])
         await store.setStored([track(id: "metallica", artist: "Metallica")])
-        await store.setMirrorCoverage(.verified(scope))
+        await store.setScopeCertificate(testArtists: ["Metallica"])
         await observer.setLibrary(ids: ["metallica"], tracks: [:])
         let service = LibrarySyncService(
             trackStore: store,
-            runtimeConfiguration: LibrarySyncRuntimeConfiguration(testArtists: scope.testArtists),
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(testArtists: ["Metallica"]),
             observer: observer
         )
 
         _ = try await service.synchronizeNow(forceMetadataRefresh: true)
 
-        #expect(await store.mirrorCoverage() == .unknown)
+        #expect(try await !(store.readiness(testArtists: ["Metallica"]).isReady))
     }
 
     @Test("Album-targeted synchronization invalidates prior evidence")
@@ -84,7 +83,7 @@ struct LibrarySyncCoverageTests {
 
         _ = try await service.synchronizeNow(forceMetadataRefresh: true)
 
-        #expect(await store.mirrorCoverage() == .unknown)
+        #expect(try await !(store.readiness(testArtists: []).isReady))
     }
 
     private func track(id: String, artist: String) -> Track {
