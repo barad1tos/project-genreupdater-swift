@@ -4,6 +4,11 @@ import SwiftData
 
 private let log = Logger(subsystem: "com.genreupdater", category: "FixPlanStore")
 
+private struct FixPlanScopePayload: Codable {
+    let scope: ProcessingScopeSnapshot
+    let admission: FixPlanAdmission
+}
+
 /// Single-writer assumption: `#Unique` upserts silently instead of throwing, so
 /// plan immutability holds only while one store instance owns the container.
 /// A second context racing past the duplicate probe could overwrite a row.
@@ -202,7 +207,10 @@ public actor FixPlanDataStore: FixPlanStore {
             sourceRunID: plan.sourceRunID.rawValue,
             createdAt: plan.createdAt,
             configSnapshotData: JSONEncoder().encode(plan.configuration),
-            scopeSnapshotData: JSONEncoder().encode(plan.scope),
+            scopeSnapshotData: JSONEncoder().encode(FixPlanScopePayload(
+                scope: plan.scope,
+                admission: plan.admission
+            )),
             itemsData: JSONEncoder().encode(plan.items),
             itemCount: plan.items.count,
             scopeSource: plan.scope.source.rawValue,
@@ -231,7 +239,8 @@ public actor FixPlanDataStore: FixPlanStore {
     }
 
     private func makePlan(from persisted: PersistedFixPlan) throws -> FixPlan {
-        try FixPlan(
+        let scopePayload = try decodeScopePayload(from: persisted)
+        return try FixPlan(
             id: FixPlanID(rawValue: persisted.planID),
             revision: FixPlanRevision(persisted.revision),
             sourceRunID: RunID(rawValue: persisted.sourceRunID),
@@ -242,12 +251,8 @@ public actor FixPlanDataStore: FixPlanStore {
                 field: "configuration",
                 planID: persisted.planID
             ),
-            scope: decodeBlob(
-                ProcessingScopeSnapshot.self,
-                from: persisted.scopeSnapshotData,
-                field: "scope",
-                planID: persisted.planID
-            ),
+            scope: scopePayload.scope,
+            admission: scopePayload.admission,
             items: decodeBlob(
                 [FixPlanItem].self,
                 from: persisted.itemsData,
@@ -255,6 +260,20 @@ public actor FixPlanDataStore: FixPlanStore {
                 planID: persisted.planID
             )
         )
+    }
+
+    private func decodeScopePayload(from persisted: PersistedFixPlan) throws -> FixPlanScopePayload {
+        do {
+            return try JSONDecoder().decode(FixPlanScopePayload.self, from: persisted.scopeSnapshotData)
+        } catch {
+            let legacyScope = try decodeBlob(
+                ProcessingScopeSnapshot.self,
+                from: persisted.scopeSnapshotData,
+                field: "scope",
+                planID: persisted.planID
+            )
+            return FixPlanScopePayload(scope: legacyScope, admission: .legacyUncertified)
+        }
     }
 
     private func makeDecision(from persisted: PersistedFixPlanDecision) throws -> FixPlanReviewDecision {

@@ -102,6 +102,12 @@ public struct FixPlanItem: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// Admission evidence carried by an immutable fix plan.
+public enum FixPlanAdmission: Codable, Equatable, Sendable {
+    case certified(ProcessingAdmission)
+    case legacyUncertified
+}
+
 /// An immutable snapshot of the exact proposal GenreUpdater showed the user at a
 /// specific moment (ADR 0017). Items never mutate after creation; acceptance and
 /// rejection are recorded separately by `FixPlanReviewDecision`.
@@ -113,6 +119,7 @@ public struct FixPlan: Equatable, Sendable {
     public let createdAt: Date
     public let configuration: FixPlanConfig
     public let scope: ProcessingScopeSnapshot
+    public let admission: FixPlanAdmission
     public let items: [FixPlanItem]
 
     public init(
@@ -122,6 +129,7 @@ public struct FixPlan: Equatable, Sendable {
         createdAt: Date,
         configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot,
+        admission: FixPlanAdmission = .legacyUncertified,
         items: [FixPlanItem]
     ) {
         self.id = id
@@ -130,6 +138,7 @@ public struct FixPlan: Equatable, Sendable {
         self.createdAt = createdAt
         self.configuration = configuration
         self.scope = scope
+        self.admission = admission
         self.items = items
     }
 }

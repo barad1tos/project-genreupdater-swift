@@ -36,13 +36,23 @@ extension AppDependencies {
             return nil
         }
 
+        let now: @Sendable () -> Date = { Date() }
         return makePreviewProducer(dependencies: FixPlanProducer.Dependencies(
-            loadTracks: { try await trackStore.loadAllTracks() },
+            loadAdmission: { scope, configuration in
+                let runtimeConfiguration = try LibrarySyncRuntimeConfiguration(
+                    configuration: configuration.appConfiguration
+                )
+                return try await trackStore.admit(
+                    scope: scope,
+                    requirement: runtimeConfiguration.processingRequirement,
+                    at: now()
+                )
+            },
             makeRuntime: { configuration, scope in
                 try await runtime.makePreview(configuration: configuration, scope: scope)
             },
             savePlan: { try await fixPlanStore.savePlan($0, initialDecision: $1) },
-            now: { Date() }
+            now: now
         ))
     }
 

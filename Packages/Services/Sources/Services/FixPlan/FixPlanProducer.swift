@@ -30,21 +30,44 @@ public struct FixPlanProducer: Sendable {
     }
 
     public struct Dependencies: Sendable {
-        public let loadTracks: @Sendable () async throws -> [Track]
+        public let loadAdmission: @Sendable (
+            ProcessingScopeSnapshot,
+            FixPlanConfig
+        ) async throws -> ProcessingAdmissionDecision
         public let makeRuntime: @Sendable (FixPlanConfig, ProcessingScopeSnapshot) async throws -> Runtime
         public let savePlan: @Sendable (FixPlan, FixPlanReviewDecision) async throws -> Void
         public let now: @Sendable () -> Date
+        fileprivate let loadLegacyTracks: (@Sendable () async throws -> [Track])?
 
+        public init(
+            loadAdmission: @escaping @Sendable (
+                ProcessingScopeSnapshot,
+                FixPlanConfig
+            ) async throws -> ProcessingAdmissionDecision,
+            makeRuntime: @escaping @Sendable (FixPlanConfig, ProcessingScopeSnapshot) async throws -> Runtime,
+            savePlan: @escaping @Sendable (FixPlan, FixPlanReviewDecision) async throws -> Void,
+            now: @escaping @Sendable () -> Date
+        ) {
+            self.loadAdmission = loadAdmission
+            self.makeRuntime = makeRuntime
+            self.savePlan = savePlan
+            self.now = now
+            loadLegacyTracks = nil
+        }
+
+        /// Preserves source compatibility without fabricating admission evidence.
+        /// Production wiring must use `loadAdmission`.
         public init(
             loadTracks: @escaping @Sendable () async throws -> [Track],
             makeRuntime: @escaping @Sendable (FixPlanConfig, ProcessingScopeSnapshot) async throws -> Runtime,
             savePlan: @escaping @Sendable (FixPlan, FixPlanReviewDecision) async throws -> Void,
             now: @escaping @Sendable () -> Date
         ) {
-            self.loadTracks = loadTracks
+            loadAdmission = { _, _ in .rejected(.scopeMismatch) }
             self.makeRuntime = makeRuntime
             self.savePlan = savePlan
             self.now = now
+            loadLegacyTracks = loadTracks
         }
     }
 
@@ -60,20 +83,22 @@ public struct FixPlanProducer: Sendable {
         configuration: FixPlanConfig
     ) async throws -> FixPlanProduction {
         let options = configuration.determinationOptions
-        let tracks = try await dependencies.loadTracks()
-        let scopedTracks = Self.scopedTracks(tracks, scope: scope)
-        let targetedTracks = Self.albumTargetedTracks(scopedTracks, target: configuration.albumTarget)
+        guard let planningInput = try await loadPlanningInput(scope: scope, configuration: configuration) else {
+            return .empty
+        }
+        let (admission, admittedTracks) = planningInput
+        let targetedTracks = Self.albumTargetedTracks(admittedTracks, target: configuration.albumTarget)
         guard !targetedTracks.isEmpty else { return .empty }
         let runtime = try await dependencies.makeRuntime(configuration, scope)
         // Artist evidence spans the full scope, so its authoritative grouping
         // metadata must be refreshed even when proposals target one album.
-        try await runtime.refreshIdentity(scopedTracks, scope)
+        try await runtime.refreshIdentity(admittedTracks, scope)
         let albumTracksByTrackID = await runtime.albumContext(targetedTracks)
         // Artist context spans the FULL scope: dominant-genre
         // determination must see the artist's other albums, or a
         // targeted preview would propose different metadata than a
         // whole-scope one for the same track.
-        let artistTracksByTrackID = await runtime.artistContext(scopedTracks)
+        let artistTracksByTrackID = await runtime.artistContext(admittedTracks)
         let yearRunScope = YearRunScope()
         let context = PlanContext(
             runtime: runtime,
@@ -93,19 +118,46 @@ public struct FixPlanProducer: Sendable {
             minConfidence: options.minConfidence
         )
         let producedAt = dependencies.now()
-        guard let plan = FixPlanCapture.makePlan(
-            from: filteredProposals,
-            sourceRunID: sourceRunID,
-            scope: scope,
-            configuration: configuration,
-            createdAt: producedAt
-        ) else {
+        let plan = if let admission {
+            FixPlanCapture.makePlan(
+                from: filteredProposals,
+                sourceRunID: sourceRunID,
+                evidence: .init(scope: scope, admission: admission),
+                configuration: configuration,
+                createdAt: producedAt
+            )
+        } else {
+            FixPlanCapture.makePlan(
+                from: filteredProposals,
+                sourceRunID: sourceRunID,
+                scope: scope,
+                configuration: configuration,
+                createdAt: producedAt
+            )
+        }
+        guard let plan else {
             return .empty
         }
 
         let decision = FixPlanReviewer.initialDecision(for: plan, at: producedAt)
         try await dependencies.savePlan(plan, decision)
         return FixPlanProduction(planID: plan.id, proposalCount: plan.items.count)
+    }
+
+    private func loadPlanningInput(
+        scope: ProcessingScopeSnapshot,
+        configuration: FixPlanConfig
+    ) async throws -> (ProcessingAdmission?, [Track])? {
+        if let loadLegacyTracks = dependencies.loadLegacyTracks {
+            return try await (nil, Self.legacyScopedTracks(loadLegacyTracks(), scope: scope))
+        }
+
+        switch try await dependencies.loadAdmission(scope, configuration) {
+        case let .admitted(admission, tracks):
+            return (admission, tracks)
+        case .rejected:
+            return nil
+        }
     }
 
     private func determineProposals(
@@ -232,7 +284,7 @@ public struct FixPlanProducer: Sendable {
         let proposals: [ProposedChange]
     }
 
-    private static func scopedTracks(_ tracks: [Track], scope: ProcessingScopeSnapshot) -> [Track] {
+    private static func legacyScopedTracks(_ tracks: [Track], scope: ProcessingScopeSnapshot) -> [Track] {
         switch scope.source {
         case .fullLibrary:
             tracks

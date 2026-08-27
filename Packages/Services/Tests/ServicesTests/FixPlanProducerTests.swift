@@ -8,6 +8,44 @@ struct FixPlanProducerTests {
     private let sourceRunID = RunID()
     private let producedAt = Date(timeIntervalSince1970: 1_700_000_000)
 
+    @Test("rejected admission creates neither runtime nor plan")
+    func rejectsAdmission() async throws {
+        let spy = FixPlanProducerSpy(
+            tracks: [track("BLOCKED")],
+            admissionRejection: .scopeMismatch
+        )
+
+        let production = try await makeProducer(spy).producePlan(
+            sourceRunID: sourceRunID,
+            scope: scope(requestedTestArtists: [], knownTrackCount: 1),
+            configuration: configuration()
+        )
+
+        #expect(production == .empty)
+        #expect(await spy.runtimeCreationCount() == 0)
+        #expect(await spy.savedPlans().isEmpty)
+    }
+
+    @Test("planning uses the exact tracks returned by admission")
+    func plansAdmittedTracks() async throws {
+        let admitted = track("ADMITTED", artist: "Canonical Artist")
+        let spy = FixPlanProducerSpy(
+            tracks: [admitted],
+            admittedTracks: [admitted],
+            outcomes: ["ADMITTED": .changes([proposal(for: admitted)])]
+        )
+
+        let production = try await makeProducer(spy).producePlan(
+            sourceRunID: sourceRunID,
+            scope: scope(requestedTestArtists: ["Configured Artist"], knownTrackCount: 1),
+            configuration: configuration(UpdateOptions(minConfidence: 60))
+        )
+
+        #expect(production.proposalCount == 1)
+        #expect(await spy.refreshInputs() == [["ADMITTED"]])
+        #expect(await spy.determinationCalls().map(\.trackID) == ["ADMITTED"])
+    }
+
     @Test("scoping skips out-of-scope artists before determination")
     func filtersBeforePlanning() async throws {
         let inScope = track("IN", artist: "Aphex Twin")
@@ -337,6 +375,8 @@ struct FixPlanProducerTests {
         #expect(saved.plan.sourceRunID == sourceRunID)
         #expect(saved.plan.scope == currentScope)
         #expect(saved.plan.configuration == configuration)
+        let admission = try #require(await spy.loadedAdmissions().first)
+        #expect(saved.plan.admission == .certified(admission))
         #expect(saved.plan.items.map(\.id) == [firstProposal.id, secondProposal.id])
         #expect(saved.decision.planID == saved.plan.id)
         #expect(saved.decision.planRevision == .initial)
@@ -424,9 +464,10 @@ struct FixPlanProducerTests {
 
     private func makeProducer(_ spy: FixPlanProducerSpy) -> FixPlanProducer {
         FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
-            loadTracks: { await spy.loadTracks() },
+            loadAdmission: { try await spy.loadAdmission(scope: $0, configuration: $1) },
             makeRuntime: { _, _ in
-                FixPlanProducer.Runtime(
+                await spy.recordRuntimeCreation()
+                return FixPlanProducer.Runtime(
                     refreshIdentity: { try await spy.refreshWriteIdentity(for: $0, scope: $1) },
                     albumContext: { await spy.albumContextTracksByTrackID(for: $0) },
                     artistContext: { await spy.artistContextTracksByTrackID(for: $0) },
@@ -470,10 +511,14 @@ struct FixPlanProducerTests {
 
 actor FixPlanProducerSpy {
     private let tracks: [Track]
+    private let admittedTracks: [Track]?
     private let albumContextIDs: [String: [String]]
     private let outcomes: [String: DeterminationOutcome]
     private let refreshFails: Bool
     private let concurrency: PlanConcurrencyProbe?
+    private let admissionRejection: ProcessingAdmissionRejection?
+    private var runtimeCreations = 0
+    private var admissions: [ProcessingAdmission] = []
     private var refreshInputIDs: [[String]] = []
     private var capturedScopes: [ProcessingScopeSnapshot] = []
     private var albumContextInputIDs: [[String]] = []
@@ -483,20 +528,75 @@ actor FixPlanProducerSpy {
 
     init(
         tracks: [Track],
+        admittedTracks: [Track]? = nil,
         albumContextIDs: [String: [String]] = [:],
         outcomes: [String: DeterminationOutcome] = [:],
         refreshFails: Bool = false,
-        concurrency: PlanConcurrencyProbe? = nil
+        concurrency: PlanConcurrencyProbe? = nil,
+        admissionRejection: ProcessingAdmissionRejection? = nil
     ) {
         self.tracks = tracks
+        self.admittedTracks = admittedTracks
         self.albumContextIDs = albumContextIDs
         self.outcomes = outcomes
         self.refreshFails = refreshFails
         self.concurrency = concurrency
+        self.admissionRejection = admissionRejection
+    }
+
+    func loadAdmission(
+        scope: ProcessingScopeSnapshot,
+        configuration _: FixPlanConfig
+    ) throws -> ProcessingAdmissionDecision {
+        if let admissionRejection {
+            return .rejected(admissionRejection)
+        }
+        let admittedTracks = admittedTracks ?? Self.scopedTracks(tracks, scope: scope)
+        let admission = try ProcessingAdmission(
+            scopeID: scope.id,
+            certificate: ScopeCertificate(
+                id: UUID(),
+                revision: .initial,
+                membership: MembershipStamp(fingerprint: String(repeating: "a", count: 64)),
+                testArtists: scope.normalizedTestArtists,
+                fieldSet: .processingV1,
+                evidence: ScopeEvidence(
+                    requestedFingerprint: "requested",
+                    observedFingerprint: "observed",
+                    trackCount: admittedTracks.count
+                ),
+                observedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            ),
+            maximumMetadataAge: nil
+        )
+        admissions.append(admission)
+        return .admitted(admission, tracks: admittedTracks)
+    }
+
+    func recordRuntimeCreation() {
+        runtimeCreations += 1
+    }
+
+    func runtimeCreationCount() -> Int {
+        runtimeCreations
+    }
+
+    func loadedAdmissions() -> [ProcessingAdmission] {
+        admissions
     }
 
     func loadTracks() -> [Track] {
         tracks
+    }
+
+    private static func scopedTracks(_ tracks: [Track], scope: ProcessingScopeSnapshot) -> [Track] {
+        switch scope.source {
+        case .fullLibrary:
+            return tracks
+        case .testArtists:
+            guard !scope.normalizedTestArtists.isEmpty else { return [] }
+            return ArtistAllowList.filter(tracks, allowedArtists: scope.normalizedTestArtists)
+        }
     }
 
     func refreshWriteIdentity(for tracks: [Track], scope: ProcessingScopeSnapshot) throws {

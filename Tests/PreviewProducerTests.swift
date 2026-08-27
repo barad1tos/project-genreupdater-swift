@@ -7,6 +7,52 @@ import Testing
 @Suite("Preview producer runtime")
 @MainActor
 struct PreviewProducerTests {
+    @Test("production preview admits post-sync mirror rows without loading all tracks")
+    func usesMirrorAdmission() async throws {
+        let observedAt = Date()
+        let admittedTrack = Track(
+            id: "admitted-track",
+            name: "Admitted Song",
+            artist: "Probe Artist",
+            album: "Admitted Album",
+            appleScriptID: "admitted-track"
+        )
+        let store = try PreviewAdmissionStore(
+            track: admittedTrack,
+            testArtists: ["Probe Artist"],
+            observedAt: observedAt
+        )
+        var appConfiguration = AppConfiguration()
+        appConfiguration.development.testArtists = ["Probe Artist"]
+        let configuration = FixPlanConfig.capture(
+            configuration: appConfiguration,
+            options: UpdateOptions(updateGenre: false, updateYear: false),
+            capturedAt: observedAt
+        )
+        let runScope = scope(artist: "Probe Artist")
+        let services = RunServiceFactory(
+            makeMusicAccess: { _ in previewAccess(PreviewScriptClient(tracks: [admittedTrack])) },
+            makePendingVerification: { _ in nil }
+        )
+        let runtime = try await makeRuntime(services: services)
+        _ = try await runtime.makeSync(configuration: configuration, scope: runScope)
+        let dependencies = AppDependencies(
+            configurationLoader: { appConfiguration },
+            modelContainerFactory: ModelContainerFactory.createInMemory
+        )
+        dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            fixPlanStore: StoredFixPlanStore(plan: nil, decision: nil)
+        )
+        let producer = try #require(dependencies.makePreviewProducer(runtime: runtime))
+
+        let production = try await producer(RunID(), runScope, configuration)
+
+        #expect(production == .empty)
+        #expect(await store.mirrorLoadCount() == 1)
+        #expect(await store.allTrackLoadTotal() == 0)
+    }
+
     @Test("Invalid historical configuration blocks sync before runtime services")
     func rejectsInvalidSync() async throws {
         try await expectRuntimeRejection(at: .sync)
@@ -456,4 +502,78 @@ private enum RuntimeEntryPoint: CaseIterable {
 
 private func previewAccess(_ scripts: PreviewScriptClient) -> RunMusicAccess {
     RunMusicAccess(identifier: scripts, writer: scripts, observer: MusicAppTestObserver(tracks: []))
+}
+
+private actor PreviewAdmissionStore: TrackStateStore {
+    private let snapshot: TrackMirrorSnapshot
+    private var mirrorLoads = 0
+    private var allTrackLoads = 0
+
+    init(track: Track, testArtists: [String], observedAt: Date) throws {
+        let databaseID = try #require(track.databaseID)
+        let membership = try MembershipFingerprint.make(ids: [databaseID])
+        let certificate = ScopeCertificate(
+            id: UUID(),
+            revision: .initial,
+            membership: membership,
+            testArtists: testArtists,
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: membership.fingerprint,
+                observedFingerprint: membership.fingerprint,
+                trackCount: 1
+            ),
+            observedAt: observedAt
+        )
+        snapshot = TrackMirrorSnapshot(
+            revision: .initial,
+            membershipStamp: membership,
+            presentIDs: [databaseID],
+            presentTracks: [track],
+            repairCandidates: [],
+            certificates: [certificate]
+        )
+    }
+
+    func initialize() async throws {}
+
+    func loadAllTracks() async throws -> [Track] {
+        allTrackLoads += 1
+        throw PreviewStoreError.unexpectedLoadAll
+    }
+
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        mirrorLoads += 1
+        return snapshot
+    }
+
+    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
+        try MirrorCommitResult(revision: commit.baseRevision.advanced())
+    }
+
+    func getTrack(byID _: String) async throws -> Track? {
+        nil
+    }
+
+    func persistAppliedChange(_: ChangeLogEntry) async throws {}
+
+    func getUnprocessedTracks() async throws -> [Track] {
+        []
+    }
+
+    func trackCount() async throws -> Int {
+        snapshot.presentTracks.count
+    }
+
+    func mirrorLoadCount() -> Int {
+        mirrorLoads
+    }
+
+    func allTrackLoadTotal() -> Int {
+        allTrackLoads
+    }
+}
+
+private enum PreviewStoreError: Error {
+    case unexpectedLoadAll
 }
