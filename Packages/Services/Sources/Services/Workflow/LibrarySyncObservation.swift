@@ -47,12 +47,7 @@ extension LibrarySyncService {
         let repairCandidates = tracksInConfiguredScope(snapshot.repairCandidates)
         let canonicalStored = try canonicalMirror(presentTracks)
         let scopedByID = try canonicalMirror(scopedPresent)
-        let scope = ProcessingScopeSnapshot.capture(
-            requestedTestArtists: runtimeConfiguration.testArtists,
-            knownTrackCount: scopedPresent.count,
-            createdAt: currentDate(),
-            reason: "library sync"
-        )
+        let scope = processingScope(trackCount: scopedPresent.count)
         let shouldForceRefresh = try await shouldRefreshMetadata(force: forceMetadataRefresh)
         let refresh: MetadataRefreshPolicy = shouldForceRefresh || !repairCandidates.isEmpty ? .force : .fast
         guard let mirror = LibraryMirrorIndex(tracksByID: scopedByID) else {
@@ -73,11 +68,10 @@ extension LibrarySyncService {
             storedByID: mirrorBaseline,
             scopedStoredIDs: Set(scopedByID.keys).union(repair.baseline.keys)
         )
-        let repairedIDs = Set(repair.baseline.keys)
-        let ordinaryUpserts = classification.upserts.filter { track in
-            guard let databaseID = track.databaseID else { return true }
-            return !repairedIDs.contains(databaseID)
-        }
+        let ordinaryUpserts = upsertsExcludingRepairs(
+            classification.upserts,
+            repairedIDs: Set(repair.baseline.keys)
+        )
         let result = fullMembershipResult(
             classification.result,
             storedIDs: Set(canonicalStored.keys),
@@ -86,21 +80,53 @@ extension LibrarySyncService {
         let certificateTransition = try certificateChange(
             for: observation,
             baseRevision: snapshot.revision,
-            previousReadiness: readiness
+            previousReadiness: readiness,
+            hasTrackMutations: !repair.repairs.isEmpty || !ordinaryUpserts.isEmpty
         )
-        return try SyncDetection(
+        let membershipTransition = try membershipChange(
+            for: observation,
+            certificateChange: certificateTransition
+        )
+        return SyncDetection(
             baseRevision: snapshot.revision,
             observation: ObservationID(),
             result: result,
             certificateChange: certificateTransition,
-            membershipChange: membershipChange(for: observation),
+            membershipChange: membershipTransition,
             repairs: repair.repairs,
-            upserts: ordinaryUpserts.sorted { $0.id < $1.id },
+            upserts: ordinaryUpserts,
             previousTracks: Dictionary(uniqueKeysWithValues: mirrorBaseline.map {
                 ($0.key.rawValue, $0.value)
             }),
             didCompleteForceRefresh: refresh == .force && observation.metadata.isComplete
         )
+    }
+
+    private func processingScope(trackCount: Int) -> ProcessingScopeSnapshot {
+        ProcessingScopeSnapshot.capture(
+            requestedTestArtists: runtimeConfiguration.testArtists,
+            knownTrackCount: trackCount,
+            createdAt: currentDate(),
+            reason: "library sync"
+        )
+    }
+
+    private func upsertsExcludingRepairs(
+        _ upserts: [Track],
+        repairedIDs: Set<MusicDatabaseTrackID>
+    ) -> [Track] {
+        upserts.filter { track in
+            guard let databaseID = track.databaseID else { return true }
+            return !repairedIDs.contains(databaseID)
+        }.sorted { $0.id < $1.id }
+    }
+
+    private func membershipChange(
+        for observation: LibraryObservation,
+        certificateChange: CertificateChange
+    ) throws -> MembershipChange {
+        guard certificateChange != .preserve else { return .preserve }
+        return try membershipChange(for: observation)
     }
 
     private func fullMembershipResult(
@@ -130,12 +156,16 @@ extension LibrarySyncService {
     private func certificateChange(
         for observation: LibraryObservation,
         baseRevision: MirrorRevision,
-        previousReadiness: MirrorReadiness
+        previousReadiness: MirrorReadiness,
+        hasTrackMutations: Bool
     ) throws -> CertificateChange {
         guard runtimeConfiguration.albumTargetIdentity == nil else {
             return .invalidate(.narrowedObservation)
         }
         guard observation.metadata.isComplete else {
+            return .invalidate(.incompleteObservation)
+        }
+        guard observation.tracks.allSatisfy({ $0.hasCompleteMetadata(for: .processingV1) }) else {
             return .invalidate(.incompleteObservation)
         }
         let hasCompleteMembership = switch (observation.scope.source, observation.membership) {
@@ -153,7 +183,8 @@ extension LibrarySyncService {
         let membership = try MembershipFingerprint.make(ids: Array(observation.censusIDs))
         if case let .ready(previousCertificate) = previousReadiness,
            previousCertificate.membership == membership,
-           Set(observation.tracks.map(\.databaseID)) != observation.currentIDs {
+           Set(observation.tracks.map(\.databaseID)) != observation.currentIDs,
+           !hasTrackMutations {
             return .preserve
         }
 

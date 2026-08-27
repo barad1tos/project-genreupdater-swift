@@ -7,11 +7,11 @@ struct MirrorReadinessTests {
     private let observedAt = Date(timeIntervalSince1970: 1_800_000_000)
 
     private var currentMembership: MembershipStamp {
-        membership(repeating: "a")
+        membership(ids: [databaseID("A")])
     }
 
     private var previousMembership: MembershipStamp {
-        membership(repeating: "b")
+        membership(ids: [databaseID("B")])
     }
 
     @Test("An exact current certificate admits its processing requirement")
@@ -22,9 +22,70 @@ struct MirrorReadinessTests {
         #expect(snapshot.readiness(for: requirement(), at: observedAt) == .ready(certificate))
     }
 
+    @Test("A scoped certificate measures only canonical rows in its exact artist scope")
+    func admitsExactScopedRows() {
+        let metallicaID = databaseID("A")
+        let bjorkID = databaseID("B")
+        let presentIDs = Set([metallicaID, bjorkID])
+        let certificate = makeCertificate(
+            membershipStamp: membership(ids: Array(presentIDs)),
+            trackIDs: [metallicaID]
+        )
+        let snapshot = makeSnapshot(
+            presentIDs: presentIDs,
+            tracks: [
+                track(id: "A", artist: "Metallica"),
+                track(id: "B", artist: "Björk"),
+            ],
+            certificates: [certificate]
+        )
+
+        #expect(snapshot.readiness(for: requirement(), at: observedAt) == .ready(certificate))
+    }
+
+    @Test("A missing canonical row fails closed before certificate admission")
+    func rejectsPartialPhysicalMirror() {
+        let firstID = databaseID("A")
+        let missingID = databaseID("B")
+        let presentIDs = Set([firstID, missingID])
+        let certificate = makeCertificate(
+            membershipStamp: membership(ids: Array(presentIDs)),
+            testArtists: [],
+            trackIDs: [firstID, missingID]
+        )
+        let snapshot = makeSnapshot(
+            presentIDs: presentIDs,
+            tracks: [track(id: "A", artist: "Metallica")],
+            certificates: [certificate]
+        )
+
+        #expect(snapshot.readiness(for: requirement(testArtists: []), at: observedAt) ==
+            .incomplete(.identityMissing(count: 1)))
+    }
+
+    @Test("A certificate count must match its canonical scoped rows")
+    func rejectsWrongTrackCount() {
+        let certificate = makeCertificate(trackCount: 2)
+        let snapshot = makeSnapshot(certificates: [certificate])
+
+        #expect(snapshot.readiness(for: requirement(), at: observedAt) == .incomplete(.metadataMissing(count: 1)))
+    }
+
+    @Test("A certificate fingerprint must match its canonical scoped rows")
+    func rejectsWrongFingerprint() {
+        let wrongFingerprint = membership(ids: [databaseID("B")]).fingerprint
+        let certificate = makeCertificate(
+            requestedFingerprint: wrongFingerprint,
+            observedFingerprint: wrongFingerprint
+        )
+        let snapshot = makeSnapshot(certificates: [certificate])
+
+        #expect(snapshot.readiness(for: requirement(), at: observedAt) == .incomplete(.metadataMissing(count: 1)))
+    }
+
     @Test("A certificate from another membership is stale")
     func rejectsChangedMembership() {
-        let certificate = makeCertificate(membership: previousMembership)
+        let certificate = makeCertificate(membershipStamp: previousMembership)
         let snapshot = makeSnapshot(certificates: [certificate])
 
         #expect(snapshot.readiness(for: requirement(), at: observedAt) == .stale(.membershipChanged))
@@ -121,13 +182,17 @@ struct MirrorReadinessTests {
 
     private func makeSnapshot(
         revision: MirrorRevision = MirrorRevision(value: 8),
+        presentIDs: Set<MusicDatabaseTrackID>? = nil,
+        tracks: [Track]? = nil,
         certificates: [ScopeCertificate]
     ) -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(
+        let resolvedTracks = tracks ?? [track(id: "A", artist: "Metallica")]
+        let resolvedIDs = presentIDs ?? Set(resolvedTracks.compactMap(\.databaseID))
+        return TrackMirrorSnapshot(
             revision: revision,
-            membershipStamp: currentMembership,
-            presentIDs: [],
-            presentTracks: [],
+            membershipStamp: membership(ids: Array(resolvedIDs)),
+            presentIDs: resolvedIDs,
+            presentTracks: resolvedTracks,
             repairCandidates: [],
             certificates: certificates
         )
@@ -135,27 +200,42 @@ struct MirrorReadinessTests {
 
     private func makeCertificate(
         revision: MirrorRevision = MirrorRevision(value: 8),
-        membership: MembershipStamp? = nil,
+        membershipStamp: MembershipStamp? = nil,
         testArtists: [String] = ["Metallica"],
-        requestedFingerprint: String = String(repeating: "c", count: 64),
-        observedFingerprint: String = String(repeating: "c", count: 64)
+        trackIDs: [MusicDatabaseTrackID]? = nil,
+        requestedFingerprint: String? = nil,
+        observedFingerprint: String? = nil,
+        trackCount: Int? = nil
     ) -> ScopeCertificate {
-        ScopeCertificate(
+        let resolvedTrackIDs = trackIDs ?? [databaseID("A")]
+        let fingerprint = membership(ids: resolvedTrackIDs).fingerprint
+        return ScopeCertificate(
             id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8)),
             revision: revision,
-            membership: membership ?? currentMembership,
+            membership: membershipStamp ?? currentMembership,
             testArtists: testArtists,
             fieldSet: .processingV1,
-            requestedFingerprint: requestedFingerprint,
-            observedFingerprint: observedFingerprint,
-            trackCount: 1,
+            requestedFingerprint: requestedFingerprint ?? fingerprint,
+            observedFingerprint: observedFingerprint ?? fingerprint,
+            trackCount: trackCount ?? resolvedTrackIDs.count,
             observedAt: observedAt
         )
     }
 
-    private func membership(repeating character: Character) -> MembershipStamp {
+    private func track(id: String, artist: String) -> Track {
+        Track(id: id, name: "Song", artist: artist, album: "Album", appleScriptID: id)
+    }
+
+    private func databaseID(_ value: String) -> MusicDatabaseTrackID {
+        guard let databaseID = MusicDatabaseTrackID(rawValue: value) else {
+            preconditionFailure("Invalid deterministic database ID fixture")
+        }
+        return databaseID
+    }
+
+    private func membership(ids: [MusicDatabaseTrackID]) -> MembershipStamp {
         do {
-            return try MembershipStamp(fingerprint: String(repeating: character, count: 64))
+            return try MembershipFingerprint.make(ids: ids)
         } catch {
             preconditionFailure("Invalid deterministic membership fixture: \(error.localizedDescription)")
         }

@@ -134,7 +134,7 @@ public actor LibrarySyncService {
             membershipChange: membershipChange(for: observation),
             repairs: [],
             upserts: [],
-            certificates: .preserve
+            certificates: .invalidate(.membershipChanged)
         ))
     }
 

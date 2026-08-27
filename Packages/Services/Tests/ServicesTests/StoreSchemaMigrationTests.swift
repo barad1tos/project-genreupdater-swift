@@ -5,40 +5,6 @@ import Foundation
 import Testing
 @testable import Services
 
-private enum DeployedSchemaV3: VersionedSchema {
-    static let versionIdentifier = Schema.Version(3, 0, 0)
-
-    static let models: [any PersistentModel.Type] = StoreSchemaV2.models + [
-        PersistedLibraryMember.self,
-    ]
-
-    @Model
-    final class PersistedLibraryMember {
-        @Attribute(.unique) var databaseID: String
-        var isPresent: Bool
-        var firstSeenRevisionValue: UInt64
-        var lastSeenMembershipFingerprint: String?
-        var removalRevisionValue: UInt64?
-        var removedAt: Date?
-
-        init(
-            databaseID: String,
-            isPresent: Bool,
-            firstSeenRevisionValue: UInt64,
-            lastSeenMembershipFingerprint: String? = nil,
-            removalRevisionValue: UInt64? = nil,
-            removedAt: Date? = nil
-        ) {
-            self.databaseID = databaseID
-            self.isPresent = isPresent
-            self.firstSeenRevisionValue = firstSeenRevisionValue
-            self.lastSeenMembershipFingerprint = lastSeenMembershipFingerprint
-            self.removalRevisionValue = removalRevisionValue
-            self.removedAt = removedAt
-        }
-    }
-}
-
 @Suite("SwiftData store schema migration", .serialized)
 struct StoreSchemaMigrationTests {
     private enum MirrorFixtureState {
@@ -51,6 +17,7 @@ struct StoreSchemaMigrationTests {
     private static let mirrorScopeChecksum = "vrVyyiD+OtvleDs7wa27tSGnDMLj4Bts1NWHukp62k4="
     private static let certificateChecksum = "ZSXa0kgQOGc2k4E+9dCVjwRM05iEMOGympXy2vSo6HE="
     private static let deployedMembershipChecksum = "whynwE78EfLk6nFo6Pm4ZxQSXWggha8oemCvJY0LlPw="
+    private static let deployedCoverageChecksum = "lCPA7P84tguSr6BvhsyyK+8Wzw49fLJgWhUikSppAIQ="
     private static let recoveryChecksum = "i2Q0M3v/JLttbprhy5I8T0nCkA5O9AYoi9OSQRGpY2s="
     private static let runID = fixtureID("00000000-0000-0000-0000-000000000001")
     private static let workItemID = fixtureID("00000000-0000-0000-0000-000000000002")
@@ -122,38 +89,39 @@ struct StoreSchemaMigrationTests {
     }
 
     @Test("The exact deployed V4 coverage store migrates with no admissible certificates")
-    func migratesDeployedCoverageFailClosed() async throws {
+    func migratesDeployedCoverageFailClosed() throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let storeURL = directory.appending(path: "GenreUpdater.store")
 
-        do {
-            let schema = Schema(versionedSchema: StoreSchemaV4.self)
-            let configuration = ModelConfiguration(
-                "GenreUpdater",
-                schema: schema,
-                url: storeURL,
-                cloudKitDatabase: .none
-            )
-            let container = try ModelContainer(for: schema, configurations: [configuration])
-            let context = ModelContext(container)
-            try context.insert(StoreSchemaV2.PersistedMirrorState(
-                scopeData: JSONEncoder().encode([String]()),
-                revisionValue: 7
-            ))
-            try context.save()
-        }
+        try FileManager.default.copyItem(at: Self.deployedCoverageFixtureURL, to: storeURL)
+        let deployedChecksum = try storeChecksum(at: storeURL)
+        #expect(deployedChecksum == Self.deployedCoverageChecksum)
 
-        let store = try TrackDataStore(modelContainer: migratedContainer(at: storeURL))
-        let snapshot = try await store.loadMirrorSnapshot()
-        #expect(snapshot.revision == MirrorRevision(value: 7))
-        #expect(snapshot.certificates.isEmpty)
-        #expect(snapshot.readiness(
-            for: MirrorRequirement(testArtists: [], fieldSet: .processingV1, maximumMetadataAge: nil),
-            at: Self.timestamp
-        ) == .incomplete(.freshObservationRequired))
+        let reopenEvidence = try verifyCoverageFixture(at: storeURL)
+        #expect(reopenEvidence.count == 2)
+        for evidence in reopenEvidence {
+            let membership = Dictionary(uniqueKeysWithValues: evidence.members.map { ($0.databaseID, $0) })
+
+            #expect(evidence.trackID == "v4-present" && evidence.appleScriptID == "v4-present")
+            #expect(evidence.trackName == "Frozen V4 Track" && evidence.artist == "Frozen V4 Artist")
+            #expect(evidence.historyTrackID == "v4-present" && evidence.linkedHistoryTrackID == "v4-present")
+            #expect(Set(membership.keys) == ["v4-removed", "v4-present"])
+            #expect(membership["v4-removed"]?.isPresent == false)
+            #expect(membership["v4-removed"]?.lastSeenFingerprint == "frozen-v4-membership")
+            #expect(membership["v4-removed"]?.removalRevision == 6)
+            #expect(membership["v4-removed"]?.removedAt == Self.timestamp)
+            #expect(membership["v4-present"]?.isPresent == true)
+            #expect(membership["v4-present"]?.firstSeenRevision == 2)
+            #expect(membership["v4-present"]?.lastSeenFingerprint == "frozen-v4-membership")
+            #expect(evidence.revision == 7)
+            #expect(evidence.presentIDs == ["v4-present"])
+            #expect(evidence.presentTrackIDs == ["v4-present"])
+            #expect(evidence.certificateCount == 0)
+            #expect(evidence.requiresFreshObservation)
+        }
     }
 
     @Test("The deployed V3 membership store migrates without losing membership state")
@@ -165,36 +133,17 @@ struct StoreSchemaMigrationTests {
         let storeURL = directory.appending(path: "GenreUpdater.store")
         let removedAt = Date(timeIntervalSince1970: 1_800_000_100)
 
-        do {
-            let schema = Schema(versionedSchema: DeployedSchemaV3.self)
-            let configuration = ModelConfiguration(
-                "GenreUpdater",
-                schema: schema,
-                url: storeURL,
-                cloudKitDatabase: .none
-            )
-            let container = try ModelContainer(for: schema, configurations: [configuration])
-            let context = ModelContext(container)
-            context.insert(DeployedSchemaV3.PersistedLibraryMember(
-                databaseID: "deployed-member",
-                isPresent: false,
-                firstSeenRevisionValue: 7,
-                lastSeenMembershipFingerprint: "deployed-fingerprint",
-                removalRevisionValue: 9,
-                removedAt: removedAt
-            ))
-            try context.save()
-        }
+        _ = try fixtureProcess(mode: "v3", at: storeURL)
 
         #expect(try storeChecksum(at: storeURL) == Self.deployedMembershipChecksum)
-        for _ in 0 ..< 2 {
-            let container = try migratedContainer(at: storeURL)
-            let member = try #require(ModelContext(container).fetch(FetchDescriptor<PersistedLibraryMember>()).first)
+        let reopenEvidence: [V3MigrationEvidence] = try fixtureEvidence(mode: "verify-v3", at: storeURL)
+        for evidence in reopenEvidence {
+            let member = try #require(evidence.members.first)
             #expect(member.databaseID == "deployed-member")
             #expect(!member.isPresent)
-            #expect(member.firstSeenRevisionValue == 7)
+            #expect(member.firstSeenRevision == 7)
             #expect(member.lastSeenFingerprint == "deployed-fingerprint")
-            #expect(member.removalRevisionValue == 9)
+            #expect(member.removalRevision == 9)
             #expect(member.removedAt == removedAt)
         }
     }
@@ -253,6 +202,13 @@ struct StoreSchemaMigrationTests {
             .appending(path: "LegacyFixtures/StoreSchemaV1.fixture")
     }
 
+    private static var deployedCoverageFixtureURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "LegacyFixtures/StoreSchemaV4.fixture")
+    }
+
     private static func fixtureID(_ value: String) -> UUID {
         guard let identifier = UUID(uuidString: value) else {
             preconditionFailure("Invalid synthetic migration fixture UUID")
@@ -278,6 +234,48 @@ struct StoreSchemaMigrationTests {
             cloudKitDatabase: .none
         )
         return try ModelContainerFactory.create(schema: schema, configuration: configuration)
+    }
+
+    private func verifyCoverageFixture(at storeURL: URL) throws -> [V4MigrationEvidence] {
+        try fixtureEvidence(mode: "verify-v4", at: storeURL)
+    }
+
+    private func fixtureEvidence<Evidence: Decodable>(mode: String, at storeURL: URL) throws -> Evidence {
+        try JSONDecoder().decode(Evidence.self, from: fixtureProcess(mode: mode, at: storeURL))
+    }
+
+    private func fixtureProcess(mode: String, at storeURL: URL) throws -> Data {
+        let process = Process()
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        process.executableURL = try fixtureGeneratorURL()
+        process.arguments = [mode, storeURL.path]
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+        try process.run()
+        process.waitUntilExit()
+
+        let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
+        let errorOutput = standardError.fileHandleForReading.readDataToEndOfFile()
+        guard process.terminationStatus == 0 else {
+            throw FixtureProcessError.failed(
+                status: process.terminationStatus,
+                message: String(data: errorOutput, encoding: .utf8) ?? "<non-UTF-8 output>"
+            )
+        }
+        return output
+    }
+
+    private func fixtureGeneratorURL() throws -> URL {
+        let packageDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let candidate = packageDirectory.appending(path: ".build/debug/StoreFixtureGenerator")
+        if FileManager.default.isExecutableFile(atPath: candidate.path) {
+            return candidate
+        }
+        throw FixtureProcessError.executableNotFound
     }
 
     private func verifyMigratedStore(_ container: ModelContainer, mirrorState: MirrorFixtureState) throws {
@@ -420,5 +418,19 @@ struct StoreSchemaMigrationTests {
         #expect(decision.planID == Self.planID)
         #expect(decision.planRevision == 1 && decision.decisionRevision == 1)
         #expect(decision.decidedAt == Self.timestamp && decision.itemDecisionsData == Self.payload)
+    }
+}
+
+private enum FixtureProcessError: LocalizedError {
+    case executableNotFound
+    case failed(status: Int32, message: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .executableNotFound:
+            "StoreFixtureGenerator was not found beside the Services test product."
+        case let .failed(status, message):
+            "StoreFixtureGenerator failed with status \(status): \(message)"
+        }
     }
 }

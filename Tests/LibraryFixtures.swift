@@ -41,23 +41,27 @@ actor MirrorTrackStoreStub: TrackStateStore {
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try await beforeLoad?()
         let membership = try MembershipFingerprint.make(ids: tracks.compactMap(\.databaseID))
-        let loadedCertificates: [ScopeCertificate] = if let certificates {
-            certificates
-        } else if let certifiedArtists {
-            [ScopeCertificate(
+        let generatedCertificates: [ScopeCertificate]
+        if let certifiedArtists {
+            let scopedIDs = tracks
+                .filter { ArtistAllowList.contains($0, in: certifiedArtists) }
+                .compactMap(\.databaseID)
+            let fingerprint = try MembershipFingerprint.make(ids: scopedIDs).fingerprint
+            generatedCertificates = [ScopeCertificate(
                 id: UUID(),
                 revision: revision,
                 membership: membership,
                 testArtists: certifiedArtists,
                 fieldSet: .processingV1,
-                requestedFingerprint: "test-observation",
-                observedFingerprint: "test-observation",
-                trackCount: tracks.count,
+                requestedFingerprint: fingerprint,
+                observedFingerprint: fingerprint,
+                trackCount: scopedIDs.count,
                 observedAt: Date()
             )]
         } else {
-            []
+            generatedCertificates = []
         }
+        let loadedCertificates = certificates ?? generatedCertificates
         return TrackMirrorSnapshot(
             revision: revision,
             membershipStamp: membership,

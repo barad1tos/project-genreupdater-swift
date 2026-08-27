@@ -2,7 +2,7 @@ import Core
 import Foundation
 import SwiftData
 
-/// Writes the synthetic V1 store consumed by the checked-in migration fixture.
+/// Writes synthetic legacy stores consumed by checked-in migration fixtures.
 package enum StoreFixtureWriter {
     package static func writeV1(to storeURL: URL) throws {
         let schema = Schema(versionedSchema: StoreSchemaV1.self)
@@ -23,6 +23,83 @@ package enum StoreFixtureWriter {
         insertLibraryState(into: context, track: track, change: change, scopeData: scopeData)
         insertRunState(into: context)
         insertFixPlan(into: context)
+        try context.save()
+    }
+
+    package static func writeV3(to storeURL: URL) throws {
+        let schema = Schema(versionedSchema: StoreSchemaV3.self)
+        let configuration = ModelConfiguration(
+            "GenreUpdater",
+            schema: schema,
+            url: storeURL,
+            allowsSave: true,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = ModelContext(container)
+        context.insert(StoreSchemaV3.PersistedLibraryMember(
+            databaseID: "deployed-member",
+            isPresent: false,
+            firstSeenRevisionValue: 7,
+            lastSeenMembershipFingerprint: "deployed-fingerprint",
+            removalRevisionValue: 9,
+            removedAt: Date(timeIntervalSince1970: 1_800_000_100)
+        ))
+        try context.save()
+    }
+
+    package static func writeV4(to storeURL: URL) throws {
+        let schema = Schema(versionedSchema: StoreSchemaV4.self)
+        let configuration = ModelConfiguration(
+            "GenreUpdater",
+            schema: schema,
+            url: storeURL,
+            allowsSave: true,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = ModelContext(container)
+        let track = StoreSchemaV2.PersistedTrack(
+            trackID: "v4-present",
+            appleScriptID: "v4-present",
+            name: "Frozen V4 Track",
+            artist: "Frozen V4 Artist",
+            album: "Frozen V4 Album"
+        )
+        let change = StoreSchemaV2.PersistedChangeLogEntry(
+            entryID: changeID,
+            timestamp: timestamp,
+            changeTypeRaw: "genre",
+            trackID: track.trackID,
+            artist: track.artist,
+            trackName: track.name,
+            albumName: track.album,
+            oldGenre: "Old Genre",
+            newGenre: "Frozen Genre"
+        )
+        change.track = track
+        track.changeLog = [change]
+
+        context.insert(track)
+        context.insert(change)
+        try context.insert(StoreSchemaV2.PersistedMirrorState(
+            scopeData: JSONEncoder().encode(["Frozen V4 Artist"]),
+            revisionValue: 7
+        ))
+        context.insert(StoreSchemaV4.PersistedLibraryMember(
+            databaseID: "v4-present",
+            isPresent: true,
+            firstSeenRevisionValue: 2,
+            lastSeenFingerprint: "frozen-v4-membership"
+        ))
+        context.insert(StoreSchemaV4.PersistedLibraryMember(
+            databaseID: "v4-removed",
+            isPresent: false,
+            firstSeenRevisionValue: 1,
+            lastSeenFingerprint: "frozen-v4-membership",
+            removalRevisionValue: 6,
+            removedAt: timestamp
+        ))
         try context.save()
     }
 

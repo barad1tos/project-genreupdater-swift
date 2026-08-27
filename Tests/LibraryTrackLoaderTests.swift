@@ -97,6 +97,24 @@ struct LibraryTrackLoaderTests {
         #expect(load.readiness.isReady)
     }
 
+    @Test("A certificate cannot ready a mirror with a missing canonical member row")
+    func partialMirrorIsUnready() async throws {
+        let firstID = try #require(MusicDatabaseTrackID(rawValue: "DB-1"))
+        let missingID = try #require(MusicDatabaseTrackID(rawValue: "DB-2"))
+        let store = LoaderTrackStore(
+            tracks: [canonicalTrack(id: firstID.rawValue, artist: "Metallica")],
+            presentIDs: [firstID, missingID],
+            certifiedArtists: ["Metallica"]
+        )
+
+        let load = try await LibraryTrackLoader.currentMirror(
+            store: store,
+            requirement: requirement(testArtists: ["Metallica"])
+        )
+
+        #expect(load.readiness == .incomplete(.identityMissing(count: 1)))
+    }
+
     @Test("Broader artist certificate does not admit a requested subset")
     func artistSubsetIsUnready() async throws {
         let store = LoaderTrackStore(
@@ -196,8 +214,11 @@ private actor LoaderTrackStore: TrackStateStore {
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         let ids = presentIDs.sorted { $0.rawValue < $1.rawValue }
         let membership = try testMembershipStamp(for: ids)
-        let certificates: [ScopeCertificate] = certifiedArtists.map { artists in
-            let fingerprint = "test-observation"
+        let certificates: [ScopeCertificate] = try certifiedArtists.map { artists in
+            let scopedIDs = tracks
+                .filter { ArtistAllowList.contains($0, in: artists) }
+                .compactMap(\.databaseID)
+            let fingerprint = try MembershipFingerprint.make(ids: scopedIDs).fingerprint
             return [ScopeCertificate(
                 id: UUID(),
                 revision: .initial,
@@ -206,7 +227,7 @@ private actor LoaderTrackStore: TrackStateStore {
                 fieldSet: .processingV1,
                 requestedFingerprint: fingerprint,
                 observedFingerprint: fingerprint,
-                trackCount: tracks.count,
+                trackCount: scopedIDs.count,
                 observedAt: Date()
             )]
         } ?? []

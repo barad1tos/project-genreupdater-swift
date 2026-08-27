@@ -1,5 +1,4 @@
 import Core
-import CryptoKit
 import Foundation
 import Services
 
@@ -13,15 +12,14 @@ extension TrackStateStore {
         }
         let ids = canonicalTracks.compactMap(\.databaseID)
         let membership = try testMembershipStamp(for: ids)
-        let fingerprint = "test-observation"
         let certificate = try ScopeCertificate(
             id: UUID(),
             revision: revision.advanced(),
             membership: membership,
             testArtists: [],
             fieldSet: .processingV1,
-            requestedFingerprint: fingerprint,
-            observedFingerprint: fingerprint,
+            requestedFingerprint: membership.fingerprint,
+            observedFingerprint: membership.fingerprint,
             trackCount: canonicalTracks.count,
             observedAt: Date()
         )
@@ -46,17 +44,7 @@ private func testMembership(for tracks: [Track]) throws -> MembershipChange {
 }
 
 func testMembershipStamp(for ids: [MusicDatabaseTrackID]) throws -> MembershipStamp {
-    var payload = Data()
-    for id in ids.sorted(by: { $0.rawValue < $1.rawValue }) {
-        let bytes = Data(id.rawValue.utf8)
-        var length = UInt64(bytes.count).bigEndian
-        withUnsafeBytes(of: &length) { payload.append(contentsOf: $0) }
-        payload.append(bytes)
-    }
-    let fingerprint = SHA256.hash(data: payload)
-        .map { String(format: "%02x", $0) }
-        .joined()
-    return try MembershipStamp(fingerprint: fingerprint)
+    try MembershipFingerprint.make(ids: ids)
 }
 
 func testMusicDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {

@@ -31,7 +31,7 @@ struct TestHelpersTests {
         let store = MockTrackStore(revision: MirrorRevision(value: .max))
         let update = try MirrorCommit(
             baseRevision: MirrorRevision(value: .max),
-            certificates: .preserve,
+            certificates: .invalidate(.metadataChanged),
             membershipChange: replacementMembership(for: [
                 Track(id: "new-track", name: "New", artist: "Artist", album: "Album", appleScriptID: "new-track"),
             ]),

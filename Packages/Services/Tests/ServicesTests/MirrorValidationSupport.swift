@@ -10,14 +10,14 @@ func repairValidationCases(
     [
         (MirrorCommit(
             baseRevision: revision,
-            certificates: .preserve,
+            certificates: .invalidate(.metadataChanged),
             membershipChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "missing", target: target)],
             upserts: []
         ), .missingSource(id: "missing")),
         (MirrorCommit(
             baseRevision: revision,
-            certificates: .preserve,
+            certificates: .invalidate(.metadataChanged),
             membershipChange: .preserve,
             repairs: [
                 TrackMirrorRepair(sourceID: "legacy", target: target),
@@ -26,7 +26,7 @@ func repairValidationCases(
         ), .duplicateRepairSources(ids: ["legacy"])),
         (MirrorCommit(
             baseRevision: revision,
-            certificates: .preserve,
+            certificates: .invalidate(.metadataChanged),
             membershipChange: .preserve,
             repairs: [
                 TrackMirrorRepair(sourceID: "legacy", target: target),
@@ -35,21 +35,21 @@ func repairValidationCases(
         ), .duplicateRepairTargets(ids: [testDatabaseID("target")])),
         (MirrorCommit(
             baseRevision: revision,
-            certificates: .preserve,
+            certificates: .invalidate(.metadataChanged),
             membershipChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "legacy", target: occupied)],
             upserts: []
         ), .targetExists(id: testDatabaseID("occupied"))),
         (MirrorCommit(
             baseRevision: revision,
-            certificates: .preserve,
+            certificates: .invalidate(.metadataChanged),
             membershipChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "legacy", target: target)],
             upserts: [target]
         ), .identityOverlap(ids: [testDatabaseID("target")])),
         (MirrorCommit(
             baseRevision: revision,
-            certificates: .preserve,
+            certificates: .invalidate(.metadataChanged),
             membershipChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "legacy", target: legacy)],
             upserts: []

@@ -1,5 +1,6 @@
 import Core
 import Foundation
+import SwiftData
 import Testing
 @testable import Services
 
@@ -50,6 +51,135 @@ struct ScopeCertificateStoreTests {
         #expect(snapshot.certificates == [fixture.certificate])
     }
 
+    @Test("A maintenance-only preserve remains ready after relaunch")
+    func preserveSurvivesRelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "CertificatePreserve-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+        let certificate: ScopeCertificate
+
+        do {
+            let store = try makeStore(at: storeURL)
+            let membership = try MembershipFingerprint.make(ids: [testDatabaseID("A")])
+            certificate = makeCertificate(revision: MirrorRevision(value: 1), membership: membership)
+            _ = try await store.commitMirror(MirrorCommit(
+                baseRevision: .initial,
+                observation: observationID(0),
+                membershipChange: .replace(
+                    stamp: membership,
+                    ids: [testDatabaseID("A")],
+                    observedAt: certificate.observedAt
+                ),
+                repairs: [],
+                upserts: [certificateTrack(id: "A")],
+                certificates: .replace(certificate)
+            ))
+            _ = try await store.commitMirror(MirrorCommit(
+                baseRevision: MirrorRevision(value: 1),
+                observation: observationID(1),
+                membershipChange: .preserve,
+                repairs: [],
+                upserts: [],
+                certificates: .preserve
+            ))
+        }
+
+        let snapshot = try await makeStore(at: storeURL).loadMirrorSnapshot()
+        #expect(snapshot.revision == MirrorRevision(value: 2))
+        #expect(snapshot.readiness(
+            for: MirrorRequirement(testArtists: [], fieldSet: .processingV1, maximumMetadataAge: nil),
+            at: certificate.observedAt
+        ) == .ready(certificate))
+    }
+
+    @Test("A mutating commit invalidates the certificate across relaunch")
+    func invalidatesMutationOnRelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "CertificateInvalidate-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+        let observedAt = Date(timeIntervalSince1970: 1_800_000_000)
+
+        do {
+            let store = try makeStore(at: storeURL)
+            let membership = try MembershipFingerprint.make(ids: [testDatabaseID("A")])
+            let certificate = makeCertificate(revision: MirrorRevision(value: 1), membership: membership)
+            _ = try await store.commitMirror(MirrorCommit(
+                baseRevision: .initial,
+                observation: observationID(0),
+                membershipChange: .replace(
+                    stamp: membership,
+                    ids: [testDatabaseID("A")],
+                    observedAt: observedAt
+                ),
+                repairs: [],
+                upserts: [certificateTrack(id: "A")],
+                certificates: .replace(certificate)
+            ))
+            _ = try await store.commitMirror(MirrorCommit(
+                baseRevision: MirrorRevision(value: 1),
+                observation: observationID(1),
+                membershipChange: .preserve,
+                repairs: [],
+                upserts: [certificateTrack(id: "A", genre: "Metal")],
+                certificates: .invalidate(.incompleteObservation)
+            ))
+        }
+
+        let snapshot = try await makeStore(at: storeURL).loadMirrorSnapshot()
+        #expect(snapshot.revision == MirrorRevision(value: 2))
+        #expect(snapshot.certificates.isEmpty)
+        #expect(snapshot.readiness(
+            for: MirrorRequirement(testArtists: [], fieldSet: .processingV1, maximumMetadataAge: nil),
+            at: observedAt
+        ) == .incomplete(.freshObservationRequired))
+    }
+
+    @Test("Preserve rejects processing metadata mutations")
+    func preserveRejectsUpserts() async throws {
+        let fixture = try await seededStore()
+
+        await #expect(throws: TrackStoreError.self) {
+            try await fixture.store.commitMirror(MirrorCommit(
+                baseRevision: MirrorRevision(value: 1),
+                observation: observationID(2),
+                membershipChange: .preserve,
+                repairs: [],
+                upserts: [certificateTrack(id: "A", genre: "Metal")],
+                certificates: .preserve
+            ))
+        }
+
+        let snapshot = try await fixture.store.loadMirrorSnapshot()
+        #expect(snapshot.revision == MirrorRevision(value: 1))
+        #expect(snapshot.certificates == [fixture.certificate])
+    }
+
+    @Test("Preserve rejects canonical membership transitions")
+    func preserveRejectsMembershipChanges() async throws {
+        let fixture = try await seededStore()
+
+        await #expect(throws: TrackStoreError.self) {
+            try await fixture.store.commitMirror(MirrorCommit(
+                baseRevision: MirrorRevision(value: 1),
+                observation: observationID(3),
+                membershipChange: .replace(
+                    stamp: fixture.membership,
+                    ids: [testDatabaseID("A")],
+                    observedAt: fixture.certificate.observedAt
+                ),
+                repairs: [],
+                upserts: [],
+                certificates: .preserve
+            ))
+        }
+
+        #expect(try await fixture.store.loadMirrorSnapshot().revision == MirrorRevision(value: 1))
+    }
+
     @Test("Invalidate removes every admissible certificate")
     func invalidatesCertificate() async throws {
         let fixture = try await seededStore()
@@ -66,21 +196,25 @@ struct ScopeCertificateStoreTests {
         #expect(try await fixture.store.loadMirrorSnapshot().certificates.isEmpty)
     }
 
-    @Test("A proven rebase replaces the prior certificate")
-    func rebasesCertificate() async throws {
+    @Test("Rebase fails closed without disjoint membership proof")
+    func rejectsUnprovenRebase() async throws {
         let fixture = try await seededStore()
         let rebased = makeCertificate(revision: MirrorRevision(value: 2), membership: fixture.membership)
 
-        _ = try await fixture.store.commitMirror(MirrorCommit(
-            baseRevision: MirrorRevision(value: 1),
-            observation: observationID(4),
-            membershipChange: .preserve,
-            repairs: [],
-            upserts: [],
-            certificates: .rebase(rebased)
-        ))
+        await #expect(throws: TrackStoreError.self) {
+            try await fixture.store.commitMirror(MirrorCommit(
+                baseRevision: MirrorRevision(value: 1),
+                observation: observationID(4),
+                membershipChange: .preserve,
+                repairs: [],
+                upserts: [],
+                certificates: .rebase(rebased)
+            ))
+        }
 
-        #expect(try await fixture.store.loadMirrorSnapshot().certificates == [rebased])
+        let snapshot = try await fixture.store.loadMirrorSnapshot()
+        #expect(snapshot.revision == MirrorRevision(value: 1))
+        #expect(snapshot.certificates == [fixture.certificate])
     }
 
     private func seededStore() async throws -> (
@@ -127,7 +261,21 @@ struct ScopeCertificateStoreTests {
         ObservationID(value: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, suffix)))
     }
 
-    private func certificateTrack(id: String) -> Track {
-        Track(id: id, name: "Song", artist: "Artist", album: "Album", appleScriptID: id)
+    private func makeStore(at storeURL: URL) throws -> TrackDataStore {
+        let schema = ModelContainerFactory.makeSchema()
+        let configuration = ModelConfiguration(
+            "GenreUpdater",
+            schema: schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        return try TrackDataStore(modelContainer: ModelContainerFactory.create(
+            schema: schema,
+            configuration: configuration
+        ))
+    }
+
+    private func certificateTrack(id: String, genre: String? = nil) -> Track {
+        Track(id: id, name: "Song", artist: "Artist", album: "Album", genre: genre, appleScriptID: id)
     }
 }

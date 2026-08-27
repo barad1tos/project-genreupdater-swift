@@ -45,6 +45,8 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
     case certificateMembershipMismatch(expected: MembershipStamp, actual: MembershipStamp)
     case incompleteCertificate
     case invalidCertificateTrackCount(Int)
+    case unsafeCertificatePreserve
+    case unprovenCertificateRebase
 
     public var errorDescription: String? {
         switch self {
@@ -88,6 +90,10 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
             "Scope certificate requested and observed fingerprints do not match"
         case let .invalidCertificateTrackCount(count):
             "Scope certificate has invalid track count \(count)"
+        case .unsafeCertificatePreserve:
+            "Scope certificate preservation requires a maintenance-only mirror commit"
+        case .unprovenCertificateRebase:
+            "Scope certificate rebase lacks disjoint membership proof"
         }
     }
 }

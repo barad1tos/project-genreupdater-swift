@@ -44,7 +44,7 @@ struct TrackMirrorPersistenceTests {
             try await store.initialize()
             try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                certificates: .preserve,
+                certificates: .invalidate(.membershipChanged),
                 membershipChange: replacementMembership(for: [MusicDatabaseTrackID]()),
                 repairs: [],
                 upserts: []
@@ -72,7 +72,7 @@ struct TrackMirrorPersistenceTests {
             let initialTracks = [track(id: "keep"), track(id: "delete")]
             let first = try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                certificates: .preserve,
+                certificates: .invalidate(.metadataChanged),
                 membershipChange: replacementMembership(for: initialTracks),
                 repairs: [],
                 upserts: initialTracks
@@ -150,7 +150,7 @@ struct TrackMirrorPersistenceTests {
             do {
                 _ = try await store.commitMirror(MirrorCommit(
                     baseRevision: expectedSnapshot.revision,
-                    certificates: .preserve,
+                    certificates: .invalidate(.metadataChanged),
                     membershipChange: replacementMembership(for: [
                         track(id: "keep", name: "Changed"),
                         track(id: "insert"),

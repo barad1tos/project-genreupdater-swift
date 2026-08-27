@@ -55,6 +55,21 @@ struct LibrarySyncObservationTests {
         #expect(detection.certificateChange == .invalidate(.incompleteObservation))
     }
 
+    @Test("Complete IDs with an unobserved processing field cannot issue a certificate")
+    func invalidatesUnobservedField() async throws {
+        let store = ObservationMirrorStore(stored: [mirrorTrack(id: "A", genre: "Metal")])
+        let reader = try ObservationReader(templates: [template(
+            currentIDs: ["A"],
+            rows: [row(id: "A", values: RowValues(genre: .unobserved(reason: "omitted")))],
+            metadataRequestedIDs: ["A"]
+        )])
+        let service = makeService(store: store, reader: reader)
+
+        let detection = try await service.detectObservation(forceMetadataRefresh: true)
+
+        #expect(detection.certificateChange == .invalidate(.incompleteObservation))
+    }
+
     @Test("Album-targeted observations invalidate broader processing admission")
     func invalidatesAlbumTargetedObservation() async throws {
         let store = ObservationMirrorStore(stored: [mirrorTrack(id: "A")])

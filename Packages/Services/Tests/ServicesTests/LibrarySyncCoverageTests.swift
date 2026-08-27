@@ -12,6 +12,10 @@ struct LibrarySyncCoverageTests {
             "metallica": track(id: "metallica", artist: "Metallica"),
             "bjork": track(id: "bjork", artist: "Björk"),
         ])
+        await store.setInventory([
+            track(id: "metallica", artist: "Metallica"),
+            track(id: "bjork", artist: "Björk"),
+        ])
         let service = LibrarySyncService(
             trackStore: store,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(testArtists: ["Metallica"]),

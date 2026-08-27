@@ -210,7 +210,7 @@ extension SyncMockScriptClient {
 }
 
 extension SyncMockTrackStore {
-    func setStored(_ tracks: [Track], certificateDate: Date = Date()) {
+    func setInventory(_ tracks: [Track]) {
         storedTracks = tracks.map { track in
             var canonical = track
             if canonical.appleScriptID == nil {
@@ -219,6 +219,11 @@ extension SyncMockTrackStore {
             return canonical
         }
         presentIDs = Set(storedTracks.compactMap(\.databaseID))
+        certificates = []
+    }
+
+    func setStored(_ tracks: [Track], certificateDate: Date = Date()) {
+        setInventory(tracks)
         setScopeCertificate(testArtists: [], observedAt: certificateDate)
     }
 

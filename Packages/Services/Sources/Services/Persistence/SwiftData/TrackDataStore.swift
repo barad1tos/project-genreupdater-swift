@@ -386,6 +386,7 @@ public actor TrackDataStore: TrackStateStore {
     }
 
     private static func validate(_ commit: MirrorCommit) throws -> MirrorPlan {
+        try validateCertificateTransition(commit)
         let repairs = try validatedRepairs(commit.repairs)
         let upsertIDs = try canonicalIDs(for: commit.upserts)
         let duplicateUpserts = duplicateIDs(in: upsertIDs)
@@ -408,6 +409,22 @@ public actor TrackDataStore: TrackStateStore {
             }
         }
         return MirrorPlan(repairs: repairs, upsertIDs: upsertIDs, membership: membership)
+    }
+
+    private static func validateCertificateTransition(_ commit: MirrorCommit) throws {
+        switch commit.certificates {
+        case .preserve:
+            guard commit.membershipChange == .preserve,
+                  commit.repairs.isEmpty,
+                  commit.upserts.isEmpty
+            else {
+                throw TrackStoreError.unsafeCertificatePreserve
+            }
+        case .rebase:
+            throw TrackStoreError.unprovenCertificateRebase
+        case .invalidate, .replace:
+            break
+        }
     }
 
     private static func validate(

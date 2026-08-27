@@ -157,17 +157,55 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
         guard let certificate = matchingScope.first(where: { $0.membership == membershipStamp }) else {
             return .stale(.membershipChanged)
         }
+        guard let currentMembership = try? MembershipFingerprint.make(ids: Array(presentIDs)),
+              currentMembership == membershipStamp
+        else {
+            return .stale(.membershipChanged)
+        }
         guard certificate.revision <= revision else {
             return .stale(.supersededRevision)
         }
+        guard let scopedIDs = canonicalScopedIDs(for: requirement) else {
+            let canonicalIDs = Set(presentTracks.compactMap(\.databaseID))
+            let missingCount = presentIDs.subtracting(canonicalIDs).count
+            return .incomplete(.identityMissing(count: max(1, missingCount)))
+        }
         guard certificate.requestedFingerprint == certificate.observedFingerprint else {
             return .incomplete(.metadataMissing(count: max(1, certificate.trackCount)))
+        }
+        guard let scopedFingerprint = try? MembershipFingerprint.make(ids: Array(scopedIDs)).fingerprint,
+              certificate.trackCount == scopedIDs.count,
+              certificate.observedFingerprint == scopedFingerprint
+        else {
+            return .incomplete(.metadataMissing(count: max(1, scopedIDs.count)))
         }
         if let maximumAge = requirement.maximumMetadataAge,
            date.timeIntervalSince(certificate.observedAt) > maximumAge {
             return .stale(.metadataExpired)
         }
         return .ready(certificate)
+    }
+
+    private func canonicalScopedIDs(for requirement: MirrorRequirement) -> Set<MusicDatabaseTrackID>? {
+        var tracksByID: [MusicDatabaseTrackID: Track] = [:]
+        for track in presentTracks {
+            guard let databaseID = track.databaseID,
+                  track.id == databaseID.rawValue,
+                  presentIDs.contains(databaseID),
+                  tracksByID.updateValue(track, forKey: databaseID) == nil
+            else { return nil }
+        }
+        guard Set(tracksByID.keys) == presentIDs else { return nil }
+        guard !requirement.normalizedTestArtists.isEmpty else { return presentIDs }
+
+        return Set(tracksByID.compactMap { databaseID, track in
+            let effectiveArtist = track.albumArtist.flatMap(ArtistAllowList.normalizedName)
+                ?? ArtistAllowList.normalizedName(track.artist)
+            guard let effectiveArtist,
+                  ArtistAllowList.containsNormalized(effectiveArtist, in: requirement.normalizedTestArtists)
+            else { return nil }
+            return databaseID
+        })
     }
 
     private static func artistsMatch(_ first: [String], _ second: [String]) -> Bool {
