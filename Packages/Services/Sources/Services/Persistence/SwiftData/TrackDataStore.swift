@@ -18,10 +18,8 @@ public actor TrackDataStore: TrackStateStore {
 
     public func initialize() async throws {
         let repairedCount = try normalizeStoredYears()
-        let recoveredMemberCount = try recoverLegacyMembership()
         let certificateCount = try initializeMirrorState()
         log.info("SwiftData track store initialized; repaired zero-year rows: \(repairedCount, privacy: .public)")
-        log.info("Recovered legacy library members: \(recoveredMemberCount, privacy: .public)")
         log.info(
             "SwiftData track mirror initialized; scope certificates: \(certificateCount, privacy: .public)"
         )
@@ -235,27 +233,6 @@ public actor TrackDataStore: TrackStateStore {
         modelContext.insert(PersistedMirrorState())
         try modelContext.save()
         return 0
-    }
-
-    private func recoverLegacyMembership() throws -> Int {
-        guard try fetchMirrorState() == nil,
-              try modelContext.fetchCount(FetchDescriptor<PersistedLibraryMember>()) == 0
-        else { return 0 }
-
-        let tracks = try modelContext.fetch(FetchDescriptor<PersistedTrack>())
-        let canonicalTracks = tracks.filter { track in
-            track.appleScriptID == track.trackID && MusicDatabaseTrackID(rawValue: track.trackID) != nil
-        }
-        for track in canonicalTracks {
-            modelContext.insert(PersistedLibraryMember(
-                databaseID: track.trackID,
-                isPresent: true,
-                firstSeenRevisionValue: MirrorRevision.initial.value
-            ))
-        }
-        guard !canonicalTracks.isEmpty else { return 0 }
-        try modelContext.save()
-        return canonicalTracks.count
     }
 
     private func fetchMirrorState() throws -> PersistedMirrorState? {

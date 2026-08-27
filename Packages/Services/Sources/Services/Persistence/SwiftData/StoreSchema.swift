@@ -1,4 +1,3 @@
-import Core
 import Foundation
 @preconcurrency import SwiftData
 
@@ -370,57 +369,4 @@ enum StoreSchemaV5: VersionedSchema {
         StoreSchemaV4.PersistedLibraryMember.self,
         PersistedScopeCertificate.self,
     ]
-}
-
-enum StoreMigrationPlan: SchemaMigrationPlan {
-    static let schemas: [any VersionedSchema.Type] = [
-        StoreSchemaV0.self,
-        StoreSchemaV1.self,
-        StoreSchemaV2.self,
-        StoreSchemaV3.self,
-        StoreSchemaV4.self,
-        StoreSchemaV5.self,
-    ]
-
-    static let stages: [MigrationStage] = [
-        .lightweight(fromVersion: StoreSchemaV0.self, toVersion: StoreSchemaV1.self),
-        .lightweight(fromVersion: StoreSchemaV1.self, toVersion: StoreSchemaV2.self),
-        .custom(
-            fromVersion: StoreSchemaV2.self,
-            toVersion: StoreSchemaV3.self,
-            willMigrate: nil,
-            didMigrate: migrateMembership
-        ),
-        .lightweight(fromVersion: StoreSchemaV3.self, toVersion: StoreSchemaV4.self),
-        .custom(
-            fromVersion: StoreSchemaV4.self,
-            toVersion: StoreSchemaV5.self,
-            willMigrate: nil,
-            didMigrate: clearLegacyCoverage
-        ),
-    ]
-
-    private static func migrateMembership(context: ModelContext) throws {
-        let tracks = try context.fetch(FetchDescriptor<StoreSchemaV2.PersistedTrack>())
-        let revision = try context.fetch(FetchDescriptor<StoreSchemaV2.PersistedMirrorState>())
-            .first?
-            .revisionValue ?? MirrorRevision.initial.value
-        for track in tracks where track.appleScriptID == track.trackID {
-            guard MusicDatabaseTrackID(rawValue: track.trackID) != nil else { continue }
-            context.insert(StoreSchemaV3.PersistedLibraryMember(
-                databaseID: track.trackID,
-                isPresent: true,
-                firstSeenRevisionValue: revision
-            ))
-        }
-        try context.save()
-    }
-
-    private static func clearLegacyCoverage(context: ModelContext) throws {
-        let certificates = try context.fetch(FetchDescriptor<StoreSchemaV5.PersistedScopeCertificate>())
-        for certificate in certificates {
-            context.delete(certificate)
-        }
-        try context.save()
-    }
 }

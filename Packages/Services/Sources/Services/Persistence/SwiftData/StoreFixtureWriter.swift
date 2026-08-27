@@ -128,6 +128,28 @@ package enum StoreFixtureWriter {
         try context.save()
     }
 
+    package static func writeInterruptedV4(to storeURL: URL) throws {
+        let schema = Schema(versionedSchema: StoreSchemaV4.self)
+        let configuration = ModelConfiguration(
+            "GenreUpdater",
+            schema: schema,
+            url: storeURL,
+            allowsSave: true,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = ModelContext(container)
+        context.insert(StoreSchemaV2.PersistedTrack(
+            trackID: "interrupted-member",
+            appleScriptID: "interrupted-member",
+            name: "Interrupted Track",
+            artist: "Interrupted Artist",
+            album: "Interrupted Album"
+        ))
+        context.insert(StoreSchemaV2.PersistedMirrorState(scopeData: nil, revisionValue: 7))
+        try context.save()
+    }
+
     package static func writeRecoveryV2(to storeURL: URL) throws {
         let schema = Schema(versionedSchema: StoreSchemaV2.self)
         let configuration = ModelConfiguration(

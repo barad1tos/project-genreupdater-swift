@@ -13,13 +13,15 @@ package struct MemberMigrationEvidence: Codable, Sendable {
 
 package struct V3MigrationEvidence: Codable, Sendable {
     package let members: [MemberMigrationEvidence]
+    package let usesAutomaticMigration: Bool
 }
 
-package struct V2MigrationEvidence: Codable, Sendable {
+package struct MembershipMigrationEvidence: Codable, Sendable {
     package let members: [MemberMigrationEvidence]
     package let trackIDs: [String]
     package let historyEntryIDs: [UUID]
     package let certificateCount: Int
+    package let usesAutomaticMigration: Bool
 }
 
 package struct V4MigrationEvidence: Codable, Sendable {
@@ -35,6 +37,7 @@ package struct V4MigrationEvidence: Codable, Sendable {
     package let presentTrackIDs: [String]
     package let certificateCount: Int
     package let requiresFreshObservation: Bool
+    package let usesAutomaticMigration: Bool
 }
 
 package enum StoreFixtureVerifier {
@@ -46,13 +49,16 @@ package enum StoreFixtureVerifier {
         var evidence: [V3MigrationEvidence] = []
         for _ in 0 ..< 2 {
             let container = try migratedContainer(at: storeURL)
-            try evidence.append(V3MigrationEvidence(members: memberEvidence(in: ModelContext(container))))
+            try evidence.append(V3MigrationEvidence(
+                members: memberEvidence(in: ModelContext(container)),
+                usesAutomaticMigration: container.migrationPlan == nil
+            ))
         }
         return evidence
     }
 
-    package static func verifyV2Migration(at storeURL: URL) throws -> [V2MigrationEvidence] {
-        var evidence: [V2MigrationEvidence] = []
+    package static func verifyV2Migration(at storeURL: URL) throws -> [MembershipMigrationEvidence] {
+        var evidence: [MembershipMigrationEvidence] = []
         for _ in 0 ..< 2 {
             let container = try migratedContainer(at: storeURL)
             let context = ModelContext(container)
@@ -61,11 +67,12 @@ package enum StoreFixtureVerifier {
                 .map(\.entryID)
                 .sorted { $0.uuidString < $1.uuidString }
             let certificateCount = try context.fetchCount(FetchDescriptor<PersistedScopeCertificate>())
-            try evidence.append(V2MigrationEvidence(
+            try evidence.append(MembershipMigrationEvidence(
                 members: memberEvidence(in: context),
                 trackIDs: trackIDs,
                 historyEntryIDs: historyEntryIDs,
-                certificateCount: certificateCount
+                certificateCount: certificateCount,
+                usesAutomaticMigration: container.migrationPlan == nil
             ))
         }
         return evidence
@@ -107,7 +114,8 @@ package enum StoreFixtureVerifier {
             presentIDs: snapshot.presentIDs.map(\.rawValue).sorted(),
             presentTrackIDs: snapshot.presentTracks.map(\.id).sorted(),
             certificateCount: snapshot.certificates.count,
-            requiresFreshObservation: readiness == .incomplete(.freshObservationRequired)
+            requiresFreshObservation: readiness == .incomplete(.freshObservationRequired),
+            usesAutomaticMigration: container.migrationPlan == nil
         )
     }
 

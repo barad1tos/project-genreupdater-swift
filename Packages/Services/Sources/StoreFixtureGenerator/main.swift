@@ -27,15 +27,12 @@ struct StoreFixtureGenerator {
         case "verify-v3":
             let evidence = try StoreFixtureVerifier.verifyV3Migration(at: storeURL)
             try FileHandle.standardOutput.write(JSONEncoder().encode(evidence))
-        case "v4":
-            try StoreFixtureWriter.writeV4(to: storeURL)
+        case "v4", "v4-interrupted", "verify-v4":
+            try await runV4Mode(mode, storeURL: storeURL)
         case "v2-recovery":
             try StoreFixtureWriter.writeRecoveryV2(to: storeURL)
         case "v2-membership", "verify-v2-membership":
             try runMembershipMode(mode, storeURL: storeURL)
-        case "verify-v4":
-            let evidence = try await StoreFixtureVerifier.verifyV4Migration(at: storeURL)
-            try FileHandle.standardOutput.write(JSONEncoder().encode(evidence))
         case "diagnostic-failure":
             writeLargeDiagnostics()
             throw GeneratorError.diagnosticFailure
@@ -50,6 +47,20 @@ struct StoreFixtureGenerator {
             try StoreFixtureWriter.writeMembershipV2(to: storeURL)
         case "verify-v2-membership":
             let evidence = try StoreFixtureVerifier.verifyV2Migration(at: storeURL)
+            try FileHandle.standardOutput.write(JSONEncoder().encode(evidence))
+        default:
+            throw GeneratorError.invalidArguments
+        }
+    }
+
+    private static func runV4Mode(_ mode: String, storeURL: URL) async throws {
+        switch mode {
+        case "v4":
+            try StoreFixtureWriter.writeV4(to: storeURL)
+        case "v4-interrupted":
+            try StoreFixtureWriter.writeInterruptedV4(to: storeURL)
+        case "verify-v4":
+            let evidence = try await StoreFixtureVerifier.verifyV4Migration(at: storeURL)
             try FileHandle.standardOutput.write(JSONEncoder().encode(evidence))
         default:
             throw GeneratorError.invalidArguments
@@ -73,7 +84,8 @@ struct StoreFixtureGenerator {
             switch self {
             case .invalidArguments:
                 "Usage: StoreFixtureGenerator "
-                    + "[migrate|v0|v2-membership|verify-v2-membership|v2-recovery|v3|verify-v3|v4|verify-v4] "
+                    + "[migrate|v0|v2-membership|verify-v2-membership|v2-recovery|v3|verify-v3|"
+                    + "v4|v4-interrupted|verify-v4] "
                     + "<store-path>"
             case .diagnosticFailure:
                 "Requested diagnostic failure"

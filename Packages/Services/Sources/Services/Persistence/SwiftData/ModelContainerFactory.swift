@@ -1,6 +1,7 @@
 // ModelContainerFactory.swift — Centralized SwiftData container creation
 // Phase 5 Audit Fix: H1 — Single shared ModelContainer for all models
 
+import Core
 import CoreData
 import Foundation
 import SwiftData
@@ -42,14 +43,69 @@ public enum ModelContainerFactory {
         if try needsRecoveryBootstrap(configuration) {
             try bootstrapRecoveryStore(configuration)
         }
-        return try ModelContainer(
-            for: schema,
-            migrationPlan: StoreMigrationPlan.self,
-            configurations: [configuration]
-        )
+        try prepareLegacyStore(configuration)
+        return try ModelContainer(for: schema, configurations: [configuration])
     }
 
     private static let trackRecoveryChecksum = "i2Q0M3v/JLttbprhy5I8T0nCkA5O9AYoi9OSQRGpY2s="
+
+    private static let legacyVersions = [
+        StoreSchemaV0.versionIdentifier,
+        StoreSchemaV1.versionIdentifier,
+        StoreSchemaV2.versionIdentifier,
+        StoreSchemaV3.versionIdentifier,
+        StoreSchemaV4.versionIdentifier,
+    ].map(\.description)
+
+    private static func prepareLegacyStore(_ configuration: ModelConfiguration) throws {
+        guard try isLegacyStore(configuration) else { return }
+
+        let schema = Schema(versionedSchema: StoreSchemaV4.self)
+        let legacyConfiguration = ModelConfiguration(
+            configuration.name,
+            schema: schema,
+            url: configuration.url,
+            allowsSave: configuration.allowsSave,
+            cloudKitDatabase: configuration.cloudKitDatabase
+        )
+        let container = try ModelContainer(for: schema, configurations: [legacyConfiguration])
+        try bootstrapMembership(in: container)
+    }
+
+    private static func bootstrapMembership(in container: ModelContainer) throws {
+        let context = ModelContext(container)
+        guard try context.fetchCount(FetchDescriptor<PersistedLibraryMember>()) == 0 else { return }
+
+        let tracks = try context.fetch(FetchDescriptor<StoreSchemaV2.PersistedTrack>())
+        let canonicalTracks = tracks.filter { track in
+            track.appleScriptID == track.trackID && MusicDatabaseTrackID(rawValue: track.trackID) != nil
+        }
+        guard !canonicalTracks.isEmpty else { return }
+
+        let revision = try context.fetch(FetchDescriptor<StoreSchemaV2.PersistedMirrorState>())
+            .first?
+            .revisionValue ?? MirrorRevision.initial.value
+        try context.transaction {
+            for track in canonicalTracks {
+                context.insert(PersistedLibraryMember(
+                    databaseID: track.trackID,
+                    isPresent: true,
+                    firstSeenRevisionValue: revision
+                ))
+            }
+        }
+    }
+
+    private static func isLegacyStore(_ configuration: ModelConfiguration) throws -> Bool {
+        guard !configuration.isStoredInMemoryOnly else { return false }
+        guard FileManager.default.fileExists(atPath: configuration.url.path) else { return false }
+        let metadata = try NSPersistentStoreCoordinator.metadataForPersistentStore(
+            ofType: NSSQLiteStoreType,
+            at: configuration.url
+        )
+        guard let storedVersions = metadata[NSStoreModelVersionIdentifiersKey] as? [String] else { return false }
+        return storedVersions.contains { legacyVersions.contains($0) }
+    }
 
     private static func bootstrapRecoveryStore(_ configuration: ModelConfiguration) throws {
         let schema = Schema(versionedSchema: StoreSchemaV2.self)

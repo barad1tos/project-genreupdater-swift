@@ -692,8 +692,8 @@ struct TrackMirrorTests {
         #expect(tracks.first { $0.id == "updated" }?.name == "New")
     }
 
-    @Test("Legacy populated rows survive relaunch without readiness")
-    func legacyRowsStayUnready() async throws {
+    @Test("Unversioned rows remain historical through relaunch")
+    func keepsUnversionedHistory() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TrackMirrorMigration-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -717,14 +717,14 @@ struct TrackMirrorTests {
             let migrated = try TrackDataStore(modelContainer: makeContainer(at: url))
             try await migrated.initialize()
             let snapshot = try await migrated.loadMirrorSnapshot()
-            #expect(snapshot.presentTracks.map(\.id) == ["legacy"])
+            #expect(snapshot.presentTracks.isEmpty)
             #expect(snapshot.certificates.isEmpty)
         }
 
         let relaunched = try TrackDataStore(modelContainer: makeContainer(at: url))
         try await relaunched.initialize()
         let snapshot = try await relaunched.loadMirrorSnapshot()
-        #expect(snapshot.presentTracks.map(\.id) == ["legacy"])
+        #expect(snapshot.presentTracks.isEmpty)
         #expect(snapshot.certificates.isEmpty)
     }
 

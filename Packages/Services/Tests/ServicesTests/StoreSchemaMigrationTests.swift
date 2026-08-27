@@ -87,7 +87,11 @@ struct StoreSchemaMigrationTests {
         _ = try migratedContainer(at: storeURL)
         let checksum = try storeChecksum(at: storeURL)
         #expect(checksum == Self.certificateChecksum)
-        _ = try migratedContainer(at: storeURL)
+        let reopened = try migratedContainer(at: storeURL)
+        let context = ModelContext(reopened)
+        #expect(reopened.migrationPlan == nil)
+        #expect(try context.fetch(FetchDescriptor<PersistedLibraryMember>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<PersistedScopeCertificate>()).isEmpty)
     }
 
     @Test("The exact deployed V4 coverage store migrates with no admissible certificates")
@@ -123,6 +127,7 @@ struct StoreSchemaMigrationTests {
             #expect(evidence.presentTrackIDs == ["v4-present"])
             #expect(evidence.certificateCount == 0)
             #expect(evidence.requiresFreshObservation)
+            #expect(evidence.usesAutomaticMigration)
         }
     }
 
@@ -147,6 +152,7 @@ struct StoreSchemaMigrationTests {
             #expect(member.lastSeenFingerprint == "deployed-fingerprint")
             #expect(member.removalRevision == 9)
             #expect(member.removedAt == removedAt)
+            #expect(evidence.usesAutomaticMigration)
         }
     }
 
@@ -159,7 +165,7 @@ struct StoreSchemaMigrationTests {
         let storeURL = directory.appending(path: "GenreUpdater.store")
 
         _ = try fixtureProcess(mode: "v2-membership", at: storeURL)
-        let reopenEvidence: [V2MigrationEvidence] = try fixtureEvidence(
+        let reopenEvidence: [MembershipMigrationEvidence] = try fixtureEvidence(
             mode: "verify-v2-membership",
             at: storeURL
         )
@@ -175,7 +181,61 @@ struct StoreSchemaMigrationTests {
             #expect(evidence.trackIDs == ["canonical", "catalog"])
             #expect(evidence.historyEntryIDs == [Self.changeID])
             #expect(evidence.certificateCount == 0)
+            #expect(evidence.usesAutomaticMigration)
         }
+    }
+
+    @Test("Interrupted legacy membership preparation resumes safely")
+    func resumesMembershipBootstrap() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+
+        _ = try fixtureProcess(mode: "v4-interrupted", at: storeURL)
+        let reopenEvidence: [MembershipMigrationEvidence] = try fixtureEvidence(
+            mode: "verify-v2-membership",
+            at: storeURL
+        )
+
+        #expect(reopenEvidence.count == 2)
+        for evidence in reopenEvidence {
+            let member = try #require(evidence.members.first)
+            #expect(evidence.members.count == 1)
+            #expect(member.databaseID == "interrupted-member")
+            #expect(member.isPresent)
+            #expect(member.firstSeenRevision == 7)
+            #expect(evidence.trackIDs == ["interrupted-member"])
+            #expect(evidence.certificateCount == 0)
+            #expect(evidence.usesAutomaticMigration)
+        }
+    }
+
+    @Test("Current stores never infer membership from track rows", arguments: [nil, false])
+    func skipsCurrentInference(isPresent: Bool?) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+
+        try writeCurrentStore(at: storeURL, isPresent: isPresent)
+        let container = try migratedContainer(at: storeURL)
+        try await TrackDataStore(modelContainer: container).initialize()
+        let context = ModelContext(container)
+        let members = try context.fetch(FetchDescriptor<PersistedLibraryMember>())
+
+        #expect(container.migrationPlan == nil)
+        if isPresent == nil {
+            #expect(members.isEmpty)
+        } else {
+            let member = try #require(members.first)
+            #expect(members.count == 1)
+            #expect(!member.isPresent)
+            #expect(member.removalRevisionValue == 7)
+        }
+        #expect(try context.fetch(FetchDescriptor<PersistedScopeCertificate>()).isEmpty)
     }
 
     @Test("Fixture process drains large diagnostics before reporting failure")
@@ -266,6 +326,36 @@ struct StoreSchemaMigrationTests {
         return try ModelContainerFactory.create(schema: schema, configuration: configuration)
     }
 
+    private func writeCurrentStore(at storeURL: URL, isPresent: Bool?) throws {
+        let schema = ModelContainerFactory.makeSchema()
+        let configuration = ModelConfiguration(
+            "GenreUpdater",
+            schema: schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = ModelContext(container)
+        context.insert(PersistedTrack(
+            trackID: "current-track",
+            appleScriptID: "current-track",
+            name: "Current Track",
+            artist: "Current Artist",
+            album: "Current Album"
+        ))
+        if let isPresent {
+            context.insert(PersistedMirrorState(revisionValue: 8))
+            context.insert(PersistedLibraryMember(
+                databaseID: "current-track",
+                isPresent: isPresent,
+                firstSeenRevisionValue: 3,
+                removalRevisionValue: 7,
+                removedAt: Self.timestamp
+            ))
+        }
+        try context.save()
+    }
+
     private func verifyCoverageFixture(at storeURL: URL) throws -> [V4MigrationEvidence] {
         try fixtureEvidence(mode: "verify-v4", at: storeURL)
     }
@@ -325,6 +415,7 @@ struct StoreSchemaMigrationTests {
     }
 
     private func verifyMigratedStore(_ container: ModelContainer, mirrorState: MirrorFixtureState) throws {
+        #expect(container.migrationPlan == nil)
         let context = ModelContext(container)
         try verifyTrackState(context)
         try verifyMirrorState(context, expected: mirrorState)

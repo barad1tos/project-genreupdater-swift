@@ -366,4 +366,11 @@ struct ModelContainerFactoryTests {
             _ = try ModelContainerFactory.createInMemory()
         }
     }
+
+    @Test("Current containers use automatic migration")
+    func usesAutomaticMigration() throws {
+        let container = try ModelContainerFactory.createInMemory()
+
+        #expect(container.migrationPlan == nil)
+    }
 }
