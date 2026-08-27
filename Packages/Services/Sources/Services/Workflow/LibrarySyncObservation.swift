@@ -491,12 +491,11 @@ extension LibrarySyncService {
         if force {
             return true
         }
-        guard runtimeConfiguration.forceMetadataScanIntervalDays > 0,
+        guard let interval = runtimeConfiguration.processingRequirement.maximumMetadataAge,
               let metadata = await librarySnapshotService?.getSnapshotMetadata(),
               let lastForceScanDate = metadata.lastForceScanDate
         else { return false }
 
-        let interval = TimeInterval(runtimeConfiguration.forceMetadataScanIntervalDays) * 86400
         return currentDate().timeIntervalSince(lastForceScanDate) >= interval
     }
 

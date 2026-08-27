@@ -76,6 +76,39 @@ struct ProcessingAdmissionTests {
         #expect(decision == .rejected(.mirror(.incomplete(.freshObservationRequired))))
     }
 
+    @Test("Mirror rejection takes precedence over a noncanonical candidate")
+    func mirrorRejectionPrecedesCandidateValidation() async throws {
+        let fixture = try AdmissionFixture()
+        let admission = try await fixture.admission()
+        try await fixture.store.replaceSnapshot(fixture.snapshot(certificates: []))
+
+        let decision = try await fixture.store.revalidate(
+            admission,
+            candidates: [nonCanonicalTrack()],
+            match: .subset,
+            at: fixture.decisionDate
+        )
+
+        #expect(decision == .rejected(.mirror(.incomplete(.freshObservationRequired))))
+    }
+
+    @Test("Certificate change takes precedence over an invalid candidate")
+    func certificateChangePrecedesCandidateValidation() async throws {
+        let fixture = try AdmissionFixture()
+        let admission = try await fixture.admission()
+        let replacement = try fixture.certificate(id: UUID())
+        try await fixture.store.replaceSnapshot(fixture.snapshot(certificate: replacement))
+
+        let decision = try await fixture.store.revalidate(
+            admission,
+            candidates: [nonCanonicalTrack()],
+            match: .subset,
+            at: fixture.decisionDate
+        )
+
+        #expect(decision == .rejected(.certificateChanged))
+    }
+
     @Test("Exact-scope revalidation rejects a proper subset")
     func exactScopeRejectsSubset() async throws {
         let fixture = try AdmissionFixture()
@@ -89,6 +122,21 @@ struct ProcessingAdmissionTests {
         )
 
         #expect(decision == .rejected(.trackSetMismatch))
+    }
+
+    @Test("Exact-scope revalidation accepts every certified row")
+    func exactScopeAcceptsCertifiedRows() async throws {
+        let fixture = try AdmissionFixture()
+        let admission = try await fixture.admission()
+
+        let decision = try await fixture.store.revalidate(
+            admission,
+            candidates: fixture.tracks,
+            match: .exactScope,
+            at: fixture.decisionDate
+        )
+
+        #expect(decision == .admitted(admission, tracks: fixture.tracks))
     }
 
     @Test("Subset revalidation preserves the validated candidate rows")
@@ -143,17 +191,10 @@ struct ProcessingAdmissionTests {
     func revalidationRejectsNonCanonicalTrack() async throws {
         let fixture = try AdmissionFixture()
         let admission = try await fixture.admission()
-        let nonCanonicalTrack = Track(
-            id: "legacy-read-id",
-            name: "Xtal",
-            artist: "Aphex Twin",
-            album: "Selected Ambient Works 85-92",
-            appleScriptID: "database-id"
-        )
 
         let decision = try await fixture.store.revalidate(
             admission,
-            candidates: [nonCanonicalTrack],
+            candidates: [nonCanonicalTrack()],
             match: .subset,
             at: fixture.decisionDate
         )
@@ -170,6 +211,22 @@ struct ProcessingAdmissionTests {
             try await fixture.store.admit(
                 scope: fixture.scope,
                 requirement: fixture.requirement,
+                at: fixture.decisionDate
+            )
+        }
+    }
+
+    @Test("Revalidation propagates mirror storage errors")
+    func revalidationPropagatesStorageError() async throws {
+        let fixture = try AdmissionFixture()
+        let admission = try await fixture.admission()
+        await fixture.store.failSnapshotLoads()
+
+        await #expect(throws: AdmissionStoreError.storage) {
+            try await fixture.store.revalidate(
+                admission,
+                candidates: fixture.tracks,
+                match: .exactScope,
                 at: fixture.decisionDate
             )
         }
@@ -331,5 +388,15 @@ private func canonicalTrack(id: String, artist: String) -> Track {
         artist: artist,
         album: "Selected Ambient Works 85-92",
         appleScriptID: id
+    )
+}
+
+private func nonCanonicalTrack() -> Track {
+    Track(
+        id: "legacy-read-id",
+        name: "Xtal",
+        artist: "Aphex Twin",
+        album: "Selected Ambient Works 85-92",
+        appleScriptID: "database-id"
     )
 }
