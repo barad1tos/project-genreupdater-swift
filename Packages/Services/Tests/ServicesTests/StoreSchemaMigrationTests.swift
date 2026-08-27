@@ -159,7 +159,7 @@ struct StoreSchemaMigrationTests {
             _ = try fixtureProcess(mode: "diagnostic-failure", at: storeURL)
             Issue.record("Expected the diagnostic fixture process to fail")
         } catch let FixtureProcessError.failed(reason, status, standardOutput, standardError) {
-            #expect(reason == "uncaughtSignal")
+            #expect(reason == .uncaughtSignal)
             #expect(status != 0)
             #expect(standardOutput.utf8.count > 65536)
             #expect(standardError.utf8.count > 65536)
@@ -275,7 +275,7 @@ struct StoreSchemaMigrationTests {
         let errorOutput = try Data(contentsOf: errorURL)
         guard process.terminationStatus == 0 else {
             throw FixtureProcessError.failed(
-                reason: process.terminationReason == .exit ? "exit" : "uncaughtSignal",
+                reason: process.terminationReason,
                 status: process.terminationStatus,
                 standardOutput: String(data: output, encoding: .utf8) ?? "<non-UTF-8 output>",
                 standardError: String(data: errorOutput, encoding: .utf8) ?? "<non-UTF-8 output>"
@@ -441,7 +441,12 @@ struct StoreSchemaMigrationTests {
 
 private enum FixtureProcessError: LocalizedError {
     case executableNotFound
-    case failed(reason: String, status: Int32, standardOutput: String, standardError: String)
+    case failed(
+        reason: Process.TerminationReason,
+        status: Int32,
+        standardOutput: String,
+        standardError: String
+    )
 
     var errorDescription: String? {
         switch self {
@@ -449,7 +454,7 @@ private enum FixtureProcessError: LocalizedError {
             "StoreFixtureGenerator was not found beside the Services test product."
         case let .failed(reason, status, standardOutput, standardError):
             """
-            StoreFixtureGenerator failed with reason \(reason), status \(status).
+            StoreFixtureGenerator failed with reason \(reason == .exit ? "exit" : "uncaughtSignal"), status \(status).
             stdout:
             \(standardOutput)
             stderr:

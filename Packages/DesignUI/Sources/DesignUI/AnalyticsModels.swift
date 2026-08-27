@@ -29,12 +29,14 @@ public enum DesignAnalyticsOutcome: String, Equatable, Sendable {
     case succeeded
     case failed
     case cancelled
+    case degraded
 
     var tone: Tone {
         switch self {
         case .succeeded: .success
         case .failed: .error
         case .cancelled: .warning
+        case .degraded: .warning
         }
     }
 }
@@ -44,6 +46,7 @@ public struct DesignAnalyticsSummary: Equatable, Sendable {
     public let succeeded: Int
     public let failed: Int
     public let cancelled: Int
+    public let degraded: Int
     public let successRate: Double
     public let totalDuration: String
     public let averageDuration: String
@@ -53,14 +56,16 @@ public struct DesignAnalyticsSummary: Equatable, Sendable {
         succeeded: Int,
         failed: Int,
         cancelled: Int,
+        degraded: Int,
         totalDuration: String,
         averageDuration: String,
         p95Duration: String
     ) {
-        calls = succeeded + failed + cancelled
+        calls = succeeded + failed + cancelled + degraded
         self.succeeded = succeeded
         self.failed = failed
         self.cancelled = cancelled
+        self.degraded = degraded
         successRate = calls == 0 ? 0 : Double(succeeded) / Double(calls)
         self.totalDuration = totalDuration
         self.averageDuration = averageDuration
@@ -71,6 +76,7 @@ public struct DesignAnalyticsSummary: Equatable, Sendable {
         succeeded: 0,
         failed: 0,
         cancelled: 0,
+        degraded: 0,
         totalDuration: "0 ms",
         averageDuration: "0 ms",
         p95Duration: "0 ms"

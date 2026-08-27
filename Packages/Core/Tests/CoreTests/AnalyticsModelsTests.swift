@@ -20,6 +20,20 @@ struct AnalyticsModelsTests {
         #expect(AnalyticsOutcome(error: SampleError.failed, isTaskCancelled: true) == .cancelled)
     }
 
+    @Test("Stored analytics outcomes retain old values and degraded state")
+    func outcomeCoding() throws {
+        let outcomes: [AnalyticsOutcome] = [.succeeded, .failed, .cancelled, .degraded]
+
+        for outcome in outcomes {
+            let encoded = try JSONEncoder().encode(outcome)
+            #expect(try JSONDecoder().decode(AnalyticsOutcome.self, from: encoded) == outcome)
+        }
+
+        #expect(try JSONDecoder().decode(AnalyticsOutcome.self, from: Data("\"succeeded\"".utf8)) == .succeeded)
+        #expect(try JSONDecoder().decode(AnalyticsOutcome.self, from: Data("\"failed\"".utf8)) == .failed)
+        #expect(try JSONDecoder().decode(AnalyticsOutcome.self, from: Data("\"cancelled\"".utf8)) == .cancelled)
+    }
+
     @Test("Measurement returns the original value and records once")
     func measurementValue() async throws {
         let recorder = AnalyticsRecorderDouble()

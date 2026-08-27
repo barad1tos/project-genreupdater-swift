@@ -40,13 +40,13 @@ struct WorkflowRunFactsTests {
         viewModel.smartFilterType = .lowConfidence
         libraryTracks = [Track(id: "replacement", name: "Replacement", artist: "Other", album: "Other")]
         testArtists = ["Other"]
-        let view = UpdateWorkflowView(
+        let view = try UpdateWorkflowView(
             viewModel: viewModel,
             tracks: libraryTracks,
             testArtists: testArtists,
             reportDisplayMode: .detailed,
             credentialIssue: nil,
-            isLibraryReadyForUpdates: true,
+            libraryReadiness: makeReadyEvidence(),
             noticeMessage: .constant(nil)
         )
         let preview = view.makeReviewSnapshot(hasCleaningAccess: true)
@@ -102,13 +102,13 @@ struct WorkflowRunFactsTests {
 
         libraryTracks = [Track(id: runTrack.id, name: "Reloaded Title", artist: "Other", album: "Other")]
         testArtists = ["Other"]
-        let view = UpdateWorkflowView(
+        let view = try UpdateWorkflowView(
             viewModel: viewModel,
             tracks: libraryTracks,
             testArtists: testArtists,
             reportDisplayMode: .detailed,
             credentialIssue: nil,
-            isLibraryReadyForUpdates: true,
+            libraryReadiness: makeReadyEvidence(),
             noticeMessage: .constant(nil)
         )
         let report = view.makeDoneReport()
@@ -155,13 +155,13 @@ struct WorkflowRunFactsTests {
             Track(id: "live-1", name: "Live One", artist: "Other", album: "Other"),
             Track(id: "live-2", name: "Live Two", artist: "Other", album: "Other"),
         ]
-        let view = UpdateWorkflowView(
+        let view = try UpdateWorkflowView(
             viewModel: viewModel,
             tracks: liveTracks,
             testArtists: ["Other"],
             reportDisplayMode: .detailed,
             credentialIssue: nil,
-            isLibraryReadyForUpdates: true,
+            libraryReadiness: makeReadyEvidence(),
             noticeMessage: .constant(nil)
         )
         let report = view.makeDoneReport()
@@ -179,7 +179,7 @@ struct WorkflowRunFactsTests {
     }
 
     @Test("empty release restore reports zero scanned tracks")
-    func reportsEmptyRestoreRun() async {
+    func reportsEmptyRestoreRun() async throws {
         let fixture = makeWorkflowFixture()
         let viewModel = fixture.viewModel
         viewModel.mode = .releaseYearRestore
@@ -197,13 +197,13 @@ struct WorkflowRunFactsTests {
         await viewModel.processingTask?.value
         await Task.yield()
 
-        let view = UpdateWorkflowView(
+        let view = try UpdateWorkflowView(
             viewModel: viewModel,
             tracks: [Track(id: "live", name: "Live", artist: "Other", album: "Other")],
             testArtists: ["Other"],
             reportDisplayMode: .detailed,
             credentialIssue: nil,
-            isLibraryReadyForUpdates: true,
+            libraryReadiness: makeReadyEvidence(),
             noticeMessage: .constant(nil)
         )
         let report = view.makeDoneReport()

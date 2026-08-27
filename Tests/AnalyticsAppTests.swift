@@ -12,10 +12,11 @@ struct AnalyticsAppTests {
     func projectionMapping() throws {
         let eventID = UUID()
         let summary = AnalyticsSummary(
-            calls: 4,
+            calls: 5,
             succeeded: 2,
             failed: 1,
             cancelled: 1,
+            degraded: 1,
             totalDurationSeconds: 3,
             averageDurationSeconds: 0.75,
             p95DurationSeconds: 2
@@ -41,7 +42,7 @@ struct AnalyticsAppTests {
                     displayName: "Music.app fetch",
                     startedAt: Date(timeIntervalSince1970: 1_700_000_000),
                     durationSeconds: 2,
-                    outcome: .failed
+                    outcome: .degraded
                 ),
             ]
         )
@@ -54,15 +55,16 @@ struct AnalyticsAppTests {
 
         #expect(snapshot.state == .populated)
         #expect(snapshot.selectedWindow == .last24Hours)
-        #expect(snapshot.summary.calls == 4)
-        #expect(snapshot.summary.successRate == 0.5)
+        #expect(snapshot.summary.calls == 5)
+        #expect(snapshot.summary.degraded == 1)
+        #expect(snapshot.summary.successRate == 0.4)
         #expect(snapshot.summary.totalDuration == "3.00 s")
         #expect(snapshot.distribution.map(\.count) == [1, 1, 1, 1])
         #expect(snapshot.operations.first?.id == AnalyticsOperation.musicAppFetch.rawValue)
         #expect(snapshot.operations.first?.category == "Library")
-        #expect(snapshot.operations.first?.successRate == "50%")
+        #expect(snapshot.operations.first?.successRate == "40%")
         #expect(snapshot.recentEvents.first?.id == eventID)
-        #expect(snapshot.recentEvents.first?.outcome == .failed)
+        #expect(snapshot.recentEvents.first?.outcome == .degraded)
     }
 
     @Test("analytics window and navigation mapping round-trip")

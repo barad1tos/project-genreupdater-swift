@@ -96,6 +96,7 @@ public struct AnalyticsView: View {
         LazyVGrid(columns: columns, spacing: 12) {
             summaryCard("Calls", snapshot.summary.calls.formatted(), .accent)
             summaryCard("Succeeded", snapshot.summary.succeeded.formatted(), .success)
+            summaryCard("Degraded", snapshot.summary.degraded.formatted(), .warning)
             summaryCard("Failed", snapshot.summary.failed.formatted(), .error)
             summaryCard("Cancelled", snapshot.summary.cancelled.formatted(), .warning)
             summaryCard(

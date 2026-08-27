@@ -15,6 +15,7 @@ public enum AnalyticsOutcome: String, Codable, CaseIterable, Sendable {
     case succeeded
     case failed
     case cancelled
+    case degraded
 
     /// Classifies a thrown operation without retaining its error details.
     public init(error: any Error, isTaskCancelled: Bool) {

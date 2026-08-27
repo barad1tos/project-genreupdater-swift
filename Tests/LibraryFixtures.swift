@@ -13,6 +13,21 @@ struct LibraryPersistenceFixture {
     let snapshotService: SnapshotServiceSpy
 }
 
+func makeReadyEvidence() throws -> MirrorReadiness {
+    let membership = try MembershipFingerprint.make(ids: [])
+    return .ready(ScopeCertificate(
+        id: UUID(),
+        revision: .initial,
+        membership: membership,
+        testArtists: [],
+        fieldSet: .processingV1,
+        requestedFingerprint: membership.fingerprint,
+        observedFingerprint: membership.fingerprint,
+        trackCount: 0,
+        observedAt: .distantPast
+    ))
+}
+
 private actor AppObservationSource: ObservationSource {
     let census: TrackIDCensus
     let tracks: [Core.Track]

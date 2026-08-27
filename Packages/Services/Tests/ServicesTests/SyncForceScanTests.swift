@@ -106,6 +106,25 @@ struct SyncForceScanTests {
         #expect(metadata?.lastForceScanDate == secondSyncDate)
     }
 
+    @Test("A simulated future clock stamps the completed observation")
+    func stampsTestClock() async throws {
+        let futureDate = Date(timeIntervalSince1970: 1_900_000_000)
+        let fixture = await Self.makeFixture(now: futureDate)
+
+        _ = try await fixture.service.synchronizeNow(forceMetadataRefresh: true)
+        let snapshot = try await fixture.store.loadMirrorSnapshot()
+        let readiness = snapshot.readiness(
+            for: MirrorRequirement(
+                testArtists: [],
+                fieldSet: .processingV1,
+                maximumMetadataAge: 60
+            ),
+            at: futureDate
+        )
+
+        #expect(readiness.isReady)
+    }
+
     @Test("Snapshot refresh does not postpone a weekly metadata scan")
     func refreshKeepsScanDue() async throws {
         let forceScanDate = Self.baseDate
@@ -127,7 +146,7 @@ struct SyncForceScanTests {
         dateProvider.set(refreshDate)
         _ = try await uiSnapshotService.saveSnapshot([storedTrack])
 
-        let bridge = SyncMockScriptClient()
+        let bridge = SyncMockScriptClient(observedAt: dateProvider.now)
         let store = SyncMockTrackStore()
         await bridge.setLibrary(ids: ["T1"], tracks: ["T1": Self.track(name: "Alternative")])
         await store.setStored([storedTrack])
@@ -161,14 +180,14 @@ struct SyncForceScanTests {
         metadata: LibraryCacheMetadata? = nil,
         currentDate: (@Sendable () -> Date)? = nil
     ) async -> ForceScanFixture {
-        let bridge = SyncMockScriptClient()
-        let store = SyncMockTrackStore()
-        let snapshotService = SyncMockLibrarySnapshotService()
         let dateProvider: @Sendable () -> Date = if let currentDate {
             currentDate
         } else {
             { now }
         }
+        let bridge = SyncMockScriptClient(observedAt: dateProvider)
+        let store = SyncMockTrackStore()
+        let snapshotService = SyncMockLibrarySnapshotService()
 
         await bridge.setLibrary(ids: ["T1"], tracks: ["T1": current])
         await store.setStored([stored], certificateDate: now)

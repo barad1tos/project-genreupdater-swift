@@ -19,6 +19,7 @@ struct AnalyticsBuilderTests {
             event(3, sessionID: sessionID, operation: .libraryLoad, duration: 5, outcome: .failed),
             event(4, sessionID: sessionID, operation: .batchWrite, duration: 6, outcome: .succeeded),
             event(5, sessionID: sessionID, operation: .batchWrite, duration: 30, outcome: .cancelled),
+            event(6, sessionID: sessionID, operation: .libraryLoad, duration: 4, outcome: .degraded),
         ]
 
         let projection = AnalyticsBuilder.build(
@@ -28,22 +29,23 @@ struct AnalyticsBuilderTests {
         )
 
         #expect(projection.state == .populated)
-        #expect(projection.summary.calls == 5)
+        #expect(projection.summary.calls == 6)
         #expect(projection.summary.succeeded == 3)
         #expect(projection.summary.failed == 1)
         #expect(projection.summary.cancelled == 1)
-        #expect(projection.summary.successRate == 0.6)
-        #expect(projection.summary.totalDurationSeconds == 44)
-        #expect(projection.summary.averageDurationSeconds == 8.8)
+        #expect(projection.summary.degraded == 1)
+        #expect(projection.summary.successRate == 0.5)
+        #expect(projection.summary.totalDurationSeconds == 48)
+        #expect(projection.summary.averageDurationSeconds == 8)
         #expect(projection.summary.p95DurationSeconds == 30)
-        #expect(projection.durationDistribution == .init(short: 2, medium: 2, long: 0, veryLong: 1))
+        #expect(projection.durationDistribution == .init(short: 2, medium: 3, long: 0, veryLong: 1))
         #expect(projection.operations.map(\.operationValue) == ["batch.write", "library.load", "future.operation"])
         #expect(projection.operations[0].calls == 2)
         #expect(projection.operations[0].totalDurationSeconds == 36)
         #expect(projection.operations[0].p95DurationSeconds == 30)
         #expect(projection.operations[2].displayName == "Unknown operation")
         #expect(projection.operations[2].category == nil)
-        #expect(projection.recentEvents.map(\.durationSeconds) == [30, 6, 5])
+        #expect(projection.recentEvents.map(\.durationSeconds) == [4, 30, 6, 5])
     }
 
     @Test("Stable operation identity breaks equal-duration ties")

@@ -12,7 +12,12 @@ struct AnalyticsStoreTests {
         let firstSession = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
         let secondSession = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000002"))
         let timestamp = Date(timeIntervalSince1970: 100)
-        let first = event(idSuffix: 1, sessionID: firstSession, timestamp: timestamp)
+        let first = event(
+            idSuffix: 1,
+            sessionID: firstSession,
+            timestamp: timestamp,
+            outcome: .degraded
+        )
         let second = event(idSuffix: 2, sessionID: secondSession, timestamp: timestamp)
         let retention = AnalyticsRetentionPolicy(maxEvents: 100, cutoff: .distantPast)
 
@@ -226,7 +231,8 @@ struct AnalyticsStoreTests {
     private func event(
         idSuffix: Int,
         sessionID: UUID,
-        timestamp: Date
+        timestamp: Date,
+        outcome: AnalyticsOutcome = .succeeded
     ) -> StoredAnalyticsEvent {
         StoredAnalyticsEvent(
             id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, UInt8(idSuffix))),
@@ -234,7 +240,7 @@ struct AnalyticsStoreTests {
             operationValue: AnalyticsOperation.libraryLoad.rawValue,
             startedAt: timestamp,
             durationSeconds: 1,
-            outcome: .succeeded
+            outcome: outcome
         )
     }
 }

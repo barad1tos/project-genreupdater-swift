@@ -2,7 +2,7 @@ import Core
 import Foundation
 import SwiftData
 
-/// Writes synthetic legacy stores checked in as migration fixtures.
+/// Writes synthetic legacy stores for migration tests and checked-in fixtures.
 package enum StoreFixtureWriter {
     package static func writeV0(to storeURL: URL) throws {
         let schema = Schema(versionedSchema: StoreSchemaV0.self)

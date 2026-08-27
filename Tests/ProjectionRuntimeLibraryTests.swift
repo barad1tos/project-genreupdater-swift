@@ -126,7 +126,8 @@ struct ProjectionRuntimeLibraryTests {
         let row = try #require(await analytics.projection(for: .currentSession).operations.first {
             $0.operationValue == AnalyticsOperation.libraryLoad.rawValue
         })
-        #expect(row.succeeded == 1)
+        #expect(row.succeeded == 0)
+        #expect(row.degraded == 1)
         #expect(row.failed == 0)
     }
 

@@ -8,9 +8,14 @@ import Testing
 actor SyncMockScriptClient: MusicAppReading {
     var libraryTrackIDs: [String] = []
     var tracksByID: [String: Track] = [:]
+    private let observedAt: @Sendable () -> Date
     private var fetchAllTrackIDsError: AppleScriptBridgeError?
     private var observationRequests: [LibraryObservationRequest] = []
     private var trackQueue: [[String: Track]] = []
+
+    init(observedAt: @escaping @Sendable () -> Date = { .distantPast }) {
+        self.observedAt = observedAt
+    }
 
     func observe(_ request: LibraryObservationRequest) async throws -> LibraryObservation {
         observationRequests.append(request)
@@ -58,7 +63,7 @@ actor SyncMockScriptClient: MusicAppReading {
             censusIDs: Set(allIDs),
             currentIDs: currentIDs,
             scope: request.scope,
-            observedAt: Date(),
+            observedAt: observedAt(),
             membership: request.scope.source == .fullLibrary
                 ? .full
                 : .scoped(unobservedIDs: missingIDs),

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Why persisted processing evidence is no longer current.
+/// Why persisted processing evidence cannot be treated as current.
 public enum StaleMirrorReason: Equatable, Sendable {
     case membershipChanged
     case metadataExpired

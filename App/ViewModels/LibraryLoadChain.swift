@@ -176,7 +176,10 @@ extension AppDependencies {
         lastLibraryScanDate = nil
         libraryMetrics = upsertedMetrics
         onLibraryLoadApplied?(mirrorLoad.tracks)
-        await recordLibraryLoad(startedAt: loadStart)
+        await recordLibraryLoad(
+            startedAt: loadStart,
+            outcome: mirrorLoad.readiness.isReady ? .succeeded : .degraded
+        )
     }
 
     private func mirrorRequirement(scopedArtists: [String]) throws -> MirrorRequirement {

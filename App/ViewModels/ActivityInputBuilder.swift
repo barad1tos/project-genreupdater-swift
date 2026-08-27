@@ -47,6 +47,42 @@ struct ActivityWorkflowFacts {
     @MainActor static let empty = Self(dashboard: .empty, pendingVerification: nil)
 }
 
+struct LibraryReadinessCopy: Equatable {
+    let detail: String
+    let buttonTitle: String
+
+    init?(_ readiness: MirrorReadiness) {
+        switch readiness {
+        case .ready:
+            return nil
+        case .stale(.membershipChanged):
+            detail = "Music library changed · refresh before updating"
+            buttonTitle = "Refresh Required"
+        case .stale(.metadataExpired):
+            detail = "Music metadata expired · refresh before updating"
+            buttonTitle = "Refresh Required"
+        case .stale(.supersededRevision):
+            detail = "Library mirror changed · reload before updating"
+            buttonTitle = "Reload Required"
+        case .incomplete(.freshObservationRequired):
+            detail = "Refresh Music metadata before updating"
+            buttonTitle = "Refresh Required"
+        case let .incomplete(.identityMissing(count)):
+            detail = "\(count.formatted()) tracks need identity repair before updating"
+            buttonTitle = "Repair Required"
+        case let .incomplete(.metadataMissing(count)):
+            detail = "\(count.formatted()) tracks need metadata refresh before updating"
+            buttonTitle = "Refresh Required"
+        case .incomplete(.narrowedObservation):
+            detail = "Run a full scope refresh before updating"
+            buttonTitle = "Refresh Required"
+        case let .unavailable(failure):
+            detail = "Library readiness unavailable: \(failure.detail)"
+            buttonTitle = "Library Unavailable"
+        }
+    }
+}
+
 struct ActivityInputContext {
     let tracks: [Core.Track]
     let reportEntries: [Core.ChangeLogEntry]
@@ -206,32 +242,10 @@ enum ActivityInputBuilder {
         if isLoading {
             return .loading
         }
-        guard !tracks.isEmpty else { return .empty }
-        guard let message = readinessMessage(readiness) else { return .ready }
-        return .presentationOnly(message)
-    }
-
-    private static func readinessMessage(_ readiness: MirrorReadiness) -> String? {
-        switch readiness {
-        case .ready:
-            nil
-        case .stale(.membershipChanged):
-            "Music library changed · refresh before updating"
-        case .stale(.metadataExpired):
-            "Music metadata expired · refresh before updating"
-        case .stale(.supersededRevision):
-            "Library mirror changed · reload before updating"
-        case .incomplete(.freshObservationRequired):
-            "Refresh Music metadata before updating"
-        case let .incomplete(.identityMissing(count)):
-            "\(count.formatted()) tracks need identity repair before updating"
-        case let .incomplete(.metadataMissing(count)):
-            "\(count.formatted()) tracks need metadata refresh before updating"
-        case .incomplete(.narrowedObservation):
-            "Run a full scope refresh before updating"
-        case let .unavailable(failure):
-            "Library readiness unavailable: \(failure.detail)"
+        if let copy = LibraryReadinessCopy(readiness) {
+            return .presentationOnly(copy.detail)
         }
+        return tracks.isEmpty ? .empty : .ready
     }
 
     private static func makeWorkflowState(from workflow: WorkflowDashboardState) -> ActivityWorkflowState {
