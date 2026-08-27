@@ -1,5 +1,4 @@
 import Core
-import CryptoKit
 import Foundation
 import Services
 
@@ -11,12 +10,28 @@ extension TrackStateStore {
             canonical.appleScriptID = canonical.id
             return canonical
         }
-        try await applyMirror(TrackMirrorUpdate(
+        let ids = canonicalTracks.compactMap(\.databaseID)
+        let membership = try testMembershipStamp(for: ids)
+        let certificate = try ScopeCertificate(
+            id: UUID(),
+            revision: revision.advanced(),
+            membership: membership,
+            testArtists: [],
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: membership.fingerprint,
+                observedFingerprint: membership.fingerprint,
+                trackCount: canonicalTracks.count
+            ),
+            observedAt: Date()
+        )
+        try await commitMirror(MirrorCommit(
             baseRevision: revision,
-            coverageChange: .replace(.fullLibrary),
+            observation: ObservationID(),
             membershipChange: testMembership(for: canonicalTracks),
             repairs: [],
-            upserts: canonicalTracks
+            upserts: canonicalTracks,
+            certificates: .replace(certificate)
         ))
     }
 }
@@ -31,17 +46,7 @@ private func testMembership(for tracks: [Track]) throws -> MembershipChange {
 }
 
 func testMembershipStamp(for ids: [MusicDatabaseTrackID]) throws -> MembershipStamp {
-    var payload = Data()
-    for id in ids.sorted(by: { $0.rawValue < $1.rawValue }) {
-        let bytes = Data(id.rawValue.utf8)
-        var length = UInt64(bytes.count).bigEndian
-        withUnsafeBytes(of: &length) { payload.append(contentsOf: $0) }
-        payload.append(bytes)
-    }
-    let fingerprint = SHA256.hash(data: payload)
-        .map { String(format: "%02x", $0) }
-        .joined()
-    return try MembershipStamp(fingerprint: fingerprint)
+    try MembershipFingerprint.make(ids: ids)
 }
 
 func testMusicDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {
@@ -254,14 +259,14 @@ actor DashboardStateTrackStore: TrackStateStore {
             presentIDs: [],
             presentTracks: [],
             repairCandidates: [],
-            coverage: .unknown
+            certificates: []
         )
     }
 
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
         // These tests do not assert persisted track state.
-        try update.baseRevision.advanced()
+        try MirrorCommitResult(revision: commit.baseRevision.advanced())
     }
 
     func getTrack(byID _: String) async throws -> Track? {

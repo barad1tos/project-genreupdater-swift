@@ -3,7 +3,7 @@ import Foundation
 
 struct LibraryMirrorTrackLoad {
     let tracks: [Track]
-    let isLibraryReadyForUpdates: Bool
+    let readiness: MirrorReadiness
 }
 
 @MainActor
@@ -30,22 +30,22 @@ enum LibraryTrackLoader {
     static func currentMirror(
         store: any TrackStateStore,
         cachedTracks: [Track] = [],
-        scopedArtists: [String]
+        requirement: MirrorRequirement,
+        at date: Date = Date()
     ) async throws -> LibraryMirrorTrackLoad {
         try Task.checkCancellation()
         let snapshot = try await store.loadMirrorSnapshot()
         try Task.checkCancellation()
-        let requestedScope = MirrorScope(testArtists: scopedArtists)
-        let isLibraryReadyForUpdates = snapshot.coverage.admits(requestedScope)
+        let readiness = snapshot.readiness(for: requirement, at: date)
         let tracks = try presentationTracks(
             snapshot: snapshot,
             cachedTracks: cachedTracks,
-            scopedArtists: scopedArtists
+            scopedArtists: requirement.normalizedTestArtists
         )
 
         return LibraryMirrorTrackLoad(
             tracks: tracks,
-            isLibraryReadyForUpdates: isLibraryReadyForUpdates
+            readiness: readiness
         )
     }
 

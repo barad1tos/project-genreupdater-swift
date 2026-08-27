@@ -41,6 +41,12 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
     case operationsOutsideMembership(ids: [MusicDatabaseTrackID])
     case identityOverlap(ids: [MusicDatabaseTrackID])
     case identityCollisions(ids: [MusicDatabaseTrackID])
+    case certificateRevisionMismatch(expected: MirrorRevision, actual: MirrorRevision)
+    case certificateMembershipMismatch(expected: MembershipStamp, actual: MembershipStamp)
+    case incompleteCertificate
+    case invalidCertificateTrackCount(Int)
+    case unsafeCertificatePreserve
+    case unprovenCertificateRebase
 
     public var errorDescription: String? {
         switch self {
@@ -76,6 +82,18 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
             "Track mirror update contains overlapping operation IDs: \(ids.map(\.rawValue).joined(separator: ", "))"
         case let .identityCollisions(ids):
             "Track mirror upserts collide with noncanonical stored IDs: \(ids.map(\.rawValue).joined(separator: ", "))"
+        case let .certificateRevisionMismatch(expected, actual):
+            "Scope certificate revision \(actual.value) does not match committed revision \(expected.value)"
+        case let .certificateMembershipMismatch(expected, actual):
+            "Scope certificate membership \(actual.fingerprint) does not match current membership \(expected.fingerprint)"
+        case .incompleteCertificate:
+            "Scope certificate requested and observed fingerprints do not match"
+        case let .invalidCertificateTrackCount(count):
+            "Scope certificate has invalid track count \(count)"
+        case .unsafeCertificatePreserve:
+            "Scope certificate preservation requires a maintenance-only mirror commit"
+        case .unprovenCertificateRebase:
+            "Scope certificate rebase lacks disjoint membership proof"
         }
     }
 }
@@ -91,129 +109,10 @@ public struct TrackMirrorRepair: Sendable {
     }
 }
 
-/// Processing scope proven by one complete Music library observation.
-public struct MirrorScope: Codable, Sendable {
-    public static let fullLibrary = Self(testArtists: [])
-
-    public let testArtists: [String]
-
-    public var isFullLibrary: Bool {
-        testArtists.isEmpty
-    }
-
-    public init(testArtists: [String]) {
-        self.testArtists = ArtistAllowList.normalized(testArtists).sorted { first, second in
-            let comparison = first.localizedCaseInsensitiveCompare(second)
-            return comparison == .orderedSame ? first < second : comparison == .orderedAscending
-        }
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        try self.init(testArtists: container.decode([String].self))
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(testArtists)
-    }
-}
-
-extension MirrorScope: Equatable {
-    public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.testArtists.count == rhs.testArtists.count else { return false }
-        return zip(lhs.testArtists, rhs.testArtists).allSatisfy { first, second in
-            first.localizedCaseInsensitiveCompare(second) == .orderedSame
-        }
-    }
-}
-
-/// Persisted evidence for which processing scope the mirror can authorize.
-public enum MirrorCoverage: Equatable, Sendable {
-    case unknown
-    case verified(MirrorScope)
-
-    public func admits(_ requestedScope: MirrorScope) -> Bool {
-        guard case let .verified(verifiedScope) = self else { return false }
-        guard !verifiedScope.isFullLibrary else { return true }
-        guard !requestedScope.isFullLibrary else { return false }
-        return requestedScope.testArtists.allSatisfy { requestedArtist in
-            ArtistAllowList.containsNormalized(requestedArtist, in: verifiedScope.testArtists)
-        }
-    }
-
-    public func applying(_ change: MirrorCoverageChange) -> Self {
-        switch change {
-        case .preserve:
-            self
-        case let .replace(scope):
-            .verified(scope)
-        case .invalidate:
-            .unknown
-        }
-    }
-}
-
-/// Evidence transition committed atomically with one mirror mutation.
-public enum MirrorCoverageChange: Equatable, Sendable {
-    case preserve
-    case replace(MirrorScope)
-    case invalidate
-}
-
 /// The canonical-library membership evidence carried by a mirror mutation.
 public enum MembershipChange: Equatable, Sendable {
     case preserve
     case replace(stamp: MembershipStamp, ids: [MusicDatabaseTrackID], observedAt: Date)
-}
-
-/// One coherent mutation of the persisted Music library mirror.
-public struct TrackMirrorUpdate: Sendable {
-    public let baseRevision: MirrorRevision
-    public let coverageChange: MirrorCoverageChange
-    public let membershipChange: MembershipChange
-    public let repairs: [TrackMirrorRepair]
-    public let upserts: [Track]
-
-    public init(
-        baseRevision: MirrorRevision,
-        coverageChange: MirrorCoverageChange,
-        membershipChange: MembershipChange,
-        repairs: [TrackMirrorRepair],
-        upserts: [Track]
-    ) {
-        self.baseRevision = baseRevision
-        self.coverageChange = coverageChange
-        self.membershipChange = membershipChange
-        self.repairs = repairs
-        self.upserts = upserts
-    }
-}
-
-/// One coherent read of current library membership, repair input, and scope evidence.
-public struct TrackMirrorSnapshot: Equatable, Sendable {
-    public let revision: MirrorRevision
-    public let membershipStamp: MembershipStamp
-    public let presentIDs: Set<MusicDatabaseTrackID>
-    public let presentTracks: [Track]
-    public let repairCandidates: [Track]
-    public let coverage: MirrorCoverage
-
-    public init(
-        revision: MirrorRevision,
-        membershipStamp: MembershipStamp,
-        presentIDs: Set<MusicDatabaseTrackID>,
-        presentTracks: [Track],
-        repairCandidates: [Track],
-        coverage: MirrorCoverage
-    ) {
-        self.revision = revision
-        self.membershipStamp = membershipStamp
-        self.presentIDs = presentIDs
-        self.presentTracks = presentTracks
-        self.repairCandidates = repairCandidates
-        self.coverage = coverage
-    }
 }
 
 /// Protocol for persisting the track metadata mirror and processing state.
@@ -221,9 +120,9 @@ public protocol TrackStateStore: Actor {
     func initialize() async throws
     func loadAllTracks() async throws -> [Track]
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot
-    /// Atomically applies one coherent metadata-mirror update.
+    /// Atomically commits one coherent metadata-mirror mutation.
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision
+    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult
     func getTrack(byID id: String) async throws -> Track?
     func getHistoricalTrack(byID id: String) async throws -> Track?
     /// Atomically persists metadata and processing flags for a change keyed by

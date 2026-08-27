@@ -5,6 +5,7 @@ public enum ActivityLibraryState: Equatable, Sendable {
     case empty
     case loading
     case ready
+    case presentationOnly(String)
     case permissionDenied(String)
     case failed(String)
 }

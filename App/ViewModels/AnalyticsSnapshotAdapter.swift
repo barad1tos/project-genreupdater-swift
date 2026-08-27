@@ -20,6 +20,7 @@ enum AnalyticsSnapshotAdapter {
                 succeeded: projection.summary.succeeded,
                 failed: projection.summary.failed,
                 cancelled: projection.summary.cancelled,
+                degraded: projection.summary.degraded,
                 totalDuration: duration(projection.summary.totalDurationSeconds, locale: locale),
                 averageDuration: duration(projection.summary.averageDurationSeconds, locale: locale),
                 p95Duration: duration(projection.summary.p95DurationSeconds, locale: locale)
@@ -68,6 +69,7 @@ enum AnalyticsSnapshotAdapter {
         case .succeeded: .succeeded
         case .failed: .failed
         case .cancelled: .cancelled
+        case .degraded: .degraded
         }
     }
 

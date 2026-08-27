@@ -145,6 +145,20 @@ public struct LibraryTrackRow: Equatable, Sendable {
         metadata.status
     }
 
+    func hasCompleteMetadata(for fieldSet: MirrorFieldSet) -> Bool {
+        guard fieldSet == .processingV1 else { return false }
+        return name.isObserved
+            && artist.isObserved
+            && album.isObserved
+            && albumArtist.isObserved
+            && genre.isObserved
+            && editableYear.isObserved
+            && releaseYear.isObserved
+            && dateAdded.isObserved
+            && lastModified.isObserved
+            && status.isObserved
+    }
+
     func matches(_ scope: ProcessingScopeSnapshot) -> Bool {
         guard scope.source == .testArtists else { return true }
         let effectiveArtist: String? = switch albumArtist {
@@ -161,6 +175,15 @@ public struct LibraryTrackRow: Equatable, Sendable {
         }
         guard let effectiveArtist else { return false }
         return ArtistAllowList.containsNormalized(effectiveArtist, in: scope.normalizedTestArtists)
+    }
+}
+
+extension Observed {
+    fileprivate var isObserved: Bool {
+        switch self {
+        case .value, .absent: true
+        case .unobserved: false
+        }
     }
 }
 

@@ -33,6 +33,7 @@ public struct AnalyticsSummary: Equatable, Sendable {
     public let succeeded: Int
     public let failed: Int
     public let cancelled: Int
+    public let degraded: Int
     public let successRate: Double
     public let totalDurationSeconds: Double
     public let averageDurationSeconds: Double
@@ -43,6 +44,7 @@ public struct AnalyticsSummary: Equatable, Sendable {
         succeeded: Int,
         failed: Int,
         cancelled: Int,
+        degraded: Int,
         totalDurationSeconds: Double,
         averageDurationSeconds: Double,
         p95DurationSeconds: Double
@@ -51,6 +53,7 @@ public struct AnalyticsSummary: Equatable, Sendable {
         self.succeeded = succeeded
         self.failed = failed
         self.cancelled = cancelled
+        self.degraded = degraded
         successRate = calls == 0 ? 0 : Double(succeeded) / Double(calls)
         self.totalDurationSeconds = totalDurationSeconds
         self.averageDurationSeconds = averageDurationSeconds
@@ -62,6 +65,7 @@ public struct AnalyticsSummary: Equatable, Sendable {
         succeeded: 0,
         failed: 0,
         cancelled: 0,
+        degraded: 0,
         totalDurationSeconds: 0,
         averageDurationSeconds: 0,
         p95DurationSeconds: 0
@@ -98,6 +102,7 @@ public struct AnalyticsOperationRow: Identifiable, Equatable, Sendable {
     public let succeeded: Int
     public let failed: Int
     public let cancelled: Int
+    public let degraded: Int
     public let successRate: Double
     public let totalDurationSeconds: Double
     public let averageDurationSeconds: Double
@@ -116,6 +121,7 @@ public struct AnalyticsOperationRow: Identifiable, Equatable, Sendable {
         succeeded = summary.succeeded
         failed = summary.failed
         cancelled = summary.cancelled
+        degraded = summary.degraded
         successRate = summary.successRate
         totalDurationSeconds = summary.totalDurationSeconds
         averageDurationSeconds = summary.averageDurationSeconds

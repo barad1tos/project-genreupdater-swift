@@ -37,7 +37,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ServicesTests",
-            dependencies: ["Core", "Services"],
+            dependencies: ["Core", "Services", "StoreFixtureGenerator"],
             path: "Tests/ServicesTests",
             resources: [.copy("Fixtures")]
         ),

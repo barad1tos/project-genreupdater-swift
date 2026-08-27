@@ -75,12 +75,14 @@ enum AnalyticsBuilder {
         let succeeded = events.count { $0.outcome == .succeeded }
         let failed = events.count { $0.outcome == .failed }
         let cancelled = events.count { $0.outcome == .cancelled }
+        let degraded = events.count { $0.outcome == .degraded }
         let totalDuration = durations.reduce(0, +)
         return AnalyticsSummary(
             calls: calls,
             succeeded: succeeded,
             failed: failed,
             cancelled: cancelled,
+            degraded: degraded,
             totalDurationSeconds: totalDuration,
             averageDurationSeconds: calls == 0 ? 0 : totalDuration / Double(calls),
             p95DurationSeconds: p95(durations)

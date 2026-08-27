@@ -67,12 +67,13 @@ extension AppDependencies {
         libraryMetrics = nil
         lastLibraryScanDate = nil
         libraryLoadError = nil
+        libraryReadiness = .incomplete(.freshObservationRequired)
     }
 
     func loadLibrary(forceRefresh: Bool = false) async {
         let token = libraryLoadGate.begin()
         libraryLoadError = nil
-        isLibraryReadyForUpdates = false
+        libraryReadiness = .incomplete(.freshObservationRequired)
         let cachedMetrics = await metricsSnapshotStore?.loadLatest()
         guard libraryLoadGate.isCurrent(token) else { return }
         libraryMetrics = cachedMetrics
@@ -89,6 +90,10 @@ extension AppDependencies {
         guard libraryLoadGate.isCurrent(token) else { return }
 
         guard let trackStore else {
+            libraryReadiness = .unavailable(MirrorFailure(
+                category: .storage,
+                detail: "Track store is unavailable"
+            ))
             finishLibraryLoadIfCurrent(token)
             await republishActivityProjection()
             return
@@ -118,10 +123,11 @@ extension AppDependencies {
         defer { finishLibraryLoadIfCurrent(token) }
 
         do {
+            let requirement = try mirrorRequirement(scopedArtists: scopedArtists)
             let mirrorLoad = try await LibraryTrackLoader.currentMirror(
                 store: store,
                 cachedTracks: cachedTracks ?? [],
-                scopedArtists: scopedArtists
+                requirement: requirement
             )
             await applyCurrentMirrorLoad(
                 mirrorLoad,
@@ -157,11 +163,11 @@ extension AppDependencies {
         await cacheLibraryLoad(
             mirrorLoad.tracks,
             scopedArtists: scopedArtists,
-            isAuthoritative: mirrorLoad.isLibraryReadyForUpdates,
+            isAuthoritative: mirrorLoad.readiness.isReady,
             previousTracks: previousTracks
         )
         guard libraryLoadGate.isCurrent(token) else { return }
-        isLibraryReadyForUpdates = mirrorLoad.isLibraryReadyForUpdates
+        libraryReadiness = mirrorLoad.readiness
         libraryTracks = mirrorLoad.tracks
         await applyBrowseTruthForLoad?(mirrorLoad.tracks, .cachedMirror(scannedAt: nil), token)
         guard libraryLoadGate.isCurrent(token) else { return }
@@ -170,7 +176,21 @@ extension AppDependencies {
         lastLibraryScanDate = nil
         libraryMetrics = upsertedMetrics
         onLibraryLoadApplied?(mirrorLoad.tracks)
-        await recordLibraryLoad(startedAt: loadStart)
+        await recordLibraryLoad(
+            startedAt: loadStart,
+            outcome: mirrorLoad.readiness.isReady ? .succeeded : .degraded
+        )
+    }
+
+    private func mirrorRequirement(scopedArtists: [String]) throws -> MirrorRequirement {
+        let runtimeConfiguration = try LibrarySyncRuntimeConfiguration(configuration: config)
+        let scanDays = runtimeConfiguration.forceMetadataScanIntervalDays
+        let maximumAge = scanDays > 0 ? TimeInterval(scanDays) * 86400 : nil
+        return MirrorRequirement(
+            testArtists: scopedArtists,
+            fieldSet: .processingV1,
+            maximumMetadataAge: maximumAge
+        )
     }
 
     private func handleLibraryLoadFailure(
@@ -181,6 +201,10 @@ extension AppDependencies {
         guard libraryLoadGate.isCurrent(token) else { return }
         await recordLibraryLoad(startedAt: loadStart, outcome: .failed)
         libraryLoadError = LibraryLoadError.make(from: error)
+        libraryReadiness = .unavailable(MirrorFailure(
+            category: .observation,
+            detail: libraryLoadError?.message ?? error.localizedDescription
+        ))
         libraryTracks = []
         await applyBrowseTruthForLoad?([], .cachedMirror(scannedAt: nil), token)
         onLibraryLoadApplied?([])

@@ -7,6 +7,12 @@ import Testing
 @Suite("Projection runtime library loading")
 @MainActor
 struct ProjectionRuntimeLibraryTests {
+    enum NonReadyEvidence: Sendable {
+        case incomplete
+        case stale
+        case unavailable
+    }
+
     @Test("the backend load chain publishes library facts headlessly")
     func backendLoadPublishesLibraryFacts() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
@@ -48,6 +54,81 @@ struct ProjectionRuntimeLibraryTests {
         let browseAllCurrent = browseApplications.allSatisfy(\.isCurrent)
         #expect(browseCounts == [1])
         #expect(browseAllCurrent)
+    }
+
+    @Test("Presentation load preserves incomplete readiness")
+    func preservesIncompleteReadiness() async throws {
+        try await expectPreservedReadiness(.incomplete)
+    }
+
+    @Test("Presentation load preserves stale readiness")
+    func preservesStaleReadiness() async throws {
+        try await expectPreservedReadiness(.stale)
+    }
+
+    @Test("Presentation load preserves unavailable readiness")
+    func preservesUnavailableReadiness() async throws {
+        try await expectPreservedReadiness(.unavailable)
+    }
+
+    private func expectPreservedReadiness(_ evidence: NonReadyEvidence) async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let analytics = try await installAnalytics(on: fixture.dependencies)
+        let track = canonicalMirrorTrack(Core.Track(
+            id: "typed",
+            name: "Song",
+            artist: "In Flames",
+            album: "Foregone"
+        ))
+        let store: MirrorTrackStoreStub
+        let expected: MirrorReadiness
+        let expectedSubtitle: String
+
+        switch evidence {
+        case .incomplete:
+            store = MirrorTrackStoreStub(tracks: [track])
+            expected = .incomplete(.freshObservationRequired)
+            expectedSubtitle = "Refresh Music metadata before updating"
+        case .stale:
+            store = MirrorTrackStoreStub(
+                tracks: [track],
+                certifiedArtists: [],
+                certificateObservedAt: .distantPast
+            )
+            expected = .stale(.metadataExpired)
+            expectedSubtitle = "Music metadata expired · refresh before updating"
+        case .unavailable:
+            store = MirrorTrackStoreStub(
+                tracks: [track],
+                certifiedArtists: [],
+                certificateObservedAt: Date(timeIntervalSince1970: .nan)
+            )
+            expected = .unavailable(MirrorFailure(
+                category: .storage,
+                detail: "Mirror observation age must be finite"
+            ))
+            expectedSubtitle = "Library readiness unavailable: Mirror observation age must be finite"
+        }
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
+
+        await fixture.dependencies.loadLibrary(forceRefresh: true)
+
+        #expect(fixture.dependencies.libraryReadiness == expected)
+        #expect(!fixture.dependencies.isLibraryReadyForUpdates)
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["typed"])
+        let projection = await fixture.dependencies.projectionStore.activityProjection()
+        #expect(projection.healthFacts.counts.totalTracks == 1)
+        #expect(projection.subtitle == expectedSubtitle)
+        let row = try #require(await analytics.projection(for: .currentSession).operations.first {
+            $0.operationValue == AnalyticsOperation.libraryLoad.rawValue
+        })
+        #expect(row.succeeded == 0)
+        #expect(row.degraded == 1)
+        #expect(row.failed == 0)
     }
 
     @Test("a scope change synchronously empties library truth")
@@ -241,7 +322,7 @@ struct ProjectionRuntimeLibraryTests {
                         album: "Blast Tyrant"
                     )),
                 ],
-                coverage: .verified(.fullLibrary)
+                certifiedArtists: []
             ),
             librarySnapshotService: fixture.snapshotService,
             runRecordStore: RunRecordStoreStub()

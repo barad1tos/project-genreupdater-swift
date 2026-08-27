@@ -14,7 +14,7 @@ extension ActivityBuilder {
         switch input.libraryState {
         case .permissionDenied, .failed:
             "Library needs attention"
-        case .loading, .empty, .ready:
+        case .loading, .empty, .ready, .presentationOnly:
             nil
         }
     }
@@ -34,6 +34,8 @@ extension ActivityBuilder {
             "Scanning library"
         case .empty:
             "Library empty"
+        case .presentationOnly:
+            "Library needs refresh"
         case .ready, .permissionDenied, .failed:
             nil
         }
@@ -76,7 +78,7 @@ extension ActivityBuilder {
 
     static func makeLibraryStateSubtitle(input: ActivityProjectionInput) -> String? {
         switch input.libraryState {
-        case let .permissionDenied(message), let .failed(message):
+        case let .permissionDenied(message), let .failed(message), let .presentationOnly(message):
             return message
         case .loading:
             // Active/problem runs take precedence over transient library loading copy.
@@ -96,7 +98,7 @@ extension ActivityBuilder {
         switch input.libraryState {
         case .permissionDenied, .failed:
             true
-        case .loading, .empty, .ready:
+        case .loading, .empty, .ready, .presentationOnly:
             false
         }
     }

@@ -277,7 +277,8 @@ struct DesignRootHostView: View {
             metricsSnapshot: dependencies.libraryMetrics,
             lastScanDate: dependencies.lastLibraryScanDate,
             loadError: dependencies.libraryLoadError,
-            isLoading: dependencies.isLibraryLoading
+            isLoading: dependencies.isLibraryLoading,
+            readiness: dependencies.libraryReadiness
         )
     }
 
@@ -320,7 +321,7 @@ struct DesignRootHostView: View {
                 testArtists: dependencies.config.development.testArtists,
                 reportDisplayMode: dependencies.config.reporting.changeDisplayMode,
                 credentialIssue: dependencies.discogsCredentialIssue,
-                isLibraryReadyForUpdates: !dependencies.isLibraryLoading && dependencies.isLibraryReadyForUpdates,
+                libraryReadiness: dependencies.libraryReadiness,
                 noticeMessage: $workflowNoticeMessage
             )
             .padding(24)

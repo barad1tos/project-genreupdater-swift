@@ -1,4 +1,3 @@
-import Core
 import Foundation
 @preconcurrency import SwiftData
 
@@ -352,40 +351,22 @@ enum StoreSchemaV4: VersionedSchema {
     ]
 }
 
-enum StoreMigrationPlan: SchemaMigrationPlan {
-    static let schemas: [any VersionedSchema.Type] = [
-        StoreSchemaV0.self,
-        StoreSchemaV1.self,
-        StoreSchemaV2.self,
-        StoreSchemaV3.self,
-        StoreSchemaV4.self,
-    ]
+enum StoreSchemaV5: VersionedSchema {
+    static let versionIdentifier = Schema.Version(5, 0, 0)
 
-    static let stages: [MigrationStage] = [
-        .lightweight(fromVersion: StoreSchemaV0.self, toVersion: StoreSchemaV1.self),
-        .lightweight(fromVersion: StoreSchemaV1.self, toVersion: StoreSchemaV2.self),
-        .custom(
-            fromVersion: StoreSchemaV2.self,
-            toVersion: StoreSchemaV3.self,
-            willMigrate: nil,
-            didMigrate: migrateMembership
-        ),
-        .lightweight(fromVersion: StoreSchemaV3.self, toVersion: StoreSchemaV4.self),
+    static let models: [any PersistentModel.Type] = [
+        StoreSchemaV2.PersistedTrack.self,
+        PersistedMirrorState.self,
+        StoreSchemaV2.PersistedChangeLogEntry.self,
+        StoreSchemaV2.PersistedMetricsSnapshot.self,
+        StoreSchemaV2.PersistedPendingAlbumEntry.self,
+        StoreSchemaV2.PersistedPendingVerificationMetadata.self,
+        StoreSchemaV2.PersistedRunRecord.self,
+        StoreSchemaV2.PersistedRunWorkItem.self,
+        StoreSchemaV2.PersistedRunReportItem.self,
+        StoreSchemaV2.PersistedFixPlan.self,
+        StoreSchemaV2.PersistedFixPlanDecision.self,
+        StoreSchemaV4.PersistedLibraryMember.self,
+        PersistedScopeCertificate.self,
     ]
-
-    private static func migrateMembership(context: ModelContext) throws {
-        let tracks = try context.fetch(FetchDescriptor<StoreSchemaV2.PersistedTrack>())
-        let revision = try context.fetch(FetchDescriptor<StoreSchemaV2.PersistedMirrorState>())
-            .first?
-            .revisionValue ?? MirrorRevision.initial.value
-        for track in tracks where track.appleScriptID == track.trackID {
-            guard MusicDatabaseTrackID(rawValue: track.trackID) != nil else { continue }
-            context.insert(StoreSchemaV3.PersistedLibraryMember(
-                databaseID: track.trackID,
-                isPresent: true,
-                firstSeenRevisionValue: revision
-            ))
-        }
-        try context.save()
-    }
 }

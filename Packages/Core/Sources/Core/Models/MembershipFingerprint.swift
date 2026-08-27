@@ -1,4 +1,3 @@
-import Core
 import CryptoKit
 import Foundation
 
@@ -6,8 +5,8 @@ enum MembershipFingerprintError: Error, Equatable, Sendable {
     case duplicateIDs([MusicDatabaseTrackID])
 }
 
-enum MembershipFingerprint {
-    static func make(ids: [MusicDatabaseTrackID]) throws -> MembershipStamp {
+public enum MembershipFingerprint {
+    public static func make(ids: [MusicDatabaseTrackID]) throws -> MembershipStamp {
         let duplicates = duplicateIDs(in: ids)
         guard duplicates.isEmpty else {
             throw MembershipFingerprintError.duplicateIDs(duplicates)

@@ -105,13 +105,7 @@ public actor LibrarySyncService {
         let removedDatabaseIDs = snapshot.presentIDs
             .subtracting(observation.censusIDs)
             .sorted { $0.rawValue < $1.rawValue }
-        try await trackStore.applyMirror(TrackMirrorUpdate(
-            baseRevision: snapshot.revision,
-            coverageChange: .preserve,
-            membershipChange: membershipChange(for: observation),
-            repairs: [],
-            upserts: []
-        ))
+        try await commitMembership(observation, snapshot: snapshot)
         let removedTracks = removedDatabaseIDs.compactMap { canonicalByID[$0] }
         await invalidateCachesForLibraryChanges(
             hasLibraryChanges: !removedTracks.isEmpty,
@@ -128,6 +122,29 @@ public actor LibrarySyncService {
             verifiedTrackCount: storedTracks.count,
             removedTrackIDs: removedDatabaseIDs.map(\.rawValue)
         )
+    }
+
+    private func commitMembership(
+        _ observation: LibraryObservation,
+        snapshot: TrackMirrorSnapshot
+    ) async throws {
+        let membershipTransition: MembershipChange
+        let certificateTransition: CertificateChange
+        if observation.censusIDs == snapshot.presentIDs {
+            membershipTransition = .preserve
+            certificateTransition = .preserve
+        } else {
+            membershipTransition = try membershipChange(for: observation)
+            certificateTransition = .invalidate(.membershipChanged)
+        }
+        try await trackStore.commitMirror(MirrorCommit(
+            baseRevision: snapshot.revision,
+            observation: ObservationID(),
+            membershipChange: membershipTransition,
+            repairs: [],
+            upserts: [],
+            certificates: certificateTransition
+        ))
     }
 
     /// Detect and persist Music.app library changes in the local store.
@@ -158,12 +175,13 @@ public actor LibrarySyncService {
     private func synchronizeAttempt(forceMetadataRefresh: Bool) async throws -> SyncResult {
         let detection = try await detectObservation(forceMetadataRefresh: forceMetadataRefresh)
         let result = detection.result
-        try await trackStore.applyMirror(TrackMirrorUpdate(
+        try await trackStore.commitMirror(MirrorCommit(
             baseRevision: detection.baseRevision,
-            coverageChange: detection.coverageChange,
+            observation: detection.observation,
             membershipChange: detection.membershipChange,
             repairs: detection.repairs,
-            upserts: detection.upserts
+            upserts: detection.upserts,
+            certificates: detection.certificateChange
         ))
 
         await invalidateCachesForLibraryChanges(

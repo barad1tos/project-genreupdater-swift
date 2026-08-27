@@ -13,7 +13,130 @@ struct LibrarySyncObservationTests {
         var year: Observed<Int> = .value(2001)
         var releaseYear: Observed<Int> = .absent
         var albumArtist: Observed<String> = .absent
+        var dateAdded: Observed<Date> = .absent
         var lastModified: Observed<Date> = .absent
+        var status: Observed<String> = .absent
+    }
+
+    enum ProcessingField: CaseIterable, Sendable {
+        case name
+        case artist
+        case album
+        case albumArtist
+        case genre
+        case editableYear
+        case releaseYear
+        case dateAdded
+        case lastModified
+        case status
+    }
+
+    @Test("A complete current observation replaces the exact scope certificate")
+    func issuesExactCertificate() async throws {
+        let store = ObservationMirrorStore(stored: [])
+        let reader = try ObservationReader(templates: [template(
+            currentIDs: ["A"],
+            rows: [row(id: "A", values: RowValues(artist: .value("Metallica")))],
+            metadataRequestedIDs: ["A"],
+            membership: .scoped(unobservedIDs: [])
+        )])
+        let service = makeService(store: store, reader: reader, testArtists: [" Metallica "])
+
+        let detection = try await service.detectObservation(forceMetadataRefresh: true)
+
+        guard case let .replace(certificate) = detection.certificateChange else {
+            Issue.record("Expected a replacement certificate")
+            return
+        }
+        #expect(certificate.revision == MirrorRevision(value: 1))
+        #expect(certificate.normalizedTestArtists == ["Metallica"])
+        #expect(certificate.requestedFingerprint == certificate.observedFingerprint)
+        #expect(certificate.trackCount == 1)
+    }
+
+    @Test("Incomplete requested IDs invalidate scope evidence")
+    func invalidatesIncompleteObservation() async throws {
+        let store = ObservationMirrorStore(stored: [mirrorTrack(id: "A")])
+        let reader = try ObservationReader(templates: [template(
+            currentIDs: ["A", "B"],
+            rows: [row(id: "A")],
+            metadataRequestedIDs: ["A", "B"],
+            metadataObservedIDs: ["A"]
+        )])
+        let service = makeService(store: store, reader: reader)
+
+        let detection = try await service.detectObservation(forceMetadataRefresh: true)
+
+        #expect(detection.certificateChange == .invalidate(.incompleteObservation))
+    }
+
+    @Test(
+        "Every unobserved processing field invalidates certification and force completion",
+        arguments: ProcessingField.allCases
+    )
+    func rejectsUnobservedField(_ field: ProcessingField) async throws {
+        let store = ObservationMirrorStore(stored: [mirrorTrack(id: "A", genre: "Metal")])
+        let reader = try ObservationReader(templates: [template(
+            currentIDs: ["A"],
+            rows: [row(id: "A", values: values(unobserving: field))],
+            metadataRequestedIDs: ["A"]
+        )])
+        let service = makeService(store: store, reader: reader)
+
+        let detection = try await service.detectObservation(forceMetadataRefresh: true)
+
+        #expect(detection.certificateChange == .invalidate(.incompleteObservation))
+        #expect(!detection.didCompleteForceRefresh)
+    }
+
+    @Test("Album artist precedence defines the producer scope")
+    func prefersAlbumArtist() async throws {
+        let includedID = try databaseID("A")
+        let excludedID = try databaseID("B")
+        let generation = try #require(LibraryGeneration(sourceValue: "album-artist-precedence"))
+        let census = try TrackIDCensus(ids: [includedID, excludedID], totalCount: 2, generation: generation)
+        let source = StaticObservationSource(
+            census: census,
+            metadata: [
+                mirrorTrack(id: "A", artist: "Other", albumArtist: "Target"),
+                mirrorTrack(id: "B", artist: "Target", albumArtist: "Other"),
+            ]
+        )
+        let store = ObservationMirrorStore(stored: [])
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(testArtists: ["Target"]),
+            observer: MusicAppObserver(source: source)
+        )
+
+        let detection = try await service.detectObservation(forceMetadataRefresh: true)
+
+        guard case let .replace(certificate) = detection.certificateChange else {
+            Issue.record("Expected a replacement certificate")
+            return
+        }
+        let includedFingerprint = try MembershipFingerprint.make(ids: [includedID]).fingerprint
+        #expect(certificate.trackCount == 1)
+        #expect(certificate.observedFingerprint == includedFingerprint)
+    }
+
+    @Test("Album-targeted observations invalidate broader processing admission")
+    func invalidatesAlbumTargetedObservation() async throws {
+        let store = ObservationMirrorStore(stored: [mirrorTrack(id: "A")])
+        let reader = try ObservationReader(templates: [template(
+            currentIDs: ["A"],
+            rows: [row(id: "A")],
+            metadataRequestedIDs: ["A"]
+        )])
+        let service = makeService(
+            store: store,
+            reader: reader,
+            albumTarget: AlbumIdentity(artist: "Artist", album: "Album")
+        )
+
+        let detection = try await service.detectObservation(forceMetadataRefresh: true)
+
+        #expect(detection.certificateChange == .invalidate(.narrowedObservation))
     }
 
     @Test("Relaunch fast sync reuses the canonical persisted mirror")
@@ -501,6 +624,7 @@ struct LibrarySyncObservationTests {
         cache: MockCacheService? = nil,
         snapshot: SyncMockLibrarySnapshotService? = nil,
         testArtists: [String] = [],
+        albumTarget: AlbumIdentity? = nil,
         currentDate: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_800_000_000) }
     ) -> LibrarySyncService {
         let logDirectory = FileManager.default.temporaryDirectory
@@ -512,7 +636,8 @@ struct LibrarySyncObservationTests {
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 logsBaseDirectory: logDirectory.path,
                 lastDatabaseVerifyLog: "last.log",
-                testArtists: testArtists
+                testArtists: testArtists,
+                albumTargetIdentity: albumTarget
             ),
             currentDate: currentDate,
             observer: reader
@@ -551,11 +676,39 @@ struct LibrarySyncObservationTests {
                 genre: values.genre,
                 editableYear: values.year,
                 releaseYear: values.releaseYear,
-                dateAdded: .absent,
+                dateAdded: values.dateAdded,
                 lastModified: values.lastModified,
-                status: .absent
+                status: values.status
             )
         )
+    }
+
+    private func values(unobserving field: ProcessingField) -> RowValues {
+        var values = RowValues()
+        let omitted = "omitted"
+        switch field {
+        case .name:
+            values.name = .unobserved(reason: omitted)
+        case .artist:
+            values.artist = .unobserved(reason: omitted)
+        case .album:
+            values.album = .unobserved(reason: omitted)
+        case .albumArtist:
+            values.albumArtist = .unobserved(reason: omitted)
+        case .genre:
+            values.genre = .unobserved(reason: omitted)
+        case .editableYear:
+            values.year = .unobserved(reason: omitted)
+        case .releaseYear:
+            values.releaseYear = .unobserved(reason: omitted)
+        case .dateAdded:
+            values.dateAdded = .unobserved(reason: omitted)
+        case .lastModified:
+            values.lastModified = .unobserved(reason: omitted)
+        case .status:
+            values.status = .unobserved(reason: omitted)
+        }
+        return values
     }
 
     private func databaseIDs(_ values: [String]) throws -> Set<MusicDatabaseTrackID> {
@@ -598,163 +751,5 @@ struct LibrarySyncObservationTests {
             libraryModificationDate: lastForceScanDate,
             lastForceScanDate: lastForceScanDate
         )
-    }
-}
-
-private struct ObservationTemplate: Sendable {
-    let rows: [LibraryTrackRow]
-    let censusIDs: Set<MusicDatabaseTrackID>
-    let currentIDs: Set<MusicDatabaseTrackID>
-    let membership: MembershipCompleteness
-    let requestedIDs: Set<MusicDatabaseTrackID>
-    let observedIDs: Set<MusicDatabaseTrackID>
-    let generation: LibraryGeneration
-}
-
-private enum SyncObservationTestError: Error, Equatable {
-    case readFailed
-    case commitFailed
-}
-
-private actor DuplicateMetadataSource: ObservationSource {
-    private let census: TrackIDCensus
-    private let metadata: [Track]
-
-    init(census: TrackIDCensus, metadata: [Track]) {
-        self.census = census
-        self.metadata = metadata
-    }
-
-    func fetchCensus() -> TrackIDCensus {
-        census
-    }
-
-    func fetchMetadata(for _: [MusicDatabaseTrackID]) -> [Track] {
-        metadata
-    }
-}
-
-private actor ObservationReader: MusicAppReading {
-    private var templates: [ObservationTemplate]
-    private let error: SyncObservationTestError?
-    private(set) var requests: [LibraryObservationRequest] = []
-
-    init(
-        templates: [ObservationTemplate] = [],
-        error: SyncObservationTestError? = nil
-    ) {
-        self.templates = templates
-        self.error = error
-    }
-
-    func observe(_ request: LibraryObservationRequest) throws -> LibraryObservation {
-        requests.append(request)
-        if let error {
-            throw error
-        }
-        let template = templates.count == 1 ? templates[0] : templates.removeFirst()
-        return LibraryObservation(
-            tracks: template.rows,
-            censusIDs: template.censusIDs,
-            currentIDs: template.currentIDs,
-            scope: request.scope,
-            observedAt: Date(timeIntervalSince1970: 1_800_000_000),
-            membership: template.membership,
-            metadata: MetadataCompleteness(
-                requestedIDs: template.requestedIDs,
-                observedIDs: template.observedIDs
-            ),
-            generation: template.generation,
-            issues: []
-        )
-    }
-}
-
-private actor ObservationMirrorStore: TrackStateStore {
-    struct ApplyCall: Sendable {
-        let upserting: [Track]
-        let membershipIDs: [MusicDatabaseTrackID]?
-    }
-
-    private(set) var stored: [Track]
-    private(set) var presentIDs: Set<MusicDatabaseTrackID>
-    private(set) var applyCalls: [ApplyCall] = []
-    private let applyError: SyncObservationTestError?
-    private var revision = MirrorRevision.initial
-
-    init(
-        stored: [Track],
-        presentIDs: Set<MusicDatabaseTrackID>? = nil,
-        applyError: SyncObservationTestError? = nil
-    ) {
-        self.stored = stored
-        self.presentIDs = presentIDs ?? Set(stored.compactMap { track in
-            guard let databaseID = track.databaseID, track.id == databaseID.rawValue else { return nil }
-            return databaseID
-        })
-        self.applyError = applyError
-    }
-
-    func initialize() async throws {
-        // The test provides initialized mirror state and does not exercise initialization persistence.
-    }
-
-    func loadAllTracks() async throws -> [Track] {
-        stored
-    }
-
-    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        try mirrorSnapshot(
-            revision: revision,
-            tracks: stored,
-            presentIDs: presentIDs,
-            coverage: .verified(.fullLibrary)
-        )
-    }
-
-    @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
-        applyCalls.append(ApplyCall(
-            upserting: update.upserts,
-            membershipIDs: membershipIDs(update.membershipChange)
-        ))
-        if let applyError {
-            throw applyError
-        }
-        guard update.baseRevision == revision else {
-            throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
-        }
-        let nextRevision = try revision.advanced()
-
-        if let replacementIDs = membershipIDs(update.membershipChange) {
-            presentIDs = Set(replacementIDs)
-        }
-        applyMembership(update.membershipChange, to: &stored)
-        for track in update.upserts {
-            if let index = stored.firstIndex(where: { $0.id == track.id }) {
-                stored[index] = track
-            } else {
-                stored.append(track)
-            }
-        }
-        stored.sort { $0.id < $1.id }
-        revision = nextRevision
-        return revision
-    }
-
-    func getTrack(byID id: String) async throws -> Track? {
-        stored.first { $0.id == id }
-    }
-
-    func persistAppliedChange(_: ChangeLogEntry) async throws {
-        // The test exercises mirror reconciliation, not change-log persistence.
-    }
-
-    func getUnprocessedTracks() async throws -> [Track] {
-        stored
-    }
-
-    func trackCount() async throws -> Int {
-        stored.count
     }
 }

@@ -18,12 +18,10 @@ public actor TrackDataStore: TrackStateStore {
 
     public func initialize() async throws {
         let repairedCount = try normalizeStoredYears()
-        let recoveredMemberCount = try recoverLegacyMembership()
-        let mirrorCoverage = try initializeMirrorState()
+        let certificateCount = try initializeMirrorState()
         log.info("SwiftData track store initialized; repaired zero-year rows: \(repairedCount, privacy: .public)")
-        log.info("Recovered legacy library members: \(recoveredMemberCount, privacy: .public)")
         log.info(
-            "SwiftData track mirror initialized; verified scope: \(mirrorCoverage != .unknown, privacy: .public)"
+            "SwiftData track mirror initialized; scope certificates: \(certificateCount, privacy: .public)"
         )
     }
 
@@ -48,7 +46,7 @@ public actor TrackDataStore: TrackStateStore {
             repairCandidates: persistedTracks
                 .filter { $0.appleScriptID != $0.trackID }
                 .map { $0.toTrack() },
-            coverage: state?.coverage() ?? .unknown
+            certificates: fetchCertificates()
         )
     }
 
@@ -118,9 +116,9 @@ public actor TrackDataStore: TrackStateStore {
     // MARK: - Write Operations
 
     @discardableResult
-    public func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+    public func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
         var membershipDelta = MembershipDelta()
-        var committedRevision = update.baseRevision
+        var committedRevision = commit.baseRevision
         do {
             try modelContext.transaction {
                 let mirrorState: PersistedMirrorState
@@ -131,15 +129,16 @@ public actor TrackDataStore: TrackStateStore {
                     modelContext.insert(newMirrorState)
                     mirrorState = newMirrorState
                 }
-                guard mirrorState.revision == update.baseRevision else {
-                    throw MirrorRevisionConflict(expected: update.baseRevision, actual: mirrorState.revision)
+                guard mirrorState.revision == commit.baseRevision else {
+                    throw MirrorRevisionConflict(expected: commit.baseRevision, actual: mirrorState.revision)
                 }
 
-                let transactionPlan = try Self.validate(update)
+                let transactionPlan = try Self.validate(commit)
                 let nextRevision = try mirrorState.revision.advanced()
-                try applyTrackChanges(transactionPlan, upserts: update.upserts)
+                try applyTrackChanges(transactionPlan, upserts: commit.upserts)
                 membershipDelta = try applyMembership(transactionPlan.membership, revision: nextRevision)
-                try mirrorState.apply(update.coverageChange)
+                let membership = try MembershipFingerprint.make(ids: fetchPresentIDs())
+                try applyCertificates(commit.certificates, revision: nextRevision, membership: membership)
                 committedRevision = try mirrorState.advanceRevision()
             }
         } catch {
@@ -147,12 +146,12 @@ public actor TrackDataStore: TrackStateStore {
             throw error
         }
 
-        log.info("Applied mirror repairs: \(update.repairs.count, privacy: .public)")
+        log.info("Applied mirror repairs: \(commit.repairs.count, privacy: .public)")
         log
             .info(
-                "Applied mirror upserts: \(update.upserts.count, privacy: .public); membership additions: \(membershipDelta.added, privacy: .public); tombstones: \(membershipDelta.removed, privacy: .public); resurrections: \(membershipDelta.resurrected, privacy: .public)"
+                "Applied mirror upserts: \(commit.upserts.count, privacy: .public); membership additions: \(membershipDelta.added, privacy: .public); tombstones: \(membershipDelta.removed, privacy: .public); resurrections: \(membershipDelta.resurrected, privacy: .public)"
             )
-        return committedRevision
+        return MirrorCommitResult(revision: committedRevision)
     }
 
     private func applyTrackChanges(_ plan: MirrorPlan, upserts: [Track]) throws {
@@ -226,35 +225,14 @@ public actor TrackDataStore: TrackStateStore {
         }
     }
 
-    private func initializeMirrorState() throws -> MirrorCoverage {
-        if let state = try fetchMirrorState() {
-            return try state.coverage()
+    private func initializeMirrorState() throws -> Int {
+        if try fetchMirrorState() != nil {
+            return try modelContext.fetchCount(FetchDescriptor<PersistedScopeCertificate>())
         }
 
         modelContext.insert(PersistedMirrorState())
         try modelContext.save()
-        return .unknown
-    }
-
-    private func recoverLegacyMembership() throws -> Int {
-        guard try fetchMirrorState() == nil,
-              try modelContext.fetchCount(FetchDescriptor<PersistedLibraryMember>()) == 0
-        else { return 0 }
-
-        let tracks = try modelContext.fetch(FetchDescriptor<PersistedTrack>())
-        let canonicalTracks = tracks.filter { track in
-            track.appleScriptID == track.trackID && MusicDatabaseTrackID(rawValue: track.trackID) != nil
-        }
-        for track in canonicalTracks {
-            modelContext.insert(PersistedLibraryMember(
-                databaseID: track.trackID,
-                isPresent: true,
-                firstSeenRevisionValue: MirrorRevision.initial.value
-            ))
-        }
-        guard !canonicalTracks.isEmpty else { return 0 }
-        try modelContext.save()
-        return canonicalTracks.count
+        return 0
     }
 
     private func fetchMirrorState() throws -> PersistedMirrorState? {
@@ -263,6 +241,35 @@ public actor TrackDataStore: TrackStateStore {
             predicate: #Predicate { $0.key == key }
         )
         return try modelContext.fetch(descriptor).first
+    }
+
+    private func fetchCertificates() throws -> [ScopeCertificate] {
+        try modelContext.fetch(FetchDescriptor<PersistedScopeCertificate>())
+            .map { try $0.certificate() }
+            .sorted { $0.id.uuidString < $1.id.uuidString }
+    }
+
+    private func applyCertificates(
+        _ change: CertificateChange,
+        revision: MirrorRevision,
+        membership: MembershipStamp
+    ) throws {
+        switch change {
+        case .preserve:
+            return
+        case .invalidate:
+            try deleteCertificates()
+        case let .replace(certificate), let .rebase(certificate):
+            try Self.validate(certificate, revision: revision, membership: membership)
+            try deleteCertificates()
+            try modelContext.insert(PersistedScopeCertificate(certificate: certificate))
+        }
+    }
+
+    private func deleteCertificates() throws {
+        for certificate in try modelContext.fetch(FetchDescriptor<PersistedScopeCertificate>()) {
+            modelContext.delete(certificate)
+        }
     }
 
     private func membershipByID() throws -> [String: PersistedLibraryMember] {
@@ -355,15 +362,16 @@ public actor TrackDataStore: TrackStateStore {
         let canonicalByID: [MusicDatabaseTrackID: PersistedTrack]
     }
 
-    private static func validate(_ update: TrackMirrorUpdate) throws -> MirrorPlan {
-        let repairs = try validatedRepairs(update.repairs)
-        let upsertIDs = try canonicalIDs(for: update.upserts)
+    private static func validate(_ commit: MirrorCommit) throws -> MirrorPlan {
+        try validateCertificateTransition(commit)
+        let repairs = try validatedRepairs(commit.repairs)
+        let upsertIDs = try canonicalIDs(for: commit.upserts)
         let duplicateUpserts = duplicateIDs(in: upsertIDs)
         guard duplicateUpserts.isEmpty else {
             throw TrackStoreError.duplicateUpserts(ids: duplicateUpserts)
         }
 
-        let membership = try validatedMembership(update.membershipChange)
+        let membership = try validatedMembership(commit.membershipChange)
         let overlappingIDs = overlapIDs(repairs: repairs, upserts: upsertIDs)
         guard overlappingIDs.isEmpty else {
             throw TrackStoreError.identityOverlap(ids: overlappingIDs)
@@ -378,6 +386,41 @@ public actor TrackDataStore: TrackStateStore {
             }
         }
         return MirrorPlan(repairs: repairs, upsertIDs: upsertIDs, membership: membership)
+    }
+
+    private static func validateCertificateTransition(_ commit: MirrorCommit) throws {
+        switch commit.certificates {
+        case .preserve:
+            guard commit.membershipChange == .preserve,
+                  commit.repairs.isEmpty,
+                  commit.upserts.isEmpty
+            else {
+                throw TrackStoreError.unsafeCertificatePreserve
+            }
+        case .rebase:
+            throw TrackStoreError.unprovenCertificateRebase
+        case .invalidate, .replace:
+            break
+        }
+    }
+
+    private static func validate(
+        _ certificate: ScopeCertificate,
+        revision: MirrorRevision,
+        membership: MembershipStamp
+    ) throws {
+        guard certificate.revision == revision else {
+            throw TrackStoreError.certificateRevisionMismatch(expected: revision, actual: certificate.revision)
+        }
+        guard certificate.membership == membership else {
+            throw TrackStoreError.certificateMembershipMismatch(expected: membership, actual: certificate.membership)
+        }
+        guard certificate.requestedFingerprint == certificate.observedFingerprint else {
+            throw TrackStoreError.incompleteCertificate
+        }
+        guard certificate.trackCount >= 0 else {
+            throw TrackStoreError.invalidCertificateTrackCount(certificate.trackCount)
+        }
     }
 
     private static func validatedMembership(_ change: MembershipChange) throws -> ValidatedMembershipChange {

@@ -16,7 +16,7 @@ extension ActivityBuilder {
             items.append(ActivityRecentItem(id: "scan", title: "Library scan", detail: "Scanning in progress"))
         case .empty:
             items.append(ActivityRecentItem(id: "scan", title: "Library scan", detail: "No tracks found"))
-        case let .permissionDenied(message), let .failed(message):
+        case let .presentationOnly(message), let .permissionDenied(message), let .failed(message):
             items.append(ActivityRecentItem(id: "scan", title: "Library scan", detail: message))
         }
 

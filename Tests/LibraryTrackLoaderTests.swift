@@ -12,15 +12,15 @@ struct LibraryTrackLoaderTests {
         let store = LoaderTrackStore(tracks: [
             canonicalTrack(id: "DB-1", artist: "Metallica"),
             canonicalTrack(id: "DB-2", artist: "Björk"),
-        ], coverage: .verified(.fullLibrary))
+        ], certifiedArtists: ["Metallica"])
 
         let load = try await LibraryTrackLoader.currentMirror(
             store: store,
-            scopedArtists: [" Metallica "]
+            requirement: requirement(testArtists: [" Metallica "])
         )
 
         #expect(load.tracks.map(\.id) == ["DB-1"])
-        #expect(load.isLibraryReadyForUpdates)
+        #expect(load.readiness.isReady)
     }
 
     @Test("A row without canonical database identity fails closed")
@@ -30,7 +30,7 @@ struct LibraryTrackLoaderTests {
         ])
 
         await #expect(throws: LibraryLoadError.nonCanonicalMirror(trackID: "catalog-id")) {
-            _ = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: [])
+            _ = try await LibraryTrackLoader.currentMirror(store: store, requirement: requirement())
         }
     }
 
@@ -49,71 +49,119 @@ struct LibraryTrackLoaderTests {
             ]
         )
 
-        let load = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: ["In Flames"])
+        let load = try await LibraryTrackLoader.currentMirror(
+            store: store,
+            requirement: requirement(testArtists: ["In Flames"])
+        )
 
         #expect(load.tracks.map(\.id) == ["DB-1"])
     }
 
-    @Test("Empty unknown mirror neither readies updates nor replaces cache")
-    func unknownCoverageNotReady() async throws {
-        let store = LoaderTrackStore(tracks: [], coverage: .unknown)
+    @Test("Empty uncertified mirror neither readies updates nor replaces cache")
+    func uncertifiedMirrorNotReady() async throws {
+        let store = LoaderTrackStore(tracks: [])
 
-        let load = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: [])
+        let load = try await LibraryTrackLoader.currentMirror(store: store, requirement: requirement())
 
         #expect(load.tracks.isEmpty)
-        #expect(!load.isLibraryReadyForUpdates)
+        #expect(!load.readiness.isReady)
     }
 
     @Test("Recovered unknown membership may replace presentation cache")
     func showsRecoveredMirror() async throws {
         let store = LoaderTrackStore(
-            tracks: [canonicalTrack(id: "DB-1", artist: "In Flames")],
-            coverage: .unknown
+            tracks: [canonicalTrack(id: "DB-1", artist: "In Flames")]
         )
 
-        let load = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: ["In Flames"])
+        let load = try await LibraryTrackLoader.currentMirror(
+            store: store,
+            requirement: requirement(testArtists: ["In Flames"])
+        )
 
         #expect(load.tracks.map(\.id) == ["DB-1"])
-        #expect(!load.isLibraryReadyForUpdates)
+        #expect(!load.readiness.isReady)
     }
 
-    @Test("Matching artist coverage readies that artist scope")
+    @Test("Matching artist certificate readies that exact scope")
     func matchingScopeIsReady() async throws {
         let store = LoaderTrackStore(
             tracks: [canonicalTrack(id: "DB-1", artist: "Metallica")],
-            coverage: .verified(MirrorScope(testArtists: ["Metallica"]))
+            certifiedArtists: ["Metallica"]
         )
 
-        let load = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: ["metallica"])
+        let load = try await LibraryTrackLoader.currentMirror(
+            store: store,
+            requirement: requirement(testArtists: ["metallica"])
+        )
 
-        #expect(load.isLibraryReadyForUpdates)
+        #expect(load.readiness.isReady)
     }
 
-    @Test("Broader artist coverage readies a requested subset")
-    func artistSubsetIsReady() async throws {
+    @Test("A scoped certificate does not require an unrelated member row")
+    func partialScopeIsReady() async throws {
+        let firstID = try #require(MusicDatabaseTrackID(rawValue: "DB-1"))
+        let unrelatedID = try #require(MusicDatabaseTrackID(rawValue: "DB-2"))
         let store = LoaderTrackStore(
-            tracks: [canonicalTrack(id: "DB-1", artist: "Metallica")],
-            coverage: .verified(MirrorScope(testArtists: ["Metallica", "Björk"]))
+            tracks: [canonicalTrack(id: firstID.rawValue, artist: "Metallica")],
+            presentIDs: [firstID, unrelatedID],
+            certifiedArtists: ["Metallica"]
         )
 
-        let load = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: ["Metallica"])
+        let load = try await LibraryTrackLoader.currentMirror(
+            store: store,
+            requirement: requirement(testArtists: ["Metallica"])
+        )
 
-        #expect(load.isLibraryReadyForUpdates)
+        #expect(load.readiness.isReady)
+        #expect(load.tracks.map(\.id) == ["DB-1"])
+    }
+
+    @Test("A full-library certificate requires every canonical member row")
+    func partialLibraryIsUnready() async throws {
+        let firstID = try #require(MusicDatabaseTrackID(rawValue: "DB-1"))
+        let missingID = try #require(MusicDatabaseTrackID(rawValue: "DB-2"))
+        let store = LoaderTrackStore(
+            tracks: [canonicalTrack(id: firstID.rawValue, artist: "Metallica")],
+            presentIDs: [firstID, missingID],
+            certifiedArtists: []
+        )
+
+        let load = try await LibraryTrackLoader.currentMirror(
+            store: store,
+            requirement: requirement()
+        )
+
+        #expect(load.readiness == .incomplete(.identityMissing(count: 1)))
+    }
+
+    @Test("Broader artist certificate does not admit a requested subset")
+    func artistSubsetIsUnready() async throws {
+        let store = LoaderTrackStore(
+            tracks: [canonicalTrack(id: "DB-1", artist: "Metallica")],
+            certifiedArtists: ["Metallica", "Björk"]
+        )
+
+        let load = try await LibraryTrackLoader.currentMirror(
+            store: store,
+            requirement: requirement(testArtists: ["Metallica"])
+        )
+
+        #expect(!load.readiness.isReady)
     }
 
     @Test("Artist scope expansion remains unready")
     func expandedScopeIsUnready() async throws {
         let store = LoaderTrackStore(
             tracks: [canonicalTrack(id: "DB-1", artist: "Metallica")],
-            coverage: .verified(MirrorScope(testArtists: ["Metallica"]))
+            certifiedArtists: ["Metallica"]
         )
 
         let load = try await LibraryTrackLoader.currentMirror(
             store: store,
-            scopedArtists: ["Metallica", "Björk"]
+            requirement: requirement(testArtists: ["Metallica", "Björk"])
         )
 
-        #expect(!load.isLibraryReadyForUpdates)
+        #expect(!load.readiness.isReady)
     }
 
     @Test("Cache supplements metadata only for IDs confirmed by membership")
@@ -134,24 +182,27 @@ struct LibraryTrackLoaderTests {
         let load = try await LibraryTrackLoader.currentMirror(
             store: store,
             cachedTracks: cachedTracks,
-            scopedArtists: ["Metallica"]
+            requirement: requirement(testArtists: ["Metallica"])
         )
 
         #expect(load.tracks.map(\.id) == ["DB-1", "DB-2"])
     }
 
-    @Test("Full-library coverage readies every requested scope")
-    func fullCoverageIsReady() async throws {
+    @Test("Full-library certificate readies only the exact full scope")
+    func fullCertificateIsExact() async throws {
         let store = LoaderTrackStore(
             tracks: [canonicalTrack(id: "DB-1", artist: "Metallica")],
-            coverage: .verified(.fullLibrary)
+            certifiedArtists: []
         )
 
-        let fullLoad = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: [])
-        let artistLoad = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: ["Metallica"])
+        let fullLoad = try await LibraryTrackLoader.currentMirror(store: store, requirement: requirement())
+        let artistLoad = try await LibraryTrackLoader.currentMirror(
+            store: store,
+            requirement: requirement(testArtists: ["Metallica"])
+        )
 
-        #expect(fullLoad.isLibraryReadyForUpdates)
-        #expect(artistLoad.isLibraryReadyForUpdates)
+        #expect(fullLoad.readiness.isReady)
+        #expect(!artistLoad.readiness.isReady)
     }
 }
 
@@ -159,18 +210,18 @@ private actor LoaderTrackStore: TrackStateStore {
     private let tracks: [Track]
     private let presentIDs: Set<MusicDatabaseTrackID>
     private let repairCandidates: [Track]
-    private let coverage: MirrorCoverage
+    private let certifiedArtists: [String]?
 
     init(
         tracks: [Track],
         presentIDs: Set<MusicDatabaseTrackID>? = nil,
         repairCandidates: [Track] = [],
-        coverage: MirrorCoverage = .verified(.fullLibrary)
+        certifiedArtists: [String]? = nil
     ) {
         self.tracks = tracks
         self.presentIDs = presentIDs ?? Set(tracks.compactMap(\.databaseID))
         self.repairCandidates = repairCandidates
-        self.coverage = coverage
+        self.certifiedArtists = certifiedArtists
     }
 
     func initialize() async throws {
@@ -181,19 +232,39 @@ private actor LoaderTrackStore: TrackStateStore {
     }
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         let ids = presentIDs.sorted { $0.rawValue < $1.rawValue }
-        return try TrackMirrorSnapshot(
+        let membership = try testMembershipStamp(for: ids)
+        let certificates: [ScopeCertificate] = try certifiedArtists.map { artists in
+            let scopedIDs = tracks
+                .filter { ArtistAllowList.contains($0, in: artists) }
+                .compactMap(\.databaseID)
+            let fingerprint = try MembershipFingerprint.make(ids: scopedIDs).fingerprint
+            return [ScopeCertificate(
+                id: UUID(),
+                revision: .initial,
+                membership: membership,
+                testArtists: artists,
+                fieldSet: .processingV1,
+                evidence: ScopeEvidence(
+                    requestedFingerprint: fingerprint,
+                    observedFingerprint: fingerprint,
+                    trackCount: scopedIDs.count
+                ),
+                observedAt: .distantPast
+            )]
+        } ?? []
+        return TrackMirrorSnapshot(
             revision: .initial,
-            membershipStamp: testMembershipStamp(for: ids),
+            membershipStamp: membership,
             presentIDs: Set(ids),
             presentTracks: tracks,
             repairCandidates: repairCandidates,
-            coverage: coverage
+            certificates: certificates
         )
     }
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
         // Loader tests exercise reads only, so mirror writes are intentionally inert.
-        try update.baseRevision.advanced()
+        try MirrorCommitResult(revision: commit.baseRevision.advanced())
     }
     func getTrack(byID _: String) async throws -> Track? {
         nil
@@ -207,6 +278,14 @@ private actor LoaderTrackStore: TrackStateStore {
     func trackCount() async throws -> Int {
         tracks.count
     }
+}
+
+private func requirement(testArtists: [String] = []) -> MirrorRequirement {
+    MirrorRequirement(
+        testArtists: testArtists,
+        fieldSet: .processingV1,
+        maximumMetadataAge: nil
+    )
 }
 
 private func canonicalTrack(id: String, artist: String) -> Track {

@@ -29,8 +29,9 @@ enum LibrarySyncObservationError: Error, Equatable, LocalizedError, Sendable {
 
 struct SyncDetection {
     let baseRevision: MirrorRevision
+    let observation: ObservationID
     let result: SyncResult
-    let coverageChange: MirrorCoverageChange
+    let certificateChange: CertificateChange
     let membershipChange: MembershipChange
     let repairs: [TrackMirrorRepair]
     let upserts: [Track]
@@ -46,27 +47,20 @@ extension LibrarySyncService {
         let repairCandidates = tracksInConfiguredScope(snapshot.repairCandidates)
         let canonicalStored = try canonicalMirror(presentTracks)
         let scopedByID = try canonicalMirror(scopedPresent)
-        let scope = ProcessingScopeSnapshot.capture(
-            requestedTestArtists: runtimeConfiguration.testArtists,
-            knownTrackCount: scopedPresent.count,
-            createdAt: currentDate(),
-            reason: "library sync"
-        )
+        let scope = processingScope(trackCount: scopedPresent.count)
         let shouldForceRefresh = try await shouldRefreshMetadata(force: forceMetadataRefresh)
         let refresh: MetadataRefreshPolicy = shouldForceRefresh || !repairCandidates.isEmpty ? .force : .fast
         guard let mirror = LibraryMirrorIndex(tracksByID: scopedByID) else {
             throw LibrarySyncObservationError.invalidObservation(detail: "stored mirror index is inconsistent")
         }
-        let requestedScope = MirrorScope(testArtists: runtimeConfiguration.testArtists)
-        let previous: LibraryMirrorReference = snapshot.coverage.admits(requestedScope) ? .verified(mirror) : .initial
+        let requirement = mirrorRequirement()
+        let readiness = snapshot.readiness(for: requirement, at: currentDate())
+        let previous: LibraryMirrorReference = readiness.isReady ? .verified(mirror) : .initial
         let request = LibraryObservationRequest(scope: scope, refresh: refresh, previous: previous)
         let observation = try await observer.observe(request)
         try validate(observation, request: request)
 
-        let repair = try planRepair(
-            legacyTracks: repairCandidates,
-            observation: observation
-        )
+        let repair = try planRepair(legacyTracks: repairCandidates, observation: observation)
         var mirrorBaseline = canonicalStored
         mirrorBaseline.merge(repair.baseline) { existing, _ in existing }
         let classification = try reconcile(
@@ -74,28 +68,72 @@ extension LibrarySyncService {
             storedByID: mirrorBaseline,
             scopedStoredIDs: Set(scopedByID.keys).union(repair.baseline.keys)
         )
-        let repairedIDs = Set(repair.baseline.keys)
-        let ordinaryUpserts = classification.upserts.filter { track in
-            guard let databaseID = track.databaseID else { return true }
-            return !repairedIDs.contains(databaseID)
-        }
+        let ordinaryUpserts = upsertsExcludingRepairs(
+            classification.upserts,
+            repairedIDs: Set(repair.baseline.keys)
+        )
         let result = fullMembershipResult(
             classification.result,
             storedIDs: Set(canonicalStored.keys),
             censusIDs: observation.censusIDs
         )
-        return try SyncDetection(
+        let isMetadataComplete = hasCompleteMetadata(observation)
+        let certificateTransition = try certificateChange(
+            for: observation,
             baseRevision: snapshot.revision,
+            previousReadiness: readiness,
+            hasTrackMutations: !repair.repairs.isEmpty || !ordinaryUpserts.isEmpty,
+            isMetadataComplete: isMetadataComplete
+        )
+        let membershipTransition = try membershipChange(
+            for: observation,
+            certificateChange: certificateTransition
+        )
+        return SyncDetection(
+            baseRevision: snapshot.revision,
+            observation: ObservationID(),
             result: result,
-            coverageChange: coverageChange(for: observation),
-            membershipChange: membershipChange(for: observation),
+            certificateChange: certificateTransition,
+            membershipChange: membershipTransition,
             repairs: repair.repairs,
-            upserts: ordinaryUpserts.sorted { $0.id < $1.id },
+            upserts: ordinaryUpserts,
             previousTracks: Dictionary(uniqueKeysWithValues: mirrorBaseline.map {
                 ($0.key.rawValue, $0.value)
             }),
-            didCompleteForceRefresh: refresh == .force && observation.metadata.isComplete
+            didCompleteForceRefresh: refresh == .force && isMetadataComplete
         )
+    }
+
+    private func processingScope(trackCount: Int) -> ProcessingScopeSnapshot {
+        ProcessingScopeSnapshot.capture(
+            requestedTestArtists: runtimeConfiguration.testArtists,
+            knownTrackCount: trackCount,
+            createdAt: currentDate(),
+            reason: "library sync"
+        )
+    }
+
+    private func hasCompleteMetadata(_ observation: LibraryObservation) -> Bool {
+        observation.metadata.isComplete
+            && observation.tracks.allSatisfy { $0.hasCompleteMetadata(for: .processingV1) }
+    }
+
+    private func upsertsExcludingRepairs(
+        _ upserts: [Track],
+        repairedIDs: Set<MusicDatabaseTrackID>
+    ) -> [Track] {
+        upserts.filter { track in
+            guard let databaseID = track.databaseID else { return true }
+            return !repairedIDs.contains(databaseID)
+        }.sorted { $0.id < $1.id }
+    }
+
+    private func membershipChange(
+        for observation: LibraryObservation,
+        certificateChange: CertificateChange
+    ) throws -> MembershipChange {
+        guard certificateChange != .preserve else { return .preserve }
+        return try membershipChange(for: observation)
     }
 
     private func fullMembershipResult(
@@ -122,19 +160,67 @@ extension LibrarySyncService {
         )
     }
 
-    private func coverageChange(for observation: LibraryObservation) -> MirrorCoverageChange {
-        guard runtimeConfiguration.albumTargetIdentity == nil,
-              observation.metadata.isComplete
-        else { return .invalidate }
-
-        switch (observation.scope.source, observation.membership) {
-        case (.fullLibrary, .full):
-            return .replace(.fullLibrary)
-        case let (.testArtists, .scoped(unobservedIDs)) where unobservedIDs.isEmpty:
-            return .replace(MirrorScope(testArtists: observation.scope.normalizedTestArtists))
-        default:
-            return .invalidate
+    private func certificateChange(
+        for observation: LibraryObservation,
+        baseRevision: MirrorRevision,
+        previousReadiness: MirrorReadiness,
+        hasTrackMutations: Bool,
+        isMetadataComplete: Bool
+    ) throws -> CertificateChange {
+        guard runtimeConfiguration.albumTargetIdentity == nil else {
+            return .invalidate(.narrowedObservation)
         }
+        guard isMetadataComplete else {
+            return .invalidate(.incompleteObservation)
+        }
+        let hasCompleteMembership = switch (observation.scope.source, observation.membership) {
+        case (.fullLibrary, .full):
+            true
+        case let (.testArtists, .scoped(unobservedIDs)):
+            unobservedIDs.isEmpty
+        default:
+            false
+        }
+        guard hasCompleteMembership else {
+            return .invalidate(.incompleteObservation)
+        }
+
+        let membership = try MembershipFingerprint.make(ids: Array(observation.censusIDs))
+        if case let .ready(previousCertificate) = previousReadiness,
+           previousCertificate.membership == membership,
+           Set(observation.tracks.map(\.databaseID)) != observation.currentIDs,
+           !hasTrackMutations {
+            return .preserve
+        }
+
+        let observedIDs = Set(observation.tracks.map(\.databaseID))
+        guard observedIDs == observation.currentIDs else {
+            return .invalidate(.membershipChanged)
+        }
+        let scopeFingerprint = try MembershipFingerprint.make(ids: Array(observation.currentIDs)).fingerprint
+        return try .replace(ScopeCertificate(
+            id: UUID(),
+            revision: baseRevision.advanced(),
+            membership: membership,
+            testArtists: observation.scope.normalizedTestArtists,
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: scopeFingerprint,
+                observedFingerprint: scopeFingerprint,
+                trackCount: observation.currentIDs.count
+            ),
+            observedAt: observation.observedAt
+        ))
+    }
+
+    private func mirrorRequirement() -> MirrorRequirement {
+        let scanDays = runtimeConfiguration.forceMetadataScanIntervalDays
+        let maximumAge = scanDays > 0 ? TimeInterval(scanDays) * 86400 : nil
+        return MirrorRequirement(
+            testArtists: runtimeConfiguration.testArtists,
+            fieldSet: .processingV1,
+            maximumMetadataAge: maximumAge
+        )
     }
 
     private struct MirrorRepair {

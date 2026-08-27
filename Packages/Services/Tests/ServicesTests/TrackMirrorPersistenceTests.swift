@@ -31,8 +31,8 @@ struct TrackMirrorPersistenceTests {
         return try ModelContainerFactory.create(schema: schema, configuration: configuration)
     }
 
-    @Test("Verified empty full-library coverage survives relaunch")
-    func emptyCoveragePersists() async throws {
+    @Test("An empty full-library membership survives relaunch without a certificate")
+    func emptyMembershipPersists() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TrackMirrorSeed-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -42,12 +42,12 @@ struct TrackMirrorPersistenceTests {
         do {
             let store = try TrackDataStore(modelContainer: makeContainer(at: url))
             try await store.initialize()
-            try await store.applyMirror(TrackMirrorUpdate(
+            try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                coverageChange: .replace(.fullLibrary),
                 membershipChange: replacementMembership(for: [MusicDatabaseTrackID]()),
                 repairs: [],
-                upserts: []
+                upserts: [],
+                certificates: .invalidate(.membershipChanged)
             ))
         }
 
@@ -55,7 +55,7 @@ struct TrackMirrorPersistenceTests {
         try await relaunched.initialize()
         let snapshot = try await relaunched.loadMirrorSnapshot()
         #expect(snapshot.presentTracks.isEmpty)
-        #expect(snapshot.coverage == .verified(.fullLibrary))
+        #expect(snapshot.certificates.isEmpty)
     }
 
     @Test("Mirror revision advances across commits and survives relaunch")
@@ -70,22 +70,22 @@ struct TrackMirrorPersistenceTests {
             let store = try TrackDataStore(modelContainer: makeContainer(at: url))
             try await store.initialize()
             let initialTracks = [track(id: "keep"), track(id: "delete")]
-            let first = try await store.applyMirror(TrackMirrorUpdate(
+            let first = try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                coverageChange: .replace(.fullLibrary),
                 membershipChange: replacementMembership(for: initialTracks),
                 repairs: [],
-                upserts: initialTracks
+                upserts: initialTracks,
+                certificates: .invalidate(.membershipChanged)
             ))
-            let second = try await store.applyMirror(TrackMirrorUpdate(
-                baseRevision: first,
-                coverageChange: .preserve,
+            let second = try await store.commitMirror(MirrorCommit(
+                baseRevision: first.revision,
                 membershipChange: .preserve,
                 repairs: [],
-                upserts: []
+                upserts: [],
+                certificates: .preserve
             ))
-            #expect(first == MirrorRevision(value: 1))
-            #expect(second == MirrorRevision(value: 2))
+            #expect(first.revision == MirrorRevision(value: 1))
+            #expect(second.revision == MirrorRevision(value: 2))
         }
 
         let expectedSnapshot: TrackMirrorSnapshot
@@ -94,21 +94,21 @@ struct TrackMirrorPersistenceTests {
             try await relaunched.initialize()
             expectedSnapshot = try await relaunched.loadMirrorSnapshot()
             #expect(expectedSnapshot.revision == MirrorRevision(value: 2))
-            #expect(expectedSnapshot.coverage == .verified(.fullLibrary))
+            #expect(expectedSnapshot.certificates.isEmpty)
 
             await #expect(throws: MirrorRevisionConflict(
                 expected: MirrorRevision(value: 1),
                 actual: MirrorRevision(value: 2)
             )) {
-                try await relaunched.applyMirror(TrackMirrorUpdate(
+                try await relaunched.commitMirror(MirrorCommit(
                     baseRevision: MirrorRevision(value: 1),
-                    coverageChange: .invalidate,
                     membershipChange: replacementMembership(for: [
                         track(id: "keep", name: "Changed"),
                         track(id: "insert"),
                     ]),
                     repairs: [],
-                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")]
+                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")],
+                    certificates: .invalidate(.incompleteObservation)
                 ))
             }
             #expect(try await relaunched.loadMirrorSnapshot() == expectedSnapshot)
@@ -148,15 +148,15 @@ struct TrackMirrorPersistenceTests {
             expectedSnapshot = try await store.loadMirrorSnapshot()
 
             do {
-                _ = try await store.applyMirror(TrackMirrorUpdate(
+                _ = try await store.commitMirror(MirrorCommit(
                     baseRevision: expectedSnapshot.revision,
-                    coverageChange: .replace(.fullLibrary),
                     membershipChange: replacementMembership(for: [
                         track(id: "keep", name: "Changed"),
                         track(id: "insert"),
                     ]),
                     repairs: [],
-                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")]
+                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")],
+                    certificates: .invalidate(.membershipChanged)
                 ))
                 Issue.record("A mirror commit must fail when its revision is exhausted")
             } catch {

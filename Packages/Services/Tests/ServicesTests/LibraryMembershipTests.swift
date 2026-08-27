@@ -200,63 +200,6 @@ struct LibraryMembershipTests {
         #expect(try presentIDs(in: fixture.container).count == trackCount)
     }
 
-    @Test("V2 migration preserves canonical rows as uncertified present members")
-    func v2MigrationCreatesMembers() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MembershipMigration-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let storeURL = directory.appendingPathComponent("tracks.store")
-        let entryID = UUID()
-
-        do {
-            let container = try makeV2Container(at: storeURL)
-            let context = ModelContext(container)
-            let canonical = PersistedTrack(
-                trackID: "canonical",
-                appleScriptID: "canonical",
-                name: "Canonical",
-                artist: "Artist",
-                album: "Album"
-            )
-            let legacy = PersistedTrack(
-                trackID: "catalog",
-                appleScriptID: "database",
-                name: "Legacy",
-                artist: "Artist",
-                album: "Album"
-            )
-            let history = PersistedChangeLogEntry(
-                entryID: entryID,
-                timestamp: .now,
-                changeTypeRaw: ChangeType.genreUpdate.rawValue,
-                trackID: "canonical",
-                artist: "Artist",
-                trackName: "Canonical",
-                albumName: "Album"
-            )
-            history.track = canonical
-            context.insert(PersistedMirrorState(revisionValue: 7))
-            context.insert(canonical)
-            context.insert(legacy)
-            context.insert(history)
-            try context.save()
-        }
-
-        for _ in 0 ..< 2 {
-            let container = try makeCurrentContainer(at: storeURL)
-            let members = try loadMembers(from: container)
-            let member = try #require(members.first)
-            #expect(members.count == 1)
-            #expect(member.databaseID == "canonical")
-            #expect(member.isPresent)
-            #expect(member.firstSeenRevisionValue == 7)
-            #expect(member.lastSeenFingerprint == nil)
-            let history = try ModelContext(container).fetch(FetchDescriptor<PersistedChangeLogEntry>())
-            #expect(history.map(\.entryID) == [entryID])
-        }
-    }
-
     private struct Fixture {
         let store: TrackDataStore
         let container: ModelContainer
@@ -299,28 +242,6 @@ struct LibraryMembershipTests {
         return Fixture(store: TrackDataStore(modelContainer: container), container: container)
     }
 
-    private func makeV2Container(at url: URL) throws -> ModelContainer {
-        let schema = Schema(versionedSchema: StoreSchemaV2.self)
-        let configuration = ModelConfiguration(
-            "MembershipMigration",
-            schema: schema,
-            url: url,
-            cloudKitDatabase: .none
-        )
-        return try ModelContainer(for: schema, configurations: [configuration])
-    }
-
-    private func makeCurrentContainer(at url: URL) throws -> ModelContainer {
-        let schema = ModelContainerFactory.makeSchema()
-        let configuration = ModelConfiguration(
-            "MembershipMigration",
-            schema: schema,
-            url: url,
-            cloudKitDatabase: .none
-        )
-        return try ModelContainerFactory.create(schema: schema, configuration: configuration)
-    }
-
     private func replaceMembership(
         in store: TrackDataStore,
         ids: [MusicDatabaseTrackID],
@@ -329,13 +250,13 @@ struct LibraryMembershipTests {
     ) async throws -> MirrorRevision {
         let revision = try await store.loadMirrorSnapshot().revision
         let stamp = try MembershipFingerprint.make(ids: ids)
-        return try await store.applyMirror(TrackMirrorUpdate(
+        return try await store.commitMirror(MirrorCommit(
             baseRevision: revision,
-            coverageChange: .preserve,
             membershipChange: .replace(stamp: stamp, ids: ids, observedAt: observedAt),
             repairs: [],
-            upserts: tracks
-        ))
+            upserts: tracks,
+            certificates: .invalidate(.membershipChanged)
+        )).revision
     }
 
     private func loadMembers(from container: ModelContainer) throws -> [PersistedLibraryMember] {

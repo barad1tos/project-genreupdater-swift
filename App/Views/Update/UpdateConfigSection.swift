@@ -13,7 +13,7 @@ struct UpdateConfigSection: View {
     let tracks: [Track]
     let testArtists: [String]
     let credentialIssue: DiscogsCredentialIssue?
-    let isLibraryReadyForUpdates: Bool
+    let libraryReadiness: MirrorReadiness
 
     var body: some View {
         ScrollView {
@@ -29,6 +29,9 @@ struct UpdateConfigSection: View {
                 } else if viewModel.mode != .pendingVerification {
                     optionsCard
                     confidenceSection
+                }
+                if let readinessStatusMessage {
+                    readinessStatusRow(readinessStatusMessage)
                 }
                 startButton
             }
@@ -46,6 +49,10 @@ struct UpdateConfigSection: View {
     var credentialWarningMessage: String? {
         guard let credentialIssue else { return nil }
         return "\(credentialIssue.message) Year lookup may be slower and less complete until this is fixed."
+    }
+
+    var readinessStatusMessage: String? {
+        LibraryReadinessCopy(libraryReadiness)?.detail
     }
 }
 
@@ -413,6 +420,15 @@ extension UpdateConfigSection {
 
     // MARK: - Start Button
 
+    private func readinessStatusRow(_ message: String) -> some View {
+        Label(message, systemImage: "arrow.clockwise.circle.fill")
+            .font(AppFont.caption)
+            .foregroundStyle(Ayu.warning)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Spacing.md)
+            .background(Ayu.warning.opacity(0.12), in: .rect(cornerRadius: Radius.sm))
+    }
+
     private var startButton: some View {
         Button {
             viewModel.start(tracks: tracks, testArtists: testArtists)
@@ -429,9 +445,9 @@ extension UpdateConfigSection {
         .disabled(isStartDisabled)
     }
 
-    private var startButtonTitle: String {
-        guard isLibraryReadyForUpdates else {
-            return "Preparing Library"
+    var startButtonTitle: String {
+        if let copy = LibraryReadinessCopy(libraryReadiness) {
+            return copy.buttonTitle
         }
 
         return switch viewModel.mode {
@@ -446,8 +462,8 @@ extension UpdateConfigSection {
         }
     }
 
-    private var isStartDisabled: Bool {
-        !isLibraryReadyForUpdates
+    var isStartDisabled: Bool {
+        !libraryReadiness.isReady
             || !viewModel.canStart
             || !viewModel.hasEnabledOperation
             || !viewModel.hasRunnableScope

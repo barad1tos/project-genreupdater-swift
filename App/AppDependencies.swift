@@ -97,7 +97,10 @@ final class AppDependencies {
     var lastLibraryScanDate: Date?
     var libraryLoadError: LibraryLoadError?
     var isLibraryLoading = false
-    var isLibraryReadyForUpdates = false
+    var libraryReadiness: MirrorReadiness = .incomplete(.freshObservationRequired)
+    var isLibraryReadyForUpdates: Bool {
+        libraryReadiness.isReady
+    }
     @ObservationIgnored let libraryLoadGate = RequestTokenGate()
     @ObservationIgnored let analyticsReportGate = RequestTokenGate()
     /// Host-registered post-load hook (scope preview) until slice 12.

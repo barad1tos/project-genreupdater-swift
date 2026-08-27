@@ -15,7 +15,7 @@ extension ActivityLibraryState {
                 summary: "Music library unavailable",
                 technicalDetail: message
             )
-        case .loading, .empty, .ready:
+        case .loading, .empty, .ready, .presentationOnly:
             nil
         }
     }

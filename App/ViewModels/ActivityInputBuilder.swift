@@ -10,13 +10,31 @@ struct ActivityLibraryFacts {
     let lastScanDate: Date?
     let loadError: LibraryLoadError?
     let isLoading: Bool
+    let readiness: MirrorReadiness
+
+    init(
+        tracks: [Core.Track],
+        metricsSnapshot: MetricsSnapshotValues?,
+        lastScanDate: Date?,
+        loadError: LibraryLoadError?,
+        isLoading: Bool,
+        readiness: MirrorReadiness = .incomplete(.freshObservationRequired)
+    ) {
+        self.tracks = tracks
+        self.metricsSnapshot = metricsSnapshot
+        self.lastScanDate = lastScanDate
+        self.loadError = loadError
+        self.isLoading = isLoading
+        self.readiness = readiness
+    }
 
     @MainActor static let empty = Self(
         tracks: [],
         metricsSnapshot: nil,
         lastScanDate: nil,
         loadError: nil,
-        isLoading: false
+        isLoading: false,
+        readiness: .incomplete(.freshObservationRequired)
     )
 }
 
@@ -29,6 +47,42 @@ struct ActivityWorkflowFacts {
     @MainActor static let empty = Self(dashboard: .empty, pendingVerification: nil)
 }
 
+struct LibraryReadinessCopy: Equatable {
+    let detail: String
+    let buttonTitle: String
+
+    init?(_ readiness: MirrorReadiness) {
+        switch readiness {
+        case .ready:
+            return nil
+        case .stale(.membershipChanged):
+            detail = "Music library changed · refresh before updating"
+            buttonTitle = "Refresh Required"
+        case .stale(.metadataExpired):
+            detail = "Music metadata expired · refresh before updating"
+            buttonTitle = "Refresh Required"
+        case .stale(.supersededRevision):
+            detail = "Library mirror changed · reload before updating"
+            buttonTitle = "Reload Required"
+        case .incomplete(.freshObservationRequired):
+            detail = "Refresh Music metadata before updating"
+            buttonTitle = "Refresh Required"
+        case let .incomplete(.identityMissing(count)):
+            detail = "\(count.formatted()) tracks need identity repair before updating"
+            buttonTitle = "Repair Required"
+        case let .incomplete(.metadataMissing(count)):
+            detail = "\(count.formatted()) tracks need metadata refresh before updating"
+            buttonTitle = "Refresh Required"
+        case .incomplete(.narrowedObservation):
+            detail = "Run a full scope refresh before updating"
+            buttonTitle = "Refresh Required"
+        case let .unavailable(failure):
+            detail = "Library readiness unavailable: \(failure.detail)"
+            buttonTitle = "Library Unavailable"
+        }
+    }
+}
+
 struct ActivityInputContext {
     let tracks: [Core.Track]
     let reportEntries: [Core.ChangeLogEntry]
@@ -36,6 +90,7 @@ struct ActivityInputContext {
     let lastScanDate: Date?
     let loadError: LibraryLoadError?
     let isLoading: Bool
+    var readiness: MirrorReadiness = .incomplete(.freshObservationRequired)
     let isDryRun: Bool
     let workflow: WorkflowDashboardState
     let fixPlanProjection: FixPlanProjection
@@ -70,6 +125,7 @@ extension AppDependencies {
         lastLibraryScanDate = library.lastScanDate
         libraryLoadError = library.loadError
         isLibraryLoading = library.isLoading
+        libraryReadiness = library.readiness
         workflowFactsProvider = { workflow }
         // The lifecycle observer is the SOLE writer of the lifecycle
         // snapshot: a host mirror can lag its own subscription, and
@@ -85,7 +141,8 @@ extension AppDependencies {
             metricsSnapshot: libraryMetrics,
             lastScanDate: lastLibraryScanDate,
             loadError: libraryLoadError,
-            isLoading: isLibraryLoading
+            isLoading: isLibraryLoading,
+            readiness: libraryReadiness
         )
         let workflow = workflowFactsProvider?() ?? .empty
         let runLifecycle = currentLifecycleSnapshot
@@ -110,6 +167,7 @@ extension AppDependencies {
             lastScanDate: library.lastScanDate,
             loadError: library.loadError,
             isLoading: library.isLoading,
+            readiness: library.readiness,
             isDryRun: isDryRun,
             workflow: workflow.dashboard,
             fixPlanProjection: fixPlan,
@@ -138,7 +196,8 @@ enum ActivityInputBuilder {
             libraryState: makeLibraryState(
                 loadError: context.loadError,
                 isLoading: context.isLoading,
-                tracks: context.tracks
+                tracks: context.tracks,
+                readiness: context.readiness
             ),
             processingMode: context.isDryRun ? .preview : .autoFix,
             workflow: makeWorkflowState(from: context.workflow),
@@ -169,7 +228,8 @@ enum ActivityInputBuilder {
     private static func makeLibraryState(
         loadError: LibraryLoadError?,
         isLoading: Bool,
-        tracks: [Core.Track]
+        tracks: [Core.Track],
+        readiness: MirrorReadiness
     ) -> ActivityLibraryState {
         if let loadError {
             switch loadError {
@@ -181,6 +241,9 @@ enum ActivityInputBuilder {
         }
         if isLoading {
             return .loading
+        }
+        if let copy = LibraryReadinessCopy(readiness) {
+            return .presentationOnly(copy.detail)
         }
         return tracks.isEmpty ? .empty : .ready
     }

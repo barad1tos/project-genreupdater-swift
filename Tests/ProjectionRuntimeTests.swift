@@ -114,7 +114,7 @@ struct ProjectionRuntimeTests {
                         album: "Blast Tyrant"
                     )),
                 ],
-                coverage: .verified(.fullLibrary)
+                certifiedArtists: []
             ),
             librarySnapshotService: fixture.snapshotService,
             runRecordStore: RunRecordStoreStub()

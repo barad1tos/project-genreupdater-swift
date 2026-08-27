@@ -4,6 +4,70 @@ import Services
 import Testing
 @testable import Genre_Updater
 
+enum ReadinessSample: CaseIterable, CustomTestStringConvertible, Sendable {
+    case membership
+    case expiredMetadata
+    case superseded
+    case freshObservation
+    case identity
+    case metadata
+    case narrowed
+    case storage
+
+    var testDescription: String {
+        switch self {
+        case .membership: "membership"
+        case .expiredMetadata: "expired metadata"
+        case .superseded: "superseded"
+        case .freshObservation: "fresh observation"
+        case .identity: "identity"
+        case .metadata: "metadata"
+        case .narrowed: "narrowed"
+        case .storage: "storage"
+        }
+    }
+
+    var readiness: MirrorReadiness {
+        switch self {
+        case .membership: .stale(.membershipChanged)
+        case .expiredMetadata: .stale(.metadataExpired)
+        case .superseded: .stale(.supersededRevision)
+        case .freshObservation: .incomplete(.freshObservationRequired)
+        case .identity: .incomplete(.identityMissing(count: 2))
+        case .metadata: .incomplete(.metadataMissing(count: 3))
+        case .narrowed: .incomplete(.narrowedObservation)
+        case .storage:
+            .unavailable(MirrorFailure(category: .storage, detail: "Certificate checksum is invalid"))
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .membership: "Music library changed · refresh before updating"
+        case .expiredMetadata: "Music metadata expired · refresh before updating"
+        case .superseded: "Library mirror changed · reload before updating"
+        case .freshObservation: "Refresh Music metadata before updating"
+        case .identity: "2 tracks need identity repair before updating"
+        case .metadata: "3 tracks need metadata refresh before updating"
+        case .narrowed: "Run a full scope refresh before updating"
+        case .storage: "Library readiness unavailable: Certificate checksum is invalid"
+        }
+    }
+
+    var buttonTitle: String {
+        switch self {
+        case .membership, .expiredMetadata, .freshObservation, .metadata, .narrowed:
+            "Refresh Required"
+        case .superseded:
+            "Reload Required"
+        case .identity:
+            "Repair Required"
+        case .storage:
+            "Library Unavailable"
+        }
+    }
+}
+
 @Suite("ActivityInputBuilder")
 struct ActivityInputBuilderTests {
     @Test("permission denied load error maps to permissionDenied library state")
@@ -37,20 +101,72 @@ struct ActivityInputBuilderTests {
     }
 
     @Test("no error and not loading maps to empty or ready by track count")
-    func mapsTrackCountState() {
-        let emptyInput = ActivityInputBuilder.makeInput(from: makeContext(
+    func mapsTrackCountState() throws {
+        let emptyInput = try ActivityInputBuilder.makeInput(from: makeContext(
             tracks: [],
             loadError: nil,
-            isLoading: false
+            isLoading: false,
+            readiness: makeReadyEvidence()
         ))
-        let readyInput = ActivityInputBuilder.makeInput(from: makeContext(
+        let readyInput = try ActivityInputBuilder.makeInput(from: makeContext(
             tracks: [track(id: "1")],
             loadError: nil,
-            isLoading: false
+            isLoading: false,
+            readiness: makeReadyEvidence()
         ))
 
         #expect(emptyInput.libraryState == .empty)
         #expect(readyInput.libraryState == .ready)
+    }
+
+    @Test("Every non-ready reason keeps actionable presentation behavior", arguments: ReadinessSample.allCases)
+    func projectsNonReady(sample: ReadinessSample) throws {
+        let copy = try #require(LibraryReadinessCopy(sample.readiness))
+        let input = ActivityInputBuilder.makeInput(from: makeContext(
+            tracks: [track(id: "1")],
+            loadError: nil,
+            isLoading: false,
+            readiness: sample.readiness
+        ))
+        let projection = ActivityBuilder.makeProjection(from: input)
+        let detectStage = try #require(projection.stageDescriptors.first { $0.stage == .detect })
+        let scan = try #require(projection.recentActivity.first { $0.id == "scan" })
+
+        #expect(copy.detail == sample.detail)
+        #expect(copy.buttonTitle == sample.buttonTitle)
+        #expect(input.libraryState == .presentationOnly(sample.detail))
+        #expect(projection.title == "Library needs refresh")
+        #expect(projection.subtitle == sample.detail)
+        #expect(projection.currentStage == .detect)
+        #expect(detectStage.status == .current)
+        #expect(scan.title == "Library scan")
+        #expect(scan.detail == sample.detail)
+        #expect(projection.operationalIssues.isEmpty)
+        #expect(projection.summaryCards.map(\.id) == ["automation", "delta", "quality"])
+    }
+
+    @Test("Empty presentation preserves every non-ready reason", arguments: ReadinessSample.allCases)
+    func keepsEmptyReason(sample: ReadinessSample) {
+        let input = ActivityInputBuilder.makeInput(from: makeContext(
+            tracks: [],
+            loadError: nil,
+            isLoading: false,
+            readiness: sample.readiness
+        ))
+
+        #expect(input.libraryState == .presentationOnly(sample.detail))
+    }
+
+    @Test("Only a ready empty presentation maps to empty")
+    func mapsReadyEmpty() throws {
+        let input = try ActivityInputBuilder.makeInput(from: makeContext(
+            tracks: [],
+            loadError: nil,
+            isLoading: false,
+            readiness: makeReadyEvidence()
+        ))
+
+        #expect(input.libraryState == .empty)
     }
 
     @Test("fix plan projection maps to activity summary")
@@ -137,6 +253,7 @@ struct ActivityInputBuilderTests {
         tracks: [Core.Track] = [],
         loadError: LibraryLoadError?,
         isLoading: Bool,
+        readiness: MirrorReadiness = .incomplete(.freshObservationRequired),
         fixPlanProjection: FixPlanProjection = .empty(),
         reportsProjection: ReportsProjection = .empty()
     ) -> ActivityInputContext {
@@ -147,6 +264,7 @@ struct ActivityInputBuilderTests {
             lastScanDate: nil,
             loadError: loadError,
             isLoading: isLoading,
+            readiness: readiness,
             isDryRun: false,
             workflow: .empty,
             fixPlanProjection: fixPlanProjection,

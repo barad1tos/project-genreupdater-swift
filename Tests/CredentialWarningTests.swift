@@ -14,11 +14,54 @@ struct CredentialWarningTests {
             tracks: [],
             testArtists: [],
             credentialIssue: .missingToken,
-            isLibraryReadyForUpdates: true
+            libraryReadiness: .incomplete(.freshObservationRequired)
         )
 
         #expect(view.credentialWarningMessage?.contains("Discogs") == true)
         #expect(view.credentialWarningMessage?.contains("slower") == true)
+    }
+
+    @Test(
+        "Non-ready update surfaces show the typed reason",
+        arguments: [
+            ReadinessSample.expiredMetadata,
+            ReadinessSample.freshObservation,
+            ReadinessSample.storage,
+        ]
+    )
+    func showsReadinessBlock(sample: ReadinessSample) {
+        let viewModel = makeWorkflowViewModel()
+        let tracks = [Track(id: "1", name: "Track", artist: "Artist", album: "Album")]
+        viewModel.computeScopePreview(tracks: tracks)
+        let view = UpdateConfigSection(
+            viewModel: viewModel,
+            tracks: tracks,
+            testArtists: [],
+            credentialIssue: nil,
+            libraryReadiness: sample.readiness
+        )
+
+        #expect(view.readinessStatusMessage == sample.detail)
+        #expect(view.startButtonTitle == sample.buttonTitle)
+        #expect(view.isStartDisabled)
+    }
+
+    @Test("Ready update surface enables the configured action")
+    func showsReadyAction() throws {
+        let viewModel = makeWorkflowViewModel()
+        let tracks = [Track(id: "1", name: "Track", artist: "Artist", album: "Album")]
+        viewModel.computeScopePreview(tracks: tracks)
+        let view = try UpdateConfigSection(
+            viewModel: viewModel,
+            tracks: tracks,
+            testArtists: [],
+            credentialIssue: nil,
+            libraryReadiness: makeReadyEvidence()
+        )
+
+        #expect(view.readinessStatusMessage == nil)
+        #expect(view.startButtonTitle == "Start Processing")
+        #expect(!view.isStartDisabled)
     }
 
     @Test("preview-only review can enable writes without applying changes")

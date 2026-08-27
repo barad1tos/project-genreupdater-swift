@@ -127,14 +127,14 @@ actor FactoryTrackStore: TrackStateStore {
             presentIDs: [],
             presentTracks: [],
             repairCandidates: [],
-            coverage: .unknown
+            certificates: []
         )
     }
 
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
         // Factory tests do not persist track state.
-        try update.baseRevision.advanced()
+        try MirrorCommitResult(revision: commit.baseRevision.advanced())
     }
 
     func getTrack(byID _: String) async throws -> Track? {

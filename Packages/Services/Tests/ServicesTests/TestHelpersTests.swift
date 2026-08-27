@@ -29,9 +29,8 @@ struct TestHelpersTests {
     @Test("Mirror revision exhaustion leaves the in-memory store unchanged")
     func mirrorRevisionExhaustionIsAtomic() async throws {
         let store = MockTrackStore(revision: MirrorRevision(value: .max))
-        let update = try TrackMirrorUpdate(
+        let update = try MirrorCommit(
             baseRevision: MirrorRevision(value: .max),
-            coverageChange: .replace(.fullLibrary),
             membershipChange: replacementMembership(for: [
                 Track(id: "new-track", name: "New", artist: "Artist", album: "Album", appleScriptID: "new-track"),
             ]),
@@ -42,12 +41,13 @@ struct TestHelpersTests {
                 artist: "Artist",
                 album: "Album",
                 appleScriptID: "new-track"
-            )]
+            )],
+            certificates: .invalidate(.membershipChanged)
         )
         let before = try await store.loadMirrorSnapshot()
 
         do {
-            _ = try await store.applyMirror(update)
+            _ = try await store.commitMirror(update)
             Issue.record("A mirror commit must fail when its revision is exhausted")
         } catch {
             #expect(error.localizedDescription == "Mirror revision exhausted at \(UInt64.max).")

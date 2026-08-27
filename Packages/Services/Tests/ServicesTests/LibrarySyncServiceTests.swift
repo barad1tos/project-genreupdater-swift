@@ -8,9 +8,14 @@ import Testing
 actor SyncMockScriptClient: MusicAppReading {
     var libraryTrackIDs: [String] = []
     var tracksByID: [String: Track] = [:]
+    private let observedAt: @Sendable () -> Date
     private var fetchAllTrackIDsError: AppleScriptBridgeError?
     private var observationRequests: [LibraryObservationRequest] = []
     private var trackQueue: [[String: Track]] = []
+
+    init(observedAt: @escaping @Sendable () -> Date = { .distantPast }) {
+        self.observedAt = observedAt
+    }
 
     func observe(_ request: LibraryObservationRequest) async throws -> LibraryObservation {
         observationRequests.append(request)
@@ -58,7 +63,7 @@ actor SyncMockScriptClient: MusicAppReading {
             censusIDs: Set(allIDs),
             currentIDs: currentIDs,
             scope: request.scope,
-            observedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            observedAt: observedAt(),
             membership: request.scope.source == .fullLibrary
                 ? .full
                 : .scoped(unobservedIDs: missingIDs),
@@ -119,7 +124,8 @@ actor SyncMockScriptClient: MusicAppReading {
 
 actor SyncMockTrackStore: TrackStateStore {
     var storedTracks: [Track] = []
-    private var coverage = MirrorCoverage.unknown
+    private var presentIDs: Set<MusicDatabaseTrackID> = []
+    private var certificates: [ScopeCertificate] = []
     private var revision = MirrorRevision.initial
     private var conflictsRemaining = 0
 
@@ -130,11 +136,16 @@ actor SyncMockTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        try mirrorSnapshot(revision: revision, tracks: storedTracks, coverage: coverage)
+        try mirrorSnapshot(
+            revision: revision,
+            tracks: storedTracks,
+            presentIDs: presentIDs,
+            certificates: certificates
+        )
     }
 
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
+    func commitMirror(_ update: MirrorCommit) async throws -> MirrorCommitResult {
         if conflictsRemaining > 0 {
             let nextRevision = try revision.advanced()
             conflictsRemaining -= 1
@@ -145,7 +156,17 @@ actor SyncMockTrackStore: TrackStateStore {
             throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
         }
         let nextRevision = try revision.advanced()
-        coverage = coverage.applying(update.coverageChange)
+        switch update.certificates {
+        case .preserve:
+            break
+        case .invalidate:
+            certificates = []
+        case let .replace(certificate), let .rebase(certificate):
+            certificates = [certificate]
+        }
+        if let membershipIDs = membershipIDs(update.membershipChange) {
+            presentIDs = Set(membershipIDs)
+        }
         applyMembership(update.membershipChange, to: &storedTracks)
         for track in update.upserts {
             if let index = storedTracks.firstIndex(where: { $0.id == track.id }) {
@@ -155,7 +176,7 @@ actor SyncMockTrackStore: TrackStateStore {
             }
         }
         revision = nextRevision
-        return revision
+        return MirrorCommitResult(revision: revision)
     }
 
     func getTrack(byID id: String) async throws -> Track? {
@@ -194,8 +215,7 @@ extension SyncMockScriptClient {
 }
 
 extension SyncMockTrackStore {
-    func setStored(_ tracks: [Track]) {
-        coverage = .verified(.fullLibrary)
+    func setInventory(_ tracks: [Track]) {
         storedTracks = tracks.map { track in
             var canonical = track
             if canonical.appleScriptID == nil {
@@ -203,14 +223,42 @@ extension SyncMockTrackStore {
             }
             return canonical
         }
+        presentIDs = Set(storedTracks.compactMap(\.databaseID))
+        certificates = []
     }
 
-    func setMirrorCoverage(_ coverage: MirrorCoverage) {
-        self.coverage = coverage
+    func setStored(_ tracks: [Track], certificateDate: Date = Date()) {
+        setInventory(tracks)
+        setScopeCertificate(testArtists: [], observedAt: certificateDate)
     }
 
-    func mirrorCoverage() -> MirrorCoverage {
-        coverage
+    func setScopeCertificate(testArtists: [String], observedAt: Date = Date()) {
+        do {
+            let membership = try replacementMembership(for: storedTracks)
+            certificates = try [scopeCertificate(
+                revision: revision,
+                membershipChange: membership,
+                testArtists: testArtists,
+                trackIDs: storedTracks.compactMap(\.databaseID),
+                observedAt: observedAt
+            )]
+        } catch {
+            preconditionFailure("Invalid sync mock certificate: \(error.localizedDescription)")
+        }
+    }
+
+    func readiness(testArtists: [String]) throws -> MirrorReadiness {
+        try mirrorSnapshot(
+            revision: revision,
+            tracks: storedTracks,
+            presentIDs: presentIDs,
+            certificates: certificates
+        )
+        .readiness(for: MirrorRequirement(
+            testArtists: testArtists,
+            fieldSet: .processingV1,
+            maximumMetadataAge: nil
+        ))
     }
 
     func rejectNextMirrorCommits(_ count: Int = 1) {

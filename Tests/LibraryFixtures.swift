@@ -1,5 +1,7 @@
 import Core
 import Foundation
+import SwiftData
+import Testing
 @testable import Genre_Updater
 @testable import Services
 
@@ -11,19 +13,184 @@ struct LibraryPersistenceFixture {
     let snapshotService: SnapshotServiceSpy
 }
 
+func makeReadyEvidence() throws -> MirrorReadiness {
+    let membership = try MembershipFingerprint.make(ids: [])
+    return .ready(ScopeCertificate(
+        id: UUID(),
+        revision: .initial,
+        membership: membership,
+        testArtists: [],
+        fieldSet: .processingV1,
+        evidence: ScopeEvidence(
+            requestedFingerprint: membership.fingerprint,
+            observedFingerprint: membership.fingerprint,
+            trackCount: 0
+        ),
+        observedAt: .distantPast
+    ))
+}
+
+private actor AppObservationSource: ObservationSource {
+    let census: TrackIDCensus
+    let tracks: [Core.Track]
+
+    init(census: TrackIDCensus, tracks: [Core.Track]) {
+        self.census = census
+        self.tracks = tracks
+    }
+
+    func fetchCensus() -> TrackIDCensus {
+        census
+    }
+
+    func fetchMetadata(for ids: [MusicDatabaseTrackID]) -> [Core.Track] {
+        let requested = Set(ids)
+        return tracks.filter { track in
+            track.databaseID.map(requested.contains) ?? false
+        }
+    }
+}
+
+@MainActor
+struct ScopedReadinessFixture {
+    private let directory: URL
+    private let storeURL: URL
+    private let includedID: MusicDatabaseTrackID
+    private let outsideID: MusicDatabaseTrackID
+    private let source: AppObservationSource
+
+    init() throws {
+        directory = FileManager.default.temporaryDirectory
+            .appending(path: "ScopedAppReadiness-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        storeURL = directory.appending(path: "GenreUpdater.store")
+        includedID = try #require(MusicDatabaseTrackID(rawValue: "IN-FLAMES"))
+        outsideID = try #require(MusicDatabaseTrackID(rawValue: "OUTSIDE"))
+        let generation = try #require(LibraryGeneration(sourceValue: "app-readiness"))
+        let census = try TrackIDCensus(ids: [includedID, outsideID], totalCount: 2, generation: generation)
+        source = AppObservationSource(
+            census: census,
+            tracks: [
+                canonicalMirrorTrack(Core.Track(
+                    id: includedID.rawValue,
+                    name: "Only for the Weak",
+                    artist: "Other Credit",
+                    album: "Clayman",
+                    albumArtist: "In Flames"
+                )),
+                canonicalMirrorTrack(Core.Track(
+                    id: outsideID.rawValue,
+                    name: "Outside",
+                    artist: "Other",
+                    album: "Outside"
+                )),
+            ]
+        )
+    }
+
+    func seed() async throws {
+        let container = try persistentContainer()
+        let store = TrackDataStore(modelContainer: container)
+        let service = LibrarySyncService(trackStore: store, observer: MusicAppObserver(source: source))
+        _ = try await service.synchronizeNow(forceMetadataRefresh: true)
+        await service.updateRuntimeConfiguration(LibrarySyncRuntimeConfiguration(testArtists: ["In Flames"]))
+        _ = try await service.synchronizeNow(forceMetadataRefresh: true)
+    }
+
+    func expectFresh() async throws {
+        let (dependencies, store) = try await loadDependencies()
+
+        #expect(dependencies.libraryReadiness.isReady)
+        #expect(dependencies.isLibraryReadyForUpdates)
+        try await expectPresentation(dependencies: dependencies, store: store)
+    }
+
+    func expire() throws {
+        let context = try ModelContext(persistentContainer())
+        let certificate = try #require(context.fetch(FetchDescriptor<PersistedScopeCertificate>()).first)
+        certificate.observedAt = .distantPast
+        try context.save()
+    }
+
+    func expectStale() async throws {
+        let (dependencies, store) = try await loadDependencies()
+
+        #expect(dependencies.libraryReadiness == .stale(.metadataExpired))
+        #expect(!dependencies.isLibraryReadyForUpdates)
+        try await expectPresentation(dependencies: dependencies, store: store)
+    }
+
+    func remove() {
+        do {
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            Issue.record("Failed to remove scoped readiness fixture: \(error)")
+        }
+    }
+
+    private func loadDependencies() async throws -> (AppDependencies, TrackDataStore) {
+        let container = try persistentContainer()
+        let store = TrackDataStore(modelContainer: container)
+        let dependencies = AppDependencies(
+            configurationLoader: {
+                var configuration = AppConfiguration()
+                configuration.development.testArtists = ["In Flames"]
+                return configuration
+            },
+            configurationSaver: { _ in
+                // This fixture exercises library persistence and intentionally does not persist configuration.
+            },
+            modelContainerFactory: { container }
+        )
+        dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            librarySnapshotService: SnapshotServiceSpy(),
+            runRecordStore: RunRecordStoreStub()
+        )
+        await dependencies.loadLibrary(forceRefresh: true)
+        return (dependencies, store)
+    }
+
+    private func persistentContainer() throws -> ModelContainer {
+        let schema = ModelContainerFactory.makeSchema()
+        let configuration = ModelConfiguration(
+            "GenreUpdater",
+            schema: schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainerFactory.create(schema: schema, configuration: configuration)
+    }
+
+    private func expectPresentation(dependencies: AppDependencies, store: TrackDataStore) async throws {
+        #expect(dependencies.libraryTracks.map(\.id) == [includedID.rawValue])
+        #expect(try await store.trackCount() == 2)
+        let snapshot = try await store.loadMirrorSnapshot()
+        #expect(snapshot.presentIDs == [includedID, outsideID])
+        #expect(snapshot.presentTracks.count == 2)
+        let projection = await dependencies.projectionStore.activityProjection()
+        #expect(projection.healthFacts.counts.totalTracks == 1)
+    }
+}
+
 actor MirrorTrackStoreStub: TrackStateStore {
     private var tracks: [Track]
-    private var coverage: MirrorCoverage
+    private var certificates: [ScopeCertificate]?
+    private let certifiedArtists: [String]?
+    private let certificateObservedAt: Date
     private var revision = MirrorRevision.initial
     private let beforeLoad: (@Sendable () async throws -> Void)?
 
     init(
         tracks: [Track] = [],
-        coverage: MirrorCoverage = .unknown,
+        certifiedArtists: [String]? = nil,
+        certificateObservedAt: Date = Date(),
         beforeLoad: (@Sendable () async throws -> Void)? = nil
     ) {
         self.tracks = tracks
-        self.coverage = coverage
+        certificates = nil
+        self.certifiedArtists = certifiedArtists
+        self.certificateObservedAt = certificateObservedAt
         self.beforeLoad = beforeLoad
     }
 
@@ -38,26 +205,57 @@ actor MirrorTrackStoreStub: TrackStateStore {
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try await beforeLoad?()
-        return try TrackMirrorSnapshot(
+        let membership = try MembershipFingerprint.make(ids: tracks.compactMap(\.databaseID))
+        let generatedCertificates: [ScopeCertificate]
+        if let certifiedArtists {
+            let scopedIDs = tracks
+                .filter { ArtistAllowList.contains($0, in: certifiedArtists) }
+                .compactMap(\.databaseID)
+            let fingerprint = try MembershipFingerprint.make(ids: scopedIDs).fingerprint
+            generatedCertificates = [ScopeCertificate(
+                id: UUID(),
+                revision: revision,
+                membership: membership,
+                testArtists: certifiedArtists,
+                fieldSet: .processingV1,
+                evidence: ScopeEvidence(
+                    requestedFingerprint: fingerprint,
+                    observedFingerprint: fingerprint,
+                    trackCount: scopedIDs.count
+                ),
+                observedAt: certificateObservedAt
+            )]
+        } else {
+            generatedCertificates = []
+        }
+        let loadedCertificates = certificates ?? generatedCertificates
+        return TrackMirrorSnapshot(
             revision: revision,
-            membershipStamp: MembershipFingerprint.make(ids: tracks.compactMap(\.databaseID)),
+            membershipStamp: membership,
             presentIDs: Set(tracks.compactMap(\.databaseID)),
             presentTracks: tracks,
             repairCandidates: [],
-            coverage: coverage
+            certificates: loadedCertificates
         )
     }
 
     @discardableResult
-    func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
-        guard update.baseRevision == revision else {
-            throw MirrorRevisionConflict(expected: update.baseRevision, actual: revision)
+    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
+        guard commit.baseRevision == revision else {
+            throw MirrorRevisionConflict(expected: commit.baseRevision, actual: revision)
         }
         let nextRevision = try revision.advanced()
-        tracks.append(contentsOf: update.upserts)
-        coverage = coverage.applying(update.coverageChange)
+        tracks.append(contentsOf: commit.upserts)
+        switch commit.certificates {
+        case .preserve:
+            break
+        case let .replace(certificate), let .rebase(certificate):
+            certificates = [certificate]
+        case .invalidate:
+            certificates = []
+        }
         revision = nextRevision
-        return revision
+        return MirrorCommitResult(revision: revision)
     }
 
     func getTrack(byID id: String) async throws -> Track? {

@@ -189,7 +189,7 @@ struct ActivityReloadTests {
                         album: "Blast Tyrant"
                     )),
                 ],
-                coverage: .verified(.fullLibrary)
+                certifiedArtists: []
             ),
             runRecordStore: RunRecordStoreStub()
         )
