@@ -33,6 +33,18 @@ public struct MirrorFailure: Equatable, Sendable {
     }
 }
 
+/// A scope certificate paired with the exact canonical tracks it authorizes for processing.
+public struct AdmittedMirror: Equatable, Sendable {
+    public let certificate: ScopeCertificate
+    public let tracks: [Track]
+}
+
+/// Processing admission or the typed readiness state that rejected it.
+public enum MirrorAdmissionDecision: Equatable, Sendable {
+    case admitted(AdmittedMirror)
+    case rejected(MirrorReadiness)
+}
+
 /// Processing admission derived from persisted scope evidence.
 public enum MirrorReadiness: Equatable, Sendable {
     case ready(ScopeCertificate)
@@ -167,6 +179,18 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
     }
 
     public func readiness(for requirement: MirrorRequirement, at date: Date = Date()) -> MirrorReadiness {
+        switch admission(for: requirement, at: date) {
+        case let .admitted(admittedMirror):
+            .ready(admittedMirror.certificate)
+        case let .rejected(readiness):
+            readiness
+        }
+    }
+
+    public func admission(
+        for requirement: MirrorRequirement,
+        at date: Date = Date()
+    ) -> MirrorAdmissionDecision {
         let matchingScope = certificates.filter { certificate in
             certificate.fieldSet == requirement.fieldSet
                 && Self.artistsMatch(
@@ -175,37 +199,38 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
                 )
         }
         guard !matchingScope.isEmpty else {
-            return .incomplete(.freshObservationRequired)
+            return .rejected(.incomplete(.freshObservationRequired))
         }
         guard let certificate = matchingScope.first(where: { $0.membership == membershipStamp }) else {
-            return .stale(.membershipChanged)
+            return .rejected(.stale(.membershipChanged))
         }
         guard let currentMembership = try? MembershipFingerprint.make(ids: Array(presentIDs)),
               currentMembership == membershipStamp
         else {
-            return .stale(.membershipChanged)
+            return .rejected(.stale(.membershipChanged))
         }
         guard certificate.revision <= revision else {
-            return .stale(.supersededRevision)
+            return .rejected(.stale(.supersededRevision))
         }
-        guard let scopedIDs = canonicalScopedIDs(for: requirement) else {
+        guard let scopedTracks = canonicalScopedTracks(for: requirement) else {
             let canonicalIDs = Set(presentTracks.compactMap(\.databaseID))
             let missingCount = presentIDs.subtracting(canonicalIDs).count
-            return .incomplete(.identityMissing(count: max(1, missingCount)))
+            return .rejected(.incomplete(.identityMissing(count: max(1, missingCount))))
         }
+        let scopedIDs = Set(scopedTracks.compactMap(\.databaseID))
         guard certificate.requestedFingerprint == certificate.observedFingerprint else {
-            return .incomplete(.metadataMissing(count: max(1, certificate.trackCount)))
+            return .rejected(.incomplete(.metadataMissing(count: max(1, certificate.trackCount))))
         }
         guard let scopedFingerprint = try? MembershipFingerprint.make(ids: Array(scopedIDs)).fingerprint,
               certificate.trackCount == scopedIDs.count,
               certificate.observedFingerprint == scopedFingerprint
         else {
-            return .incomplete(.metadataMissing(count: max(1, scopedIDs.count)))
+            return .rejected(.incomplete(.metadataMissing(count: max(1, scopedIDs.count))))
         }
         if let temporalState = temporalState(for: certificate, requirement: requirement, at: date) {
-            return temporalState
+            return .rejected(temporalState)
         }
-        return .ready(certificate)
+        return .admitted(AdmittedMirror(certificate: certificate, tracks: scopedTracks))
     }
 
     private func temporalState(
@@ -239,7 +264,7 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
         return .stale(.metadataExpired)
     }
 
-    private func canonicalScopedIDs(for requirement: MirrorRequirement) -> Set<MusicDatabaseTrackID>? {
+    private func canonicalScopedTracks(for requirement: MirrorRequirement) -> [Track]? {
         var tracksByID: [MusicDatabaseTrackID: Track] = [:]
         for track in presentTracks {
             guard let databaseID = track.databaseID,
@@ -250,17 +275,24 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
         }
         if requirement.normalizedTestArtists.isEmpty {
             guard Set(tracksByID.keys) == presentIDs else { return nil }
-            return presentIDs
+            return tracksByID.sorted { first, second in
+                first.key.rawValue < second.key.rawValue
+            }.map(\.value)
         }
 
-        return Set(tracksByID.compactMap { databaseID, track in
+        let scopedEntries: [(databaseID: MusicDatabaseTrackID, track: Track)] = tracksByID.compactMap { entry in
+            let databaseID = entry.key
+            let track = entry.value
             let effectiveArtist = track.albumArtist.flatMap(ArtistAllowList.normalizedName)
                 ?? ArtistAllowList.normalizedName(track.artist)
             guard let effectiveArtist,
                   ArtistAllowList.containsNormalized(effectiveArtist, in: requirement.normalizedTestArtists)
             else { return nil }
-            return databaseID
-        })
+            return (databaseID: databaseID, track: track)
+        }.sorted { first, second in
+            first.databaseID.rawValue < second.databaseID.rawValue
+        }
+        return scopedEntries.map(\.track)
     }
 
     private static func artistsMatch(_ first: [String], _ second: [String]) -> Bool {

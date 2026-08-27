@@ -22,6 +22,101 @@ struct MirrorReadinessTests {
         #expect(snapshot.readiness(for: requirement(), at: observedAt) == .ready(certificate))
     }
 
+    @Test("Admission returns only canonical rows certified for the requested artist scope")
+    func admissionReturnsExactCertifiedRows() {
+        let inScopeTrack = track(id: "A", artist: "Metallica")
+        let outOfScopeTrack = track(id: "B", artist: "Björk")
+        let presentIDs = Set([databaseID("A"), databaseID("B")])
+        let certificate = makeCertificate(
+            membershipStamp: membership(ids: Array(presentIDs)),
+            trackIDs: [databaseID("A")]
+        )
+        let snapshot = makeSnapshot(
+            presentIDs: presentIDs,
+            tracks: [outOfScopeTrack, inScopeTrack],
+            certificates: [certificate]
+        )
+
+        #expect(snapshot.admission(for: requirement(), at: observedAt) == .admitted(AdmittedMirror(
+            certificate: certificate,
+            tracks: [inScopeTrack]
+        )))
+    }
+
+    @Test("Full-library admission returns every canonical present row in database ID order")
+    func admitsFullLibrary() {
+        let firstTrack = track(id: "A", artist: "Metallica")
+        let secondTrack = track(id: "B", artist: "Björk")
+        let presentIDs = Set([databaseID("A"), databaseID("B")])
+        let certificate = makeCertificate(
+            membershipStamp: membership(ids: Array(presentIDs)),
+            testArtists: [],
+            trackIDs: Array(presentIDs)
+        )
+        let snapshot = makeSnapshot(
+            presentIDs: presentIDs,
+            tracks: [secondTrack, firstTrack],
+            certificates: [certificate]
+        )
+
+        #expect(snapshot.admission(for: requirement(testArtists: []), at: observedAt) == .admitted(AdmittedMirror(
+            certificate: certificate,
+            tracks: [firstTrack, secondTrack]
+        )))
+    }
+
+    @Test("Admission rejects duplicate canonical rows instead of returning a partial mirror")
+    func rejectsDuplicateRows() {
+        let certificate = makeCertificate()
+        let duplicate = track(id: "A", artist: "Metallica")
+        let snapshot = makeSnapshot(
+            tracks: [duplicate, duplicate],
+            certificates: [certificate]
+        )
+
+        #expect(snapshot.admission(for: requirement(), at: observedAt) ==
+            .rejected(.incomplete(.identityMissing(count: 1))))
+    }
+
+    @Test("Admission rejects non-canonical rows instead of returning a partial mirror")
+    func rejectsNonCanonicalRows() {
+        let certificate = makeCertificate()
+        let snapshot = makeSnapshot(
+            presentIDs: [databaseID("A")],
+            tracks: [Track(
+                id: "music-kit-A",
+                name: "Song",
+                artist: "Metallica",
+                album: "Album",
+                appleScriptID: "A"
+            )],
+            certificates: [certificate]
+        )
+
+        #expect(snapshot.admission(for: requirement(), at: observedAt) ==
+            .rejected(.incomplete(.identityMissing(count: 1))))
+    }
+
+    @Test("Admission rejects missing full-library rows instead of returning a partial mirror")
+    func rejectsMissingRows() {
+        let firstID = databaseID("A")
+        let missingID = databaseID("B")
+        let presentIDs = Set([firstID, missingID])
+        let certificate = makeCertificate(
+            membershipStamp: membership(ids: Array(presentIDs)),
+            testArtists: [],
+            trackIDs: [firstID, missingID]
+        )
+        let snapshot = makeSnapshot(
+            presentIDs: presentIDs,
+            tracks: [track(id: "A", artist: "Metallica")],
+            certificates: [certificate]
+        )
+
+        #expect(snapshot.admission(for: requirement(testArtists: []), at: observedAt) ==
+            .rejected(.incomplete(.identityMissing(count: 1))))
+    }
+
     @Test("Certificate coding preserves flat persisted evidence fields")
     func preservesFlatWire() throws {
         let certificate = makeCertificate()
