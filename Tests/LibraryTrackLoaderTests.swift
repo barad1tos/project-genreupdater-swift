@@ -97,19 +97,38 @@ struct LibraryTrackLoaderTests {
         #expect(load.readiness.isReady)
     }
 
-    @Test("A certificate cannot ready a mirror with a missing canonical member row")
-    func partialMirrorIsUnready() async throws {
+    @Test("A scoped certificate does not require an unrelated member row")
+    func partialScopeIsReady() async throws {
         let firstID = try #require(MusicDatabaseTrackID(rawValue: "DB-1"))
-        let missingID = try #require(MusicDatabaseTrackID(rawValue: "DB-2"))
+        let unrelatedID = try #require(MusicDatabaseTrackID(rawValue: "DB-2"))
         let store = LoaderTrackStore(
             tracks: [canonicalTrack(id: firstID.rawValue, artist: "Metallica")],
-            presentIDs: [firstID, missingID],
+            presentIDs: [firstID, unrelatedID],
             certifiedArtists: ["Metallica"]
         )
 
         let load = try await LibraryTrackLoader.currentMirror(
             store: store,
             requirement: requirement(testArtists: ["Metallica"])
+        )
+
+        #expect(load.readiness.isReady)
+        #expect(load.tracks.map(\.id) == ["DB-1"])
+    }
+
+    @Test("A full-library certificate requires every canonical member row")
+    func partialLibraryIsUnready() async throws {
+        let firstID = try #require(MusicDatabaseTrackID(rawValue: "DB-1"))
+        let missingID = try #require(MusicDatabaseTrackID(rawValue: "DB-2"))
+        let store = LoaderTrackStore(
+            tracks: [canonicalTrack(id: firstID.rawValue, artist: "Metallica")],
+            presentIDs: [firstID, missingID],
+            certifiedArtists: []
+        )
+
+        let load = try await LibraryTrackLoader.currentMirror(
+            store: store,
+            requirement: requirement()
         )
 
         #expect(load.readiness == .incomplete(.identityMissing(count: 1)))

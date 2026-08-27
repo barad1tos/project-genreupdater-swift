@@ -78,6 +78,41 @@ struct LibrarySyncVerifyTests {
         #expect(try await store.loadAllTracks().map(\.id) == ["T1"])
     }
 
+    @Test("No-op database verification preserves scoped processing readiness")
+    func keepsNoOpReady() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncNoOp-\(UUID().uuidString)")
+        let track = Track(
+            id: "T1",
+            name: "One",
+            artist: "Target",
+            album: "Album",
+            appleScriptID: "T1"
+        )
+        await bridge.setLibrary(ids: ["T1"], tracks: [:])
+        await store.setInventory([track])
+        await store.setScopeCertificate(testArtists: ["Target"])
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log",
+                testArtists: ["Target"]
+            ),
+            observer: bridge
+        )
+
+        #expect(try await store.readiness(testArtists: ["Target"]).isReady)
+
+        _ = try await service.verifyAndCleanDatabase(force: true)
+
+        let snapshot = try await store.loadMirrorSnapshot()
+        #expect(snapshot.revision == MirrorRevision(value: 1))
+        #expect(try await store.readiness(testArtists: ["Target"]).isReady)
+    }
+
     @Test("Database verification stops after the configured conflict retries")
     func verificationRetryLimit() async throws {
         let bridge = SyncMockScriptClient()

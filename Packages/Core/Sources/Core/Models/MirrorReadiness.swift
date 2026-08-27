@@ -248,8 +248,10 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
                   tracksByID.updateValue(track, forKey: databaseID) == nil
             else { return nil }
         }
-        guard Set(tracksByID.keys) == presentIDs else { return nil }
-        guard !requirement.normalizedTestArtists.isEmpty else { return presentIDs }
+        if requirement.normalizedTestArtists.isEmpty {
+            guard Set(tracksByID.keys) == presentIDs else { return nil }
+            return presentIDs
+        }
 
         return Set(tracksByID.compactMap { databaseID, track in
             let effectiveArtist = track.albumArtist.flatMap(ArtistAllowList.normalizedName)

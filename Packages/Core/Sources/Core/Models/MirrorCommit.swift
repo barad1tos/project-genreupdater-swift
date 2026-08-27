@@ -13,7 +13,6 @@ public struct ObservationID: Codable, Equatable, Hashable, Sendable {
 public enum InvalidationReason: Equatable, Sendable {
     case incompleteObservation
     case membershipChanged
-    case metadataChanged
     case narrowedObservation
 }
 
@@ -36,7 +35,7 @@ public struct MirrorCommit: Sendable {
 
     public init(
         baseRevision: MirrorRevision,
-        observation: ObservationID,
+        observation: ObservationID = ObservationID(),
         membershipChange: MembershipChange,
         repairs: [TrackMirrorRepair],
         upserts: [Track],
@@ -48,24 +47,6 @@ public struct MirrorCommit: Sendable {
         self.repairs = repairs
         self.upserts = upserts
         self.certificates = certificates
-    }
-
-    public init(
-        baseRevision: MirrorRevision,
-        certificates: CertificateChange,
-        membershipChange: MembershipChange,
-        repairs: [TrackMirrorRepair],
-        upserts: [Track],
-        observation: ObservationID = ObservationID()
-    ) {
-        self.init(
-            baseRevision: baseRevision,
-            observation: observation,
-            membershipChange: membershipChange,
-            repairs: repairs,
-            upserts: upserts,
-            certificates: certificates
-        )
     }
 }
 

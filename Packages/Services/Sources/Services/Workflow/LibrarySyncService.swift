@@ -105,7 +105,7 @@ public actor LibrarySyncService {
         let removedDatabaseIDs = snapshot.presentIDs
             .subtracting(observation.censusIDs)
             .sorted { $0.rawValue < $1.rawValue }
-        try await commitMembership(observation, revision: snapshot.revision)
+        try await commitMembership(observation, snapshot: snapshot)
         let removedTracks = removedDatabaseIDs.compactMap { canonicalByID[$0] }
         await invalidateCachesForLibraryChanges(
             hasLibraryChanges: !removedTracks.isEmpty,
@@ -126,15 +126,24 @@ public actor LibrarySyncService {
 
     private func commitMembership(
         _ observation: LibraryObservation,
-        revision: MirrorRevision
+        snapshot: TrackMirrorSnapshot
     ) async throws {
+        let membershipTransition: MembershipChange
+        let certificateTransition: CertificateChange
+        if observation.censusIDs == snapshot.presentIDs {
+            membershipTransition = .preserve
+            certificateTransition = .preserve
+        } else {
+            membershipTransition = try membershipChange(for: observation)
+            certificateTransition = .invalidate(.membershipChanged)
+        }
         try await trackStore.commitMirror(MirrorCommit(
-            baseRevision: revision,
+            baseRevision: snapshot.revision,
             observation: ObservationID(),
-            membershipChange: membershipChange(for: observation),
+            membershipChange: membershipTransition,
             repairs: [],
             upserts: [],
-            certificates: .invalidate(.membershipChanged)
+            certificates: certificateTransition
         ))
     }
 

@@ -31,7 +31,6 @@ struct TestHelpersTests {
         let store = MockTrackStore(revision: MirrorRevision(value: .max))
         let update = try MirrorCommit(
             baseRevision: MirrorRevision(value: .max),
-            certificates: .invalidate(.metadataChanged),
             membershipChange: replacementMembership(for: [
                 Track(id: "new-track", name: "New", artist: "Artist", album: "Album", appleScriptID: "new-track"),
             ]),
@@ -42,7 +41,8 @@ struct TestHelpersTests {
                 artist: "Artist",
                 album: "Album",
                 appleScriptID: "new-track"
-            )]
+            )],
+            certificates: .invalidate(.membershipChanged)
         )
         let before = try await store.loadMirrorSnapshot()
 

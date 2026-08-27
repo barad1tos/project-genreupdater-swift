@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-public enum MembershipFingerprintError: Error, Equatable, Sendable {
+enum MembershipFingerprintError: Error, Equatable, Sendable {
     case duplicateIDs([MusicDatabaseTrackID])
 }
 

@@ -331,10 +331,10 @@ struct LibraryMembershipTests {
         let stamp = try MembershipFingerprint.make(ids: ids)
         return try await store.commitMirror(MirrorCommit(
             baseRevision: revision,
-            certificates: .invalidate(tracks.isEmpty ? .membershipChanged : .metadataChanged),
             membershipChange: .replace(stamp: stamp, ids: ids, observedAt: observedAt),
             repairs: [],
-            upserts: tracks
+            upserts: tracks,
+            certificates: .invalidate(.membershipChanged)
         )).revision
     }
 

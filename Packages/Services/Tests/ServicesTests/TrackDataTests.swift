@@ -215,10 +215,10 @@ struct TrackDataTests {
 
         try await store.commitMirror(MirrorCommit(
             baseRevision: revision,
-            certificates: .invalidate(.membershipChanged),
             membershipChange: replacementMembership(for: remainingIDs),
             repairs: [],
-            upserts: []
+            upserts: [],
+            certificates: .invalidate(.membershipChanged)
         ))
         let remainingTracks = try await store.loadAllTracks()
         let loadedIDs = remainingTracks.map(\.id).sorted()
@@ -237,20 +237,20 @@ struct TrackDataTests {
 
         let committedRevision = try await store.commitMirror(MirrorCommit(
             baseRevision: .initial,
-            certificates: .invalidate(.metadataChanged),
             membershipChange: replacementMembership(for: [acceptedTrack]),
             repairs: [],
-            upserts: [acceptedTrack]
+            upserts: [acceptedTrack],
+            certificates: .invalidate(.membershipChanged)
         ))
 
         #expect(committedRevision.revision == MirrorRevision(value: 1))
         do {
             _ = try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                certificates: .invalidate(.incompleteObservation),
                 membershipChange: replacementMembership(for: [rejectedTrack]),
                 repairs: [],
-                upserts: [rejectedTrack]
+                upserts: [rejectedTrack],
+                certificates: .invalidate(.incompleteObservation)
             ))
             Issue.record("A stale mirror update unexpectedly committed")
         } catch let conflict as MirrorRevisionConflict {

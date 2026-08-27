@@ -44,10 +44,10 @@ struct TrackMirrorPersistenceTests {
             try await store.initialize()
             try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                certificates: .invalidate(.membershipChanged),
                 membershipChange: replacementMembership(for: [MusicDatabaseTrackID]()),
                 repairs: [],
-                upserts: []
+                upserts: [],
+                certificates: .invalidate(.membershipChanged)
             ))
         }
 
@@ -72,17 +72,17 @@ struct TrackMirrorPersistenceTests {
             let initialTracks = [track(id: "keep"), track(id: "delete")]
             let first = try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                certificates: .invalidate(.metadataChanged),
                 membershipChange: replacementMembership(for: initialTracks),
                 repairs: [],
-                upserts: initialTracks
+                upserts: initialTracks,
+                certificates: .invalidate(.membershipChanged)
             ))
             let second = try await store.commitMirror(MirrorCommit(
                 baseRevision: first.revision,
-                certificates: .preserve,
                 membershipChange: .preserve,
                 repairs: [],
-                upserts: []
+                upserts: [],
+                certificates: .preserve
             ))
             #expect(first.revision == MirrorRevision(value: 1))
             #expect(second.revision == MirrorRevision(value: 2))
@@ -102,13 +102,13 @@ struct TrackMirrorPersistenceTests {
             )) {
                 try await relaunched.commitMirror(MirrorCommit(
                     baseRevision: MirrorRevision(value: 1),
-                    certificates: .invalidate(.incompleteObservation),
                     membershipChange: replacementMembership(for: [
                         track(id: "keep", name: "Changed"),
                         track(id: "insert"),
                     ]),
                     repairs: [],
-                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")]
+                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")],
+                    certificates: .invalidate(.incompleteObservation)
                 ))
             }
             #expect(try await relaunched.loadMirrorSnapshot() == expectedSnapshot)
@@ -150,13 +150,13 @@ struct TrackMirrorPersistenceTests {
             do {
                 _ = try await store.commitMirror(MirrorCommit(
                     baseRevision: expectedSnapshot.revision,
-                    certificates: .invalidate(.metadataChanged),
                     membershipChange: replacementMembership(for: [
                         track(id: "keep", name: "Changed"),
                         track(id: "insert"),
                     ]),
                     repairs: [],
-                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")]
+                    upserts: [track(id: "keep", name: "Changed"), track(id: "insert")],
+                    certificates: .invalidate(.membershipChanged)
                 ))
                 Issue.record("A mirror commit must fail when its revision is exhausted")
             } catch {

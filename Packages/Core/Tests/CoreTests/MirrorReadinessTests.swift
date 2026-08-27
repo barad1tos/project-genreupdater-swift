@@ -56,6 +56,43 @@ struct MirrorReadinessTests {
         #expect(snapshot.readiness(for: requirement(), at: observedAt) == .ready(certificate))
     }
 
+    @Test("Scoped readiness does not require physical rows for unrelated census members")
+    func admitsPartialScope() {
+        let targetID = databaseID("A")
+        let outsideID = databaseID("B")
+        let presentIDs = Set([targetID, outsideID])
+        let certificate = makeCertificate(
+            membershipStamp: membership(ids: Array(presentIDs)),
+            trackIDs: [targetID]
+        )
+        let snapshot = makeSnapshot(
+            presentIDs: presentIDs,
+            tracks: [track(id: "A", artist: "Metallica")],
+            certificates: [certificate]
+        )
+
+        #expect(snapshot.readiness(for: requirement(), at: observedAt) == .ready(certificate))
+    }
+
+    @Test("A missing scoped canonical row remains fail-closed")
+    func rejectsMissingScopedRow() {
+        let targetID = databaseID("A")
+        let outsideID = databaseID("B")
+        let presentIDs = Set([targetID, outsideID])
+        let certificate = makeCertificate(
+            membershipStamp: membership(ids: Array(presentIDs)),
+            trackIDs: [targetID]
+        )
+        let snapshot = makeSnapshot(
+            presentIDs: presentIDs,
+            tracks: [track(id: "B", artist: "Other")],
+            certificates: [certificate]
+        )
+
+        #expect(snapshot.readiness(for: requirement(), at: observedAt) ==
+            .incomplete(.metadataMissing(count: 1)))
+    }
+
     @Test("A missing canonical row fails closed before certificate admission")
     func rejectsPartialPhysicalMirror() {
         let firstID = databaseID("A")
