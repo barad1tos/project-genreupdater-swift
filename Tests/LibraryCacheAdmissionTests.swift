@@ -38,13 +38,13 @@ struct LibraryCacheAdmissionTests {
 
         #expect(fixture.dependencies.libraryTracks.count == 201)
         #expect(!fixture.dependencies.isLibraryReadyForUpdates)
-        #expect(presentedCounts == [403, 201])
+        #expect(presentedCounts == [201])
         #expect(await fixture.snapshotService.savedSnapshotCount() == 0)
         #expect(try await fixture.snapshotService.loadSnapshot()?.count == 403)
     }
 
-    @Test("A populated unready mirror keeps a broader cached library visible")
-    func unreadyMirrorKeepsCache() async throws {
+    @Test("Canonical membership replaces a broader cache without gaining write authority")
+    func unreadyMirrorReplacesCache() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         let cachedTrack = canonicalMirrorTrack(sampleTrack())
         let partialTrack = canonicalMirrorTrack(Core.Track(
@@ -73,10 +73,10 @@ struct LibraryCacheAdmissionTests {
 
         await fixture.dependencies.loadLibrary()
 
-        #expect(fixture.dependencies.libraryTracks.map(\.id) == [cachedTrack.id])
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == [partialTrack.id])
         #expect(!fixture.dependencies.isLibraryReadyForUpdates)
-        #expect(browsedTrackIDs == [[cachedTrack.id]])
-        #expect(appliedTrackIDs == [[cachedTrack.id]])
+        #expect(browsedTrackIDs == [[partialTrack.id]])
+        #expect(appliedTrackIDs == [[partialTrack.id]])
         #expect(await fixture.snapshotService.savedSnapshotCount() == 0)
         #expect(try await fixture.snapshotService.loadSnapshot()?.map(\.id) == [cachedTrack.id])
     }
@@ -133,7 +133,7 @@ struct LibraryCacheAdmissionTests {
         #expect(dependencies.libraryTracks.map(\.id) == ["partial"])
         #expect(relaunched.libraryTracks.map(\.id) == ["partial"])
         #expect(!dependencies.isLibraryReadyForUpdates)
-        #expect(browsedTrackIDs == [[], ["partial"]])
+        #expect(browsedTrackIDs == [["partial"]])
         #expect(await snapshotService.savedSnapshotCount() == 0)
         #expect(try await snapshotService.loadSnapshot()?.isEmpty == true)
     }

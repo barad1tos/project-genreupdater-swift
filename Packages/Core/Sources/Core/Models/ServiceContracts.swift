@@ -194,6 +194,7 @@ public struct TrackMirrorUpdate: Sendable {
 public struct TrackMirrorSnapshot: Equatable, Sendable {
     public let revision: MirrorRevision
     public let membershipStamp: MembershipStamp
+    public let presentIDs: Set<MusicDatabaseTrackID>
     public let presentTracks: [Track]
     public let repairCandidates: [Track]
     public let coverage: MirrorCoverage
@@ -201,12 +202,14 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
     public init(
         revision: MirrorRevision,
         membershipStamp: MembershipStamp,
+        presentIDs: Set<MusicDatabaseTrackID>,
         presentTracks: [Track],
         repairCandidates: [Track],
         coverage: MirrorCoverage
     ) {
         self.revision = revision
         self.membershipStamp = membershipStamp
+        self.presentIDs = presentIDs
         self.presentTracks = presentTracks
         self.repairCandidates = repairCandidates
         self.coverage = coverage

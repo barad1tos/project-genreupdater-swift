@@ -441,6 +441,46 @@ struct LibrarySyncObservationTests {
         #expect(await store.stored.map(\.id) == ["A"])
     }
 
+    @Test("Scoped verification still applies an empty full-library census")
+    func emptyScopeAppliesCensus() async throws {
+        let outsideScope = mirrorTrack(id: "B", artist: "Other")
+        let store = ObservationMirrorStore(stored: [outsideScope])
+        let reader = try ObservationReader(templates: [template(
+            currentIDs: [],
+            censusIDs: [],
+            rows: [],
+            metadataRequestedIDs: [],
+            membership: .scoped(unobservedIDs: [])
+        )])
+        let service = makeService(store: store, reader: reader, testArtists: ["Target"])
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+
+        #expect(result.verifiedTrackCount == 0)
+        #expect(result.removedTrackIDs == ["B"])
+        #expect(await store.stored.isEmpty)
+    }
+
+    @Test("Verification removes present membership without a metadata row")
+    func metadataGapAppliesCensus() async throws {
+        let missingID = try #require(MusicDatabaseTrackID(rawValue: "GAP"))
+        let store = ObservationMirrorStore(stored: [], presentIDs: [missingID])
+        let reader = try ObservationReader(templates: [template(
+            currentIDs: [],
+            censusIDs: [],
+            rows: [],
+            metadataRequestedIDs: [],
+            membership: .full
+        )])
+        let service = makeService(store: store, reader: reader)
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+
+        #expect(result.verifiedTrackCount == 0)
+        #expect(result.removedTrackIDs == ["GAP"])
+        #expect(await store.presentIDs.isEmpty)
+    }
+
     @Test("Failed verification observation has no atomic commit")
     func failedVerificationHasNoCommit() async throws {
         let store = ObservationMirrorStore(stored: [mirrorTrack(id: "A")])
@@ -637,15 +677,21 @@ private actor ObservationMirrorStore: TrackStateStore {
     }
 
     private(set) var stored: [Track]
+    private(set) var presentIDs: Set<MusicDatabaseTrackID>
     private(set) var applyCalls: [ApplyCall] = []
     private let applyError: SyncObservationTestError?
     private var revision = MirrorRevision.initial
 
     init(
         stored: [Track],
+        presentIDs: Set<MusicDatabaseTrackID>? = nil,
         applyError: SyncObservationTestError? = nil
     ) {
         self.stored = stored
+        self.presentIDs = presentIDs ?? Set(stored.compactMap { track in
+            guard let databaseID = track.databaseID, track.id == databaseID.rawValue else { return nil }
+            return databaseID
+        })
         self.applyError = applyError
     }
 
@@ -658,7 +704,12 @@ private actor ObservationMirrorStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        try mirrorSnapshot(revision: revision, tracks: stored, coverage: .verified(.fullLibrary))
+        try mirrorSnapshot(
+            revision: revision,
+            tracks: stored,
+            presentIDs: presentIDs,
+            coverage: .verified(.fullLibrary)
+        )
     }
 
     @discardableResult
@@ -675,6 +726,9 @@ private actor ObservationMirrorStore: TrackStateStore {
         }
         let nextRevision = try revision.advanced()
 
+        if let replacementIDs = membershipIDs(update.membershipChange) {
+            presentIDs = Set(replacementIDs)
+        }
         applyMembership(update.membershipChange, to: &stored)
         for track in update.upserts {
             if let index = stored.firstIndex(where: { $0.id == track.id }) {

@@ -41,6 +41,7 @@ public actor TrackDataStore: TrackStateStore {
         return try TrackMirrorSnapshot(
             revision: state?.revision ?? .initial,
             membershipStamp: MembershipFingerprint.make(ids: presentIDs),
+            presentIDs: Set(presentIDs),
             presentTracks: persistedTracks
                 .filter { $0.appleScriptID == $0.trackID && presentIDValues.contains($0.trackID) }
                 .map { $0.toTrack() },

@@ -40,7 +40,7 @@ public enum ModelContainerFactory {
 
     static func create(schema: Schema, configuration: ModelConfiguration) throws -> ModelContainer {
         if try needsRecoveryBootstrap(configuration) {
-            return try ModelContainer(for: schema, configurations: [configuration])
+            try bootstrapRecoveryStore(configuration)
         }
         return try ModelContainer(
             for: schema,
@@ -50,6 +50,18 @@ public enum ModelContainerFactory {
     }
 
     private static let trackRecoveryChecksum = "i2Q0M3v/JLttbprhy5I8T0nCkA5O9AYoi9OSQRGpY2s="
+
+    private static func bootstrapRecoveryStore(_ configuration: ModelConfiguration) throws {
+        let schema = Schema(versionedSchema: StoreSchemaV2.self)
+        let bootstrapConfiguration = ModelConfiguration(
+            configuration.name,
+            schema: schema,
+            url: configuration.url,
+            allowsSave: configuration.allowsSave,
+            cloudKitDatabase: configuration.cloudKitDatabase
+        )
+        _ = try ModelContainer(for: schema, configurations: [bootstrapConfiguration])
+    }
 
     private static func needsRecoveryBootstrap(_ configuration: ModelConfiguration) throws -> Bool {
         guard !configuration.isStoredInMemoryOnly else { return false }

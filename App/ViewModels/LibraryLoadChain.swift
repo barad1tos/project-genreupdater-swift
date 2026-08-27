@@ -81,10 +81,9 @@ extension AppDependencies {
 
         let scopedArtists = LibraryTrackLoader.scopedArtists(from: self)
         let loadStart = ContinuousClock.now
-        let hasCachedTracks = await applyCachedLibraryLoad(
-            token: token,
+        let cachedTracks = await LibraryTrackLoader.cachedSnapshot(
+            from: self,
             scopedArtists: scopedArtists,
-            loadStart: loadStart,
             forceRefresh: forceRefresh
         )
         guard libraryLoadGate.isCurrent(token) else { return }
@@ -103,7 +102,7 @@ extension AppDependencies {
             token: token,
             scopedArtists: scopedArtists,
             loadStart: loadStart,
-            hasCachedTracks: hasCachedTracks
+            cachedTracks: cachedTracks
         )
         guard shouldRepublish else { return }
         await republishActivityProjection()
@@ -114,23 +113,21 @@ extension AppDependencies {
         token: UInt64,
         scopedArtists: [String],
         loadStart: ContinuousClock.Instant,
-        hasCachedTracks: Bool
+        cachedTracks: [Track]?
     ) async -> Bool {
         defer { finishLibraryLoadIfCurrent(token) }
 
         do {
             let mirrorLoad = try await LibraryTrackLoader.currentMirror(
                 store: store,
+                cachedTracks: cachedTracks ?? [],
                 scopedArtists: scopedArtists
             )
-            if !mirrorLoad.canReplaceCache {
-                await recordLibraryLoad(startedAt: loadStart)
-                return libraryLoadGate.isCurrent(token)
-            }
             await applyCurrentMirrorLoad(
                 mirrorLoad,
                 token: token,
                 scopedArtists: scopedArtists,
+                previousTracks: cachedTracks,
                 loadStart: loadStart
             )
         } catch is CancellationError {
@@ -141,7 +138,6 @@ extension AppDependencies {
         } catch {
             await handleLibraryLoadFailure(
                 error,
-                hasCachedTracks: hasCachedTracks,
                 token: token,
                 loadStart: loadStart
             )
@@ -150,37 +146,19 @@ extension AppDependencies {
         return libraryLoadGate.isCurrent(token)
     }
 
-    private func applyCachedLibraryLoad(
-        token: UInt64,
-        scopedArtists: [String],
-        loadStart: ContinuousClock.Instant,
-        forceRefresh: Bool
-    ) async -> Bool {
-        guard let cachedLoad = await LibraryTrackLoader.cachedSnapshot(
-            from: self,
-            scopedArtists: scopedArtists,
-            forceRefresh: forceRefresh
-        ) else { return false }
-
-        guard libraryLoadGate.isCurrent(token) else { return false }
-        libraryTracks = cachedLoad.tracks
-        await applyBrowseTruthForLoad?(cachedLoad.tracks, .cachedMirror(scannedAt: nil), token)
-        onLibraryLoadApplied?(cachedLoad.tracks)
-        await recordLibraryLoad(startedAt: loadStart)
-        return cachedLoad.hasTracks
-    }
-
     private func applyCurrentMirrorLoad(
         _ mirrorLoad: LibraryMirrorTrackLoad,
         token: UInt64,
         scopedArtists: [String],
+        previousTracks: [Track]?,
         loadStart: ContinuousClock.Instant
     ) async {
         guard libraryLoadGate.isCurrent(token) else { return }
         await cacheLibraryLoad(
             mirrorLoad.tracks,
             scopedArtists: scopedArtists,
-            isAuthoritative: mirrorLoad.isLibraryReadyForUpdates
+            isAuthoritative: mirrorLoad.isLibraryReadyForUpdates,
+            previousTracks: previousTracks
         )
         guard libraryLoadGate.isCurrent(token) else { return }
         isLibraryReadyForUpdates = mirrorLoad.isLibraryReadyForUpdates
@@ -197,16 +175,15 @@ extension AppDependencies {
 
     private func handleLibraryLoadFailure(
         _ error: any Error,
-        hasCachedTracks: Bool,
         token: UInt64,
         loadStart: ContinuousClock.Instant
     ) async {
         guard libraryLoadGate.isCurrent(token) else { return }
         await recordLibraryLoad(startedAt: loadStart, outcome: .failed)
         libraryLoadError = LibraryLoadError.make(from: error)
-        if !hasCachedTracks {
-            libraryTracks = []
-        }
+        libraryTracks = []
+        await applyBrowseTruthForLoad?([], .cachedMirror(scannedAt: nil), token)
+        onLibraryLoadApplied?([])
     }
 
     private func finishLibraryLoadIfCurrent(_ token: UInt64) {

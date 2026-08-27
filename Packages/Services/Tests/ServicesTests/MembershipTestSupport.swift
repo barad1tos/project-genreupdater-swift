@@ -50,15 +50,18 @@ func replacementMembership(
 func mirrorSnapshot(
     revision: MirrorRevision,
     tracks: [Track],
+    presentIDs: Set<MusicDatabaseTrackID>? = nil,
     coverage: MirrorCoverage
 ) throws -> TrackMirrorSnapshot {
     let presentTracks = tracks.filter { track in
         guard let databaseID = track.databaseID else { return false }
         return track.id == databaseID.rawValue
     }
+    let membership = presentIDs ?? Set(presentTracks.compactMap(\.databaseID))
     return try TrackMirrorSnapshot(
         revision: revision,
-        membershipStamp: MembershipFingerprint.make(ids: presentTracks.compactMap(\.databaseID)),
+        membershipStamp: MembershipFingerprint.make(ids: Array(membership)),
+        presentIDs: membership,
         presentTracks: presentTracks,
         repairCandidates: tracks.filter { !presentTracks.contains($0) },
         coverage: coverage

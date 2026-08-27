@@ -65,7 +65,7 @@ public actor LibrarySyncService {
     private func verificationAttempt(force: Bool) async throws -> DatabaseVerificationResult {
         let snapshot = try await trackStore.loadMirrorSnapshot()
         let storedTracks = tracksInConfiguredScope(snapshot.presentTracks)
-        guard !storedTracks.isEmpty else {
+        guard !snapshot.presentIDs.isEmpty else {
             return DatabaseVerificationResult(verifiedTrackCount: 0, removedTrackIDs: [])
         }
 
@@ -102,7 +102,7 @@ public actor LibrarySyncService {
             )
         }
 
-        let removedDatabaseIDs = Set(canonicalByID.keys)
+        let removedDatabaseIDs = snapshot.presentIDs
             .subtracting(observation.censusIDs)
             .sorted { $0.rawValue < $1.rawValue }
         try await trackStore.applyMirror(TrackMirrorUpdate(

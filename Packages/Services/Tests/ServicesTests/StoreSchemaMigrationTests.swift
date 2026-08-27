@@ -1,7 +1,7 @@
 import Core
 import CoreData
 import Foundation
-import SwiftData
+@preconcurrency import SwiftData
 import Testing
 @testable import Services
 
@@ -51,6 +51,7 @@ struct StoreSchemaMigrationTests {
     private static let mirrorScopeChecksum = "vrVyyiD+OtvleDs7wa27tSGnDMLj4Bts1NWHukp62k4="
     private static let membershipChecksum = "lCPA7P84tguSr6BvhsyyK+8Wzw49fLJgWhUikSppAIQ="
     private static let deployedMembershipChecksum = "whynwE78EfLk6nFo6Pm4ZxQSXWggha8oemCvJY0LlPw="
+    private static let recoveryChecksum = "i2Q0M3v/JLttbprhy5I8T0nCkA5O9AYoi9OSQRGpY2s="
     private static let runID = fixtureID("00000000-0000-0000-0000-000000000001")
     private static let workItemID = fixtureID("00000000-0000-0000-0000-000000000002")
     private static let planID = fixtureID("00000000-0000-0000-0000-000000000003")
@@ -161,6 +162,49 @@ struct StoreSchemaMigrationTests {
             #expect(member.removalRevisionValue == 9)
             #expect(member.removedAt == removedAt)
         }
+    }
+
+    @Test("The unversioned recovery store gains canonical membership")
+    func migratesRecoveryStoreMembership() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+
+        do {
+            let schema = Schema(versionedSchema: StoreSchemaV2.self)
+            let configuration = ModelConfiguration(
+                "GenreUpdater",
+                schema: schema,
+                url: storeURL,
+                cloudKitDatabase: .none
+            )
+            let container = try ModelContainer(for: schema, configurations: [configuration])
+            let context = ModelContext(container)
+            context.insert(PersistedTrack(
+                trackID: "recovery-track",
+                appleScriptID: "recovery-track",
+                name: "Recovery Track",
+                artist: "Recovery Artist",
+                album: "Recovery Album"
+            ))
+            context.insert(PersistedMirrorState(scopeData: nil, revisionValue: 7))
+            try context.save()
+        }
+
+        var metadata = try NSPersistentStoreCoordinator.metadataForPersistentStore(
+            ofType: NSSQLiteStoreType,
+            at: storeURL
+        )
+        metadata[NSPersistentStoreModelVersionChecksumKey] = Self.recoveryChecksum
+        try NSPersistentStoreCoordinator.setMetadata(metadata, type: .sqlite, at: storeURL)
+        #expect(try storeChecksum(at: storeURL) == Self.recoveryChecksum)
+        let store = try TrackDataStore(modelContainer: migratedContainer(at: storeURL))
+        try await store.initialize()
+        let snapshot = try await store.loadMirrorSnapshot()
+        #expect(snapshot.revision == MirrorRevision(value: 7))
+        #expect(snapshot.presentTracks.map(\.id) == ["recovery-track"])
     }
 
     private static var fixtureURL: URL {

@@ -41,6 +41,7 @@ actor MirrorTrackStoreStub: TrackStateStore {
         return try TrackMirrorSnapshot(
             revision: revision,
             membershipStamp: MembershipFingerprint.make(ids: tracks.compactMap(\.databaseID)),
+            presentIDs: Set(tracks.compactMap(\.databaseID)),
             presentTracks: tracks,
             repairCandidates: [],
             coverage: coverage

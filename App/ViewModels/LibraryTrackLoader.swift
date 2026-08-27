@@ -1,18 +1,9 @@
 import Core
 import Foundation
 
-struct LibraryCachedTrackLoad {
-    let tracks: [Track]
-
-    var hasTracks: Bool {
-        !tracks.isEmpty
-    }
-}
-
 struct LibraryMirrorTrackLoad {
     let tracks: [Track]
     let isLibraryReadyForUpdates: Bool
-    let canReplaceCache: Bool
 }
 
 @MainActor
@@ -25,7 +16,7 @@ enum LibraryTrackLoader {
         from dependencies: AppDependencies,
         scopedArtists: [String],
         forceRefresh: Bool
-    ) async -> LibraryCachedTrackLoad? {
+    ) async -> [Track]? {
         guard !forceRefresh, let cachedTracks = await dependencies.loadLibrarySnapshot() else {
             return nil
         }
@@ -33,11 +24,12 @@ enum LibraryTrackLoader {
         guard let scopedCachedTracks = try? canonicalTracks(cachedTracks, scopedArtists: scopedArtists) else {
             return nil
         }
-        return LibraryCachedTrackLoad(tracks: scopedCachedTracks)
+        return scopedCachedTracks
     }
 
     static func currentMirror(
         store: any TrackStateStore,
+        cachedTracks: [Track] = [],
         scopedArtists: [String]
     ) async throws -> LibraryMirrorTrackLoad {
         try Task.checkCancellation()
@@ -45,13 +37,33 @@ enum LibraryTrackLoader {
         try Task.checkCancellation()
         let requestedScope = MirrorScope(testArtists: scopedArtists)
         let isLibraryReadyForUpdates = snapshot.coverage.admits(requestedScope)
-        let tracks = try canonicalTracks(snapshot.presentTracks, scopedArtists: scopedArtists)
+        let tracks = try presentationTracks(
+            snapshot: snapshot,
+            cachedTracks: cachedTracks,
+            scopedArtists: scopedArtists
+        )
 
         return LibraryMirrorTrackLoad(
             tracks: tracks,
-            isLibraryReadyForUpdates: isLibraryReadyForUpdates,
-            canReplaceCache: isLibraryReadyForUpdates || (snapshot.coverage == .unknown && !tracks.isEmpty)
+            isLibraryReadyForUpdates: isLibraryReadyForUpdates
         )
+    }
+
+    private static func presentationTracks(
+        snapshot: TrackMirrorSnapshot,
+        cachedTracks: [Track],
+        scopedArtists: [String]
+    ) throws -> [Track] {
+        var tracks = try canonicalTracks(snapshot.presentTracks, scopedArtists: scopedArtists)
+        var includedIDs = Set(tracks.compactMap(\.databaseID))
+        for track in try canonicalTracks(cachedTracks, scopedArtists: scopedArtists) {
+            guard let databaseID = track.databaseID,
+                  snapshot.presentIDs.contains(databaseID),
+                  includedIDs.insert(databaseID).inserted
+            else { continue }
+            tracks.append(track)
+        }
+        return tracks
     }
 
     private static func canonicalTracks(_ tracks: [Track], scopedArtists: [String]) throws -> [Track] {
