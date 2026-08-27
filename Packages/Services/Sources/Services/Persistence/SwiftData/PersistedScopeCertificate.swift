@@ -36,9 +36,11 @@ extension StoreSchemaV5 {
                 membership: MembershipStamp(fingerprint: membershipFingerprint),
                 testArtists: JSONDecoder().decode([String].self, from: testArtistsData),
                 fieldSet: MirrorFieldSet(version: fieldSetVersion),
-                requestedFingerprint: requestedFingerprint,
-                observedFingerprint: observedFingerprint,
-                trackCount: trackCount,
+                evidence: ScopeEvidence(
+                    requestedFingerprint: requestedFingerprint,
+                    observedFingerprint: observedFingerprint,
+                    trackCount: trackCount
+                ),
                 observedAt: observedAt
             )
         }

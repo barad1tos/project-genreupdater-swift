@@ -21,9 +21,11 @@ func makeReadyEvidence() throws -> MirrorReadiness {
         membership: membership,
         testArtists: [],
         fieldSet: .processingV1,
-        requestedFingerprint: membership.fingerprint,
-        observedFingerprint: membership.fingerprint,
-        trackCount: 0,
+        evidence: ScopeEvidence(
+            requestedFingerprint: membership.fingerprint,
+            observedFingerprint: membership.fingerprint,
+            trackCount: 0
+        ),
         observedAt: .distantPast
     ))
 }
@@ -135,7 +137,9 @@ struct ScopedReadinessFixture {
                 configuration.development.testArtists = ["In Flames"]
                 return configuration
             },
-            configurationSaver: { _ in },
+            configurationSaver: { _ in
+                // This fixture exercises library persistence and intentionally does not persist configuration.
+            },
             modelContainerFactory: { container }
         )
         dependencies.configureLibraryPersistenceForTesting(
@@ -214,9 +218,11 @@ actor MirrorTrackStoreStub: TrackStateStore {
                 membership: membership,
                 testArtists: certifiedArtists,
                 fieldSet: .processingV1,
-                requestedFingerprint: fingerprint,
-                observedFingerprint: fingerprint,
-                trackCount: scopedIDs.count,
+                evidence: ScopeEvidence(
+                    requestedFingerprint: fingerprint,
+                    observedFingerprint: fingerprint,
+                    trackCount: scopedIDs.count
+                ),
                 observedAt: certificateObservedAt
             )]
         } else {

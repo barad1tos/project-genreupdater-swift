@@ -204,9 +204,11 @@ extension LibrarySyncService {
             membership: membership,
             testArtists: observation.scope.normalizedTestArtists,
             fieldSet: .processingV1,
-            requestedFingerprint: scopeFingerprint,
-            observedFingerprint: scopeFingerprint,
-            trackCount: observation.currentIDs.count,
+            evidence: ScopeEvidence(
+                requestedFingerprint: scopeFingerprint,
+                observedFingerprint: scopeFingerprint,
+                trackCount: observation.currentIDs.count
+            ),
             observedAt: observation.observedAt
         ))
     }

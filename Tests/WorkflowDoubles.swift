@@ -18,9 +18,11 @@ extension TrackStateStore {
             membership: membership,
             testArtists: [],
             fieldSet: .processingV1,
-            requestedFingerprint: membership.fingerprint,
-            observedFingerprint: membership.fingerprint,
-            trackCount: canonicalTracks.count,
+            evidence: ScopeEvidence(
+                requestedFingerprint: membership.fingerprint,
+                observedFingerprint: membership.fingerprint,
+                trackCount: canonicalTracks.count
+            ),
             observedAt: Date()
         )
         try await commitMirror(MirrorCommit(

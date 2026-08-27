@@ -310,8 +310,11 @@ struct ScopeCertificateStoreTests {
                 certificate: makeCertificate(
                     revision: MirrorRevision(value: 2),
                     membership: membership,
-                    requestedFingerprint: membership.fingerprint,
-                    observedFingerprint: other.fingerprint
+                    evidence: ScopeEvidence(
+                        requestedFingerprint: membership.fingerprint,
+                        observedFingerprint: other.fingerprint,
+                        trackCount: 1
+                    )
                 ),
                 error: .incompleteCertificate
             )
@@ -320,7 +323,11 @@ struct ScopeCertificateStoreTests {
                 certificate: makeCertificate(
                     revision: MirrorRevision(value: 2),
                     membership: membership,
-                    trackCount: -1
+                    evidence: ScopeEvidence(
+                        requestedFingerprint: membership.fingerprint,
+                        observedFingerprint: membership.fingerprint,
+                        trackCount: -1
+                    )
                 ),
                 error: .invalidCertificateTrackCount(-1)
             )
@@ -353,9 +360,7 @@ struct ScopeCertificateStoreTests {
     private func makeCertificate(
         revision: MirrorRevision,
         membership: MembershipStamp,
-        requestedFingerprint: String? = nil,
-        observedFingerprint: String? = nil,
-        trackCount: Int = 1
+        evidence: ScopeEvidence? = nil
     ) -> ScopeCertificate {
         ScopeCertificate(
             id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8)),
@@ -363,9 +368,11 @@ struct ScopeCertificateStoreTests {
             membership: membership,
             testArtists: [],
             fieldSet: .processingV1,
-            requestedFingerprint: requestedFingerprint ?? membership.fingerprint,
-            observedFingerprint: observedFingerprint ?? membership.fingerprint,
-            trackCount: trackCount,
+            evidence: evidence ?? ScopeEvidence(
+                requestedFingerprint: membership.fingerprint,
+                observedFingerprint: membership.fingerprint,
+                trackCount: 1
+            ),
             observedAt: Date(timeIntervalSince1970: 1_800_000_000)
         )
     }

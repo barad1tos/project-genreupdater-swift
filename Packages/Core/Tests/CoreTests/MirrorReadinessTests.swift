@@ -22,6 +22,19 @@ struct MirrorReadinessTests {
         #expect(snapshot.readiness(for: requirement(), at: observedAt) == .ready(certificate))
     }
 
+    @Test("Certificate coding preserves flat persisted evidence fields")
+    func preservesFlatWire() throws {
+        let certificate = makeCertificate()
+        let encoded = try JSONEncoder().encode(certificate)
+        let flatEvidence = try JSONDecoder().decode(FlatScopeEvidence.self, from: encoded)
+        let decoded = try JSONDecoder().decode(ScopeCertificate.self, from: encoded)
+
+        #expect(flatEvidence.requestedFingerprint == currentMembership.fingerprint)
+        #expect(flatEvidence.observedFingerprint == currentMembership.fingerprint)
+        #expect(flatEvidence.trackCount == 1)
+        #expect(makeSnapshot(certificates: [decoded]).readiness(for: requirement(), at: observedAt) == .ready(decoded))
+    }
+
     @Test("A scoped certificate measures only canonical rows in its exact artist scope")
     func admitsExactScopedRows() {
         let metallicaID = databaseID("A")
@@ -65,7 +78,11 @@ struct MirrorReadinessTests {
 
     @Test("A certificate count must match its canonical scoped rows")
     func rejectsWrongTrackCount() {
-        let certificate = makeCertificate(trackCount: 2)
+        let certificate = makeCertificate(evidence: ScopeEvidence(
+            requestedFingerprint: currentMembership.fingerprint,
+            observedFingerprint: currentMembership.fingerprint,
+            trackCount: 2
+        ))
         let snapshot = makeSnapshot(certificates: [certificate])
 
         #expect(snapshot.readiness(for: requirement(), at: observedAt) == .incomplete(.metadataMissing(count: 1)))
@@ -74,10 +91,11 @@ struct MirrorReadinessTests {
     @Test("A certificate fingerprint must match its canonical scoped rows")
     func rejectsWrongFingerprint() {
         let wrongFingerprint = membership(ids: [databaseID("B")]).fingerprint
-        let certificate = makeCertificate(
+        let certificate = makeCertificate(evidence: ScopeEvidence(
             requestedFingerprint: wrongFingerprint,
-            observedFingerprint: wrongFingerprint
-        )
+            observedFingerprint: wrongFingerprint,
+            trackCount: 1
+        ))
         let snapshot = makeSnapshot(certificates: [certificate])
 
         #expect(snapshot.readiness(for: requirement(), at: observedAt) == .incomplete(.metadataMissing(count: 1)))
@@ -108,10 +126,11 @@ struct MirrorReadinessTests {
 
     @Test("A certificate with incomplete requested IDs is inadmissible")
     func rejectsIncompleteRequestedIDs() {
-        let certificate = makeCertificate(
+        let certificate = makeCertificate(evidence: ScopeEvidence(
             requestedFingerprint: String(repeating: "c", count: 64),
-            observedFingerprint: String(repeating: "d", count: 64)
-        )
+            observedFingerprint: String(repeating: "d", count: 64),
+            trackCount: 1
+        ))
         let snapshot = makeSnapshot(certificates: [certificate])
 
         #expect(snapshot.readiness(for: requirement(), at: observedAt) == .incomplete(.metadataMissing(count: 1)))
@@ -265,9 +284,7 @@ struct MirrorReadinessTests {
         membershipStamp: MembershipStamp? = nil,
         testArtists: [String] = ["Metallica"],
         trackIDs: [MusicDatabaseTrackID]? = nil,
-        requestedFingerprint: String? = nil,
-        observedFingerprint: String? = nil,
-        trackCount: Int? = nil,
+        evidence: ScopeEvidence? = nil,
         observedAt: Date? = nil
     ) -> ScopeCertificate {
         let resolvedTrackIDs = trackIDs ?? [databaseID("A")]
@@ -278,9 +295,11 @@ struct MirrorReadinessTests {
             membership: membershipStamp ?? currentMembership,
             testArtists: testArtists,
             fieldSet: .processingV1,
-            requestedFingerprint: requestedFingerprint ?? fingerprint,
-            observedFingerprint: observedFingerprint ?? fingerprint,
-            trackCount: trackCount ?? resolvedTrackIDs.count,
+            evidence: evidence ?? ScopeEvidence(
+                requestedFingerprint: fingerprint,
+                observedFingerprint: fingerprint,
+                trackCount: resolvedTrackIDs.count
+            ),
             observedAt: observedAt ?? self.observedAt
         )
     }
@@ -310,4 +329,10 @@ struct MirrorReadinessTests {
             preconditionFailure("Invalid deterministic membership fixture: \(error.localizedDescription)")
         }
     }
+}
+
+private struct FlatScopeEvidence: Decodable {
+    let requestedFingerprint: String
+    let observedFingerprint: String
+    let trackCount: Int
 }

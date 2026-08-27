@@ -92,9 +92,11 @@ func scopeCertificate(
         membership: membership,
         testArtists: testArtists,
         fieldSet: .processingV1,
-        requestedFingerprint: fingerprint,
-        observedFingerprint: fingerprint,
-        trackCount: trackIDs.count,
+        evidence: ScopeEvidence(
+            requestedFingerprint: fingerprint,
+            observedFingerprint: fingerprint,
+            trackCount: trackIDs.count
+        ),
         observedAt: observedAt
     )
 }

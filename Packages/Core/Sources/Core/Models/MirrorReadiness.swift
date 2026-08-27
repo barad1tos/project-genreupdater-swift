@@ -83,6 +83,23 @@ public struct MirrorRequirement: Equatable, Sendable {
     }
 }
 
+/// Observed membership facts covered by one scope certificate.
+public struct ScopeEvidence: Codable, Equatable, Hashable, Sendable {
+    public let requestedFingerprint: String
+    public let observedFingerprint: String
+    public let trackCount: Int
+
+    public init(
+        requestedFingerprint: String,
+        observedFingerprint: String,
+        trackCount: Int
+    ) {
+        self.requestedFingerprint = requestedFingerprint
+        self.observedFingerprint = observedFingerprint
+        self.trackCount = trackCount
+    }
+}
+
 /// Evidence that one exact processing scope is complete at a committed mirror revision.
 public struct ScopeCertificate: Codable, Equatable, Hashable, Sendable {
     public let id: UUID
@@ -95,15 +112,21 @@ public struct ScopeCertificate: Codable, Equatable, Hashable, Sendable {
     public let trackCount: Int
     public let observedAt: Date
 
+    public var evidence: ScopeEvidence {
+        ScopeEvidence(
+            requestedFingerprint: requestedFingerprint,
+            observedFingerprint: observedFingerprint,
+            trackCount: trackCount
+        )
+    }
+
     public init(
         id: UUID,
         revision: MirrorRevision,
         membership: MembershipStamp,
         testArtists: [String],
         fieldSet: MirrorFieldSet,
-        requestedFingerprint: String,
-        observedFingerprint: String,
-        trackCount: Int,
+        evidence: ScopeEvidence,
         observedAt: Date
     ) {
         self.id = id
@@ -111,9 +134,9 @@ public struct ScopeCertificate: Codable, Equatable, Hashable, Sendable {
         self.membership = membership
         normalizedTestArtists = MirrorRequirement.normalizedArtists(testArtists)
         self.fieldSet = fieldSet
-        self.requestedFingerprint = requestedFingerprint
-        self.observedFingerprint = observedFingerprint
-        self.trackCount = trackCount
+        requestedFingerprint = evidence.requestedFingerprint
+        observedFingerprint = evidence.observedFingerprint
+        trackCount = evidence.trackCount
         self.observedAt = observedAt
     }
 }

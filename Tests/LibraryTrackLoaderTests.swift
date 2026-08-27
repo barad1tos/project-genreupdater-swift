@@ -225,9 +225,11 @@ private actor LoaderTrackStore: TrackStateStore {
                 membership: membership,
                 testArtists: artists,
                 fieldSet: .processingV1,
-                requestedFingerprint: fingerprint,
-                observedFingerprint: fingerprint,
-                trackCount: scopedIDs.count,
+                evidence: ScopeEvidence(
+                    requestedFingerprint: fingerprint,
+                    observedFingerprint: fingerprint,
+                    trackCount: scopedIDs.count
+                ),
                 observedAt: .distantPast
             )]
         } ?? []
