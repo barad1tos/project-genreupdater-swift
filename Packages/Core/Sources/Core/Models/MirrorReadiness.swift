@@ -1,6 +1,6 @@
 import Foundation
 
-/// Why a previously complete processing mirror is no longer current.
+/// Why persisted processing evidence is no longer current.
 public enum StaleMirrorReason: Equatable, Sendable {
     case membershipChanged
     case metadataExpired
@@ -48,7 +48,7 @@ public enum MirrorReadiness: Equatable, Sendable {
     }
 }
 
-/// Versioned processing metadata contract proven by a scope certificate.
+/// Versioned identifier for the processing metadata contract covered by a scope certificate.
 public struct MirrorFieldSet: Codable, Equatable, Hashable, Sendable {
     public static let processingV1 = Self(version: 1)
 
@@ -179,11 +179,41 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
         else {
             return .incomplete(.metadataMissing(count: max(1, scopedIDs.count)))
         }
-        if let maximumAge = requirement.maximumMetadataAge,
-           date.timeIntervalSince(certificate.observedAt) > maximumAge {
-            return .stale(.metadataExpired)
+        if let temporalState = temporalState(for: certificate, requirement: requirement, at: date) {
+            return temporalState
         }
         return .ready(certificate)
+    }
+
+    private func temporalState(
+        for certificate: ScopeCertificate,
+        requirement: MirrorRequirement,
+        at date: Date
+    ) -> MirrorReadiness? {
+        if let maximumAge = requirement.maximumMetadataAge,
+           !maximumAge.isFinite || maximumAge < 0 {
+            return .unavailable(MirrorFailure(
+                category: .storage,
+                detail: "Maximum metadata age must be finite and non-negative"
+            ))
+        }
+        let observationAge = date.timeIntervalSince(certificate.observedAt)
+        guard observationAge.isFinite else {
+            return .unavailable(MirrorFailure(
+                category: .storage,
+                detail: "Mirror observation age must be finite"
+            ))
+        }
+        guard observationAge >= 0 else {
+            return .unavailable(MirrorFailure(
+                category: .storage,
+                detail: "Mirror observation timestamp is in the future"
+            ))
+        }
+        guard let maximumAge = requirement.maximumMetadataAge,
+              observationAge >= maximumAge
+        else { return nil }
+        return .stale(.metadataExpired)
     }
 
     private func canonicalScopedIDs(for requirement: MirrorRequirement) -> Set<MusicDatabaseTrackID>? {

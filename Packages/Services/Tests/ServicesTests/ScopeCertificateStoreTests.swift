@@ -6,6 +6,18 @@ import Testing
 
 @Suite("Scope certificate store")
 struct ScopeCertificateStoreTests {
+    enum InvalidReplacement: CaseIterable, Sendable {
+        case revision
+        case membership
+        case fingerprints
+        case trackCount
+    }
+
+    private struct ReplacementFixture {
+        let certificate: ScopeCertificate
+        let error: TrackStoreError
+    }
+
     @Test("Replace persists one certificate with membership and track changes")
     func replacesCertificateAtomically() async throws {
         let store = try TrackDataStore.createInMemory()
@@ -142,7 +154,7 @@ struct ScopeCertificateStoreTests {
     func preserveRejectsUpserts() async throws {
         let fixture = try await seededStore()
 
-        await #expect(throws: TrackStoreError.self) {
+        await #expect(throws: TrackStoreError.unsafeCertificatePreserve) {
             try await fixture.store.commitMirror(MirrorCommit(
                 baseRevision: MirrorRevision(value: 1),
                 observation: observationID(2),
@@ -162,7 +174,7 @@ struct ScopeCertificateStoreTests {
     func preserveRejectsMembershipChanges() async throws {
         let fixture = try await seededStore()
 
-        await #expect(throws: TrackStoreError.self) {
+        await #expect(throws: TrackStoreError.unsafeCertificatePreserve) {
             try await fixture.store.commitMirror(MirrorCommit(
                 baseRevision: MirrorRevision(value: 1),
                 observation: observationID(3),
@@ -201,7 +213,7 @@ struct ScopeCertificateStoreTests {
         let fixture = try await seededStore()
         let rebased = makeCertificate(revision: MirrorRevision(value: 2), membership: fixture.membership)
 
-        await #expect(throws: TrackStoreError.self) {
+        await #expect(throws: TrackStoreError.unprovenCertificateRebase) {
             try await fixture.store.commitMirror(MirrorCommit(
                 baseRevision: MirrorRevision(value: 1),
                 observation: observationID(4),
@@ -215,6 +227,104 @@ struct ScopeCertificateStoreTests {
         let snapshot = try await fixture.store.loadMirrorSnapshot()
         #expect(snapshot.revision == MirrorRevision(value: 1))
         #expect(snapshot.certificates == [fixture.certificate])
+    }
+
+    @Test(
+        "Invalid replacement certificates leave the persisted mirror unchanged",
+        arguments: InvalidReplacement.allCases
+    )
+    func rejectsInvalidReplacement(_ invalid: InvalidReplacement) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "InvalidCertificate-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+        let membership = try MembershipFingerprint.make(ids: [testDatabaseID("A")])
+        let otherMembership = try MembershipFingerprint.make(ids: [testDatabaseID("B")])
+        let original = makeCertificate(revision: MirrorRevision(value: 1), membership: membership)
+        let invalidFixture = makeInvalidFixture(invalid, membership: membership, other: otherMembership)
+
+        let expectedSnapshot: TrackMirrorSnapshot
+        do {
+            let store = try makeStore(at: storeURL)
+            _ = try await store.commitMirror(MirrorCommit(
+                baseRevision: .initial,
+                observation: observationID(0),
+                membershipChange: .replace(
+                    stamp: membership,
+                    ids: [testDatabaseID("A")],
+                    observedAt: original.observedAt
+                ),
+                repairs: [],
+                upserts: [certificateTrack(id: "A")],
+                certificates: .replace(original)
+            ))
+            expectedSnapshot = try await store.loadMirrorSnapshot()
+
+            do {
+                _ = try await store.commitMirror(MirrorCommit(
+                    baseRevision: MirrorRevision(value: 1),
+                    observation: observationID(1),
+                    membershipChange: .preserve,
+                    repairs: [],
+                    upserts: [],
+                    certificates: .replace(invalidFixture.certificate)
+                ))
+                Issue.record("Expected the invalid replacement certificate to be rejected")
+            } catch let error as TrackStoreError {
+                #expect(error == invalidFixture.error)
+            } catch {
+                Issue.record("Unexpected error: \(error)")
+            }
+
+            #expect(try await store.loadMirrorSnapshot() == expectedSnapshot)
+            #expect(try await store.trackCount() == 1)
+        }
+
+        let reopened = try makeStore(at: storeURL)
+        #expect(try await reopened.loadMirrorSnapshot() == expectedSnapshot)
+        #expect(try await reopened.trackCount() == 1)
+    }
+
+    private func makeInvalidFixture(
+        _ invalid: InvalidReplacement,
+        membership: MembershipStamp,
+        other: MembershipStamp
+    ) -> ReplacementFixture {
+        switch invalid {
+        case .revision:
+            ReplacementFixture(
+                certificate: makeCertificate(revision: MirrorRevision(value: 1), membership: membership),
+                error: .certificateRevisionMismatch(
+                    expected: MirrorRevision(value: 2),
+                    actual: MirrorRevision(value: 1)
+                )
+            )
+        case .membership:
+            ReplacementFixture(
+                certificate: makeCertificate(revision: MirrorRevision(value: 2), membership: other),
+                error: .certificateMembershipMismatch(expected: membership, actual: other)
+            )
+        case .fingerprints:
+            ReplacementFixture(
+                certificate: makeCertificate(
+                    revision: MirrorRevision(value: 2),
+                    membership: membership,
+                    requestedFingerprint: membership.fingerprint,
+                    observedFingerprint: other.fingerprint
+                ),
+                error: .incompleteCertificate
+            )
+        case .trackCount:
+            ReplacementFixture(
+                certificate: makeCertificate(
+                    revision: MirrorRevision(value: 2),
+                    membership: membership,
+                    trackCount: -1
+                ),
+                error: .invalidCertificateTrackCount(-1)
+            )
+        }
     }
 
     private func seededStore() async throws -> (
@@ -242,7 +352,10 @@ struct ScopeCertificateStoreTests {
 
     private func makeCertificate(
         revision: MirrorRevision,
-        membership: MembershipStamp
+        membership: MembershipStamp,
+        requestedFingerprint: String? = nil,
+        observedFingerprint: String? = nil,
+        trackCount: Int = 1
     ) -> ScopeCertificate {
         ScopeCertificate(
             id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8)),
@@ -250,9 +363,9 @@ struct ScopeCertificateStoreTests {
             membership: membership,
             testArtists: [],
             fieldSet: .processingV1,
-            requestedFingerprint: membership.fingerprint,
-            observedFingerprint: membership.fingerprint,
-            trackCount: 1,
+            requestedFingerprint: requestedFingerprint ?? membership.fingerprint,
+            observedFingerprint: observedFingerprint ?? membership.fingerprint,
+            trackCount: trackCount,
             observedAt: Date(timeIntervalSince1970: 1_800_000_000)
         )
     }

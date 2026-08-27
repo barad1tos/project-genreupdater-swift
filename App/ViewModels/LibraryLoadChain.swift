@@ -67,12 +67,13 @@ extension AppDependencies {
         libraryMetrics = nil
         lastLibraryScanDate = nil
         libraryLoadError = nil
+        libraryReadiness = .incomplete(.freshObservationRequired)
     }
 
     func loadLibrary(forceRefresh: Bool = false) async {
         let token = libraryLoadGate.begin()
         libraryLoadError = nil
-        isLibraryReadyForUpdates = false
+        libraryReadiness = .incomplete(.freshObservationRequired)
         let cachedMetrics = await metricsSnapshotStore?.loadLatest()
         guard libraryLoadGate.isCurrent(token) else { return }
         libraryMetrics = cachedMetrics
@@ -89,6 +90,10 @@ extension AppDependencies {
         guard libraryLoadGate.isCurrent(token) else { return }
 
         guard let trackStore else {
+            libraryReadiness = .unavailable(MirrorFailure(
+                category: .storage,
+                detail: "Track store is unavailable"
+            ))
             finishLibraryLoadIfCurrent(token)
             await republishActivityProjection()
             return
@@ -162,7 +167,7 @@ extension AppDependencies {
             previousTracks: previousTracks
         )
         guard libraryLoadGate.isCurrent(token) else { return }
-        isLibraryReadyForUpdates = mirrorLoad.readiness.isReady
+        libraryReadiness = mirrorLoad.readiness
         libraryTracks = mirrorLoad.tracks
         await applyBrowseTruthForLoad?(mirrorLoad.tracks, .cachedMirror(scannedAt: nil), token)
         guard libraryLoadGate.isCurrent(token) else { return }
@@ -193,6 +198,10 @@ extension AppDependencies {
         guard libraryLoadGate.isCurrent(token) else { return }
         await recordLibraryLoad(startedAt: loadStart, outcome: .failed)
         libraryLoadError = LibraryLoadError.make(from: error)
+        libraryReadiness = .unavailable(MirrorFailure(
+            category: .observation,
+            detail: libraryLoadError?.message ?? error.localizedDescription
+        ))
         libraryTracks = []
         await applyBrowseTruthForLoad?([], .cachedMirror(scannedAt: nil), token)
         onLibraryLoadApplied?([])

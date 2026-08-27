@@ -77,11 +77,13 @@ extension LibrarySyncService {
             storedIDs: Set(canonicalStored.keys),
             censusIDs: observation.censusIDs
         )
+        let isMetadataComplete = hasCompleteMetadata(observation)
         let certificateTransition = try certificateChange(
             for: observation,
             baseRevision: snapshot.revision,
             previousReadiness: readiness,
-            hasTrackMutations: !repair.repairs.isEmpty || !ordinaryUpserts.isEmpty
+            hasTrackMutations: !repair.repairs.isEmpty || !ordinaryUpserts.isEmpty,
+            isMetadataComplete: isMetadataComplete
         )
         let membershipTransition = try membershipChange(
             for: observation,
@@ -98,7 +100,7 @@ extension LibrarySyncService {
             previousTracks: Dictionary(uniqueKeysWithValues: mirrorBaseline.map {
                 ($0.key.rawValue, $0.value)
             }),
-            didCompleteForceRefresh: refresh == .force && observation.metadata.isComplete
+            didCompleteForceRefresh: refresh == .force && isMetadataComplete
         )
     }
 
@@ -109,6 +111,11 @@ extension LibrarySyncService {
             createdAt: currentDate(),
             reason: "library sync"
         )
+    }
+
+    private func hasCompleteMetadata(_ observation: LibraryObservation) -> Bool {
+        observation.metadata.isComplete
+            && observation.tracks.allSatisfy { $0.hasCompleteMetadata(for: .processingV1) }
     }
 
     private func upsertsExcludingRepairs(
@@ -157,15 +164,13 @@ extension LibrarySyncService {
         for observation: LibraryObservation,
         baseRevision: MirrorRevision,
         previousReadiness: MirrorReadiness,
-        hasTrackMutations: Bool
+        hasTrackMutations: Bool,
+        isMetadataComplete: Bool
     ) throws -> CertificateChange {
         guard runtimeConfiguration.albumTargetIdentity == nil else {
             return .invalidate(.narrowedObservation)
         }
-        guard observation.metadata.isComplete else {
-            return .invalidate(.incompleteObservation)
-        }
-        guard observation.tracks.allSatisfy({ $0.hasCompleteMetadata(for: .processingV1) }) else {
+        guard isMetadataComplete else {
             return .invalidate(.incompleteObservation)
         }
         let hasCompleteMembership = switch (observation.scope.source, observation.membership) {

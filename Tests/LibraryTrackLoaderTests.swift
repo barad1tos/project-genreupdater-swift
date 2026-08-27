@@ -228,7 +228,7 @@ private actor LoaderTrackStore: TrackStateStore {
                 requestedFingerprint: fingerprint,
                 observedFingerprint: fingerprint,
                 trackCount: scopedIDs.count,
-                observedAt: Date()
+                observedAt: .distantPast
             )]
         } ?? []
         return TrackMirrorSnapshot(

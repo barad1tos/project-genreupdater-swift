@@ -31,6 +31,10 @@ package struct V4MigrationEvidence: Codable, Sendable {
 }
 
 package enum StoreFixtureVerifier {
+    package static func migrate(at storeURL: URL) throws {
+        _ = try migratedContainer(at: storeURL)
+    }
+
     package static func verifyV3Migration(at storeURL: URL) throws -> [V3MigrationEvidence] {
         var evidence: [V3MigrationEvidence] = []
         for _ in 0 ..< 2 {

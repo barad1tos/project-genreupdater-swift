@@ -25,7 +25,7 @@ extension ActivityBuilder {
 
     static func makeLibraryCurrentStage(input: ActivityProjectionInput) -> ActivityPipelineStage? {
         switch input.libraryState {
-        case .loading, .permissionDenied, .failed:
+        case .loading, .presentationOnly, .permissionDenied, .failed:
             .detect
         case .empty:
             input.effectiveSyncState == .idle ? .watch : nil
@@ -81,7 +81,7 @@ extension ActivityBuilder {
         switch input.libraryState {
         case .permissionDenied, .failed:
             return .failed
-        case .loading, .empty, .ready:
+        case .loading, .empty, .ready, .presentationOnly:
             return .completed
         }
     }
@@ -115,6 +115,8 @@ extension ActivityBuilder {
             return .failed
         case .empty:
             return .pending
+        case .presentationOnly:
+            return .current
         case .ready:
             return currentStage == .detect ? .current : .completed
         }

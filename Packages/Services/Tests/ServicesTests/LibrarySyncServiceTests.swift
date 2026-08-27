@@ -58,7 +58,7 @@ actor SyncMockScriptClient: MusicAppReading {
             censusIDs: Set(allIDs),
             currentIDs: currentIDs,
             scope: request.scope,
-            observedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            observedAt: Date(),
             membership: request.scope.source == .fullLibrary
                 ? .full
                 : .scoped(unobservedIDs: missingIDs),

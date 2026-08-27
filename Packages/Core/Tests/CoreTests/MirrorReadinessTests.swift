@@ -126,6 +126,79 @@ struct MirrorReadinessTests {
             .stale(.metadataExpired))
     }
 
+    @Test("A certificate expires at the exact freshness boundary")
+    func expiresAtBoundary() {
+        let snapshot = makeSnapshot(certificates: [makeCertificate()])
+        let requirement = requirement(maximumMetadataAge: 60)
+
+        #expect(snapshot.readiness(for: requirement, at: observedAt.addingTimeInterval(60)) ==
+            .stale(.metadataExpired))
+    }
+
+    @Test(
+        "Invalid maximum metadata ages fail closed",
+        arguments: [TimeInterval.nan, .infinity, -.infinity, -1]
+    )
+    func rejectsInvalidAge(_ maximumMetadataAge: TimeInterval) {
+        let snapshot = makeSnapshot(certificates: [makeCertificate()])
+
+        #expect(snapshot.readiness(
+            for: requirement(maximumMetadataAge: maximumMetadataAge),
+            at: observedAt
+        ) == .unavailable(MirrorFailure(
+            category: .storage,
+            detail: "Maximum metadata age must be finite and non-negative"
+        )))
+    }
+
+    @Test("A future observation timestamp fails closed")
+    func rejectsFutureObservation() {
+        let snapshot = makeSnapshot(certificates: [makeCertificate()])
+
+        #expect(snapshot.readiness(for: requirement(), at: observedAt.addingTimeInterval(-1)) ==
+            .unavailable(MirrorFailure(
+                category: .storage,
+                detail: "Mirror observation timestamp is in the future"
+            )))
+    }
+
+    @Test(
+        "Non-finite observation ages fail closed",
+        arguments: [TimeInterval.nan, .infinity, -.infinity]
+    )
+    func rejectsNonFiniteAge(_ observationTime: TimeInterval) {
+        let snapshot = makeSnapshot(certificates: [makeCertificate(
+            observedAt: Date(timeIntervalSince1970: observationTime)
+        )])
+
+        #expect(snapshot.readiness(for: requirement(), at: observedAt) ==
+            .unavailable(MirrorFailure(
+                category: .storage,
+                detail: "Mirror observation age must be finite"
+            )))
+    }
+
+    @Test("Album artist admits a track when its primary artist is outside the scope")
+    func admitsMatchingAlbumArtist() {
+        let snapshot = makeSnapshot(
+            tracks: [track(id: "A", artist: "Other", albumArtist: "Metallica")],
+            certificates: [makeCertificate()]
+        )
+
+        #expect(snapshot.readiness(for: requirement(), at: observedAt) == .ready(makeCertificate()))
+    }
+
+    @Test("Album artist excludes a track even when its primary artist matches the scope")
+    func rejectsNonmatchingAlbumArtist() {
+        let snapshot = makeSnapshot(
+            tracks: [track(id: "A", artist: "Metallica", albumArtist: "Other")],
+            certificates: [makeCertificate()]
+        )
+
+        #expect(snapshot.readiness(for: requirement(), at: observedAt) ==
+            .incomplete(.metadataMissing(count: 1)))
+    }
+
     @Test("A certificate committed at another revision is superseded")
     func rejectsSupersededRevision() {
         let snapshot = makeSnapshot(
@@ -156,17 +229,6 @@ struct MirrorReadinessTests {
             ),
             at: observedAt
         ) == .incomplete(.freshObservationRequired))
-    }
-
-    @Test("Certificate transitions preserve explicit intent")
-    func preservesCertificateTransitionIntent() {
-        let certificate = makeCertificate()
-        let reason = InvalidationReason.narrowedObservation
-
-        #expect(CertificateChange.preserve == .preserve)
-        #expect(CertificateChange.replace(certificate) == .replace(certificate))
-        #expect(CertificateChange.invalidate(reason) == .invalidate(reason))
-        #expect(CertificateChange.rebase(certificate) == .rebase(certificate))
     }
 
     private func requirement(
@@ -205,7 +267,8 @@ struct MirrorReadinessTests {
         trackIDs: [MusicDatabaseTrackID]? = nil,
         requestedFingerprint: String? = nil,
         observedFingerprint: String? = nil,
-        trackCount: Int? = nil
+        trackCount: Int? = nil,
+        observedAt: Date? = nil
     ) -> ScopeCertificate {
         let resolvedTrackIDs = trackIDs ?? [databaseID("A")]
         let fingerprint = membership(ids: resolvedTrackIDs).fingerprint
@@ -218,12 +281,19 @@ struct MirrorReadinessTests {
             requestedFingerprint: requestedFingerprint ?? fingerprint,
             observedFingerprint: observedFingerprint ?? fingerprint,
             trackCount: trackCount ?? resolvedTrackIDs.count,
-            observedAt: observedAt
+            observedAt: observedAt ?? self.observedAt
         )
     }
 
-    private func track(id: String, artist: String) -> Track {
-        Track(id: id, name: "Song", artist: artist, album: "Album", appleScriptID: id)
+    private func track(id: String, artist: String, albumArtist: String? = nil) -> Track {
+        Track(
+            id: id,
+            name: "Song",
+            artist: artist,
+            album: "Album",
+            albumArtist: albumArtist,
+            appleScriptID: id
+        )
     }
 
     private func databaseID(_ value: String) -> MusicDatabaseTrackID {

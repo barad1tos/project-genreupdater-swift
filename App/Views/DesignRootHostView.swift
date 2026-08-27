@@ -277,7 +277,8 @@ struct DesignRootHostView: View {
             metricsSnapshot: dependencies.libraryMetrics,
             lastScanDate: dependencies.lastLibraryScanDate,
             loadError: dependencies.libraryLoadError,
-            isLoading: dependencies.isLibraryLoading
+            isLoading: dependencies.isLibraryLoading,
+            readiness: dependencies.libraryReadiness
         )
     }
 

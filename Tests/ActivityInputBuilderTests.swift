@@ -37,16 +37,17 @@ struct ActivityInputBuilderTests {
     }
 
     @Test("no error and not loading maps to empty or ready by track count")
-    func mapsTrackCountState() {
+    func mapsTrackCountState() throws {
         let emptyInput = ActivityInputBuilder.makeInput(from: makeContext(
             tracks: [],
             loadError: nil,
             isLoading: false
         ))
-        let readyInput = ActivityInputBuilder.makeInput(from: makeContext(
+        let readyInput = try ActivityInputBuilder.makeInput(from: makeContext(
             tracks: [track(id: "1")],
             loadError: nil,
-            isLoading: false
+            isLoading: false,
+            readiness: readyState()
         ))
 
         #expect(emptyInput.libraryState == .empty)
@@ -137,6 +138,7 @@ struct ActivityInputBuilderTests {
         tracks: [Core.Track] = [],
         loadError: LibraryLoadError?,
         isLoading: Bool,
+        readiness: MirrorReadiness = .incomplete(.freshObservationRequired),
         fixPlanProjection: FixPlanProjection = .empty(),
         reportsProjection: ReportsProjection = .empty()
     ) -> ActivityInputContext {
@@ -147,6 +149,7 @@ struct ActivityInputBuilderTests {
             lastScanDate: nil,
             loadError: loadError,
             isLoading: isLoading,
+            readiness: readiness,
             isDryRun: false,
             workflow: .empty,
             fixPlanProjection: fixPlanProjection,
@@ -158,6 +161,21 @@ struct ActivityInputBuilderTests {
             isAutomationArmed: false,
             now: Date(timeIntervalSince1970: 100)
         )
+    }
+
+    private func readyState() throws -> MirrorReadiness {
+        let membership = try MembershipFingerprint.make(ids: [])
+        return .ready(ScopeCertificate(
+            id: UUID(),
+            revision: .initial,
+            membership: membership,
+            testArtists: [],
+            fieldSet: .processingV1,
+            requestedFingerprint: membership.fingerprint,
+            observedFingerprint: membership.fingerprint,
+            trackCount: 0,
+            observedAt: .distantPast
+        ))
     }
 
     private func fixPlanProjection() -> FixPlanProjection {

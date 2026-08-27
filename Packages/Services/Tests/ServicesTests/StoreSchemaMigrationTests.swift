@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import Services
 
-@Suite("SwiftData store schema migration", .serialized)
+@Suite("SwiftData store schema migration")
 struct StoreSchemaMigrationTests {
     private enum MirrorFixtureState {
         case missing
@@ -39,6 +39,7 @@ struct StoreSchemaMigrationTests {
 
         try FileManager.default.copyItem(at: Self.fixtureURL, to: storeURL)
         #expect(try storeChecksum(at: storeURL) == Self.mirrorScopeChecksum)
+        _ = try fixtureProcess(mode: "migrate", at: storeURL)
 
         try verifyMigratedStore(migratedContainer(at: storeURL), mirrorState: .fullLibrary)
         try verifyMigratedStore(migratedContainer(at: storeURL), mirrorState: .fullLibrary)
@@ -52,8 +53,9 @@ struct StoreSchemaMigrationTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let storeURL = directory.appending(path: "GenreUpdater.store")
 
-        try StoreSchemaV0Fixture.write(to: storeURL)
+        _ = try fixtureProcess(mode: "v0", at: storeURL)
         #expect(try storeChecksum(at: storeURL) == Self.preMirrorChecksum)
+        _ = try fixtureProcess(mode: "migrate", at: storeURL)
 
         do {
             let container = try migratedContainer(at: storeURL)
@@ -148,6 +150,24 @@ struct StoreSchemaMigrationTests {
         }
     }
 
+    @Test("Fixture process drains large diagnostics before reporting failure")
+    func capturesLargeFailure() throws {
+        let storeURL = FileManager.default.temporaryDirectory
+            .appending(path: "UnusedFixture-\(UUID().uuidString).store")
+
+        do {
+            _ = try fixtureProcess(mode: "diagnostic-failure", at: storeURL)
+            Issue.record("Expected the diagnostic fixture process to fail")
+        } catch let FixtureProcessError.failed(reason, status, standardOutput, standardError) {
+            #expect(reason == "uncaughtSignal")
+            #expect(status != 0)
+            #expect(standardOutput.utf8.count > 65536)
+            #expect(standardError.utf8.count > 65536)
+            #expect(standardOutput.contains("fixture-stdout-complete"))
+            #expect(standardError.contains("fixture-stderr-complete"))
+        }
+    }
+
     @Test("The unversioned recovery store gains canonical membership")
     func migratesRecoveryStoreMembership() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -156,26 +176,7 @@ struct StoreSchemaMigrationTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let storeURL = directory.appending(path: "GenreUpdater.store")
 
-        do {
-            let schema = Schema(versionedSchema: StoreSchemaV2.self)
-            let configuration = ModelConfiguration(
-                "GenreUpdater",
-                schema: schema,
-                url: storeURL,
-                cloudKitDatabase: .none
-            )
-            let container = try ModelContainer(for: schema, configurations: [configuration])
-            let context = ModelContext(container)
-            context.insert(PersistedTrack(
-                trackID: "recovery-track",
-                appleScriptID: "recovery-track",
-                name: "Recovery Track",
-                artist: "Recovery Artist",
-                album: "Recovery Album"
-            ))
-            context.insert(StoreSchemaV2.PersistedMirrorState(scopeData: nil, revisionValue: 7))
-            try context.save()
-        }
+        _ = try fixtureProcess(mode: "v2-recovery", at: storeURL)
 
         var metadata = try NSPersistentStoreCoordinator.metadataForPersistentStore(
             ofType: NSSQLiteStoreType,
@@ -184,6 +185,7 @@ struct StoreSchemaMigrationTests {
         metadata[NSPersistentStoreModelVersionChecksumKey] = Self.recoveryChecksum
         try NSPersistentStoreCoordinator.setMetadata(metadata, type: .sqlite, at: storeURL)
         #expect(try storeChecksum(at: storeURL) == Self.recoveryChecksum)
+        _ = try fixtureProcess(mode: "migrate", at: storeURL)
         let store = try TrackDataStore(modelContainer: migratedContainer(at: storeURL))
         try await store.initialize()
         let snapshot = try await store.loadMirrorSnapshot()
@@ -246,21 +248,37 @@ struct StoreSchemaMigrationTests {
 
     private func fixtureProcess(mode: String, at storeURL: URL) throws -> Data {
         let process = Process()
-        let standardOutput = Pipe()
-        let standardError = Pipe()
+        let outputDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "StoreFixtureProcess-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+        let outputURL = outputDirectory.appending(path: "stdout")
+        let errorURL = outputDirectory.appending(path: "stderr")
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        FileManager.default.createFile(atPath: errorURL.path, contents: nil)
+        let standardOutput = try FileHandle(forWritingTo: outputURL)
+        let standardError = try FileHandle(forWritingTo: errorURL)
+        defer {
+            try? standardOutput.close()
+            try? standardError.close()
+        }
         process.executableURL = try fixtureGeneratorURL()
         process.arguments = [mode, storeURL.path]
         process.standardOutput = standardOutput
         process.standardError = standardError
         try process.run()
         process.waitUntilExit()
+        try standardOutput.close()
+        try standardError.close()
 
-        let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
-        let errorOutput = standardError.fileHandleForReading.readDataToEndOfFile()
+        let output = try Data(contentsOf: outputURL)
+        let errorOutput = try Data(contentsOf: errorURL)
         guard process.terminationStatus == 0 else {
             throw FixtureProcessError.failed(
+                reason: process.terminationReason == .exit ? "exit" : "uncaughtSignal",
                 status: process.terminationStatus,
-                message: String(data: errorOutput, encoding: .utf8) ?? "<non-UTF-8 output>"
+                standardOutput: String(data: output, encoding: .utf8) ?? "<non-UTF-8 output>",
+                standardError: String(data: errorOutput, encoding: .utf8) ?? "<non-UTF-8 output>"
             )
         }
         return output
@@ -423,14 +441,20 @@ struct StoreSchemaMigrationTests {
 
 private enum FixtureProcessError: LocalizedError {
     case executableNotFound
-    case failed(status: Int32, message: String)
+    case failed(reason: String, status: Int32, standardOutput: String, standardError: String)
 
     var errorDescription: String? {
         switch self {
         case .executableNotFound:
             "StoreFixtureGenerator was not found beside the Services test product."
-        case let .failed(status, message):
-            "StoreFixtureGenerator failed with status \(status): \(message)"
+        case let .failed(reason, status, standardOutput, standardError):
+            """
+            StoreFixtureGenerator failed with reason \(reason), status \(status).
+            stdout:
+            \(standardOutput)
+            stderr:
+            \(standardError)
+            """
         }
     }
 }

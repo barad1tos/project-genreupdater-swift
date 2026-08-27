@@ -19,9 +19,21 @@ private let expectedOpenRunStates: Set<RunLifecycleState> = [
     .recoverable,
     .recovering
 ]
+
 @Suite("AppDependencies library services")
 @MainActor
 struct LibraryServicesTests {
+    @Test("Real observation persistence drives scoped App readiness across relaunch")
+    func persistsScopedReadiness() async throws {
+        let fixture = try ScopedReadinessFixture()
+        defer { fixture.remove() }
+
+        try await fixture.seed()
+        try await fixture.expectFresh()
+        try fixture.expire()
+        try await fixture.expectStale()
+    }
+
     @Test("Scoped test-artist load skips full-library snapshot")
     func scopedTestArtistLoadSkipsFullLibrarySnapshot() async throws {
         let fixture = try makeFixture(testArtists: ["Clutch"])

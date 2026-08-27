@@ -13,7 +13,22 @@ struct LibrarySyncObservationTests {
         var year: Observed<Int> = .value(2001)
         var releaseYear: Observed<Int> = .absent
         var albumArtist: Observed<String> = .absent
+        var dateAdded: Observed<Date> = .absent
         var lastModified: Observed<Date> = .absent
+        var status: Observed<String> = .absent
+    }
+
+    enum ProcessingField: CaseIterable, Sendable {
+        case name
+        case artist
+        case album
+        case albumArtist
+        case genre
+        case editableYear
+        case releaseYear
+        case dateAdded
+        case lastModified
+        case status
     }
 
     @Test("A complete current observation replaces the exact scope certificate")
@@ -55,12 +70,15 @@ struct LibrarySyncObservationTests {
         #expect(detection.certificateChange == .invalidate(.incompleteObservation))
     }
 
-    @Test("Complete IDs with an unobserved processing field cannot issue a certificate")
-    func invalidatesUnobservedField() async throws {
+    @Test(
+        "Every unobserved processing field invalidates certification and force completion",
+        arguments: ProcessingField.allCases
+    )
+    func rejectsUnobservedField(_ field: ProcessingField) async throws {
         let store = ObservationMirrorStore(stored: [mirrorTrack(id: "A", genre: "Metal")])
         let reader = try ObservationReader(templates: [template(
             currentIDs: ["A"],
-            rows: [row(id: "A", values: RowValues(genre: .unobserved(reason: "omitted")))],
+            rows: [row(id: "A", values: values(unobserving: field))],
             metadataRequestedIDs: ["A"]
         )])
         let service = makeService(store: store, reader: reader)
@@ -68,6 +86,38 @@ struct LibrarySyncObservationTests {
         let detection = try await service.detectObservation(forceMetadataRefresh: true)
 
         #expect(detection.certificateChange == .invalidate(.incompleteObservation))
+        #expect(!detection.didCompleteForceRefresh)
+    }
+
+    @Test("Album artist precedence defines the producer scope")
+    func prefersAlbumArtist() async throws {
+        let includedID = try databaseID("A")
+        let excludedID = try databaseID("B")
+        let generation = try #require(LibraryGeneration(sourceValue: "album-artist-precedence"))
+        let census = try TrackIDCensus(ids: [includedID, excludedID], totalCount: 2, generation: generation)
+        let source = StaticObservationSource(
+            census: census,
+            metadata: [
+                mirrorTrack(id: "A", artist: "Other", albumArtist: "Target"),
+                mirrorTrack(id: "B", artist: "Target", albumArtist: "Other"),
+            ]
+        )
+        let store = ObservationMirrorStore(stored: [])
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(testArtists: ["Target"]),
+            observer: MusicAppObserver(source: source)
+        )
+
+        let detection = try await service.detectObservation(forceMetadataRefresh: true)
+
+        guard case let .replace(certificate) = detection.certificateChange else {
+            Issue.record("Expected a replacement certificate")
+            return
+        }
+        let includedFingerprint = try MembershipFingerprint.make(ids: [includedID]).fingerprint
+        #expect(certificate.trackCount == 1)
+        #expect(certificate.observedFingerprint == includedFingerprint)
     }
 
     @Test("Album-targeted observations invalidate broader processing admission")
@@ -626,11 +676,39 @@ struct LibrarySyncObservationTests {
                 genre: values.genre,
                 editableYear: values.year,
                 releaseYear: values.releaseYear,
-                dateAdded: .absent,
+                dateAdded: values.dateAdded,
                 lastModified: values.lastModified,
-                status: .absent
+                status: values.status
             )
         )
+    }
+
+    private func values(unobserving field: ProcessingField) -> RowValues {
+        var values = RowValues()
+        let omitted = "omitted"
+        switch field {
+        case .name:
+            values.name = .unobserved(reason: omitted)
+        case .artist:
+            values.artist = .unobserved(reason: omitted)
+        case .album:
+            values.album = .unobserved(reason: omitted)
+        case .albumArtist:
+            values.albumArtist = .unobserved(reason: omitted)
+        case .genre:
+            values.genre = .unobserved(reason: omitted)
+        case .editableYear:
+            values.year = .unobserved(reason: omitted)
+        case .releaseYear:
+            values.releaseYear = .unobserved(reason: omitted)
+        case .dateAdded:
+            values.dateAdded = .unobserved(reason: omitted)
+        case .lastModified:
+            values.lastModified = .unobserved(reason: omitted)
+        case .status:
+            values.status = .unobserved(reason: omitted)
+        }
+        return values
     }
 
     private func databaseIDs(_ values: [String]) throws -> Set<MusicDatabaseTrackID> {

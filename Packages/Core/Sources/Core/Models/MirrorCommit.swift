@@ -1,6 +1,6 @@
 import Foundation
 
-/// Identity of one generation-fenced source observation.
+/// Opaque identity of one source observation; `MirrorCommit.baseRevision` is the revision fence.
 public struct ObservationID: Codable, Equatable, Hashable, Sendable {
     public let value: UUID
 
@@ -17,7 +17,7 @@ public enum InvalidationReason: Equatable, Sendable {
     case narrowedObservation
 }
 
-/// Explicit certificate transition committed with mirror state.
+/// Requested certificate transition; rebases require proof and unsupported transitions are rejected by the store.
 public enum CertificateChange: Equatable, Sendable {
     case preserve
     case replace(ScopeCertificate)
@@ -25,7 +25,7 @@ public enum CertificateChange: Equatable, Sendable {
     case rebase(ScopeCertificate)
 }
 
-/// One coherent mutation of the persisted Music library mirror.
+/// An atomic mirror mutation accepted only when its base revision and certificate transition are valid.
 public struct MirrorCommit: Sendable {
     public let baseRevision: MirrorRevision
     public let observation: ObservationID
@@ -69,7 +69,7 @@ public struct MirrorCommit: Sendable {
     }
 }
 
-/// Facts currently consumed after a successful mirror commit.
+/// Stable revision result of a successful mirror commit.
 public struct MirrorCommitResult: Equatable, Sendable {
     public let revision: MirrorRevision
 

@@ -2,8 +2,33 @@ import Core
 import Foundation
 import SwiftData
 
-/// Writes synthetic legacy stores consumed by checked-in migration fixtures.
+/// Writes synthetic legacy stores checked in as migration fixtures.
 package enum StoreFixtureWriter {
+    package static func writeV0(to storeURL: URL) throws {
+        let schema = Schema(versionedSchema: StoreSchemaV0.self)
+        let configuration = ModelConfiguration(
+            "GenreUpdater",
+            schema: schema,
+            url: storeURL,
+            allowsSave: true,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = ModelContext(container)
+        let track = fixtureTrack()
+        let change = fixtureChange(track: track)
+        track.changeLog = [change]
+
+        context.insert(track)
+        context.insert(change)
+        context.insert(fixtureMetrics())
+        context.insert(fixturePendingAlbum())
+        context.insert(StoreSchemaV1.PersistedPendingVerificationMetadata(lastAutoVerification: timestamp))
+        insertRunState(into: context)
+        insertFixPlan(into: context)
+        try context.save()
+    }
+
     package static func writeV1(to storeURL: URL) throws {
         let schema = Schema(versionedSchema: StoreSchemaV1.self)
         let configuration = ModelConfiguration(
@@ -100,6 +125,28 @@ package enum StoreFixtureWriter {
             removalRevisionValue: 6,
             removedAt: timestamp
         ))
+        try context.save()
+    }
+
+    package static func writeRecoveryV2(to storeURL: URL) throws {
+        let schema = Schema(versionedSchema: StoreSchemaV2.self)
+        let configuration = ModelConfiguration(
+            "GenreUpdater",
+            schema: schema,
+            url: storeURL,
+            allowsSave: true,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = ModelContext(container)
+        context.insert(PersistedTrack(
+            trackID: "recovery-track",
+            appleScriptID: "recovery-track",
+            name: "Recovery Track",
+            artist: "Recovery Artist",
+            album: "Recovery Album"
+        ))
+        context.insert(StoreSchemaV2.PersistedMirrorState(scopeData: nil, revisionValue: 7))
         try context.save()
     }
 

@@ -35,6 +35,27 @@ actor DuplicateMetadataSource: ObservationSource {
     }
 }
 
+actor StaticObservationSource: ObservationSource {
+    private let census: TrackIDCensus
+    private let metadata: [Track]
+
+    init(census: TrackIDCensus, metadata: [Track]) {
+        self.census = census
+        self.metadata = metadata
+    }
+
+    func fetchCensus() -> TrackIDCensus {
+        census
+    }
+
+    func fetchMetadata(for ids: [MusicDatabaseTrackID]) -> [Track] {
+        let requested = Set(ids)
+        return metadata.filter { track in
+            track.databaseID.map(requested.contains) ?? false
+        }
+    }
+}
+
 actor ObservationReader: MusicAppReading {
     private var templates: [ObservationTemplate]
     private let error: SyncObservationTestError?
