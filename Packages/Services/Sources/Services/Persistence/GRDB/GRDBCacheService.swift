@@ -27,6 +27,10 @@ public actor GRDBCacheService: PersistentCacheService, AnalyticsEventStore {
     private var cleanupInterval: TimeInterval
     private var lastGenericCleanupAt = Date.now
 
+    var storagePath: String {
+        dbWriter.path
+    }
+
     /// Default TTL for album year cache entries (30 days).
     public static let defaultAlbumYearTTL: TimeInterval = 30 * 24 * 3600
 

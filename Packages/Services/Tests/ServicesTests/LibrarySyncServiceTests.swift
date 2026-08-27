@@ -130,7 +130,7 @@ actor SyncMockTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(revision: revision, tracks: storedTracks, coverage: coverage)
+        try mirrorSnapshot(revision: revision, tracks: storedTracks, coverage: coverage)
     }
 
     @discardableResult
@@ -146,8 +146,7 @@ actor SyncMockTrackStore: TrackStateStore {
         }
         let nextRevision = try revision.advanced()
         coverage = coverage.applying(update.coverageChange)
-        let deletionIDs = Set(update.deletions.map(\.rawValue))
-        storedTracks.removeAll { deletionIDs.contains($0.id) }
+        applyMembership(update.membershipChange, to: &storedTracks)
         for track in update.upserts {
             if let index = storedTracks.firstIndex(where: { $0.id == track.id }) {
                 storedTracks[index] = track

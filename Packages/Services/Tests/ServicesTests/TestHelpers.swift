@@ -202,26 +202,6 @@ actor PendingRecorder: PendingVerificationService {
     }
 }
 
-// MARK: - MockTrackStore
-
-extension TrackStateStore {
-    func seedMirror(_ tracks: [Track]) async throws {
-        let revision = try await loadMirrorSnapshot().revision
-        let canonicalTracks = tracks.map { track in
-            var canonical = track
-            canonical.appleScriptID = canonical.id
-            return canonical
-        }
-        try await applyMirror(TrackMirrorUpdate(
-            baseRevision: revision,
-            coverageChange: .replace(.fullLibrary),
-            repairs: [],
-            upserts: canonicalTracks,
-            deletions: []
-        ))
-    }
-}
-
 struct AppliedTrackUpdate {
     let id: String
     let genreUpdated: Bool?
@@ -264,7 +244,7 @@ actor MockTrackStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(revision: revision, tracks: tracks, coverage: coverage)
+        try mirrorSnapshot(revision: revision, tracks: tracks, coverage: coverage)
     }
 
     @discardableResult
@@ -274,8 +254,10 @@ actor MockTrackStore: TrackStateStore {
         }
         let nextRevision = try revision.advanced()
         coverage = coverage.applying(update.coverageChange)
-        let deletionIDs = Set(update.deletions.map(\.rawValue))
-        tracks.removeAll { deletionIDs.contains($0.id) }
+        if case let .replace(_, ids, _) = update.membershipChange {
+            let presentIDs = Set(ids.map(\.rawValue))
+            tracks.removeAll { !presentIDs.contains($0.id) }
+        }
         for track in update.upserts {
             if let index = tracks.firstIndex(where: { $0.id == track.id }) {
                 tracks[index] = track

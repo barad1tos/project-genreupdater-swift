@@ -109,12 +109,14 @@ extension AppDependencies {
 
     func cacheLibraryLoad(
         _ tracks: [Track],
-        scopedArtists capturedScopedArtists: [String]? = nil
+        scopedArtists capturedScopedArtists: [String]? = nil,
+        isAuthoritative: Bool = true,
+        previousTracks: [Track]? = nil
     ) async {
         let scopedArtists = capturedScopedArtists ?? ArtistAllowList.normalized(config.development.testArtists)
-        replacePreviousIncrementalScopeTracks(libraryTracks)
+        replacePreviousIncrementalScopeTracks(previousTracks ?? libraryTracks)
 
-        if scopedArtists.isEmpty {
+        if isAuthoritative, scopedArtists.isEmpty {
             do {
                 _ = try await librarySnapshotService?.saveSnapshot(tracks)
             } catch {

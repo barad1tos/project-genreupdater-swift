@@ -16,7 +16,12 @@ struct TrackDataTests {
     }
 
     private func makeContainer(at url: URL) throws -> ModelContainer {
-        let schema = Schema([PersistedTrack.self, PersistedMirrorState.self, PersistedChangeLogEntry.self])
+        let schema = Schema([
+            PersistedTrack.self,
+            PersistedLibraryMember.self,
+            PersistedMirrorState.self,
+            PersistedChangeLogEntry.self,
+        ])
         let configuration = ModelConfiguration(
             "TrackRecoveryRelaunch",
             schema: schema,
@@ -195,8 +200,8 @@ struct TrackDataTests {
         #expect(try await store.trackCount() == 3)
     }
 
-    @Test("Mirror deletion removes persisted tracks")
-    func appliesMirrorDeletion() async throws {
+    @Test("Mirror membership hides removed tracks from current reads")
+    func hidesRemovedTracks() async throws {
         let store = try makeStore()
         try await store.initialize()
 
@@ -205,21 +210,20 @@ struct TrackDataTests {
             sampleTrack(id: "2"),
             sampleTrack(id: "3"),
         ])
-        let deletedID = try databaseID("2")
-        let missingID = try databaseID("missing")
+        let remainingIDs = try [databaseID("1"), databaseID("3")]
         let revision = try await store.loadMirrorSnapshot().revision
 
         try await store.applyMirror(TrackMirrorUpdate(
             baseRevision: revision,
             coverageChange: .preserve,
+            membershipChange: replacementMembership(for: remainingIDs),
             repairs: [],
-            upserts: [],
-            deletions: [deletedID, missingID]
+            upserts: []
         ))
         let remainingTracks = try await store.loadAllTracks()
-        let remainingIDs = remainingTracks.map(\.id).sorted()
+        let loadedIDs = remainingTracks.map(\.id).sorted()
 
-        #expect(remainingIDs == ["1", "3"])
+        #expect(loadedIDs == ["1", "3"])
     }
 
     @Test("Mirror compare-and-swap rejects a stale base without partial rows")
@@ -234,9 +238,9 @@ struct TrackDataTests {
         let committedRevision = try await store.applyMirror(TrackMirrorUpdate(
             baseRevision: .initial,
             coverageChange: .replace(.fullLibrary),
+            membershipChange: replacementMembership(for: [acceptedTrack]),
             repairs: [],
-            upserts: [acceptedTrack],
-            deletions: []
+            upserts: [acceptedTrack]
         ))
 
         #expect(committedRevision == MirrorRevision(value: 1))
@@ -244,9 +248,9 @@ struct TrackDataTests {
             _ = try await store.applyMirror(TrackMirrorUpdate(
                 baseRevision: .initial,
                 coverageChange: .invalidate,
+                membershipChange: replacementMembership(for: [rejectedTrack]),
                 repairs: [],
-                upserts: [rejectedTrack],
-                deletions: []
+                upserts: [rejectedTrack]
             ))
             Issue.record("A stale mirror update unexpectedly committed")
         } catch let conflict as MirrorRevisionConflict {
@@ -259,7 +263,7 @@ struct TrackDataTests {
         let snapshot = try await store.loadMirrorSnapshot()
         #expect(snapshot.revision == MirrorRevision(value: 1))
         #expect(snapshot.coverage == .verified(.fullLibrary))
-        #expect(snapshot.tracks.map(\.id) == ["accepted"])
+        #expect(snapshot.presentTracks.map(\.id) == ["accepted"])
     }
 
     // MARK: - Upsert

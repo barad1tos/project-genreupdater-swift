@@ -84,8 +84,8 @@ struct LibraryServicesTests {
         #expect(fixture.dependencies.isLibraryReadyForUpdates)
         #expect(await fixture.snapshotService.savedSnapshotCount() == 1)
         #expect(await fixture.snapshotService.savedTrackIDs().isEmpty)
-        #expect(browsedTrackIDs == [["track-1"], []])
-        #expect(appliedTrackIDs == [["track-1"], []])
+        #expect(browsedTrackIDs == [[]])
+        #expect(appliedTrackIDs == [[]])
         #expect(fixture.dependencies.libraryMetrics == nil)
         #expect(await metricsStore.loadLatest() == nil)
     }
@@ -199,6 +199,8 @@ struct LibraryServicesTests {
         let cachePath = directory.appendingPathComponent("cache.sqlite").path
         let configuration = LibrarySnapshotConfig()
         let snapshotDate = Date(timeIntervalSince1970: 1_800_000_000)
+        let trackStore = try TrackDataStore.createInMemory()
+        try await trackStore.initialize()
         do {
             let cache = try GRDBCacheService(databasePath: cachePath)
             try await cache.initialize()
@@ -207,8 +209,6 @@ struct LibraryServicesTests {
                 configuration: configuration,
                 date: snapshotDate
             )
-            let trackStore = try TrackDataStore.createInMemory()
-            try await trackStore.initialize()
             try await trackStore.seedMirror([
                 Core.Track(
                     id: "T1",
@@ -241,8 +241,8 @@ struct LibraryServicesTests {
                 configuration: configuration,
                 currentDate: { snapshotDate }
             )
-            let dependencies = try makeLibraryDependencies(
-                trackStore: TrackDataStore.createInMemory(),
+            let dependencies = makeLibraryDependencies(
+                trackStore: trackStore,
                 snapshotService: snapshotService
             )
 

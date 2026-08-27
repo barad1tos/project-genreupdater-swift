@@ -527,7 +527,7 @@ public actor UndoCoordinator {
             targetYear: targetYear,
             observedYear: track.year
         )
-        let mirrorTrack = try await trackStore?.getTrack(byID: databaseID.rawValue)
+        let mirrorTrack = try await trackStore?.getHistoricalTrack(byID: databaseID.rawValue)
         let change = ProposedChange(
             track: track,
             changeType: .yearRevert,

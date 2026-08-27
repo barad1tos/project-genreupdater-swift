@@ -6,8 +6,45 @@ import Testing
 @Suite("Library cache admission")
 @MainActor
 struct LibraryCacheAdmissionTests {
-    @Test("A populated unready mirror keeps a broader cached library visible")
-    func unreadyMirrorKeepsCache() async throws {
+    @Test("Recovered membership replaces stale presentation without gaining write authority")
+    func prefersRecoveredMirror() async throws {
+        let fixture = try makeFixture(testArtists: ["In Flames"], runRecordStore: RunRecordStoreStub())
+        let cachedTracks = (0 ..< 403).map { index in
+            canonicalMirrorTrack(Core.Track(
+                id: "cached-\(index)",
+                name: "Cached Track \(index)",
+                artist: "In Flames",
+                album: "Clayman"
+            ))
+        }
+        let recoveredTracks = (0 ..< 201).map { index in
+            canonicalMirrorTrack(Core.Track(
+                id: "database-\(index)",
+                name: "Library Track \(index)",
+                artist: "In Flames",
+                album: "Clayman"
+            ))
+        }
+        await fixture.snapshotService.installSnapshot(cachedTracks)
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(tracks: recoveredTracks),
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
+        var presentedCounts: [Int] = []
+        fixture.dependencies.onLibraryLoadApplied = { presentedCounts.append($0.count) }
+
+        await fixture.dependencies.loadLibrary()
+
+        #expect(fixture.dependencies.libraryTracks.count == 201)
+        #expect(!fixture.dependencies.isLibraryReadyForUpdates)
+        #expect(presentedCounts == [201])
+        #expect(await fixture.snapshotService.savedSnapshotCount() == 0)
+        #expect(try await fixture.snapshotService.loadSnapshot()?.count == 403)
+    }
+
+    @Test("Canonical membership replaces a broader cache without gaining write authority")
+    func unreadyMirrorReplacesCache() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         let cachedTrack = canonicalMirrorTrack(sampleTrack())
         let partialTrack = canonicalMirrorTrack(Core.Track(
@@ -36,16 +73,16 @@ struct LibraryCacheAdmissionTests {
 
         await fixture.dependencies.loadLibrary()
 
-        #expect(fixture.dependencies.libraryTracks.map(\.id) == [cachedTrack.id])
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == [partialTrack.id])
         #expect(!fixture.dependencies.isLibraryReadyForUpdates)
-        #expect(browsedTrackIDs == [[cachedTrack.id]])
-        #expect(appliedTrackIDs == [[cachedTrack.id]])
+        #expect(browsedTrackIDs == [[partialTrack.id]])
+        #expect(appliedTrackIDs == [[partialTrack.id]])
         #expect(await fixture.snapshotService.savedSnapshotCount() == 0)
         #expect(try await fixture.snapshotService.loadSnapshot()?.map(\.id) == [cachedTrack.id])
     }
 
-    @Test("An unready mirror cannot create a snapshot when no cache exists")
-    func missingCacheStaysEmpty() async throws {
+    @Test("An unknown recovered mirror is presented without creating a durable snapshot")
+    func showsUnverifiedMirror() async throws {
         let snapshotService = SnapshotServiceSpy()
         let partialStore = MirrorTrackStoreStub(tracks: [canonicalMirrorTrack(Core.Track(
             id: "partial",
@@ -64,10 +101,10 @@ struct LibraryCacheAdmissionTests {
         let relaunched = makeLibraryDependencies(trackStore: partialStore, snapshotService: snapshotService)
         await relaunched.loadLibrary()
 
-        #expect(dependencies.libraryTracks.isEmpty)
-        #expect(relaunched.libraryTracks.isEmpty)
+        #expect(dependencies.libraryTracks.map(\.id) == ["partial"])
+        #expect(relaunched.libraryTracks.map(\.id) == ["partial"])
         #expect(!dependencies.isLibraryReadyForUpdates)
-        #expect(browsedTrackIDs.isEmpty)
+        #expect(browsedTrackIDs == [["partial"]])
         #expect(await snapshotService.savedSnapshotCount() == 0)
         #expect(try await snapshotService.loadSnapshot() == nil)
     }
@@ -93,10 +130,10 @@ struct LibraryCacheAdmissionTests {
         let relaunched = makeLibraryDependencies(trackStore: partialStore, snapshotService: snapshotService)
         await relaunched.loadLibrary()
 
-        #expect(dependencies.libraryTracks.isEmpty)
-        #expect(relaunched.libraryTracks.isEmpty)
+        #expect(dependencies.libraryTracks.map(\.id) == ["partial"])
+        #expect(relaunched.libraryTracks.map(\.id) == ["partial"])
         #expect(!dependencies.isLibraryReadyForUpdates)
-        #expect(browsedTrackIDs == [[]])
+        #expect(browsedTrackIDs == [["partial"]])
         #expect(await snapshotService.savedSnapshotCount() == 0)
         #expect(try await snapshotService.loadSnapshot()?.isEmpty == true)
     }

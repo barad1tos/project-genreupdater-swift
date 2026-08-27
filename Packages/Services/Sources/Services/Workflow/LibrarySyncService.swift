@@ -64,8 +64,8 @@ public actor LibrarySyncService {
 
     private func verificationAttempt(force: Bool) async throws -> DatabaseVerificationResult {
         let snapshot = try await trackStore.loadMirrorSnapshot()
-        let storedTracks = tracksInConfiguredScope(snapshot.tracks)
-        guard !storedTracks.isEmpty else {
+        let storedTracks = tracksInConfiguredScope(snapshot.presentTracks)
+        guard !snapshot.presentIDs.isEmpty else {
             return DatabaseVerificationResult(verifiedTrackCount: 0, removedTrackIDs: [])
         }
 
@@ -78,6 +78,7 @@ public actor LibrarySyncService {
         }
 
         let scopedByID = try canonicalMirror(storedTracks)
+        let canonicalByID = try canonicalMirror(snapshot.presentTracks)
         guard let mirror = LibraryMirrorIndex(tracksByID: scopedByID) else {
             throw LibrarySyncObservationError.invalidObservation(detail: "stored mirror index is inconsistent")
         }
@@ -101,16 +102,17 @@ public actor LibrarySyncService {
             )
         }
 
-        let removedDatabaseIDs = Set(scopedByID.keys)
+        let removedDatabaseIDs = snapshot.presentIDs
             .subtracting(observation.censusIDs)
             .sorted { $0.rawValue < $1.rawValue }
-        if !removedDatabaseIDs.isEmpty {
-            try await applyMirrorDeletions(removedDatabaseIDs, baseRevision: snapshot.revision)
-        }
-        let removedIDSet = Set(removedDatabaseIDs)
-        let removedTracks = storedTracks.filter { track in
-            track.databaseID.map(removedIDSet.contains) ?? false
-        }
+        try await trackStore.applyMirror(TrackMirrorUpdate(
+            baseRevision: snapshot.revision,
+            coverageChange: .preserve,
+            membershipChange: membershipChange(for: observation),
+            repairs: [],
+            upserts: []
+        ))
+        let removedTracks = removedDatabaseIDs.compactMap { canonicalByID[$0] }
         await invalidateCachesForLibraryChanges(
             hasLibraryChanges: !removedTracks.isEmpty,
             targets: cacheInvalidationTargets(removedTracks: removedTracks)
@@ -126,19 +128,6 @@ public actor LibrarySyncService {
             verifiedTrackCount: storedTracks.count,
             removedTrackIDs: removedDatabaseIDs.map(\.rawValue)
         )
-    }
-
-    private func applyMirrorDeletions(
-        _ ids: [MusicDatabaseTrackID],
-        baseRevision: MirrorRevision
-    ) async throws {
-        try await trackStore.applyMirror(TrackMirrorUpdate(
-            baseRevision: baseRevision,
-            coverageChange: .preserve,
-            repairs: [],
-            upserts: [],
-            deletions: ids
-        ))
     }
 
     /// Detect and persist Music.app library changes in the local store.
@@ -172,9 +161,9 @@ public actor LibrarySyncService {
         try await trackStore.applyMirror(TrackMirrorUpdate(
             baseRevision: detection.baseRevision,
             coverageChange: detection.coverageChange,
+            membershipChange: detection.membershipChange,
             repairs: detection.repairs,
-            upserts: detection.upserts,
-            deletions: detection.removedIDs
+            upserts: detection.upserts
         ))
 
         await invalidateCachesForLibraryChanges(

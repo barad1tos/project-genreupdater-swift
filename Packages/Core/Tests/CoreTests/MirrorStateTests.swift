@@ -4,6 +4,8 @@ import Testing
 
 @Suite("Mirror state")
 struct MirrorStateTests {
+    private let membershipFingerprint = String(repeating: "a", count: 64)
+
     @Test("Initial revision starts at zero")
     func initialRevisionStartsAtZero() {
         #expect(MirrorRevision.initial.value == 0)
@@ -54,5 +56,33 @@ struct MirrorStateTests {
         )
 
         #expect(conflict.localizedDescription == "Mirror revision conflict: expected 4, current 7.")
+    }
+
+    @Test("Membership stamps accept a canonical SHA-256 fingerprint")
+    func acceptsCanonicalStamp() throws {
+        let stamp = try MembershipStamp(fingerprint: membershipFingerprint)
+
+        #expect(stamp.fingerprint == membershipFingerprint)
+    }
+
+    @Test("Membership stamps reject noncanonical fingerprints", arguments: [
+        "",
+        String(repeating: "a", count: 63),
+        String(repeating: "A", count: 64),
+        String(repeating: "z", count: 64),
+    ])
+    func rejectsNoncanonicalStamp(fingerprint: String) {
+        #expect(throws: MembershipStampError.invalidFingerprint) {
+            try MembershipStamp(fingerprint: fingerprint)
+        }
+    }
+
+    @Test("Membership stamp decoding preserves fingerprint validation")
+    func validatesDecodedStamp() throws {
+        let encoded = try JSONEncoder().encode(["fingerprint": "invalid"])
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(MembershipStamp.self, from: encoded)
+        }
     }
 }

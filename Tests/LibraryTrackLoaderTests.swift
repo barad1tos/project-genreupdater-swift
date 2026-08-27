@@ -34,13 +34,46 @@ struct LibraryTrackLoaderTests {
         }
     }
 
-    @Test("Unknown mirror coverage is not update-ready")
+    @Test("Current mirror load excludes legacy repair candidates from the library")
+    func excludesRepairCandidates() async throws {
+        let store = LoaderTrackStore(
+            tracks: [canonicalTrack(id: "DB-1", artist: "In Flames")],
+            repairCandidates: [
+                Track(
+                    id: "catalog-id",
+                    name: "Only for the Weak",
+                    artist: "In Flames",
+                    album: "Clayman",
+                    appleScriptID: "DB-1"
+                ),
+            ]
+        )
+
+        let load = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: ["In Flames"])
+
+        #expect(load.tracks.map(\.id) == ["DB-1"])
+    }
+
+    @Test("Empty unknown mirror neither readies updates nor replaces cache")
     func unknownCoverageNotReady() async throws {
         let store = LoaderTrackStore(tracks: [], coverage: .unknown)
 
         let load = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: [])
 
         #expect(load.tracks.isEmpty)
+        #expect(!load.isLibraryReadyForUpdates)
+    }
+
+    @Test("Recovered unknown membership may replace presentation cache")
+    func showsRecoveredMirror() async throws {
+        let store = LoaderTrackStore(
+            tracks: [canonicalTrack(id: "DB-1", artist: "In Flames")],
+            coverage: .unknown
+        )
+
+        let load = try await LibraryTrackLoader.currentMirror(store: store, scopedArtists: ["In Flames"])
+
+        #expect(load.tracks.map(\.id) == ["DB-1"])
         #expect(!load.isLibraryReadyForUpdates)
     }
 
@@ -83,6 +116,30 @@ struct LibraryTrackLoaderTests {
         #expect(!load.isLibraryReadyForUpdates)
     }
 
+    @Test("Cache supplements metadata only for IDs confirmed by membership")
+    func cacheSupplementsPresentMembership() async throws {
+        let firstID = try #require(MusicDatabaseTrackID(rawValue: "DB-1"))
+        let secondID = try #require(MusicDatabaseTrackID(rawValue: "DB-2"))
+        let outsideScopeID = try #require(MusicDatabaseTrackID(rawValue: "DB-OTHER"))
+        let store = LoaderTrackStore(
+            tracks: [canonicalTrack(id: firstID.rawValue, artist: "Metallica")],
+            presentIDs: [firstID, secondID, outsideScopeID]
+        )
+        let cachedTracks = [
+            canonicalTrack(id: secondID.rawValue, artist: "Metallica"),
+            canonicalTrack(id: outsideScopeID.rawValue, artist: "Other"),
+            canonicalTrack(id: "DB-REMOVED", artist: "Metallica"),
+        ]
+
+        let load = try await LibraryTrackLoader.currentMirror(
+            store: store,
+            cachedTracks: cachedTracks,
+            scopedArtists: ["Metallica"]
+        )
+
+        #expect(load.tracks.map(\.id) == ["DB-1", "DB-2"])
+    }
+
     @Test("Full-library coverage readies every requested scope")
     func fullCoverageIsReady() async throws {
         let store = LoaderTrackStore(
@@ -100,10 +157,19 @@ struct LibraryTrackLoaderTests {
 
 private actor LoaderTrackStore: TrackStateStore {
     private let tracks: [Track]
+    private let presentIDs: Set<MusicDatabaseTrackID>
+    private let repairCandidates: [Track]
     private let coverage: MirrorCoverage
 
-    init(tracks: [Track], coverage: MirrorCoverage = .verified(.fullLibrary)) {
+    init(
+        tracks: [Track],
+        presentIDs: Set<MusicDatabaseTrackID>? = nil,
+        repairCandidates: [Track] = [],
+        coverage: MirrorCoverage = .verified(.fullLibrary)
+    ) {
         self.tracks = tracks
+        self.presentIDs = presentIDs ?? Set(tracks.compactMap(\.databaseID))
+        self.repairCandidates = repairCandidates
         self.coverage = coverage
     }
 
@@ -114,7 +180,15 @@ private actor LoaderTrackStore: TrackStateStore {
         tracks
     }
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(revision: .initial, tracks: tracks, coverage: coverage)
+        let ids = presentIDs.sorted { $0.rawValue < $1.rawValue }
+        return try TrackMirrorSnapshot(
+            revision: .initial,
+            membershipStamp: testMembershipStamp(for: ids),
+            presentIDs: Set(ids),
+            presentTracks: tracks,
+            repairCandidates: repairCandidates,
+            coverage: coverage
+        )
     }
     @discardableResult
     func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {

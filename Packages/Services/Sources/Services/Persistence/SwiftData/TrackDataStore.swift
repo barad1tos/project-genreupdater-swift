@@ -18,8 +18,10 @@ public actor TrackDataStore: TrackStateStore {
 
     public func initialize() async throws {
         let repairedCount = try normalizeStoredYears()
+        let recoveredMemberCount = try recoverLegacyMembership()
         let mirrorCoverage = try initializeMirrorState()
         log.info("SwiftData track store initialized; repaired zero-year rows: \(repairedCount, privacy: .public)")
+        log.info("Recovered legacy library members: \(recoveredMemberCount, privacy: .public)")
         log.info(
             "SwiftData track mirror initialized; verified scope: \(mirrorCoverage != .unknown, privacy: .public)"
         )
@@ -28,32 +30,73 @@ public actor TrackDataStore: TrackStateStore {
     // MARK: - Read Operations
 
     public func loadAllTracks() async throws -> [Track] {
-        try fetchAllTracks()
+        try fetchPresentTracks()
     }
 
     public func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        let tracks = try fetchAllTracks()
+        let persistedTracks = try fetchPersistedTracks()
+        let presentIDs = try fetchPresentIDs()
+        let presentIDValues = Set(presentIDs.map(\.rawValue))
         let state = try fetchMirrorState()
         return try TrackMirrorSnapshot(
             revision: state?.revision ?? .initial,
-            tracks: tracks,
+            membershipStamp: MembershipFingerprint.make(ids: presentIDs),
+            presentIDs: Set(presentIDs),
+            presentTracks: persistedTracks
+                .filter { $0.appleScriptID == $0.trackID && presentIDValues.contains($0.trackID) }
+                .map { $0.toTrack() },
+            repairCandidates: persistedTracks
+                .filter { $0.appleScriptID != $0.trackID }
+                .map { $0.toTrack() },
             coverage: state?.coverage() ?? .unknown
         )
     }
 
-    private func fetchAllTracks() throws -> [Track] {
+    private func fetchPersistedTracks() throws -> [PersistedTrack] {
         let descriptor = FetchDescriptor<PersistedTrack>(
             sortBy: [SortDescriptor(\.name)]
         )
-        let persisted = try modelContext.fetch(descriptor)
-        return persisted.map { $0.toTrack() }
+        return try modelContext.fetch(descriptor)
+    }
+
+    private func fetchPresentTracks() throws -> [Track] {
+        let presentIDs = try Set(fetchPresentIDs().map(\.rawValue))
+        return try fetchPersistedTracks()
+            .filter { $0.appleScriptID == $0.trackID && presentIDs.contains($0.trackID) }
+            .map { $0.toTrack() }
+    }
+
+    private func fetchPresentIDs() throws -> [MusicDatabaseTrackID] {
+        let descriptor = FetchDescriptor<PersistedLibraryMember>(
+            predicate: #Predicate { $0.isPresent }
+        )
+        let members = try modelContext.fetch(descriptor)
+        let invalidIDs = members.compactMap { member in
+            MusicDatabaseTrackID(rawValue: member.databaseID) == nil ? member.databaseID : nil
+        }.sorted()
+        guard invalidIDs.isEmpty else {
+            throw TrackStoreError.invalidMembershipIDs(ids: invalidIDs)
+        }
+        return members.compactMap { MusicDatabaseTrackID(rawValue: $0.databaseID) }
     }
 
     public func getTrack(byID id: String) async throws -> Track? {
+        let memberDescriptor = FetchDescriptor<PersistedLibraryMember>(
+            predicate: #Predicate { $0.databaseID == id && $0.isPresent }
+        )
+        guard try modelContext.fetch(memberDescriptor).first != nil else { return nil }
+        return try fetchTrack(byID: id)?.toTrack()
+    }
+
+    public func getHistoricalTrack(byID id: String) async throws -> Track? {
+        try fetchTrack(byID: id)?.toTrack()
+    }
+
+    private func fetchTrack(byID id: String) throws -> PersistedTrack? {
         let descriptor = FetchDescriptor<PersistedTrack>(
             predicate: #Predicate { $0.trackID == id }
         )
-        return try modelContext.fetch(descriptor).first?.toTrack()
+        return try modelContext.fetch(descriptor).first
     }
 
     public func getUnprocessedTracks() async throws -> [Track] {
@@ -62,20 +105,21 @@ public actor TrackDataStore: TrackStateStore {
                 $0.genreUpdated == false || $0.yearUpdated == false
             }
         )
-        let persisted = try modelContext.fetch(descriptor)
-        return persisted.map { $0.toTrack() }
+        let presentIDs = try Set(fetchPresentIDs().map(\.rawValue))
+        return try modelContext.fetch(descriptor)
+            .filter { $0.appleScriptID == $0.trackID && presentIDs.contains($0.trackID) }
+            .map { $0.toTrack() }
     }
 
     public func trackCount() async throws -> Int {
-        let descriptor = FetchDescriptor<PersistedTrack>()
-        return try modelContext.fetchCount(descriptor)
+        try fetchPresentTracks().count
     }
 
     // MARK: - Write Operations
 
     @discardableResult
     public func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
-        var deletedCount = 0
+        var membershipDelta = MembershipDelta()
         var committedRevision = update.baseRevision
         do {
             try modelContext.transaction {
@@ -92,28 +136,9 @@ public actor TrackDataStore: TrackStateStore {
                 }
 
                 let transactionPlan = try Self.validate(update)
-                let storedTracks = try modelContext.fetch(FetchDescriptor<PersistedTrack>())
-                let storedState = try Self.validateStored(transactionPlan, tracks: storedTracks)
-                let history = try modelContext.fetch(FetchDescriptor<PersistedChangeLogEntry>())
-
-                for repair in transactionPlan.repairs {
-                    try Self.applyRepair(repair, state: storedState, history: history, modelContext: modelContext)
-                }
-
-                for (track, databaseID) in zip(update.upserts, transactionPlan.upsertIDs) {
-                    if let persistedTrack = storedState.canonicalByID[databaseID] {
-                        persistedTrack.updateMirror(from: track, databaseID: databaseID)
-                    } else {
-                        modelContext.insert(PersistedTrack(mirror: track, databaseID: databaseID))
-                    }
-                }
-
-                for id in transactionPlan.deletions {
-                    guard let persistedTrack = storedState.canonicalByID[id] else { continue }
-                    modelContext.delete(persistedTrack)
-                    deletedCount += 1
-                }
-
+                let nextRevision = try mirrorState.revision.advanced()
+                try applyTrackChanges(transactionPlan, upserts: update.upserts)
+                membershipDelta = try applyMembership(transactionPlan.membership, revision: nextRevision)
                 try mirrorState.apply(update.coverageChange)
                 committedRevision = try mirrorState.advanceRevision()
             }
@@ -125,9 +150,29 @@ public actor TrackDataStore: TrackStateStore {
         log.info("Applied mirror repairs: \(update.repairs.count, privacy: .public)")
         log
             .info(
-                "Applied mirror upserts: \(update.upserts.count, privacy: .public); deletions: \(deletedCount, privacy: .public)"
+                "Applied mirror upserts: \(update.upserts.count, privacy: .public); membership additions: \(membershipDelta.added, privacy: .public); tombstones: \(membershipDelta.removed, privacy: .public); resurrections: \(membershipDelta.resurrected, privacy: .public)"
             )
         return committedRevision
+    }
+
+    private func applyTrackChanges(_ plan: MirrorPlan, upserts: [Track]) throws {
+        guard !plan.repairs.isEmpty || !upserts.isEmpty else { return }
+
+        let storedTracks = try modelContext.fetch(FetchDescriptor<PersistedTrack>())
+        let storedState = try Self.validateStored(plan, tracks: storedTracks)
+        let history = plan.repairs.isEmpty
+            ? []
+            : try modelContext.fetch(FetchDescriptor<PersistedChangeLogEntry>())
+        for repair in plan.repairs {
+            try Self.applyRepair(repair, state: storedState, history: history, modelContext: modelContext)
+        }
+        for (track, databaseID) in zip(upserts, plan.upsertIDs) {
+            if let persistedTrack = storedState.canonicalByID[databaseID] {
+                persistedTrack.updateMirror(from: track, databaseID: databaseID)
+            } else {
+                modelContext.insert(PersistedTrack(mirror: track, databaseID: databaseID))
+            }
+        }
     }
 
     public func persistAppliedChange(_ change: ChangeLogEntry) async throws {
@@ -191,12 +236,80 @@ public actor TrackDataStore: TrackStateStore {
         return .unknown
     }
 
+    private func recoverLegacyMembership() throws -> Int {
+        guard try fetchMirrorState() == nil,
+              try modelContext.fetchCount(FetchDescriptor<PersistedLibraryMember>()) == 0
+        else { return 0 }
+
+        let tracks = try modelContext.fetch(FetchDescriptor<PersistedTrack>())
+        let canonicalTracks = tracks.filter { track in
+            track.appleScriptID == track.trackID && MusicDatabaseTrackID(rawValue: track.trackID) != nil
+        }
+        for track in canonicalTracks {
+            modelContext.insert(PersistedLibraryMember(
+                databaseID: track.trackID,
+                isPresent: true,
+                firstSeenRevisionValue: MirrorRevision.initial.value
+            ))
+        }
+        guard !canonicalTracks.isEmpty else { return 0 }
+        try modelContext.save()
+        return canonicalTracks.count
+    }
+
     private func fetchMirrorState() throws -> PersistedMirrorState? {
         let key = PersistedMirrorState.primaryKey
         let descriptor = FetchDescriptor<PersistedMirrorState>(
             predicate: #Predicate { $0.key == key }
         )
         return try modelContext.fetch(descriptor).first
+    }
+
+    private func membershipByID() throws -> [String: PersistedLibraryMember] {
+        let members = try modelContext.fetch(FetchDescriptor<PersistedLibraryMember>())
+        return Dictionary(uniqueKeysWithValues: members.map { ($0.databaseID, $0) })
+    }
+
+    private struct MembershipDelta {
+        var added = 0
+        var removed = 0
+        var resurrected = 0
+    }
+
+    private func applyMembership(
+        _ change: ValidatedMembershipChange,
+        revision: MirrorRevision
+    ) throws -> MembershipDelta {
+        guard case let .replace(stamp, ids, observedAt) = change else {
+            return MembershipDelta()
+        }
+
+        let stored = try membershipByID()
+        let currentIDs = Set(ids.map(\.rawValue))
+        var delta = MembershipDelta()
+        for id in ids {
+            if let member = stored[id.rawValue] {
+                guard !member.isPresent else {
+                    member.markSeen(stamp: stamp)
+                    continue
+                }
+                member.markPresent(stamp: stamp)
+                delta.resurrected += 1
+            } else {
+                modelContext.insert(PersistedLibraryMember(
+                    databaseID: id.rawValue,
+                    isPresent: true,
+                    firstSeenRevisionValue: revision.value,
+                    lastSeenFingerprint: stamp.fingerprint
+                ))
+                delta.added += 1
+            }
+        }
+        for member in stored.values where member.isPresent && !currentIDs.contains(member.databaseID) {
+            member.markRemoved(revision: revision, at: observedAt)
+            delta.removed += 1
+        }
+        return delta
     }
 
     private static func duplicateIDs(in ids: [MusicDatabaseTrackID]) -> [MusicDatabaseTrackID] {
@@ -229,7 +342,12 @@ public actor TrackDataStore: TrackStateStore {
     private struct MirrorPlan {
         let repairs: [ValidatedRepair]
         let upsertIDs: [MusicDatabaseTrackID]
-        let deletions: [MusicDatabaseTrackID]
+        let membership: ValidatedMembershipChange
+    }
+
+    private enum ValidatedMembershipChange {
+        case preserve
+        case replace(stamp: MembershipStamp, ids: [MusicDatabaseTrackID], observedAt: Date)
     }
 
     private struct StoredMirrorState {
@@ -245,17 +363,42 @@ public actor TrackDataStore: TrackStateStore {
             throw TrackStoreError.duplicateUpserts(ids: duplicateUpserts)
         }
 
-        let duplicateDeletions = duplicateIDs(in: update.deletions)
-        guard duplicateDeletions.isEmpty else {
-            throw TrackStoreError.duplicateDeletions(ids: duplicateDeletions)
-        }
-
-        let sortedDeletions = update.deletions.sorted { $0.rawValue < $1.rawValue }
-        let overlappingIDs = overlapIDs(repairs: repairs, upserts: upsertIDs, deletions: sortedDeletions)
+        let membership = try validatedMembership(update.membershipChange)
+        let overlappingIDs = overlapIDs(repairs: repairs, upserts: upsertIDs)
         guard overlappingIDs.isEmpty else {
             throw TrackStoreError.identityOverlap(ids: overlappingIDs)
         }
-        return MirrorPlan(repairs: repairs, upsertIDs: upsertIDs, deletions: sortedDeletions)
+        if case let .replace(_, ids, _) = membership {
+            let presentIDs = Set(ids)
+            let operationIDs = Set(upsertIDs).union(repairs.map(\.targetID))
+            let outsideMembership = operationIDs.subtracting(presentIDs)
+                .sorted { $0.rawValue < $1.rawValue }
+            guard outsideMembership.isEmpty else {
+                throw TrackStoreError.operationsOutsideMembership(ids: outsideMembership)
+            }
+        }
+        return MirrorPlan(repairs: repairs, upsertIDs: upsertIDs, membership: membership)
+    }
+
+    private static func validatedMembership(_ change: MembershipChange) throws -> ValidatedMembershipChange {
+        switch change {
+        case .preserve:
+            return .preserve
+        case let .replace(stamp, ids, observedAt):
+            let duplicates = duplicateIDs(in: ids)
+            guard duplicates.isEmpty else {
+                throw TrackStoreError.duplicateMembershipIDs(ids: duplicates)
+            }
+            let expected = try MembershipFingerprint.make(ids: ids)
+            guard stamp == expected else {
+                throw TrackStoreError.membershipStampMismatch(expected: expected, actual: stamp)
+            }
+            return .replace(
+                stamp: stamp,
+                ids: ids.sorted { $0.rawValue < $1.rawValue },
+                observedAt: observedAt
+            )
+        }
     }
 
     private static func validatedRepairs(_ repairs: [TrackMirrorRepair]) throws -> [ValidatedRepair] {
@@ -280,15 +423,11 @@ public actor TrackDataStore: TrackStateStore {
 
     private static func overlapIDs(
         repairs: [ValidatedRepair],
-        upserts: [MusicDatabaseTrackID],
-        deletions: [MusicDatabaseTrackID]
+        upserts: [MusicDatabaseTrackID]
     ) -> [MusicDatabaseTrackID] {
         let targets = Set(repairs.map(\.targetID))
         let upsertSet = Set(upserts)
-        let deletionSet = Set(deletions)
         let overlaps = targets.intersection(upsertSet)
-            .union(targets.intersection(deletionSet))
-            .union(upsertSet.intersection(deletionSet))
         return overlaps.sorted { $0.rawValue < $1.rawValue }
     }
 
@@ -310,7 +449,7 @@ public actor TrackDataStore: TrackStateStore {
             }
         }
 
-        let operationIDs = Set(plan.upsertIDs).union(plan.deletions)
+        let operationIDs = Set(plan.upsertIDs)
         let canonicalByID = try indexCanonicalTracks(tracks, operationIDs: operationIDs)
         return StoredMirrorState(byID: byID, canonicalByID: canonicalByID)
     }

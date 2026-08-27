@@ -62,7 +62,7 @@ struct LibrarySyncObservationTests {
         let call = try #require(await store.applyCalls.first)
         #expect(await store.applyCalls.count == 1)
         #expect(call.upserting.map(\.id) == ["A", "B"])
-        #expect(call.deleting.map(\.rawValue) == ["C"])
+        #expect(call.membershipIDs?.map(\.rawValue) == ["A", "B"])
     }
 
     @Test("Authoritative absence clears while unobserved metadata preserves")
@@ -169,7 +169,7 @@ struct LibrarySyncObservationTests {
         #expect(await store.stored == [stored])
         let update = try #require(await store.applyCalls.first)
         #expect(update.upserting.isEmpty)
-        #expect(update.deleting.isEmpty)
+        #expect(update.membershipIDs?.map(\.rawValue) == ["A"])
     }
 
     @Test("Timestamp-only metadata churn produces no sync delta")
@@ -260,13 +260,14 @@ struct LibrarySyncObservationTests {
         #expect(await snapshot.getSnapshotMetadata()?.lastForceScanDate == nil)
     }
 
-    @Test("Scoped observation removes only canonical rows inside its scope")
-    func limitsRemovalsToScope() async throws {
+    @Test("Scoped observation uses the full census for canonical membership")
+    func scopedObservationKeepsCensus() async throws {
         let target = mirrorTrack(id: "A", artist: "Target")
         let outside = mirrorTrack(id: "B", artist: "Other")
         let store = ObservationMirrorStore(stored: [outside, target])
         let reader = try ObservationReader(templates: [template(
             currentIDs: [],
+            censusIDs: ["B"],
             rows: [],
             metadataRequestedIDs: [],
             membership: .scoped(unobservedIDs: [])
@@ -373,7 +374,7 @@ struct LibrarySyncObservationTests {
         #expect(await store.stored.first?.genre == "Rock")
     }
 
-    @Test("Database verification uses membership-only observation and one atomic deletion")
+    @Test("Database verification uses one atomic membership transition")
     func verifiesMembershipAtomically() async throws {
         let store = ObservationMirrorStore(stored: [mirrorTrack(id: "B"), mirrorTrack(id: "A")])
         let reader = try ObservationReader(templates: [template(
@@ -391,7 +392,7 @@ struct LibrarySyncObservationTests {
         #expect(result.removedTrackIDs == ["B"])
         let call = try #require(await store.applyCalls.first)
         #expect(call.upserting.isEmpty)
-        #expect(call.deleting.map(\.rawValue) == ["B"])
+        #expect(call.membershipIDs?.map(\.rawValue) == ["A"])
     }
 
     @Test("Scoped verification ignores noncanonical rows outside its scope")
@@ -417,6 +418,67 @@ struct LibrarySyncObservationTests {
 
         #expect(result.removedTrackIDs == ["A"])
         #expect(await store.stored.map(\.id) == ["MUSIC-KIT-B"])
+    }
+
+    @Test("Scoped verification reports removals from the full library census")
+    func reportsEveryRemoval() async throws {
+        let target = mirrorTrack(id: "A", artist: "Target")
+        let removedOutsideScope = mirrorTrack(id: "B", artist: "Other")
+        let store = ObservationMirrorStore(stored: [target, removedOutsideScope])
+        let reader = try ObservationReader(templates: [template(
+            currentIDs: ["A"],
+            censusIDs: ["A"],
+            rows: [],
+            metadataRequestedIDs: [],
+            membership: .scoped(unobservedIDs: [])
+        )])
+        let service = makeService(store: store, reader: reader, testArtists: ["Target"])
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+
+        #expect(result.verifiedTrackCount == 1)
+        #expect(result.removedTrackIDs == ["B"])
+        #expect(await store.stored.map(\.id) == ["A"])
+    }
+
+    @Test("Scoped verification still applies an empty full-library census")
+    func emptyScopeAppliesCensus() async throws {
+        let outsideScope = mirrorTrack(id: "B", artist: "Other")
+        let store = ObservationMirrorStore(stored: [outsideScope])
+        let reader = try ObservationReader(templates: [template(
+            currentIDs: [],
+            censusIDs: [],
+            rows: [],
+            metadataRequestedIDs: [],
+            membership: .scoped(unobservedIDs: [])
+        )])
+        let service = makeService(store: store, reader: reader, testArtists: ["Target"])
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+
+        #expect(result.verifiedTrackCount == 0)
+        #expect(result.removedTrackIDs == ["B"])
+        #expect(await store.stored.isEmpty)
+    }
+
+    @Test("Verification removes present membership without a metadata row")
+    func metadataGapAppliesCensus() async throws {
+        let missingID = try #require(MusicDatabaseTrackID(rawValue: "GAP"))
+        let store = ObservationMirrorStore(stored: [], presentIDs: [missingID])
+        let reader = try ObservationReader(templates: [template(
+            currentIDs: [],
+            censusIDs: [],
+            rows: [],
+            metadataRequestedIDs: [],
+            membership: .full
+        )])
+        let service = makeService(store: store, reader: reader)
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+
+        #expect(result.verifiedTrackCount == 0)
+        #expect(result.removedTrackIDs == ["GAP"])
+        #expect(await store.presentIDs.isEmpty)
     }
 
     @Test("Failed verification observation has no atomic commit")
@@ -459,6 +521,7 @@ struct LibrarySyncObservationTests {
 
     private func template(
         currentIDs: [String],
+        censusIDs: [String]? = nil,
         rows: [LibraryTrackRow],
         metadataRequestedIDs: [String],
         metadataObservedIDs: [String]? = nil,
@@ -466,7 +529,7 @@ struct LibrarySyncObservationTests {
     ) throws -> ObservationTemplate {
         try ObservationTemplate(
             rows: rows,
-            censusIDs: databaseIDs(currentIDs),
+            censusIDs: databaseIDs(censusIDs ?? currentIDs),
             currentIDs: databaseIDs(currentIDs),
             membership: membership,
             requestedIDs: databaseIDs(metadataRequestedIDs),
@@ -610,19 +673,25 @@ private actor ObservationReader: MusicAppReading {
 private actor ObservationMirrorStore: TrackStateStore {
     struct ApplyCall: Sendable {
         let upserting: [Track]
-        let deleting: [MusicDatabaseTrackID]
+        let membershipIDs: [MusicDatabaseTrackID]?
     }
 
     private(set) var stored: [Track]
+    private(set) var presentIDs: Set<MusicDatabaseTrackID>
     private(set) var applyCalls: [ApplyCall] = []
     private let applyError: SyncObservationTestError?
     private var revision = MirrorRevision.initial
 
     init(
         stored: [Track],
+        presentIDs: Set<MusicDatabaseTrackID>? = nil,
         applyError: SyncObservationTestError? = nil
     ) {
         self.stored = stored
+        self.presentIDs = presentIDs ?? Set(stored.compactMap { track in
+            guard let databaseID = track.databaseID, track.id == databaseID.rawValue else { return nil }
+            return databaseID
+        })
         self.applyError = applyError
     }
 
@@ -635,12 +704,20 @@ private actor ObservationMirrorStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(revision: revision, tracks: stored, coverage: .verified(.fullLibrary))
+        try mirrorSnapshot(
+            revision: revision,
+            tracks: stored,
+            presentIDs: presentIDs,
+            coverage: .verified(.fullLibrary)
+        )
     }
 
     @discardableResult
     func applyMirror(_ update: TrackMirrorUpdate) async throws -> MirrorRevision {
-        applyCalls.append(ApplyCall(upserting: update.upserts, deleting: update.deletions))
+        applyCalls.append(ApplyCall(
+            upserting: update.upserts,
+            membershipIDs: membershipIDs(update.membershipChange)
+        ))
         if let applyError {
             throw applyError
         }
@@ -649,8 +726,10 @@ private actor ObservationMirrorStore: TrackStateStore {
         }
         let nextRevision = try revision.advanced()
 
-        let deletedValues = Set(update.deletions.map(\.rawValue))
-        stored.removeAll { deletedValues.contains($0.id) }
+        if let replacementIDs = membershipIDs(update.membershipChange) {
+            presentIDs = Set(replacementIDs)
+        }
+        applyMembership(update.membershipChange, to: &stored)
         for track in update.upserts {
             if let index = stored.firstIndex(where: { $0.id == track.id }) {
                 stored[index] = track

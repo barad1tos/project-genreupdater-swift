@@ -29,12 +29,20 @@ struct TestHelpersTests {
     @Test("Mirror revision exhaustion leaves the in-memory store unchanged")
     func mirrorRevisionExhaustionIsAtomic() async throws {
         let store = MockTrackStore(revision: MirrorRevision(value: .max))
-        let update = TrackMirrorUpdate(
+        let update = try TrackMirrorUpdate(
             baseRevision: MirrorRevision(value: .max),
             coverageChange: .replace(.fullLibrary),
+            membershipChange: replacementMembership(for: [
+                Track(id: "new-track", name: "New", artist: "Artist", album: "Album", appleScriptID: "new-track"),
+            ]),
             repairs: [],
-            upserts: [Track(id: "new-track", name: "New", artist: "Artist", album: "Album")],
-            deletions: []
+            upserts: [Track(
+                id: "new-track",
+                name: "New",
+                artist: "Artist",
+                album: "Album",
+                appleScriptID: "new-track"
+            )]
         )
         let before = try await store.loadMirrorSnapshot()
 

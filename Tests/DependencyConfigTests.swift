@@ -164,6 +164,21 @@ struct DependencyConfigTests {
         #expect(dependencies.apiOrchestrator == nil)
     }
 
+    @Test("Default test dependencies keep persistence in memory")
+    func usesMemoryStoresInTests() async throws {
+        let dependencies = AppDependencies(configurationLoader: { AppConfiguration() })
+        let container = try #require(dependencies.modelContainer)
+        let configuration = AppConfiguration()
+        let cache = try makeProcessCache(
+            configuration: configuration,
+            apiResultTTL: AppDependencies.apiResultCacheTTL(configuration: configuration)
+        )
+
+        #expect(!container.configurations.isEmpty)
+        #expect(container.configurations.first?.isStoredInMemoryOnly == true)
+        #expect(await cache.storagePath == ":memory:")
+    }
+
     @Test("Invalid numeric configuration blocks service initialization with the field error")
     func invalidNumericConfigurationBlocksInitialization() async throws {
         var invalidConfiguration = AppConfiguration()

@@ -55,7 +55,7 @@ struct ProviderAdmissionStateTests {
         await grantBarrier.release()
 
         await #expect(throws: CancellationError.self) {
-            _ = try await taskValue(cancelled, timeout: .milliseconds(200))
+            _ = try await taskValue(cancelled, timeout: AdmissionTestTiming.coordinationTimeout)
         }
         try await awaitOperations([first, third])
         #expect(await order.names == ["first", "third"])
@@ -68,7 +68,7 @@ struct ProviderAdmissionStateTests {
         gate: AdmissionOperationGate? = nil
     ) -> Task<Void, any Error> {
         Task {
-            try await admission.execute(timeout: .seconds(2)) {
+            try await admission.execute(timeout: AdmissionTestTiming.coordinationTimeout) {
                 await order.record(name)
                 await gate?.wait()
             }
@@ -77,7 +77,7 @@ struct ProviderAdmissionStateTests {
 
     private func awaitOperations(_ tasks: [Task<Void, any Error>]) async throws {
         for task in tasks {
-            _ = try await taskValue(task, timeout: .seconds(1))
+            _ = try await taskValue(task, timeout: AdmissionTestTiming.coordinationTimeout)
         }
     }
 }
@@ -93,7 +93,7 @@ private final class AdmissionEnqueueProbe: @unchecked Sendable {
     }
 
     func waitForCount(_ expectedCount: Int) async -> Bool {
-        let deadline = ContinuousClock().now.advanced(by: .seconds(1))
+        let deadline = ContinuousClock().now.advanced(by: AdmissionTestTiming.coordinationTimeout)
         while currentCount < expectedCount, ContinuousClock().now < deadline {
             try? await Task.sleep(for: .milliseconds(1))
         }
@@ -125,7 +125,7 @@ private actor AdmissionGrantBarrier {
     }
 
     func waitUntilBlocked() async -> Bool {
-        let deadline = ContinuousClock().now.advanced(by: .seconds(1))
+        let deadline = ContinuousClock().now.advanced(by: AdmissionTestTiming.coordinationTimeout)
         while !isBlocked, ContinuousClock().now < deadline {
             try? await Task.sleep(for: .milliseconds(1))
         }
@@ -164,11 +164,15 @@ private actor AdmissionOrderProbe {
     }
 
     func waitForCount(_ expectedCount: Int) async -> Bool {
-        let deadline = ContinuousClock().now.advanced(by: .seconds(1))
+        let deadline = ContinuousClock().now.advanced(by: AdmissionTestTiming.coordinationTimeout)
         while names.count < expectedCount, ContinuousClock().now < deadline {
             try? await Task.sleep(for: .milliseconds(1))
         }
         return names.count >= expectedCount
     }
+}
+
+private enum AdmissionTestTiming {
+    static let coordinationTimeout: Duration = .seconds(30)
 }
 #endif

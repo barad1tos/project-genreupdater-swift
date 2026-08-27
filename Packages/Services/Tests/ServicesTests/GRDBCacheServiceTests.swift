@@ -30,7 +30,9 @@ struct GRDBCacheServiceTests {
 
     @Test("Migrations run without error on empty database")
     func migrationsSucceed() async throws {
-        _ = try await makeService()
+        let service = try await makeService()
+
+        #expect(await service.storagePath == ":memory:")
     }
 
     // MARK: - Generic Cache

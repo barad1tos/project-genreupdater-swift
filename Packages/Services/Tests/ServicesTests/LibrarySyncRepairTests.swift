@@ -27,7 +27,7 @@ struct LibrarySyncRepairTests {
         #expect(repair.target.appleScriptID == "AS1")
         #expect(repair.target.originalArtist == "Before")
         #expect(update.upserts.isEmpty)
-        #expect(update.deletions.isEmpty)
+        #expect(membershipIDs(update.membershipChange)?.map(\.rawValue) == ["AS1"])
     }
 
     @Test("Unique metadata identity repairs a row without direct evidence")
@@ -173,36 +173,46 @@ struct LibrarySyncRepairTests {
         #expect(await fixture.store.stored.map(\.id).sorted() == ["A", "MK-OUT"])
     }
 
-    @Test("Full verification fails closed before observing a legacy row")
-    func fullVerificationRejectsLegacyRow() async throws {
+    @Test("Full verification checks present membership without consuming repair candidates")
+    func verifiesPresentMembership() async throws {
         let fixture = try makeFixture(
-            stored: [legacyTrack(sourceID: "MK1", databaseID: "AS1")],
+            stored: [
+                legacyTrack(sourceID: "MK1", databaseID: "AS1"),
+                canonicalTrack(id: "AS1"),
+            ],
             currentIDs: ["AS1"],
-            rows: [row(id: "AS1")]
+            rows: []
         )
 
-        await #expect(throws: LibrarySyncObservationError.nonCanonicalMirror(trackID: "MK1")) {
-            _ = try await fixture.service.verifyAndCleanDatabase(force: true)
-        }
-        #expect(await fixture.reader.requests.isEmpty)
-        #expect(await fixture.store.updates.isEmpty)
+        let result = try await fixture.service.verifyAndCleanDatabase(force: true)
+
+        #expect(result.verifiedTrackCount == 1)
+        #expect(result.removedTrackIDs.isEmpty)
+        #expect(await fixture.reader.requests.count == 1)
+        #expect(await fixture.store.updates.count == 1)
+        #expect(await fixture.store.stored.map(\.id).sorted() == ["AS1", "MK1"])
     }
 
-    @Test("Scoped verification fails closed on an in-scope legacy row")
-    func scopedVerificationRejectsLegacyRow() async throws {
+    @Test("Scoped verification checks present membership without consuming in-scope repair candidates")
+    func verifiesScopedMembership() async throws {
         let fixture = try makeFixture(
-            stored: [legacyTrack(sourceID: "MK1", databaseID: "AS1", artist: "Target")],
+            stored: [
+                legacyTrack(sourceID: "MK1", databaseID: "AS1", artist: "Target"),
+                canonicalTrack(id: "AS1", artist: "Target"),
+            ],
             currentIDs: ["AS1"],
-            rows: [row(id: "AS1", artist: "Target")],
+            rows: [],
             testArtists: ["Target"],
             membership: .scoped(unobservedIDs: [])
         )
 
-        await #expect(throws: LibrarySyncObservationError.nonCanonicalMirror(trackID: "MK1")) {
-            _ = try await fixture.service.verifyAndCleanDatabase(force: true)
-        }
-        #expect(await fixture.reader.requests.isEmpty)
-        #expect(await fixture.store.updates.isEmpty)
+        let result = try await fixture.service.verifyAndCleanDatabase(force: true)
+
+        #expect(result.verifiedTrackCount == 1)
+        #expect(result.removedTrackIDs.isEmpty)
+        #expect(await fixture.reader.requests.count == 1)
+        #expect(await fixture.store.updates.count == 1)
+        #expect(await fixture.store.stored.map(\.id).sorted() == ["AS1", "MK1"])
     }
 
     @Test("Detection plans repair without mutating the store")
@@ -273,7 +283,7 @@ struct LibrarySyncRepairTests {
         #expect(await fixture.store.updates.count == 1)
         #expect(update.repairs.map(\.sourceID) == ["MK1"])
         #expect(update.upserts.map(\.id) == ["NEW"])
-        #expect(update.deletions.map(\.rawValue) == ["REMOVED"])
+        #expect(membershipIDs(update.membershipChange)?.map(\.rawValue) == ["AS1", "NEW"])
     }
 
     private func makeFixture(
@@ -294,9 +304,14 @@ struct LibrarySyncRepairTests {
             generation: #require(LibraryGeneration(sourceValue: "repair-generation"))
         ))
         let store = RepairMirrorStore(stored: stored)
+        let logsDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncRepairTests-\(UUID().uuidString)", isDirectory: true)
         let service = LibrarySyncService(
             trackStore: store,
-            runtimeConfiguration: LibrarySyncRuntimeConfiguration(testArtists: testArtists),
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logsDirectory.path,
+                testArtists: testArtists
+            ),
             observer: reader
         )
         return RepairFixture(store: store, reader: reader, service: service)
@@ -433,7 +448,7 @@ private actor RepairMirrorStore: TrackStateStore {
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        TrackMirrorSnapshot(revision: revision, tracks: stored, coverage: .verified(.fullLibrary))
+        try mirrorSnapshot(revision: revision, tracks: stored, coverage: .verified(.fullLibrary))
     }
 
     @discardableResult
@@ -451,8 +466,7 @@ private actor RepairMirrorStore: TrackStateStore {
                 stored.append(repair.target)
             }
         }
-        let deletionIDs = Set(update.deletions.map(\.rawValue))
-        stored.removeAll { deletionIDs.contains($0.id) }
+        applyMembership(update.membershipChange, to: &stored)
         for track in update.upserts {
             stored.removeAll { $0.id == track.id }
             stored.append(track)
