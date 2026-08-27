@@ -15,6 +15,13 @@ package struct V3MigrationEvidence: Codable, Sendable {
     package let members: [MemberMigrationEvidence]
 }
 
+package struct V2MigrationEvidence: Codable, Sendable {
+    package let members: [MemberMigrationEvidence]
+    package let trackIDs: [String]
+    package let historyEntryIDs: [UUID]
+    package let certificateCount: Int
+}
+
 package struct V4MigrationEvidence: Codable, Sendable {
     package let trackID: String
     package let appleScriptID: String?
@@ -40,6 +47,26 @@ package enum StoreFixtureVerifier {
         for _ in 0 ..< 2 {
             let container = try migratedContainer(at: storeURL)
             try evidence.append(V3MigrationEvidence(members: memberEvidence(in: ModelContext(container))))
+        }
+        return evidence
+    }
+
+    package static func verifyV2Migration(at storeURL: URL) throws -> [V2MigrationEvidence] {
+        var evidence: [V2MigrationEvidence] = []
+        for _ in 0 ..< 2 {
+            let container = try migratedContainer(at: storeURL)
+            let context = ModelContext(container)
+            let trackIDs = try context.fetch(FetchDescriptor<PersistedTrack>()).map(\.trackID).sorted()
+            let historyEntryIDs = try context.fetch(FetchDescriptor<PersistedChangeLogEntry>())
+                .map(\.entryID)
+                .sorted { $0.uuidString < $1.uuidString }
+            let certificateCount = try context.fetchCount(FetchDescriptor<PersistedScopeCertificate>())
+            try evidence.append(V2MigrationEvidence(
+                members: memberEvidence(in: context),
+                trackIDs: trackIDs,
+                historyEntryIDs: historyEntryIDs,
+                certificateCount: certificateCount
+            ))
         }
         return evidence
     }

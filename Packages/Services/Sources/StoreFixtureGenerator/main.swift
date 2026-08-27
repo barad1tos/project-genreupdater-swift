@@ -31,12 +31,26 @@ struct StoreFixtureGenerator {
             try StoreFixtureWriter.writeV4(to: storeURL)
         case "v2-recovery":
             try StoreFixtureWriter.writeRecoveryV2(to: storeURL)
+        case "v2-membership", "verify-v2-membership":
+            try runMembershipMode(mode, storeURL: storeURL)
         case "verify-v4":
             let evidence = try await StoreFixtureVerifier.verifyV4Migration(at: storeURL)
             try FileHandle.standardOutput.write(JSONEncoder().encode(evidence))
         case "diagnostic-failure":
             writeLargeDiagnostics()
             throw GeneratorError.diagnosticFailure
+        default:
+            throw GeneratorError.invalidArguments
+        }
+    }
+
+    private static func runMembershipMode(_ mode: String, storeURL: URL) throws {
+        switch mode {
+        case "v2-membership":
+            try StoreFixtureWriter.writeMembershipV2(to: storeURL)
+        case "verify-v2-membership":
+            let evidence = try StoreFixtureVerifier.verifyV2Migration(at: storeURL)
+            try FileHandle.standardOutput.write(JSONEncoder().encode(evidence))
         default:
             throw GeneratorError.invalidArguments
         }
@@ -58,7 +72,9 @@ struct StoreFixtureGenerator {
         var errorDescription: String? {
             switch self {
             case .invalidArguments:
-                "Usage: StoreFixtureGenerator [migrate|v0|v2-recovery|v3|verify-v3|v4|verify-v4] <store-path>"
+                "Usage: StoreFixtureGenerator "
+                    + "[migrate|v0|v2-membership|verify-v2-membership|v2-recovery|v3|verify-v3|v4|verify-v4] "
+                    + "<store-path>"
             case .diagnosticFailure:
                 "Requested diagnostic failure"
             }

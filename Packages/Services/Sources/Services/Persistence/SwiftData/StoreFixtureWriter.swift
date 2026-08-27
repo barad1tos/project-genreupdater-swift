@@ -150,6 +150,50 @@ package enum StoreFixtureWriter {
         try context.save()
     }
 
+    package static func writeMembershipV2(to storeURL: URL) throws {
+        let schema = Schema(versionedSchema: StoreSchemaV2.self)
+        let configuration = ModelConfiguration(
+            "GenreUpdater",
+            schema: schema,
+            url: storeURL,
+            allowsSave: true,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = ModelContext(container)
+        let canonical = StoreSchemaV2.PersistedTrack(
+            trackID: "canonical",
+            appleScriptID: "canonical",
+            name: "Canonical",
+            artist: "Artist",
+            album: "Album"
+        )
+        let catalog = StoreSchemaV2.PersistedTrack(
+            trackID: "catalog",
+            appleScriptID: "database",
+            name: "Catalog",
+            artist: "Artist",
+            album: "Album"
+        )
+        let history = StoreSchemaV2.PersistedChangeLogEntry(
+            entryID: changeID,
+            timestamp: timestamp,
+            changeTypeRaw: ChangeType.genreUpdate.rawValue,
+            trackID: canonical.trackID,
+            artist: canonical.artist,
+            trackName: canonical.name,
+            albumName: canonical.album
+        )
+        history.track = canonical
+        canonical.changeLog = [history]
+
+        context.insert(StoreSchemaV2.PersistedMirrorState(scopeData: nil, revisionValue: 7))
+        context.insert(canonical)
+        context.insert(catalog)
+        context.insert(history)
+        try context.save()
+    }
+
     private static let runID = identifier("00000000-0000-0000-0000-000000000001")
     private static let workItemID = identifier("00000000-0000-0000-0000-000000000002")
     private static let planID = identifier("00000000-0000-0000-0000-000000000003")

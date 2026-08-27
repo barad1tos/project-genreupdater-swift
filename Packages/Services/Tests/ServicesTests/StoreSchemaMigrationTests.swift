@@ -150,6 +150,34 @@ struct StoreSchemaMigrationTests {
         }
     }
 
+    @Test("V2 membership migration preserves canonical evidence across relaunch")
+    func migratesV2Membership() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+
+        _ = try fixtureProcess(mode: "v2-membership", at: storeURL)
+        let reopenEvidence: [V2MigrationEvidence] = try fixtureEvidence(
+            mode: "verify-v2-membership",
+            at: storeURL
+        )
+
+        #expect(reopenEvidence.count == 2)
+        for evidence in reopenEvidence {
+            let member = try #require(evidence.members.first)
+            #expect(evidence.members.count == 1)
+            #expect(member.databaseID == "canonical")
+            #expect(member.isPresent)
+            #expect(member.firstSeenRevision == 7)
+            #expect(member.lastSeenFingerprint == nil)
+            #expect(evidence.trackIDs == ["canonical", "catalog"])
+            #expect(evidence.historyEntryIDs == [Self.changeID])
+            #expect(evidence.certificateCount == 0)
+        }
+    }
+
     @Test("Fixture process drains large diagnostics before reporting failure")
     func capturesLargeFailure() throws {
         let storeURL = FileManager.default.temporaryDirectory
