@@ -3,6 +3,7 @@ import Testing
 @testable import Core
 @testable import Services
 
+#if DEBUG
 @Suite("APIOrchestrator — provider admission cache")
 struct ProviderAdmissionCacheTests {
     @Test("Candidate cache hits bypass a busy permit")
@@ -202,3 +203,4 @@ private struct AdmissionCacheService: ExternalAPIService {
         try Task.checkCancellation()
     }
 }
+#endif
