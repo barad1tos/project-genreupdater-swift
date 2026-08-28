@@ -44,7 +44,7 @@ struct TrackMirrorPersistenceTests {
             try await store.initialize()
             try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                membershipChange: replacementMembership(for: [MusicDatabaseTrackID]()),
+                inventoryChange: replacementInventory(for: [MusicDatabaseTrackID]()),
                 repairs: [],
                 upserts: [],
                 certificates: .invalidate(.membershipChanged)
@@ -72,14 +72,14 @@ struct TrackMirrorPersistenceTests {
             let initialTracks = [track(id: "keep"), track(id: "delete")]
             let first = try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                membershipChange: replacementMembership(for: initialTracks),
+                inventoryChange: replacementInventory(for: initialTracks),
                 repairs: [],
                 upserts: initialTracks,
                 certificates: .invalidate(.membershipChanged)
             ))
             let second = try await store.commitMirror(MirrorCommit(
                 baseRevision: first.revision,
-                membershipChange: .preserve,
+                inventoryChange: .preserve,
                 repairs: [],
                 upserts: [],
                 certificates: .preserve
@@ -102,7 +102,7 @@ struct TrackMirrorPersistenceTests {
             )) {
                 try await relaunched.commitMirror(MirrorCommit(
                     baseRevision: MirrorRevision(value: 1),
-                    membershipChange: replacementMembership(for: [
+                    inventoryChange: replacementInventory(for: [
                         track(id: "keep", name: "Changed"),
                         track(id: "insert"),
                     ]),
@@ -150,7 +150,7 @@ struct TrackMirrorPersistenceTests {
             do {
                 _ = try await store.commitMirror(MirrorCommit(
                     baseRevision: expectedSnapshot.revision,
-                    membershipChange: replacementMembership(for: [
+                    inventoryChange: replacementInventory(for: [
                         track(id: "keep", name: "Changed"),
                         track(id: "insert"),
                     ]),

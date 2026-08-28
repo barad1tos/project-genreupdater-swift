@@ -30,6 +30,10 @@ actor DuplicateMetadataSource: ObservationSource {
         census
     }
 
+    func fetchIdentity(for _: [MusicDatabaseTrackID]) -> [LibraryIdentityRow] {
+        metadata.compactMap(identityRow)
+    }
+
     func fetchMetadata(for _: [MusicDatabaseTrackID]) -> [Track] {
         metadata
     }
@@ -48,12 +52,29 @@ actor StaticObservationSource: ObservationSource {
         census
     }
 
+    func fetchIdentity(for ids: [MusicDatabaseTrackID]) -> [LibraryIdentityRow] {
+        let requested = Set(ids)
+        return metadata.compactMap { track in
+            guard track.databaseID.map(requested.contains) == true else { return nil }
+            return identityRow(track)
+        }
+    }
+
     func fetchMetadata(for ids: [MusicDatabaseTrackID]) -> [Track] {
         let requested = Set(ids)
         return metadata.filter { track in
             track.databaseID.map(requested.contains) ?? false
         }
     }
+}
+
+private func identityRow(_ track: Track) -> LibraryIdentityRow? {
+    guard let databaseID = track.databaseID else { return nil }
+    return LibraryIdentityRow(
+        databaseID: databaseID,
+        artist: .value(track.artist),
+        albumArtist: track.albumArtist.map(Observed.value) ?? .absent
+    )
 }
 
 actor ObservationReader: MusicAppReading {
@@ -75,19 +96,40 @@ actor ObservationReader: MusicAppReading {
             throw error
         }
         let template = templates.count == 1 ? templates[0] : templates.removeFirst()
+        let censusIDs = template.censusIDs.sorted { $0.rawValue < $1.rawValue }
+        let identityLookups = request.identityLookupIDs(in: censusIDs)
+        let metadataLookups = request.metadataLookupIDs(
+            in: censusIDs,
+            admittedIDs: template.currentIDs
+        )
+        let identityIDs = request.reportedIdentityIDs(
+            identityLookupIDs: identityLookups,
+            metadataLookupIDs: metadataLookups
+        )
+        let identities = template.rows.map(\.identityRow).filter { identityIDs.contains($0.databaseID) }
+        let observedIdentityIDs = Set(identities.map(\.databaseID))
         return LibraryObservation(
             tracks: template.rows,
-            censusIDs: template.censusIDs,
-            currentIDs: template.currentIDs,
-            scope: request.scope,
-            observedAt: Date(timeIntervalSince1970: 1_800_000_000),
-            membership: template.membership,
-            metadata: MetadataCompleteness(
-                requestedIDs: template.requestedIDs,
-                observedIDs: template.observedIDs
+            identities: identities,
+            epoch: LibraryObservationEpoch(
+                censusIDs: template.censusIDs,
+                currentIDs: template.currentIDs,
+                scope: request.scope,
+                observedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                generation: template.generation
             ),
-            generation: template.generation,
-            issues: []
+            coverage: LibraryObservationCoverage(
+                membership: template.membership,
+                identity: IdentityCompleteness(
+                    requestedIDs: identityIDs,
+                    observedIDs: observedIdentityIDs
+                ),
+                metadata: MetadataCompleteness(
+                    requestedIDs: template.requestedIDs,
+                    observedIDs: template.observedIDs
+                ),
+                issues: []
+            )
         )
     }
 }
@@ -116,10 +158,10 @@ actor ObservationMirrorStore: TrackStateStore {
             return databaseID
         })
         self.applyError = applyError
-        if let membership = try? replacementMembership(for: stored),
+        if let inventory = try? replacementInventory(for: stored),
            let certificate = try? scopeCertificate(
                revision: .initial,
-               membershipChange: membership,
+               inventoryChange: inventory,
                trackIDs: stored.compactMap(\.databaseID),
                observedAt: Date(timeIntervalSince1970: 1_800_000_000)
            ) {
@@ -150,7 +192,7 @@ actor ObservationMirrorStore: TrackStateStore {
     func commitMirror(_ update: MirrorCommit) async throws -> MirrorCommitResult {
         applyCalls.append(ApplyCall(
             upserting: update.upserts,
-            membershipIDs: membershipIDs(update.membershipChange)
+            membershipIDs: inventoryIDs(update.inventoryChange)
         ))
         if let applyError {
             throw applyError
@@ -169,10 +211,10 @@ actor ObservationMirrorStore: TrackStateStore {
             certificates = [certificate]
         }
 
-        if let replacementIDs = membershipIDs(update.membershipChange) {
+        if let replacementIDs = inventoryIDs(update.inventoryChange) {
             presentIDs = Set(replacementIDs)
         }
-        applyMembership(update.membershipChange, to: &stored)
+        applyInventory(update.inventoryChange, to: &stored)
         for track in update.upserts {
             if let index = stored.firstIndex(where: { $0.id == track.id }) {
                 stored[index] = track

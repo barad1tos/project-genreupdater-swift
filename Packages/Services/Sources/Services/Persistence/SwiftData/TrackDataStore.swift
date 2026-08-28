@@ -33,13 +33,18 @@ public actor TrackDataStore: TrackStateStore {
 
     public func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         let persistedTracks = try fetchPersistedTracks()
-        let presentIDs = try fetchPresentIDs()
+        let presentMembers = try fetchPresentMembers()
+        let presentIDs = presentMembers.compactMap { MusicDatabaseTrackID(rawValue: $0.databaseID) }
         let presentIDValues = Set(presentIDs.map(\.rawValue))
+        let memberIdentities = Dictionary(uniqueKeysWithValues: presentMembers.compactMap { member in
+            member.memberIdentity().map { ($0.databaseID, $0) }
+        })
         let state = try fetchMirrorState()
         return try TrackMirrorSnapshot(
             revision: state?.revision ?? .initial,
             membershipStamp: MembershipFingerprint.make(ids: presentIDs),
             presentIDs: Set(presentIDs),
+            memberIdentities: memberIdentities,
             presentTracks: persistedTracks
                 .filter { $0.appleScriptID == $0.trackID && presentIDValues.contains($0.trackID) }
                 .map { $0.toTrack() },
@@ -65,6 +70,10 @@ public actor TrackDataStore: TrackStateStore {
     }
 
     private func fetchPresentIDs() throws -> [MusicDatabaseTrackID] {
+        try fetchPresentMembers().compactMap { MusicDatabaseTrackID(rawValue: $0.databaseID) }
+    }
+
+    private func fetchPresentMembers() throws -> [PersistedLibraryMember] {
         let descriptor = FetchDescriptor<PersistedLibraryMember>(
             predicate: #Predicate { $0.isPresent }
         )
@@ -75,7 +84,7 @@ public actor TrackDataStore: TrackStateStore {
         guard invalidIDs.isEmpty else {
             throw TrackStoreError.invalidMembershipIDs(ids: invalidIDs)
         }
-        return members.compactMap { MusicDatabaseTrackID(rawValue: $0.databaseID) }
+        return members
     }
 
     public func getTrack(byID id: String) async throws -> Track? {
@@ -136,7 +145,7 @@ public actor TrackDataStore: TrackStateStore {
                 let transactionPlan = try Self.validate(commit)
                 let nextRevision = try mirrorState.revision.advanced()
                 try applyTrackChanges(transactionPlan, upserts: commit.upserts)
-                membershipDelta = try applyMembership(transactionPlan.membership, revision: nextRevision)
+                membershipDelta = try applyInventory(transactionPlan.inventory, revision: nextRevision)
                 let membership = try MembershipFingerprint.make(ids: fetchPresentIDs())
                 try applyCertificates(commit.certificates, revision: nextRevision, membership: membership)
                 committedRevision = try mirrorState.advanceRevision()
@@ -283,32 +292,43 @@ public actor TrackDataStore: TrackStateStore {
         var resurrected = 0
     }
 
-    private func applyMembership(
-        _ change: ValidatedMembershipChange,
+    private func applyInventory(
+        _ change: ValidatedInventoryChange,
         revision: MirrorRevision
     ) throws -> MembershipDelta {
-        guard case let .replace(stamp, ids, observedAt) = change else {
+        guard case let .replace(stamp, ids, identities, observedAt) = change else {
             return MembershipDelta()
         }
 
         let stored = try membershipByID()
+        let identitiesByID = Dictionary(uniqueKeysWithValues: identities.map { ($0.databaseID, $0) })
         let currentIDs = Set(ids.map(\.rawValue))
         var delta = MembershipDelta()
         for id in ids {
             if let member = stored[id.rawValue] {
                 guard !member.isPresent else {
                     member.markSeen(stamp: stamp)
+                    if let identity = identitiesByID[id] {
+                        member.apply(identity: identity, revision: revision)
+                    }
                     continue
                 }
                 member.markPresent(stamp: stamp)
+                if let identity = identitiesByID[id] {
+                    member.apply(identity: identity, revision: revision)
+                }
                 delta.resurrected += 1
             } else {
-                modelContext.insert(PersistedLibraryMember(
+                let member = PersistedLibraryMember(
                     databaseID: id.rawValue,
                     isPresent: true,
                     firstSeenRevisionValue: revision.value,
                     lastSeenFingerprint: stamp.fingerprint
-                ))
+                )
+                if let identity = identitiesByID[id] {
+                    member.apply(identity: identity, revision: revision)
+                }
+                modelContext.insert(member)
                 delta.added += 1
             }
         }
@@ -349,12 +369,17 @@ public actor TrackDataStore: TrackStateStore {
     private struct MirrorPlan {
         let repairs: [ValidatedRepair]
         let upsertIDs: [MusicDatabaseTrackID]
-        let membership: ValidatedMembershipChange
+        let inventory: ValidatedInventoryChange
     }
 
-    private enum ValidatedMembershipChange {
+    private enum ValidatedInventoryChange {
         case preserve
-        case replace(stamp: MembershipStamp, ids: [MusicDatabaseTrackID], observedAt: Date)
+        case replace(
+            stamp: MembershipStamp,
+            ids: [MusicDatabaseTrackID],
+            identities: [MemberIdentity],
+            observedAt: Date
+        )
     }
 
     private struct StoredMirrorState {
@@ -371,12 +396,12 @@ public actor TrackDataStore: TrackStateStore {
             throw TrackStoreError.duplicateUpserts(ids: duplicateUpserts)
         }
 
-        let membership = try validatedMembership(commit.membershipChange)
+        let inventory = try validatedInventory(commit.inventoryChange)
         let overlappingIDs = overlapIDs(repairs: repairs, upserts: upsertIDs)
         guard overlappingIDs.isEmpty else {
             throw TrackStoreError.identityOverlap(ids: overlappingIDs)
         }
-        if case let .replace(_, ids, _) = membership {
+        if case let .replace(_, ids, _, _) = inventory {
             let presentIDs = Set(ids)
             let operationIDs = Set(upsertIDs).union(repairs.map(\.targetID))
             let outsideMembership = operationIDs.subtracting(presentIDs)
@@ -385,13 +410,13 @@ public actor TrackDataStore: TrackStateStore {
                 throw TrackStoreError.operationsOutsideMembership(ids: outsideMembership)
             }
         }
-        return MirrorPlan(repairs: repairs, upsertIDs: upsertIDs, membership: membership)
+        return MirrorPlan(repairs: repairs, upsertIDs: upsertIDs, inventory: inventory)
     }
 
     private static func validateCertificateTransition(_ commit: MirrorCommit) throws {
         switch commit.certificates {
         case .preserve:
-            guard commit.membershipChange == .preserve,
+            guard commit.inventoryChange == .preserve,
                   commit.repairs.isEmpty,
                   commit.upserts.isEmpty
             else {
@@ -423,22 +448,34 @@ public actor TrackDataStore: TrackStateStore {
         }
     }
 
-    private static func validatedMembership(_ change: MembershipChange) throws -> ValidatedMembershipChange {
+    private static func validatedInventory(_ change: InventoryChange) throws -> ValidatedInventoryChange {
         switch change {
         case .preserve:
             return .preserve
-        case let .replace(stamp, ids, observedAt):
+        case let .replace(stamp, ids, identities, observedAt):
             let duplicates = duplicateIDs(in: ids)
             guard duplicates.isEmpty else {
                 throw TrackStoreError.duplicateMembershipIDs(ids: duplicates)
+            }
+            let duplicateIdentities = duplicateIDs(in: identities.map(\.databaseID))
+            guard duplicateIdentities.isEmpty else {
+                throw TrackStoreError.duplicateMembershipIDs(ids: duplicateIdentities)
             }
             let expected = try MembershipFingerprint.make(ids: ids)
             guard stamp == expected else {
                 throw TrackStoreError.membershipStampMismatch(expected: expected, actual: stamp)
             }
+            let membershipIDs = Set(ids)
+            let identityIDs = Set(identities.map(\.databaseID))
+            let identitiesOutsideMembership = identityIDs.subtracting(membershipIDs)
+                .sorted { $0.rawValue < $1.rawValue }
+            guard identitiesOutsideMembership.isEmpty else {
+                throw TrackStoreError.operationsOutsideMembership(ids: identitiesOutsideMembership)
+            }
             return .replace(
                 stamp: stamp,
                 ids: ids.sorted { $0.rawValue < $1.rawValue },
+                identities: identities.sorted { $0.databaseID.rawValue < $1.databaseID.rawValue },
                 observedAt: observedAt
             )
         }

@@ -705,96 +705,23 @@ private actor PreviewSyncObserver: MusicAppReading {
             )
         }
         let currentIDs = Set(rows.map(\.databaseID))
+        let identities = rows.map(\.identityRow)
         return LibraryObservation(
             tracks: rows,
-            censusIDs: currentIDs,
-            currentIDs: currentIDs,
-            scope: request.scope,
-            observedAt: observedAt,
-            membership: request.scope.source == .fullLibrary ? .full : .scoped(unobservedIDs: []),
-            metadata: MetadataCompleteness(requestedIDs: currentIDs, observedIDs: currentIDs),
-            generation: generation,
-            issues: []
-        )
-    }
-}
-
-private actor PreviewAdmissionStore: TrackStateStore {
-    private let snapshot: TrackMirrorSnapshot
-    private var mirrorLoads = 0
-    private var allTrackLoads = 0
-
-    init(track: Track, testArtists: [String], observedAt: Date) throws {
-        let databaseID = try #require(track.databaseID)
-        let membership = try MembershipFingerprint.make(ids: [databaseID])
-        let certificate = ScopeCertificate(
-            id: UUID(),
-            revision: .initial,
-            membership: membership,
-            testArtists: testArtists,
-            fieldSet: .processingV1,
-            evidence: ScopeEvidence(
-                requestedFingerprint: membership.fingerprint,
-                observedFingerprint: membership.fingerprint,
-                trackCount: 1
+            identities: identities,
+            epoch: LibraryObservationEpoch(
+                censusIDs: currentIDs,
+                currentIDs: currentIDs,
+                scope: request.scope,
+                observedAt: observedAt,
+                generation: generation
             ),
-            observedAt: observedAt
-        )
-        snapshot = TrackMirrorSnapshot(
-            revision: .initial,
-            membershipStamp: membership,
-            presentIDs: [databaseID],
-            presentTracks: [track],
-            repairCandidates: [],
-            certificates: [certificate]
+            coverage: LibraryObservationCoverage(
+                membership: request.scope.source == .fullLibrary ? .full : .scoped(unobservedIDs: []),
+                identity: IdentityCompleteness(requestedIDs: currentIDs, observedIDs: currentIDs),
+                metadata: MetadataCompleteness(requestedIDs: currentIDs, observedIDs: currentIDs),
+                issues: []
+            )
         )
     }
-
-    func initialize() async throws {
-        throw PreviewStoreError.unexpectedInitialize
-    }
-
-    func loadAllTracks() async throws -> [Track] {
-        allTrackLoads += 1
-        throw PreviewStoreError.unexpectedLoadAll
-    }
-
-    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        mirrorLoads += 1
-        return snapshot
-    }
-
-    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
-        try MirrorCommitResult(revision: commit.baseRevision.advanced())
-    }
-
-    func getTrack(byID _: String) async throws -> Track? {
-        nil
-    }
-
-    func persistAppliedChange(_: ChangeLogEntry) async throws {
-        throw PreviewStoreError.unexpectedPersist
-    }
-
-    func getUnprocessedTracks() async throws -> [Track] {
-        []
-    }
-
-    func trackCount() async throws -> Int {
-        snapshot.presentTracks.count
-    }
-
-    func mirrorLoadCount() -> Int {
-        mirrorLoads
-    }
-
-    func allTrackLoadTotal() -> Int {
-        allTrackLoads
-    }
-}
-
-private enum PreviewStoreError: Error {
-    case unexpectedInitialize
-    case unexpectedLoadAll
-    case unexpectedPersist
 }

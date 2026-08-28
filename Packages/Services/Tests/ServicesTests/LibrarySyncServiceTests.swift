@@ -31,48 +31,48 @@ actor SyncMockScriptClient: MusicAppReading {
                 return databaseID
             }
             .sorted { $0.rawValue < $1.rawValue }
-        let previousIDs = Self.previousIDs(from: request.previous)
-        let requestedIDs = request.refresh == .force
-            ? allIDs
-            : allIDs.filter { !previousIDs.contains($0) }
         let observedTracks = trackQueue.isEmpty ? tracksByID : trackQueue.removeFirst()
-        let rows = requestedIDs.compactMap { databaseID -> LibraryTrackRow? in
+        let requestedIdentityIDs = request.identityLookupIDs(in: allIDs)
+        let identityRows = requestedIdentityIDs.compactMap { databaseID -> LibraryIdentityRow? in
+            guard let track = observedTracks[databaseID.rawValue] else { return nil }
+            return Self.identityRow(track, databaseID: databaseID)
+        }
+        let identitiesByID = Dictionary(uniqueKeysWithValues: identityRows.map { ($0.databaseID, $0) })
+        let censusIDs = Set(allIDs)
+        let currentIDs = request.inventory.admittedIDs(
+            censusIDs: censusIDs,
+            observed: identitiesByID,
+            scope: request.scope
+        )
+        let requestedMetadataIDs = request.metadataLookupIDs(in: allIDs, admittedIDs: currentIDs)
+        let rows = requestedMetadataIDs.compactMap { databaseID -> LibraryTrackRow? in
             guard let track = observedTracks[databaseID.rawValue] else { return nil }
             return Self.observationRow(track, databaseID: databaseID)
         }
-        let scopedRows = rows.filter { row in
-            guard request.scope.source == .testArtists else { return true }
-            let artist = if case let .value(albumArtist) = row.albumArtist {
-                albumArtist
-            } else if case let .value(trackArtist) = row.artist {
-                trackArtist
-            } else {
-                ""
-            }
-            return ArtistAllowList.containsNormalized(artist, in: request.scope.normalizedTestArtists)
-        }
-        let currentIDs: Set<MusicDatabaseTrackID> = if request.scope.source == .fullLibrary {
-            Set(allIDs)
-        } else {
-            Set(scopedRows.map(\.databaseID))
-        }
-        let observedIDs = Set(rows.map(\.databaseID))
-        let missingIDs = Set(requestedIDs).subtracting(observedIDs)
+        let derivedIdentities = request.scope.source == .fullLibrary ? rows.map(\.identityRow) : identityRows
+        let identityRequestedIDs = request.reportedIdentityIDs(
+            identityLookupIDs: requestedIdentityIDs,
+            metadataLookupIDs: requestedMetadataIDs
+        )
+        let observedMetadataIDs = Set(rows.map(\.databaseID))
+        let coverage = Self.makeCoverage(
+            request: request,
+            identities: derivedIdentities,
+            identityRequestedIDs: identityRequestedIDs,
+            metadataRequestedIDs: Set(requestedMetadataIDs),
+            metadataObservedIDs: observedMetadataIDs
+        )
         return LibraryObservation(
-            tracks: scopedRows,
-            censusIDs: Set(allIDs),
-            currentIDs: currentIDs,
-            scope: request.scope,
-            observedAt: observedAt(),
-            membership: request.scope.source == .fullLibrary
-                ? .full
-                : .scoped(unobservedIDs: missingIDs),
-            metadata: MetadataCompleteness(
-                requestedIDs: Set(requestedIDs),
-                observedIDs: observedIDs
+            tracks: rows,
+            identities: derivedIdentities,
+            epoch: LibraryObservationEpoch(
+                censusIDs: censusIDs,
+                currentIDs: currentIDs,
+                scope: request.scope,
+                observedAt: observedAt(),
+                generation: generation
             ),
-            generation: generation,
-            issues: []
+            coverage: coverage
         )
     }
 
@@ -87,13 +87,40 @@ actor SyncMockScriptClient: MusicAppReading {
         return generation
     }
 
-    private static func previousIDs(from mirror: LibraryMirrorReference) -> Set<MusicDatabaseTrackID> {
-        switch mirror {
-        case .initial:
-            []
-        case let .verified(index):
-            Set(index.tracksByID.keys)
-        }
+    private static func makeCoverage(
+        request: LibraryObservationRequest,
+        identities: [LibraryIdentityRow],
+        identityRequestedIDs: Set<MusicDatabaseTrackID>,
+        metadataRequestedIDs: Set<MusicDatabaseTrackID>,
+        metadataObservedIDs: Set<MusicDatabaseTrackID>
+    ) -> LibraryObservationCoverage {
+        let identityObservedIDs = Set(identities.map(\.databaseID))
+        let missingIdentityIDs = identityRequestedIDs.subtracting(identityObservedIDs)
+        return LibraryObservationCoverage(
+            membership: request.scope.source == .fullLibrary
+                ? .full
+                : .scoped(unobservedIDs: missingIdentityIDs),
+            identity: IdentityCompleteness(
+                requestedIDs: identityRequestedIDs,
+                observedIDs: identityObservedIDs
+            ),
+            metadata: MetadataCompleteness(
+                requestedIDs: metadataRequestedIDs,
+                observedIDs: metadataObservedIDs
+            ),
+            issues: []
+        )
+    }
+
+    private static func identityRow(
+        _ track: Track,
+        databaseID: MusicDatabaseTrackID
+    ) -> LibraryIdentityRow {
+        LibraryIdentityRow(
+            databaseID: databaseID,
+            artist: .value(track.artist),
+            albumArtist: track.albumArtist.map(Observed.value) ?? .absent
+        )
     }
 
     private static func observationRow(
@@ -164,10 +191,10 @@ actor SyncMockTrackStore: TrackStateStore {
         case let .replace(certificate), let .rebase(certificate):
             certificates = [certificate]
         }
-        if let membershipIDs = membershipIDs(update.membershipChange) {
+        if let membershipIDs = inventoryIDs(update.inventoryChange) {
             presentIDs = Set(membershipIDs)
         }
-        applyMembership(update.membershipChange, to: &storedTracks)
+        applyInventory(update.inventoryChange, to: &storedTracks)
         for track in update.upserts {
             if let index = storedTracks.firstIndex(where: { $0.id == track.id }) {
                 storedTracks[index] = track
@@ -234,10 +261,10 @@ extension SyncMockTrackStore {
 
     func setScopeCertificate(testArtists: [String], observedAt: Date = Date()) {
         do {
-            let membership = try replacementMembership(for: storedTracks)
+            let inventory = try replacementInventory(for: storedTracks)
             certificates = try [scopeCertificate(
                 revision: revision,
-                membershipChange: membership,
+                inventoryChange: inventory,
                 testArtists: testArtists,
                 trackIDs: storedTracks.compactMap(\.databaseID),
                 observedAt: observedAt

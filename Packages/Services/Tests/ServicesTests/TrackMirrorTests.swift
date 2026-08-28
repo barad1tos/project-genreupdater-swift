@@ -98,16 +98,16 @@ struct TrackMirrorTests {
     func emptyFullLibraryIsCertified() async throws {
         let store = try makeStore()
         try await store.initialize()
-        let membership = try replacementMembership(for: [MusicDatabaseTrackID]())
+        let inventory = try replacementInventory(for: [MusicDatabaseTrackID]())
 
         try await store.commitMirror(MirrorCommit(
             baseRevision: .initial,
-            membershipChange: membership,
+            inventoryChange: inventory,
             repairs: [],
             upserts: [],
             certificates: .replace(scopeCertificate(
                 revision: MirrorRevision(value: 1),
-                membershipChange: membership,
+                inventoryChange: inventory,
                 trackIDs: []
             ))
         ))
@@ -129,7 +129,7 @@ struct TrackMirrorTests {
         await #expect(throws: TrackStoreError.missingDatabaseID(trackID: "invalid")) {
             try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                membershipChange: replacementMembership(for: [MusicDatabaseTrackID]()),
+                inventoryChange: replacementInventory(for: [MusicDatabaseTrackID]()),
                 repairs: [],
                 upserts: [sampleTrack(id: "invalid")],
                 certificates: .invalidate(.incompleteObservation)
@@ -275,7 +275,7 @@ struct TrackMirrorTests {
 
         try await store.commitMirror(MirrorCommit(
             baseRevision: revision,
-            membershipChange: replacementMembership(for: presentIDs),
+            inventoryChange: replacementInventory(for: presentIDs),
             repairs: [],
             upserts: [refreshedTrack, insertedTrack],
             certificates: .invalidate(.membershipChanged)
@@ -310,7 +310,7 @@ struct TrackMirrorTests {
         do {
             try await store.commitMirror(MirrorCommit(
                 baseRevision: revision,
-                membershipChange: .preserve,
+                inventoryChange: .preserve,
                 repairs: [],
                 upserts: [mirrorTrack(id: "T001", name: "First"), mirrorTrack(id: "T001", name: "Second")],
                 certificates: .invalidate(.incompleteObservation)
@@ -335,9 +335,9 @@ struct TrackMirrorTests {
         do {
             try await store.commitMirror(MirrorCommit(
                 baseRevision: revision,
-                membershipChange: .replace(
+                inventoryChange: .replace(
                     stamp: stamp,
-                    ids: [duplicateID, duplicateID],
+                    ids: [duplicateID, duplicateID], identities: [],
                     observedAt: .now
                 ),
                 repairs: [],
@@ -363,7 +363,7 @@ struct TrackMirrorTests {
         do {
             try await store.commitMirror(MirrorCommit(
                 baseRevision: revision,
-                membershipChange: replacementMembership(for: [testDatabaseID("T002")]),
+                inventoryChange: replacementInventory(for: [testDatabaseID("T002")]),
                 repairs: [],
                 upserts: [mirrorTrack(id: "T001", name: "Updated")],
                 certificates: .invalidate(.membershipChanged)
@@ -386,7 +386,7 @@ struct TrackMirrorTests {
         do {
             try await store.commitMirror(MirrorCommit(
                 baseRevision: revision,
-                membershipChange: .preserve,
+                inventoryChange: .preserve,
                 repairs: [],
                 upserts: [sampleTrack(id: "T001")],
                 certificates: .invalidate(.incompleteObservation)
@@ -412,7 +412,7 @@ struct TrackMirrorTests {
         do {
             try await store.commitMirror(MirrorCommit(
                 baseRevision: revision,
-                membershipChange: .preserve,
+                inventoryChange: .preserve,
                 repairs: [],
                 upserts: [mismatchedTrack],
                 certificates: .invalidate(.incompleteObservation)
@@ -438,7 +438,7 @@ struct TrackMirrorTests {
         do {
             try await store.commitMirror(MirrorCommit(
                 baseRevision: revision,
-                membershipChange: .preserve,
+                inventoryChange: .preserve,
                 repairs: [],
                 upserts: [mirrorTrack(id: "catalog", name: "Canonical")],
                 certificates: .invalidate(.incompleteObservation)
@@ -460,7 +460,7 @@ struct TrackMirrorTests {
 
         try await store.commitMirror(MirrorCommit(
             baseRevision: revision,
-            membershipChange: replacementMembership(for: [databaseID]),
+            inventoryChange: replacementInventory(for: [databaseID]),
             repairs: [],
             upserts: [],
             certificates: .invalidate(.membershipChanged)
@@ -541,7 +541,7 @@ struct TrackMirrorTests {
         )
         let update = try MirrorCommit(
             baseRevision: .initial,
-            membershipChange: replacementMembership(for: [testDatabaseID("database-id")]),
+            inventoryChange: replacementInventory(for: [testDatabaseID("database-id")]),
             repairs: [TrackMirrorRepair(sourceID: "catalog-id", target: target)],
             upserts: [],
             certificates: .invalidate(.membershipChanged)
@@ -608,7 +608,7 @@ struct TrackMirrorTests {
         )
         let update = try MirrorCommit(
             baseRevision: .initial,
-            membershipChange: replacementMembership(for: [testDatabaseID("AS1")]),
+            inventoryChange: replacementInventory(for: [testDatabaseID("AS1")]),
             repairs: [TrackMirrorRepair(sourceID: "MK1", target: live)],
             upserts: [],
             certificates: .invalidate(.membershipChanged)
@@ -618,7 +618,7 @@ struct TrackMirrorTests {
         try await store.commitMirror(update)
         try await store.commitMirror(MirrorCommit(
             baseRevision: MirrorRevision(value: 1),
-            membershipChange: update.membershipChange,
+            inventoryChange: update.inventoryChange,
             repairs: update.repairs,
             upserts: update.upserts,
             certificates: update.certificates
@@ -675,7 +675,7 @@ struct TrackMirrorTests {
         let revision = try await store.loadMirrorSnapshot().revision
         let update = try MirrorCommit(
             baseRevision: revision,
-            membershipChange: replacementMembership(for: [
+            inventoryChange: replacementInventory(for: [
                 testDatabaseID("inserted"),
                 testDatabaseID("rekeyed"),
                 testDatabaseID("updated"),
@@ -776,7 +776,7 @@ struct TrackMirrorTests {
             try context.save()
             try await TrackDataStore(modelContainer: container).commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                membershipChange: replacementMembership(for: [testDatabaseID("canonical")]),
+                inventoryChange: replacementInventory(for: [testDatabaseID("canonical")]),
                 repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "canonical"))],
                 upserts: [],
                 certificates: .invalidate(.membershipChanged)

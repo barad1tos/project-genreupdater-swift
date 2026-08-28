@@ -135,6 +135,138 @@ struct LibraryMembershipTests {
         #expect(resurrected.removedAt == nil)
     }
 
+    @Test("An unobserved member identity remains unknown")
+    func unobservedIdentityRemainsUnknown() async throws {
+        let fixture = try makeFixture()
+        let id = try databaseID("A")
+
+        _ = try await replaceMembership(in: fixture.store, ids: [id], tracks: [track(id: id)])
+
+        let snapshot = try await fixture.store.loadMirrorSnapshot()
+        #expect(snapshot.memberIdentities.isEmpty)
+        let member = try #require(loadMembers(from: fixture.container).first)
+        #expect(member.identityObservedAt == nil)
+        #expect(member.identityRevisionValue == nil)
+        #expect(member.artist == nil)
+        #expect(member.albumArtist == nil)
+    }
+
+    @Test("Observed nil identity fields are authoritative absence")
+    func absentIdentityRoundTrips() async throws {
+        let fixture = try makeFixture()
+        let id = try databaseID("A")
+        let observedAt = Date(timeIntervalSince1970: 1_700_000_010)
+        let identity = MemberIdentity(
+            databaseID: id,
+            artist: nil,
+            albumArtist: nil,
+            observedAt: observedAt
+        )
+
+        _ = try await replaceMembership(
+            in: fixture.store,
+            ids: [id],
+            tracks: [track(id: id)],
+            identities: [identity],
+            observedAt: observedAt
+        )
+
+        #expect(try await fixture.store.loadMirrorSnapshot().memberIdentities[id] == identity)
+        let member = try #require(loadMembers(from: fixture.container).first)
+        #expect(member.identityObservedAt == observedAt)
+        #expect(member.identityRevisionValue == 1)
+        #expect(member.artist == nil)
+        #expect(member.albumArtist == nil)
+    }
+
+    @Test("An omitted identity preserves unchanged classification")
+    func omittedIdentityPreservesClassification() async throws {
+        let fixture = try makeFixture()
+        let id = try databaseID("A")
+        let identity = MemberIdentity(
+            databaseID: id,
+            artist: "Artist A",
+            albumArtist: "Album Artist A",
+            observedAt: Date(timeIntervalSince1970: 1_700_000_020)
+        )
+        _ = try await replaceMembership(
+            in: fixture.store,
+            ids: [id],
+            tracks: [track(id: id)],
+            identities: [identity]
+        )
+
+        _ = try await replaceMembership(in: fixture.store, ids: [id])
+
+        #expect(try await fixture.store.loadMirrorSnapshot().memberIdentities[id] == identity)
+        let member = try #require(loadMembers(from: fixture.container).first)
+        #expect(member.identityRevisionValue == 1)
+    }
+
+    @Test("A current identity observation replaces previous classification")
+    func currentIdentityReplacesClassification() async throws {
+        let fixture = try makeFixture()
+        let id = try databaseID("A")
+        let first = MemberIdentity(
+            databaseID: id,
+            artist: "Artist A",
+            albumArtist: nil,
+            observedAt: Date(timeIntervalSince1970: 1_700_000_030)
+        )
+        let replacement = MemberIdentity(
+            databaseID: id,
+            artist: "Artist B",
+            albumArtist: "Album Artist B",
+            observedAt: Date(timeIntervalSince1970: 1_700_000_040)
+        )
+        _ = try await replaceMembership(
+            in: fixture.store,
+            ids: [id],
+            tracks: [track(id: id)],
+            identities: [first]
+        )
+
+        _ = try await replaceMembership(in: fixture.store, ids: [id], identities: [replacement])
+
+        #expect(try await fixture.store.loadMirrorSnapshot().memberIdentities[id] == replacement)
+        let member = try #require(loadMembers(from: fixture.container).first)
+        #expect(member.identityRevisionValue == 2)
+    }
+
+    @Test("Tombstones retain identity but resurrection requires current evidence")
+    func resurrectionClearsIdentity() async throws {
+        let fixture = try makeFixture()
+        let id = try databaseID("A")
+        let identity = MemberIdentity(
+            databaseID: id,
+            artist: "Artist A",
+            albumArtist: nil,
+            observedAt: Date(timeIntervalSince1970: 1_700_000_050)
+        )
+        _ = try await replaceMembership(
+            in: fixture.store,
+            ids: [id],
+            tracks: [track(id: id)],
+            identities: [identity]
+        )
+
+        _ = try await replaceMembership(in: fixture.store, ids: [])
+
+        let tombstone = try #require(loadMembers(from: fixture.container).first)
+        #expect(tombstone.artist == "Artist A")
+        #expect(tombstone.identityObservedAt == identity.observedAt)
+
+        _ = try await replaceMembership(in: fixture.store, ids: [id])
+
+        #expect(try await fixture.store.loadMirrorSnapshot().memberIdentities.isEmpty)
+        let resurrected = try #require(loadMembers(from: fixture.container).first)
+        #expect(resurrected.isPresent)
+        #expect(resurrected.artist == nil)
+        #expect(resurrected.albumArtist == nil)
+        #expect(resurrected.identityObservedAt == nil)
+        #expect(resurrected.identityRevisionValue == nil)
+    }
+
     @Test("Empty authoritative census tombstones every member")
     func emptyCensusTombstonesMembers() async throws {
         let fixture = try makeFixture()
@@ -212,7 +344,6 @@ struct LibraryMembershipTests {
         let lastSeenFingerprint: String?
         let removalRevisionValue: UInt64?
         let removedAt: Date?
-
         init(_ member: PersistedLibraryMember) {
             databaseID = member.databaseID
             isPresent = member.isPresent
@@ -246,13 +377,19 @@ struct LibraryMembershipTests {
         in store: TrackDataStore,
         ids: [MusicDatabaseTrackID],
         tracks: [Track] = [],
+        identities: [MemberIdentity] = [],
         observedAt: Date = Date(timeIntervalSince1970: 1_700_000_000)
     ) async throws -> MirrorRevision {
         let revision = try await store.loadMirrorSnapshot().revision
         let stamp = try MembershipFingerprint.make(ids: ids)
         return try await store.commitMirror(MirrorCommit(
             baseRevision: revision,
-            membershipChange: .replace(stamp: stamp, ids: ids, observedAt: observedAt),
+            inventoryChange: .replace(
+                stamp: stamp,
+                ids: ids,
+                identities: identities,
+                observedAt: observedAt
+            ),
             repairs: [],
             upserts: tracks,
             certificates: .invalidate(.membershipChanged)

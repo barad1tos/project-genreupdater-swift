@@ -82,6 +82,9 @@ public actor LibrarySyncService {
         guard let mirror = LibraryMirrorIndex(tracksByID: scopedByID) else {
             throw LibrarySyncObservationError.invalidObservation(detail: "stored mirror index is inconsistent")
         }
+        guard let inventory = LibraryInventoryIndex(identitiesByID: snapshot.memberIdentities) else {
+            throw LibrarySyncObservationError.invalidObservation(detail: "stored inventory index is inconsistent")
+        }
         let scope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: runtimeConfiguration.testArtists,
             knownTrackCount: storedTracks.count,
@@ -91,21 +94,15 @@ public actor LibrarySyncService {
         let request = LibraryObservationRequest(
             scope: scope,
             refresh: .membershipOnly,
-            previous: .verified(mirror)
+            previous: .verified(mirror),
+            inventory: inventory
         )
         let observation = try await observer.observe(request)
         try validate(observation, request: request)
-        if case .scoped = observation.membership,
-           !observation.currentIDs.isSubset(of: Set(scopedByID.keys)) {
-            throw LibrarySyncObservationError.invalidObservation(
-                detail: "membership-only scoped result contains an ID outside its previous mirror"
-            )
-        }
-
         let removedDatabaseIDs = snapshot.presentIDs
             .subtracting(observation.censusIDs)
             .sorted { $0.rawValue < $1.rawValue }
-        try await commitMembership(observation, snapshot: snapshot)
+        try await commitInventory(observation, snapshot: snapshot)
         let removedTracks = removedDatabaseIDs.compactMap { canonicalByID[$0] }
         await invalidateCachesForLibraryChanges(
             hasLibraryChanges: !removedTracks.isEmpty,
@@ -124,23 +121,27 @@ public actor LibrarySyncService {
         )
     }
 
-    private func commitMembership(
+    private func commitInventory(
         _ observation: LibraryObservation,
         snapshot: TrackMirrorSnapshot
     ) async throws {
-        let membershipTransition: MembershipChange
+        let inventoryTransition: InventoryChange
         let certificateTransition: CertificateChange
-        if observation.censusIDs == snapshot.presentIDs {
-            membershipTransition = .preserve
+        let didChangeMembership = observation.censusIDs != snapshot.presentIDs
+        let didObserveIdentity = !observation.identities.isEmpty
+        if !didChangeMembership, !didObserveIdentity {
+            inventoryTransition = .preserve
             certificateTransition = .preserve
         } else {
-            membershipTransition = try membershipChange(for: observation)
-            certificateTransition = .invalidate(.membershipChanged)
+            inventoryTransition = try inventoryChange(for: observation)
+            certificateTransition = didChangeMembership
+                ? .invalidate(.membershipChanged)
+                : .invalidate(.incompleteObservation)
         }
         try await trackStore.commitMirror(MirrorCommit(
             baseRevision: snapshot.revision,
             observation: ObservationID(),
-            membershipChange: membershipTransition,
+            inventoryChange: inventoryTransition,
             repairs: [],
             upserts: [],
             certificates: certificateTransition
@@ -178,7 +179,7 @@ public actor LibrarySyncService {
         try await trackStore.commitMirror(MirrorCommit(
             baseRevision: detection.baseRevision,
             observation: detection.observation,
-            membershipChange: detection.membershipChange,
+            inventoryChange: detection.inventoryChange,
             repairs: detection.repairs,
             upserts: detection.upserts,
             certificates: detection.certificateChange

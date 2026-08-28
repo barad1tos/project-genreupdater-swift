@@ -16,7 +16,7 @@ struct StoreSchemaMigrationTests {
 
     private static let preMirrorChecksum = "4gyxaR3XVbJ4CxMo9jcZdflFXNqaKxs0rO8+kkx/1v0="
     private static let mirrorScopeChecksum = "vrVyyiD+OtvleDs7wa27tSGnDMLj4Bts1NWHukp62k4="
-    private static let certificateChecksum = "ZSXa0kgQOGc2k4E+9dCVjwRM05iEMOGympXy2vSo6HE="
+    private static let identityChecksum = "RjRJxmJfhLjdHHhDRUvRjn2jqm3L/8ZpduaKKgTfRns="
     private static let deployedMembershipChecksum = "whynwE78EfLk6nFo6Pm4ZxQSXWggha8oemCvJY0LlPw="
     private static let deployedCoverageChecksum = "lCPA7P84tguSr6BvhsyyK+8Wzw49fLJgWhUikSppAIQ="
     private static let recoveryChecksum = "i2Q0M3v/JLttbprhy5I8T0nCkA5O9AYoi9OSQRGpY2s="
@@ -81,8 +81,8 @@ struct StoreSchemaMigrationTests {
         }
     }
 
-    @Test("Current membership schema remains reopenable without a version change")
-    func pinsMembershipSchema() throws {
+    @Test("Current identity schema remains reopenable without a version change")
+    func pinsIdentitySchema() throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -91,12 +91,44 @@ struct StoreSchemaMigrationTests {
 
         _ = try migratedContainer(at: storeURL)
         let checksum = try storeChecksum(at: storeURL)
-        #expect(checksum == Self.certificateChecksum)
+        #expect(checksum == Self.identityChecksum)
         let reopened = try migratedContainer(at: storeURL)
         let context = ModelContext(reopened)
         #expect(reopened.migrationPlan == nil)
         #expect(try context.fetch(FetchDescriptor<PersistedLibraryMember>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<PersistedScopeCertificate>()).isEmpty)
+    }
+
+    @Test("V5 members migrate with unknown identity and remain reopenable")
+    func migratesV5IdentityFailClosed() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+
+        _ = try fixtureProcess(mode: "v5", at: storeURL)
+
+        for _ in 0 ..< 2 {
+            let container = try migratedContainer(at: storeURL)
+            let context = ModelContext(container)
+            let member = try #require(context.fetch(FetchDescriptor<PersistedLibraryMember>()).first)
+            #expect(member.databaseID == "v5-present")
+            #expect(member.isPresent)
+            #expect(member.firstSeenRevisionValue == 3)
+            #expect(member.lastSeenFingerprint == "v5-membership")
+            #expect(member.artist == nil)
+            #expect(member.albumArtist == nil)
+            #expect(member.identityObservedAt == nil)
+            #expect(member.identityRevisionValue == nil)
+            #expect(try context.fetch(FetchDescriptor<PersistedScopeCertificate>()).isEmpty)
+
+            let snapshot = try await TrackDataStore(modelContainer: container).loadMirrorSnapshot()
+            #expect(snapshot.revision == MirrorRevision(value: 11))
+            #expect(snapshot.presentIDs.map(\.rawValue) == ["v5-present"])
+            #expect(snapshot.memberIdentities.isEmpty)
+            #expect(snapshot.certificates.isEmpty)
+        }
     }
 
     @Test("The exact deployed V4 coverage store migrates with no admissible certificates")
@@ -455,13 +487,15 @@ struct StoreSchemaMigrationTests {
         ))
         if let isPresent {
             context.insert(PersistedMirrorState(revisionValue: 8))
-            context.insert(PersistedLibraryMember(
+            let member = PersistedLibraryMember(
                 databaseID: "current-track",
                 isPresent: isPresent,
-                firstSeenRevisionValue: 3,
-                removalRevisionValue: 7,
-                removedAt: Self.timestamp
-            ))
+                firstSeenRevisionValue: 3
+            )
+            if !isPresent {
+                member.markRemoved(revision: MirrorRevision(value: 7), at: Self.timestamp)
+            }
+            context.insert(member)
         }
         try context.save()
     }

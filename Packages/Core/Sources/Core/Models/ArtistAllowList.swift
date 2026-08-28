@@ -2,6 +2,8 @@ import Foundation
 
 /// Shared normalization and matching for artist-scoped update allow-lists.
 public enum ArtistAllowList {
+    public static let scopeRuleIdentifier = "artist-or-album-artist-v1"
+
     public static func normalized(_ artists: [String]) -> [String] {
         var normalizedArtists: [String] = []
 
@@ -35,7 +37,11 @@ public enum ArtistAllowList {
     }
 
     public static func contains(_ track: Track, in allowedArtists: [String]) -> Bool {
-        contains(track.effectiveArtist, in: allowedArtists)
+        containsNormalized(
+            artist: track.artist,
+            albumArtist: track.albumArtist,
+            in: normalized(allowedArtists)
+        )
     }
 
     /// Membership against a list already produced by `normalized(_:)`.
@@ -53,15 +59,29 @@ public enum ArtistAllowList {
     }
 
     public static func containsNormalized(_ track: Track, in normalizedArtists: [String]) -> Bool {
-        containsNormalized(track.effectiveArtist, in: normalizedArtists)
+        containsNormalized(
+            artist: track.artist,
+            albumArtist: track.albumArtist,
+            in: normalizedArtists
+        )
+    }
+
+    /// Track scope membership matches either authoritative artist field.
+    public static func containsNormalized(
+        artist: String?,
+        albumArtist: String?,
+        in normalizedArtists: [String]
+    ) -> Bool {
+        guard !normalizedArtists.isEmpty else { return true }
+        return [artist, albumArtist]
+            .compactMap(normalizedName)
+            .contains { containsNormalized($0, in: normalizedArtists) }
     }
 
     public static func filter(_ tracks: [Track], allowedArtists: [String]) -> [Track] {
         let normalizedArtists = normalized(allowedArtists)
         guard !normalizedArtists.isEmpty else { return tracks }
 
-        return tracks.filter { track in
-            contains(track.effectiveArtist, in: normalizedArtists)
-        }
+        return tracks.filter { containsNormalized($0, in: normalizedArtists) }
     }
 }

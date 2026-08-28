@@ -158,6 +158,7 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
     public let revision: MirrorRevision
     public let membershipStamp: MembershipStamp
     public let presentIDs: Set<MusicDatabaseTrackID>
+    public let memberIdentities: [MusicDatabaseTrackID: MemberIdentity]
     public let presentTracks: [Track]
     public let repairCandidates: [Track]
     public let certificates: [ScopeCertificate]
@@ -166,6 +167,7 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
         revision: MirrorRevision,
         membershipStamp: MembershipStamp,
         presentIDs: Set<MusicDatabaseTrackID>,
+        memberIdentities: [MusicDatabaseTrackID: MemberIdentity] = [:],
         presentTracks: [Track],
         repairCandidates: [Track],
         certificates: [ScopeCertificate]
@@ -173,6 +175,7 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
         self.revision = revision
         self.membershipStamp = membershipStamp
         self.presentIDs = presentIDs
+        self.memberIdentities = memberIdentities
         self.presentTracks = presentTracks
         self.repairCandidates = repairCandidates
         self.certificates = certificates
@@ -212,10 +215,14 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
         guard certificate.revision <= revision else {
             return .rejected(.stale(.supersededRevision))
         }
-        guard let scopedTracks = canonicalScopedTracks(for: requirement) else {
-            let canonicalIDs = Set(presentTracks.compactMap(\.databaseID))
-            let missingCount = presentIDs.subtracting(canonicalIDs).count
-            return .rejected(.incomplete(.identityMissing(count: max(1, missingCount))))
+        let scopedTracks: [Track]
+        switch resolveScopedTracks(for: requirement) {
+        case let .ready(tracks):
+            scopedTracks = tracks
+        case let .identityMissing(count):
+            return .rejected(.incomplete(.identityMissing(count: count)))
+        case let .metadataMissing(count):
+            return .rejected(.incomplete(.metadataMissing(count: count)))
         }
         let scopedIDs = Set(scopedTracks.compactMap(\.databaseID))
         guard certificate.requestedFingerprint == certificate.observedFingerprint else {
@@ -264,35 +271,49 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
         return .stale(.metadataExpired)
     }
 
-    private func canonicalScopedTracks(for requirement: MirrorRequirement) -> [Track]? {
+    private enum ScopedTrackResolution {
+        case ready([Track])
+        case identityMissing(count: Int)
+        case metadataMissing(count: Int)
+    }
+
+    private func resolveScopedTracks(for requirement: MirrorRequirement) -> ScopedTrackResolution {
         var tracksByID: [MusicDatabaseTrackID: Track] = [:]
         for track in presentTracks {
             guard let databaseID = track.databaseID,
                   track.id == databaseID.rawValue,
                   presentIDs.contains(databaseID),
                   tracksByID.updateValue(track, forKey: databaseID) == nil
-            else { return nil }
+            else { return .identityMissing(count: 1) }
         }
         if requirement.normalizedTestArtists.isEmpty {
-            guard Set(tracksByID.keys) == presentIDs else { return nil }
-            return tracksByID.sorted { first, second in
+            let missingCount = presentIDs.subtracting(tracksByID.keys).count
+            guard missingCount == 0 else { return .identityMissing(count: missingCount) }
+            return .ready(tracksByID.sorted { first, second in
                 first.key.rawValue < second.key.rawValue
-            }.map(\.value)
+            }.map(\.value))
         }
 
-        let scopedEntries: [(databaseID: MusicDatabaseTrackID, track: Track)] = tracksByID.compactMap { entry in
-            let databaseID = entry.key
-            let track = entry.value
-            let effectiveArtist = track.albumArtist.flatMap(ArtistAllowList.normalizedName)
-                ?? ArtistAllowList.normalizedName(track.artist)
-            guard let effectiveArtist,
-                  ArtistAllowList.containsNormalized(effectiveArtist, in: requirement.normalizedTestArtists)
-            else { return nil }
-            return (databaseID: databaseID, track: track)
-        }.sorted { first, second in
-            first.databaseID.rawValue < second.databaseID.rawValue
+        let validIdentities = memberIdentities.filter { databaseID, identity in
+            presentIDs.contains(databaseID) && databaseID == identity.databaseID
         }
-        return scopedEntries.map(\.track)
+        let missingIdentityCount = presentIDs.subtracting(validIdentities.keys).count
+        guard missingIdentityCount == 0, validIdentities.count == memberIdentities.count else {
+            return .identityMissing(count: max(1, missingIdentityCount))
+        }
+        let scopedIDs: Set<MusicDatabaseTrackID> = Set(validIdentities.compactMap { databaseID, identity in
+            guard ArtistAllowList.containsNormalized(
+                artist: identity.artist,
+                albumArtist: identity.albumArtist,
+                in: requirement.normalizedTestArtists
+            ) else { return nil }
+            return databaseID
+        })
+        let missingMetadataCount = scopedIDs.subtracting(tracksByID.keys).count
+        guard missingMetadataCount == 0 else {
+            return .metadataMissing(count: missingMetadataCount)
+        }
+        return .ready(scopedIDs.sorted { $0.rawValue < $1.rawValue }.compactMap { tracksByID[$0] })
     }
 
     private static func artistsMatch(_ first: [String], _ second: [String]) -> Bool {

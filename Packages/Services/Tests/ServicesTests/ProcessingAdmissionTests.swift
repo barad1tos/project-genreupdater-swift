@@ -356,10 +356,21 @@ private struct AdmissionFixture {
         certificates: [ScopeCertificate]
     ) throws -> TrackMirrorSnapshot {
         let trackIDs = Set(tracks.compactMap(\.databaseID))
+        let identities = Dictionary(uniqueKeysWithValues: tracks.compactMap { track in
+            track.databaseID.map { databaseID in
+                (databaseID, MemberIdentity(
+                    databaseID: databaseID,
+                    artist: track.artist,
+                    albumArtist: track.albumArtist,
+                    observedAt: Date(timeIntervalSince1970: 1_700_000_000)
+                ))
+            }
+        })
         return try TrackMirrorSnapshot(
             revision: MirrorRevision(value: 1),
             membershipStamp: MembershipFingerprint.make(ids: Array(trackIDs)),
             presentIDs: trackIDs,
+            memberIdentities: identities,
             presentTracks: tracks,
             repairCandidates: [],
             certificates: certificates

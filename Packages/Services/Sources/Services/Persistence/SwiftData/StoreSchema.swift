@@ -370,3 +370,23 @@ enum StoreSchemaV5: VersionedSchema {
         PersistedScopeCertificate.self,
     ]
 }
+
+enum StoreSchemaV6: VersionedSchema {
+    static let versionIdentifier = Schema.Version(6, 0, 0)
+
+    static let models: [any PersistentModel.Type] = [
+        StoreSchemaV2.PersistedTrack.self,
+        StoreSchemaV5.PersistedMirrorState.self,
+        StoreSchemaV2.PersistedChangeLogEntry.self,
+        StoreSchemaV2.PersistedMetricsSnapshot.self,
+        StoreSchemaV2.PersistedPendingAlbumEntry.self,
+        StoreSchemaV2.PersistedPendingVerificationMetadata.self,
+        StoreSchemaV2.PersistedRunRecord.self,
+        StoreSchemaV2.PersistedRunWorkItem.self,
+        StoreSchemaV2.PersistedRunReportItem.self,
+        StoreSchemaV2.PersistedFixPlan.self,
+        StoreSchemaV2.PersistedFixPlanDecision.self,
+        PersistedLibraryMember.self,
+        StoreSchemaV5.PersistedScopeCertificate.self,
+    ]
+}

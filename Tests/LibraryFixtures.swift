@@ -43,6 +43,18 @@ private actor AppObservationSource: ObservationSource {
         census
     }
 
+    func fetchIdentity(for ids: [MusicDatabaseTrackID]) -> [LibraryIdentityRow] {
+        let requested = Set(ids)
+        return tracks.compactMap { track in
+            guard let databaseID = track.databaseID, requested.contains(databaseID) else { return nil }
+            return LibraryIdentityRow(
+                databaseID: databaseID,
+                artist: .value(track.artist),
+                albumArtist: track.albumArtist.map(Observed.value) ?? .absent
+            )
+        }
+    }
+
     func fetchMetadata(for ids: [MusicDatabaseTrackID]) -> [Core.Track] {
         let requested = Set(ids)
         return tracks.filter { track in
@@ -233,6 +245,7 @@ actor MirrorTrackStoreStub: TrackStateStore {
             revision: revision,
             membershipStamp: membership,
             presentIDs: Set(tracks.compactMap(\.databaseID)),
+            memberIdentities: testIdentityIndex(for: tracks, observedAt: certificateObservedAt),
             presentTracks: tracks,
             repairCandidates: [],
             certificates: loadedCertificates

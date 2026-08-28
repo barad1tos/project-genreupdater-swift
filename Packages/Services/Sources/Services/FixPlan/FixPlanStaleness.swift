@@ -19,10 +19,9 @@ public struct FixPlanStaleness: Equatable, Sendable {
         !reasons.isEmpty
     }
 
-    /// Scope comparison is deliberately narrow: only `source` and
-    /// `normalizedTestArtists`, never the full scope fingerprint. The
-    /// fingerprint embeds `knownTrackCount`, and ordinary library growth
-    /// between capture and review must not stale a plan.
+    /// Scope comparison is deliberately narrower than the full scope fingerprint.
+    /// `knownTrackCount` changes do not stale a plan, while a Test Artists matching-rule
+    /// change does because it changes which tracks the plan can include.
     public static func evaluate(
         plan: FixPlan,
         currentScope: ProcessingScopeSnapshot,
@@ -30,8 +29,11 @@ public struct FixPlanStaleness: Equatable, Sendable {
     ) -> Self {
         var reasons: [FixPlanStalenessReason] = []
 
+        let ruleChanged = plan.scope.source == .testArtists &&
+            plan.scope.matchingRule != currentScope.matchingRule
         let scopeChanged = plan.scope.source != currentScope.source ||
-            plan.scope.normalizedTestArtists != currentScope.normalizedTestArtists
+            plan.scope.normalizedTestArtists != currentScope.normalizedTestArtists ||
+            ruleChanged
         if scopeChanged {
             reasons.append(.scopeChanged)
         }

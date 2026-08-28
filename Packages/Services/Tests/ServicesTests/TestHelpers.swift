@@ -265,7 +265,7 @@ actor MockTrackStore: TrackStateStore {
         case let .replace(certificate), let .rebase(certificate):
             certificates = [certificate]
         }
-        if case let .replace(_, ids, _) = commit.membershipChange {
+        if case let .replace(_, ids, _, _) = commit.inventoryChange {
             let presentIDs = Set(ids.map(\.rawValue))
             tracks.removeAll { !presentIDs.contains($0.id) }
         }

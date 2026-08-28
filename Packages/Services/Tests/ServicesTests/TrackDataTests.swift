@@ -215,7 +215,7 @@ struct TrackDataTests {
 
         try await store.commitMirror(MirrorCommit(
             baseRevision: revision,
-            membershipChange: replacementMembership(for: remainingIDs),
+            inventoryChange: replacementInventory(for: remainingIDs),
             repairs: [],
             upserts: [],
             certificates: .invalidate(.membershipChanged)
@@ -237,7 +237,7 @@ struct TrackDataTests {
 
         let committedRevision = try await store.commitMirror(MirrorCommit(
             baseRevision: .initial,
-            membershipChange: replacementMembership(for: [acceptedTrack]),
+            inventoryChange: replacementInventory(for: [acceptedTrack]),
             repairs: [],
             upserts: [acceptedTrack],
             certificates: .invalidate(.membershipChanged)
@@ -247,7 +247,7 @@ struct TrackDataTests {
         do {
             _ = try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
-                membershipChange: replacementMembership(for: [rejectedTrack]),
+                inventoryChange: replacementInventory(for: [rejectedTrack]),
                 repairs: [],
                 upserts: [rejectedTrack],
                 certificates: .invalidate(.incompleteObservation)

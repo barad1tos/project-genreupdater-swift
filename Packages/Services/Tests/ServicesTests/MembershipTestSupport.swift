@@ -20,44 +20,53 @@ extension TrackStateStore {
             canonical.appleScriptID = canonical.id
             return canonical
         }
-        let membership = try replacementMembership(for: canonicalTracks)
+        let inventory = try replacementInventory(for: canonicalTracks)
         let nextRevision = try revision.advanced()
         try await commitMirror(MirrorCommit(
             baseRevision: revision,
             observation: ObservationID(),
-            membershipChange: membership,
+            inventoryChange: inventory,
             repairs: [],
             upserts: canonicalTracks,
             certificates: .replace(scopeCertificate(
                 revision: nextRevision,
-                membershipChange: membership,
+                inventoryChange: inventory,
                 trackIDs: canonicalTracks.compactMap(\.databaseID)
             ))
         ))
     }
 }
 
-func replacementMembership(
+func replacementInventory(
     for tracks: [Track],
     observedAt: Date = Date(timeIntervalSince1970: 1_700_000_000)
-) throws -> MembershipChange {
-    try replacementMembership(
-        for: tracks.compactMap(\.databaseID),
+) throws -> InventoryChange {
+    let ids = tracks.compactMap(\.databaseID)
+    return try .replace(
+        stamp: MembershipFingerprint.make(ids: ids),
+        ids: ids,
+        identities: memberIdentities(for: tracks, observedAt: observedAt),
         observedAt: observedAt
     )
 }
 
-func replacementMembership(
+func replacementInventory(
     for ids: [MusicDatabaseTrackID],
     observedAt: Date = Date(timeIntervalSince1970: 1_700_000_000)
-) throws -> MembershipChange {
-    try .replace(stamp: MembershipFingerprint.make(ids: ids), ids: ids, observedAt: observedAt)
+) throws -> InventoryChange {
+    try .replace(
+        stamp: MembershipFingerprint.make(ids: ids),
+        ids: ids,
+        identities: [],
+        observedAt: observedAt
+    )
 }
 
 func mirrorSnapshot(
     revision: MirrorRevision,
     tracks: [Track],
     presentIDs: Set<MusicDatabaseTrackID>? = nil,
+    memberIdentities explicitIdentities: [MusicDatabaseTrackID: MemberIdentity]? = nil,
     certificates: [ScopeCertificate] = []
 ) throws -> TrackMirrorSnapshot {
     let presentTracks = tracks.filter { track in
@@ -69,20 +78,44 @@ func mirrorSnapshot(
         revision: revision,
         membershipStamp: MembershipFingerprint.make(ids: Array(membership)),
         presentIDs: membership,
+        memberIdentities: explicitIdentities ?? memberIdentityIndex(for: tracks),
         presentTracks: presentTracks,
         repairCandidates: tracks.filter { !presentTracks.contains($0) },
         certificates: certificates
     )
 }
 
+private func memberIdentities(
+    for tracks: [Track],
+    observedAt: Date = Date(timeIntervalSince1970: 1_700_000_000)
+) -> [MemberIdentity] {
+    tracks.compactMap { track in
+        guard let databaseID = track.databaseID else { return nil }
+        return MemberIdentity(
+            databaseID: databaseID,
+            artist: track.artist,
+            albumArtist: track.albumArtist,
+            observedAt: observedAt
+        )
+    }
+}
+
+private func memberIdentityIndex(for tracks: [Track]) -> [MusicDatabaseTrackID: MemberIdentity] {
+    var identities: [MusicDatabaseTrackID: MemberIdentity] = [:]
+    for identity in memberIdentities(for: tracks) where identities[identity.databaseID] == nil {
+        identities[identity.databaseID] = identity
+    }
+    return identities
+}
+
 func scopeCertificate(
     revision: MirrorRevision,
-    membershipChange: MembershipChange,
+    inventoryChange: InventoryChange,
     testArtists: [String] = [],
     trackIDs: [MusicDatabaseTrackID],
     observedAt: Date = Date(timeIntervalSince1970: 1_700_000_000)
 ) throws -> ScopeCertificate {
-    guard case let .replace(membership, _, _) = membershipChange else {
+    guard case let .replace(membership, _, _, _) = inventoryChange else {
         preconditionFailure("A scope certificate requires replacement membership")
     }
     let fingerprint = try MembershipFingerprint.make(ids: trackIDs).fingerprint
@@ -101,13 +134,13 @@ func scopeCertificate(
     )
 }
 
-func membershipIDs(_ change: MembershipChange) -> [MusicDatabaseTrackID]? {
-    guard case let .replace(_, ids, _) = change else { return nil }
+func inventoryIDs(_ change: InventoryChange) -> [MusicDatabaseTrackID]? {
+    guard case let .replace(_, ids, _, _) = change else { return nil }
     return ids
 }
 
-func applyMembership(_ change: MembershipChange, to tracks: inout [Track]) {
-    guard let ids = membershipIDs(change) else { return }
+func applyInventory(_ change: InventoryChange, to tracks: inout [Track]) {
+    guard let ids = inventoryIDs(change) else { return }
     let presentIDs = Set(ids.map(\.rawValue))
     tracks.removeAll { track in
         guard let databaseID = track.databaseID, track.id == databaseID.rawValue else { return false }

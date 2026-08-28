@@ -28,9 +28,10 @@ struct ScopeCertificateStoreTests {
         let result = try await store.commitMirror(MirrorCommit(
             baseRevision: .initial,
             observation: observationID(1),
-            membershipChange: .replace(
+            inventoryChange: .replace(
                 stamp: membership,
                 ids: [testDatabaseID("A")],
+                identities: [],
                 observedAt: certificate.observedAt
             ),
             repairs: [],
@@ -52,7 +53,7 @@ struct ScopeCertificateStoreTests {
         _ = try await fixture.store.commitMirror(MirrorCommit(
             baseRevision: MirrorRevision(value: 1),
             observation: observationID(2),
-            membershipChange: .preserve,
+            inventoryChange: .preserve,
             repairs: [],
             upserts: [],
             certificates: .preserve
@@ -79,9 +80,10 @@ struct ScopeCertificateStoreTests {
             _ = try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
                 observation: observationID(0),
-                membershipChange: .replace(
+                inventoryChange: .replace(
                     stamp: membership,
                     ids: [testDatabaseID("A")],
+                    identities: [],
                     observedAt: certificate.observedAt
                 ),
                 repairs: [],
@@ -91,7 +93,7 @@ struct ScopeCertificateStoreTests {
             _ = try await store.commitMirror(MirrorCommit(
                 baseRevision: MirrorRevision(value: 1),
                 observation: observationID(1),
-                membershipChange: .preserve,
+                inventoryChange: .preserve,
                 repairs: [],
                 upserts: [],
                 certificates: .preserve
@@ -122,9 +124,10 @@ struct ScopeCertificateStoreTests {
             _ = try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
                 observation: observationID(0),
-                membershipChange: .replace(
+                inventoryChange: .replace(
                     stamp: membership,
                     ids: [testDatabaseID("A")],
+                    identities: [],
                     observedAt: observedAt
                 ),
                 repairs: [],
@@ -134,7 +137,7 @@ struct ScopeCertificateStoreTests {
             _ = try await store.commitMirror(MirrorCommit(
                 baseRevision: MirrorRevision(value: 1),
                 observation: observationID(1),
-                membershipChange: .preserve,
+                inventoryChange: .preserve,
                 repairs: [],
                 upserts: [certificateTrack(id: "A", genre: "Metal")],
                 certificates: .invalidate(.incompleteObservation)
@@ -158,7 +161,7 @@ struct ScopeCertificateStoreTests {
             try await fixture.store.commitMirror(MirrorCommit(
                 baseRevision: MirrorRevision(value: 1),
                 observation: observationID(2),
-                membershipChange: .preserve,
+                inventoryChange: .preserve,
                 repairs: [],
                 upserts: [certificateTrack(id: "A", genre: "Metal")],
                 certificates: .preserve
@@ -178,9 +181,10 @@ struct ScopeCertificateStoreTests {
             try await fixture.store.commitMirror(MirrorCommit(
                 baseRevision: MirrorRevision(value: 1),
                 observation: observationID(3),
-                membershipChange: .replace(
+                inventoryChange: .replace(
                     stamp: fixture.membership,
                     ids: [testDatabaseID("A")],
+                    identities: [],
                     observedAt: fixture.certificate.observedAt
                 ),
                 repairs: [],
@@ -199,7 +203,7 @@ struct ScopeCertificateStoreTests {
         _ = try await fixture.store.commitMirror(MirrorCommit(
             baseRevision: MirrorRevision(value: 1),
             observation: observationID(3),
-            membershipChange: .preserve,
+            inventoryChange: .preserve,
             repairs: [],
             upserts: [],
             certificates: .invalidate(.narrowedObservation)
@@ -217,7 +221,7 @@ struct ScopeCertificateStoreTests {
             try await fixture.store.commitMirror(MirrorCommit(
                 baseRevision: MirrorRevision(value: 1),
                 observation: observationID(4),
-                membershipChange: .preserve,
+                inventoryChange: .preserve,
                 repairs: [],
                 upserts: [],
                 certificates: .rebase(rebased)
@@ -250,9 +254,10 @@ struct ScopeCertificateStoreTests {
             _ = try await store.commitMirror(MirrorCommit(
                 baseRevision: .initial,
                 observation: observationID(0),
-                membershipChange: .replace(
+                inventoryChange: .replace(
                     stamp: membership,
                     ids: [testDatabaseID("A")],
+                    identities: [],
                     observedAt: original.observedAt
                 ),
                 repairs: [],
@@ -265,7 +270,7 @@ struct ScopeCertificateStoreTests {
                 _ = try await store.commitMirror(MirrorCommit(
                     baseRevision: MirrorRevision(value: 1),
                     observation: observationID(1),
-                    membershipChange: .preserve,
+                    inventoryChange: .preserve,
                     repairs: [],
                     upserts: [],
                     certificates: .replace(invalidFixture.certificate)
@@ -345,9 +350,10 @@ struct ScopeCertificateStoreTests {
         _ = try await store.commitMirror(MirrorCommit(
             baseRevision: .initial,
             observation: observationID(0),
-            membershipChange: .replace(
+            inventoryChange: .replace(
                 stamp: membership,
                 ids: [testDatabaseID("A")],
+                identities: [],
                 observedAt: certificate.observedAt
             ),
             repairs: [],

@@ -85,17 +85,27 @@ struct MusicAppObservationTests {
             retainedID: retainedTrack,
             removedID: removedTrack,
         ]))
+        let inventory = try #require(LibraryInventoryIndex(identitiesByID: [
+            retainedID: MemberIdentity(
+                databaseID: retainedID,
+                artist: "Target",
+                albumArtist: nil,
+                observedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            ),
+        ]))
 
         let observation = try await reader.observe(request(
             artists: ["Target"],
             refresh: .membershipOnly,
-            previous: .verified(mirror)
+            previous: .verified(mirror),
+            inventory: inventory
         ))
 
+        #expect(await source.identityRequests == [[newID]])
         #expect(await source.metadataRequests.isEmpty)
-        #expect(observation.currentIDs == [retainedID])
+        #expect(observation.currentIDs == [retainedID, newID])
         #expect(observation.tracks.isEmpty)
-        #expect(observation.membership == .scoped(unobservedIDs: [newID]))
+        #expect(observation.membership == .scoped(unobservedIDs: []))
         #expect(observation.metadata.requestedIDs.isEmpty)
         #expect(observation.metadata.observedIDs.isEmpty)
     }
@@ -123,8 +133,8 @@ struct MusicAppObservationTests {
         ])
     }
 
-    @Test("Artist scope prefers album artist and falls back only when it is absent")
-    func appliesEffectiveArtistScope() async throws {
+    @Test("Artist scope admits either primary artist or album artist")
+    func appliesEitherArtistScope() async throws {
         let albumArtistID = try databaseID("1")
         let fallbackID = try databaseID("2")
         let excludedID = try databaseID("3")
@@ -141,8 +151,8 @@ struct MusicAppObservationTests {
 
         let observation = try await reader.observe(request(artists: ["Target"]))
 
-        #expect(observation.currentIDs == [albumArtistID, fallbackID])
-        #expect(observation.tracks.map(\.databaseID) == [albumArtistID, fallbackID])
+        #expect(observation.currentIDs == [albumArtistID, fallbackID, excludedID])
+        #expect(observation.tracks.map(\.databaseID) == [albumArtistID, fallbackID, excludedID])
         #expect(observation.membership == .scoped(unobservedIDs: []))
         #expect(observation.tracks[1].albumArtist == .absent)
     }
@@ -169,8 +179,337 @@ struct MusicAppObservationTests {
 
         let result = try await service.detectObservation().result
 
-        #expect(await source.metadataRequests == [[targetID, outsideID]])
+        #expect(await source.metadataRequests == [[targetID]])
         #expect(result.newTracks.map(\.id) == ["1"])
+    }
+
+    @Test("Test Artists classifies unknown members before scoped metadata lookup")
+    func classifiesUnknownMembersBeforeMetadata() async throws {
+        let targetID = try databaseID("1")
+        let outsideID = try databaseID("2")
+        let knownOutsideID = try databaseID("3")
+        let generation = try libraryGeneration("G1")
+        let observedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let knownOutside = MemberIdentity(
+            databaseID: knownOutsideID,
+            artist: "Other",
+            albumArtist: nil,
+            observedAt: observedAt
+        )
+        let source = try ObservationSourceStub(
+            censuses: [census([targetID, outsideID, knownOutsideID], generation: generation)],
+            identities: [
+                targetID: identity(id: targetID, artist: "Target"),
+                outsideID: identity(id: outsideID, artist: "Other"),
+            ],
+            tracks: [targetID: track(id: targetID, artist: "Target")]
+        )
+        let reader = MusicAppObserver(source: source)
+
+        let inventory = try #require(LibraryInventoryIndex(identitiesByID: [knownOutsideID: knownOutside]))
+        let observation = try await reader.observe(request(
+            artists: ["Target"],
+            inventory: inventory
+        ))
+
+        #expect(await source.identityRequests == [[targetID, outsideID]])
+        #expect(await source.metadataRequests == [[targetID]])
+        #expect(observation.currentIDs == [targetID])
+        #expect(observation.identities.map(\.databaseID) == [targetID, outsideID])
+        #expect(observation.identity.isComplete)
+        #expect(observation.metadata.isComplete)
+    }
+
+    @Test("Unchanged Test Artists fast observation reuses out-of-scope classification")
+    func reusesPersistedClassification() async throws {
+        let targetID = try databaseID("1")
+        let outsideID = try databaseID("2")
+        let generation = try libraryGeneration("G1")
+        let observedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let targetTrack = track(id: targetID, artist: "Target")
+        let source = try ObservationSourceStub(
+            censuses: [census([targetID, outsideID], generation: generation)]
+        )
+        let reader = MusicAppObserver(source: source)
+        let mirror = try #require(LibraryMirrorIndex(tracksByID: [targetID: targetTrack]))
+        let inventory = try #require(LibraryInventoryIndex(identitiesByID: [
+            targetID: MemberIdentity(
+                databaseID: targetID,
+                artist: "Target",
+                albumArtist: nil,
+                observedAt: observedAt
+            ),
+            outsideID: MemberIdentity(
+                databaseID: outsideID,
+                artist: "Other",
+                albumArtist: nil,
+                observedAt: observedAt
+            ),
+        ]))
+
+        let observation = try await reader.observe(request(
+            artists: ["Target"],
+            previous: .verified(mirror),
+            inventory: inventory
+        ))
+
+        #expect(await source.identityRequests.isEmpty)
+        #expect(await source.metadataRequests.isEmpty)
+        #expect(observation.currentIDs == [targetID])
+        #expect(observation.tracks.isEmpty)
+        #expect(observation.identity.requestedIDs.isEmpty)
+        #expect(observation.metadata.requestedIDs.isEmpty)
+    }
+
+    @Test("Persisted Test Artists inventory makes the second sync request-free")
+    func persistsClassificationForWarmSync() async throws {
+        let targetID = try databaseID("1")
+        let outsideID = try databaseID("2")
+        let generation = try libraryGeneration("G1")
+        let source = try ObservationSourceStub(
+            censuses: [census([targetID, outsideID], generation: generation)],
+            identities: [
+                targetID: identity(id: targetID, artist: "Target"),
+                outsideID: identity(id: outsideID, artist: "Other"),
+            ],
+            tracks: [targetID: track(id: targetID, artist: "Target")]
+        )
+        let store = try TrackDataStore.createInMemory()
+        let configuration = LibrarySyncRuntimeConfiguration(testArtists: ["Target"])
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: configuration,
+            observer: MusicAppObserver(source: source)
+        )
+
+        let firstResult = try await service.synchronizeNow()
+        let secondResult = try await service.synchronizeNow()
+        let snapshot = try await store.loadMirrorSnapshot()
+        let certificate = try #require(snapshot.certificates.first)
+
+        #expect(firstResult.newTracks.map(\.id) == ["1"])
+        #expect(!secondResult.hasChanges)
+        #expect(await source.identityRequests == [[targetID, outsideID]])
+        #expect(await source.metadataRequests == [[targetID]])
+        #expect(Set(snapshot.memberIdentities.keys) == [targetID, outsideID])
+        #expect(snapshot.presentTracks.map(\.id) == ["1"])
+        #expect(snapshot.readiness(for: configuration.processingRequirement) == .ready(certificate))
+    }
+
+    @Test("Swift converges with the Python ID delta and artist-or-album-artist scope")
+    func matchesPythonScopedDelta() async throws {
+        let retainedID = try databaseID("1")
+        let removedID = try databaseID("2")
+        let newID = try databaseID("3")
+        let generation = try libraryGeneration("G1")
+        let source = try ObservationSourceStub(
+            censuses: [census([retainedID, removedID], generation: generation)],
+            identities: [
+                retainedID: identity(id: retainedID, artist: "Target"),
+                removedID: identity(id: removedID, artist: "Other"),
+            ],
+            tracks: [retainedID: track(id: retainedID, artist: "Target")]
+        )
+        let store = try TrackDataStore.createInMemory()
+        let configuration = LibrarySyncRuntimeConfiguration(testArtists: ["Target"])
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: configuration,
+            observer: MusicAppObserver(source: source)
+        )
+        _ = try await service.synchronizeNow()
+        try await source.replaceCensus(census([retainedID, newID], generation: generation))
+        await source.replaceLibrary(
+            identities: [
+                retainedID: identity(id: retainedID, artist: "Target"),
+                newID: identity(id: newID, artist: "Other", albumArtist: "Target"),
+            ],
+            tracks: [
+                retainedID: track(id: retainedID, artist: "Target"),
+                newID: track(id: newID, artist: "Other", albumArtist: "Target"),
+            ]
+        )
+
+        let result = try await service.synchronizeNow()
+        let snapshot = try await store.loadMirrorSnapshot()
+        let admission = snapshot.admission(for: configuration.processingRequirement)
+
+        #expect(result.newTracks.map(\.id) == ["3"])
+        #expect(result.removedTrackIDs == ["2"])
+        #expect(await source.identityRequests == [[retainedID, removedID], [newID]])
+        #expect(await source.metadataRequests == [[retainedID], [newID]])
+        guard case let .admitted(mirror) = admission else {
+            Issue.record("Expected the Python-matched scoped delta to be admitted")
+            return
+        }
+        #expect(mirror.tracks.map(\.id) == ["1", "3"])
+    }
+
+    @Test("Forced identity refresh removes a track from Test Artists without refreshing stale metadata")
+    func identityRefreshMovesTrackOutOfScope() async throws {
+        let databaseID = try databaseID("1")
+        let generation = try libraryGeneration("G1")
+        let source = try ObservationSourceStub(
+            censuses: [census([databaseID], generation: generation)],
+            identities: [databaseID: identity(id: databaseID, artist: "Target")],
+            tracks: [databaseID: track(id: databaseID, artist: "Target")]
+        )
+        let store = try TrackDataStore.createInMemory()
+        let configuration = LibrarySyncRuntimeConfiguration(testArtists: ["Target"])
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: configuration,
+            observer: MusicAppObserver(source: source)
+        )
+        _ = try await service.synchronizeNow()
+        await source.replaceLibrary(
+            identities: [databaseID: identity(id: databaseID, artist: "Other")],
+            tracks: [databaseID: track(id: databaseID, artist: "Other")]
+        )
+
+        _ = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let snapshot = try await store.loadMirrorSnapshot()
+        let admission = snapshot.admission(for: configuration.processingRequirement)
+
+        #expect(await source.identityRequests == [[databaseID], [databaseID]])
+        #expect(await source.metadataRequests == [[databaseID]])
+        #expect(snapshot.memberIdentities[databaseID]?.artist == "Other")
+        #expect(snapshot.presentTracks.first?.artist == "Target")
+        guard case let .admitted(mirror) = admission else {
+            Issue.record("Expected an admitted empty Test Artists mirror")
+            return
+        }
+        #expect(mirror.tracks.isEmpty)
+    }
+
+    @Test("Forced identity refresh admits a track entering Test Artists before metadata lookup")
+    func identityRefreshMovesTrackIntoScope() async throws {
+        let databaseID = try databaseID("1")
+        let generation = try libraryGeneration("G1")
+        let source = try ObservationSourceStub(
+            censuses: [census([databaseID], generation: generation)],
+            identities: [databaseID: identity(id: databaseID, artist: "Other")],
+            tracks: [databaseID: track(id: databaseID, artist: "Other")]
+        )
+        let store = try TrackDataStore.createInMemory()
+        let configuration = LibrarySyncRuntimeConfiguration(testArtists: ["Target"])
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: configuration,
+            observer: MusicAppObserver(source: source)
+        )
+        _ = try await service.synchronizeNow()
+        let targetTrack = track(id: databaseID, artist: "Target")
+        await source.replaceLibrary(
+            identities: [databaseID: identity(id: databaseID, artist: "Target")],
+            tracks: [databaseID: targetTrack]
+        )
+
+        _ = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let snapshot = try await store.loadMirrorSnapshot()
+        let admission = snapshot.admission(for: configuration.processingRequirement)
+
+        #expect(await source.identityRequests == [[databaseID], [databaseID]])
+        #expect(await source.metadataRequests == [[databaseID]])
+        #expect(snapshot.memberIdentities[databaseID]?.artist == "Target")
+        guard case let .admitted(mirror) = admission else {
+            Issue.record("Expected an admitted Test Artists mirror")
+            return
+        }
+        #expect(mirror.tracks.count == 1)
+        #expect(mirror.tracks.first?.databaseID == targetTrack.databaseID)
+        #expect(mirror.tracks.first?.artist == "Target")
+    }
+
+    @Test("Incomplete Test Artists identity persists evidence but cannot issue a certificate")
+    func incompleteIdentityFailsClosed() async throws {
+        let targetID = try databaseID("1")
+        let missingID = try databaseID("2")
+        let generation = try libraryGeneration("G1")
+        let source = try ObservationSourceStub(
+            censuses: [census([targetID, missingID], generation: generation)],
+            identities: [targetID: identity(id: targetID, artist: "Target")],
+            tracks: [targetID: track(id: targetID, artist: "Target")]
+        )
+        let store = try TrackDataStore.createInMemory()
+        let configuration = LibrarySyncRuntimeConfiguration(testArtists: ["Target"])
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: configuration,
+            observer: MusicAppObserver(source: source)
+        )
+
+        _ = try await service.synchronizeNow()
+        let snapshot = try await store.loadMirrorSnapshot()
+
+        #expect(snapshot.presentIDs == [targetID, missingID])
+        #expect(Set(snapshot.memberIdentities.keys) == [targetID])
+        #expect(snapshot.certificates.isEmpty)
+        #expect(snapshot.readiness(for: configuration.processingRequirement) ==
+            .incomplete(.freshObservationRequired))
+    }
+
+    @Test("Duplicate identity rows reject the observation boundary")
+    func rejectsDuplicateIdentityRows() async throws {
+        let databaseID = try databaseID("1")
+        let generation = try libraryGeneration("G1")
+        let duplicate = identity(id: databaseID, artist: "Target")
+        let source = try ObservationSourceStub(
+            censuses: [census([databaseID], generation: generation)],
+            identityResponse: [duplicate, duplicate]
+        )
+
+        do {
+            _ = try await MusicAppObserver(source: source).observe(request(artists: ["Target"]))
+            Issue.record("Expected duplicate identity rows to reject the observation")
+        } catch let MusicAppObservationError.duplicateIdentity(rejectedID) {
+            #expect(rejectedID == databaseID)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("An identity row outside the request rejects the observation boundary")
+    func rejectsUnexpectedIdentityRow() async throws {
+        let requestedID = try databaseID("1")
+        let unexpectedID = try databaseID("2")
+        let generation = try libraryGeneration("G1")
+        let source = try ObservationSourceStub(
+            censuses: [census([requestedID], generation: generation)],
+            identityResponse: [identity(id: unexpectedID, artist: "Target")]
+        )
+
+        do {
+            _ = try await MusicAppObserver(source: source).observe(request(artists: ["Target"]))
+            Issue.record("Expected an unexpected identity row to reject the observation")
+        } catch let MusicAppObservationError.unexpectedIdentity(rejectedID) {
+            #expect(rejectedID == unexpectedID)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("Full library derives member identity from required metadata")
+    func fullLibraryDerivesIdentityFromMetadata() async throws {
+        let firstID = try databaseID("1")
+        let secondID = try databaseID("2")
+        let generation = try libraryGeneration("G1")
+        let source = try ObservationSourceStub(
+            censuses: [census([firstID, secondID], generation: generation)],
+            tracks: [
+                firstID: track(id: firstID, artist: "First"),
+                secondID: track(id: secondID, artist: "Second", albumArtist: "Second Album Artist"),
+            ]
+        )
+        let reader = MusicAppObserver(source: source)
+
+        let observation = try await reader.observe(request())
+
+        #expect(await source.identityRequests.isEmpty)
+        #expect(await source.metadataRequests == [[firstID, secondID]])
+        #expect(observation.identities.map(\.databaseID) == [firstID, secondID])
+        #expect(observation.identity.requestedIDs == [firstID, secondID])
+        #expect(observation.identity.observedIDs == [firstID, secondID])
     }
 
     @Test("Scoped force sync preserves a census-present row that exits its artist scope")
@@ -198,7 +537,7 @@ struct MusicAppObservationTests {
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
 
-        #expect(await source.metadataRequests == [[databaseID]])
+        #expect(await source.metadataRequests.isEmpty)
         #expect(result.removedTrackIDs.isEmpty)
         #expect(await store.storedTracks.map(\.id) == ["1"])
     }
@@ -284,7 +623,8 @@ struct MusicAppObservationTests {
     private func request(
         artists: [String] = [],
         refresh: MetadataRefreshPolicy = .fast,
-        previous: LibraryMirrorReference = .initial
+        previous: LibraryMirrorReference = .initial,
+        inventory: LibraryInventoryIndex = .empty
     ) -> LibraryObservationRequest {
         LibraryObservationRequest(
             scope: ProcessingScopeSnapshot.capture(
@@ -294,7 +634,8 @@ struct MusicAppObservationTests {
                 reason: "observation fixture"
             ),
             refresh: refresh,
-            previous: previous
+            previous: previous,
+            inventory: inventory
         )
     }
 
@@ -320,6 +661,18 @@ struct MusicAppObservationTests {
         )
     }
 
+    private func identity(
+        id: MusicDatabaseTrackID,
+        artist: String?,
+        albumArtist: String? = nil
+    ) -> LibraryIdentityRow {
+        LibraryIdentityRow(
+            databaseID: id,
+            artist: artist.map(Observed.value) ?? .absent,
+            albumArtist: albumArtist.map(Observed.value) ?? .absent
+        )
+    }
+
     private func databaseID(_ rawValue: String) throws -> MusicDatabaseTrackID {
         try #require(MusicDatabaseTrackID(rawValue: rawValue))
     }
@@ -342,18 +695,52 @@ private enum ObservationTestError: Error, Equatable {
 
 private actor ObservationSourceStub: ObservationSource {
     private var censuses: [TrackIDCensus]
-    private let tracks: [MusicDatabaseTrackID: Track]
+    private var identities: [MusicDatabaseTrackID: LibraryIdentityRow]
+    private var tracks: [MusicDatabaseTrackID: Track]
+    private let identityResponse: [LibraryIdentityRow]?
     private let censusError: ObservationTestError?
+    private(set) var identityRequests: [[MusicDatabaseTrackID]] = []
     private(set) var metadataRequests: [[MusicDatabaseTrackID]] = []
 
     init(
         censuses: [TrackIDCensus] = [],
+        identities: [MusicDatabaseTrackID: LibraryIdentityRow]? = nil,
+        identityResponse: [LibraryIdentityRow]? = nil,
         tracks: [MusicDatabaseTrackID: Track] = [:],
         censusError: ObservationTestError? = nil
     ) {
         self.censuses = censuses
+        self.identities = identities ?? Dictionary(uniqueKeysWithValues: tracks.compactMap { databaseID, track in
+            let row = LibraryIdentityRow(
+                databaseID: databaseID,
+                artist: .value(track.artist),
+                albumArtist: track.albumArtist.map(Observed.value) ?? .absent
+            )
+            return (databaseID, row)
+        })
+        self.identityResponse = identityResponse
         self.tracks = tracks
         self.censusError = censusError
+    }
+
+    func fetchIdentity(for ids: [MusicDatabaseTrackID]) -> [LibraryIdentityRow] {
+        identityRequests.append(ids)
+        if let identityResponse {
+            return identityResponse
+        }
+        return ids.compactMap { identities[$0] }
+    }
+
+    func replaceLibrary(
+        identities: [MusicDatabaseTrackID: LibraryIdentityRow],
+        tracks: [MusicDatabaseTrackID: Track]
+    ) {
+        self.identities = identities
+        self.tracks = tracks
+    }
+
+    func replaceCensus(_ census: TrackIDCensus) {
+        censuses = [census]
     }
 
     func fetchCensus() throws -> TrackIDCensus {

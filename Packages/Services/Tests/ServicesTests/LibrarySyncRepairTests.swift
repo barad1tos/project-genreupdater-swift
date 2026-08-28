@@ -27,7 +27,7 @@ struct LibrarySyncRepairTests {
         #expect(repair.target.appleScriptID == "AS1")
         #expect(repair.target.originalArtist == "Before")
         #expect(update.upserts.isEmpty)
-        #expect(membershipIDs(update.membershipChange)?.map(\.rawValue) == ["AS1"])
+        #expect(inventoryIDs(update.inventoryChange)?.map(\.rawValue) == ["AS1"])
     }
 
     @Test("Unique metadata identity repairs a row without direct evidence")
@@ -251,7 +251,6 @@ struct LibrarySyncRepairTests {
             censusIDs: [databaseID],
             currentIDs: [databaseID],
             membership: .full,
-            requestedIDs: [databaseID],
             generation: #require(LibraryGeneration(sourceValue: "repair-generation"))
         ))
         let service = LibrarySyncService(trackStore: store, observer: reader)
@@ -283,7 +282,7 @@ struct LibrarySyncRepairTests {
         #expect(await fixture.store.updates.count == 1)
         #expect(update.repairs.map(\.sourceID) == ["MK1"])
         #expect(update.upserts.map(\.id) == ["NEW"])
-        #expect(membershipIDs(update.membershipChange)?.map(\.rawValue) == ["AS1", "NEW"])
+        #expect(inventoryIDs(update.inventoryChange)?.map(\.rawValue) == ["AS1", "NEW"])
     }
 
     private func makeFixture(
@@ -294,13 +293,11 @@ struct LibrarySyncRepairTests {
         membership: MembershipCompleteness = .full
     ) throws -> RepairFixture {
         let ids = try databaseIDs(currentIDs)
-        let rowIDs = Set(rows.map(\.databaseID))
         let reader = try RepairObservationReader(template: RepairObservationTemplate(
             rows: rows,
             censusIDs: ids,
             currentIDs: ids,
             membership: membership,
-            requestedIDs: rowIDs,
             generation: #require(LibraryGeneration(sourceValue: "repair-generation"))
         ))
         let store = RepairMirrorStore(stored: stored)
@@ -399,7 +396,6 @@ private struct RepairObservationTemplate: Sendable {
     let censusIDs: Set<MusicDatabaseTrackID>
     let currentIDs: Set<MusicDatabaseTrackID>
     let membership: MembershipCompleteness
-    let requestedIDs: Set<MusicDatabaseTrackID>
     let generation: LibraryGeneration
 }
 
@@ -413,19 +409,40 @@ private actor RepairObservationReader: MusicAppReading {
 
     func observe(_ request: LibraryObservationRequest) -> LibraryObservation {
         requests.append(request)
+        let censusIDs = template.censusIDs.sorted { $0.rawValue < $1.rawValue }
+        let identityLookups = request.identityLookupIDs(in: censusIDs)
+        let metadataLookups = request.metadataLookupIDs(
+            in: censusIDs,
+            admittedIDs: template.currentIDs
+        )
+        let identityIDs = request.reportedIdentityIDs(
+            identityLookupIDs: identityLookups,
+            metadataLookupIDs: metadataLookups
+        )
+        let identities = template.rows.map(\.identityRow).filter { identityIDs.contains($0.databaseID) }
+        let observedIDs = Set(template.rows.map(\.databaseID))
         return LibraryObservation(
             tracks: template.rows,
-            censusIDs: template.censusIDs,
-            currentIDs: template.currentIDs,
-            scope: request.scope,
-            observedAt: Date(timeIntervalSince1970: 1_800_000_000),
-            membership: template.membership,
-            metadata: MetadataCompleteness(
-                requestedIDs: template.requestedIDs,
-                observedIDs: template.requestedIDs
+            identities: identities,
+            epoch: LibraryObservationEpoch(
+                censusIDs: template.censusIDs,
+                currentIDs: template.currentIDs,
+                scope: request.scope,
+                observedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                generation: template.generation
             ),
-            generation: template.generation,
-            issues: []
+            coverage: LibraryObservationCoverage(
+                membership: template.membership,
+                identity: IdentityCompleteness(
+                    requestedIDs: identityIDs,
+                    observedIDs: Set(identities.map(\.databaseID))
+                ),
+                metadata: MetadataCompleteness(
+                    requestedIDs: Set(metadataLookups),
+                    observedIDs: observedIDs
+                ),
+                issues: []
+            )
         )
     }
 }
@@ -466,7 +483,7 @@ private actor RepairMirrorStore: TrackStateStore {
                 stored.append(repair.target)
             }
         }
-        applyMembership(update.membershipChange, to: &stored)
+        applyInventory(update.inventoryChange, to: &stored)
         for track in update.upserts {
             stored.removeAll { $0.id == track.id }
             stored.append(track)

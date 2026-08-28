@@ -104,6 +104,10 @@ struct LibraryTrackLoaderTests {
         let store = LoaderTrackStore(
             tracks: [canonicalTrack(id: firstID.rawValue, artist: "Metallica")],
             presentIDs: [firstID, unrelatedID],
+            memberIdentities: testIdentities(for: [
+                canonicalTrack(id: firstID.rawValue, artist: "Metallica"),
+                canonicalTrack(id: unrelatedID.rawValue, artist: "Other"),
+            ]),
             certifiedArtists: ["Metallica"]
         )
 
@@ -209,17 +213,23 @@ struct LibraryTrackLoaderTests {
 private actor LoaderTrackStore: TrackStateStore {
     private let tracks: [Track]
     private let presentIDs: Set<MusicDatabaseTrackID>
+    private let memberIdentities: [MusicDatabaseTrackID: MemberIdentity]
     private let repairCandidates: [Track]
     private let certifiedArtists: [String]?
 
     init(
         tracks: [Track],
         presentIDs: Set<MusicDatabaseTrackID>? = nil,
+        memberIdentities: [MemberIdentity]? = nil,
         repairCandidates: [Track] = [],
         certifiedArtists: [String]? = nil
     ) {
         self.tracks = tracks
         self.presentIDs = presentIDs ?? Set(tracks.compactMap(\.databaseID))
+        self.memberIdentities = (memberIdentities ?? testIdentities(for: tracks))
+            .reduce(into: [:]) { result, identity in
+                result[identity.databaseID] = identity
+            }
         self.repairCandidates = repairCandidates
         self.certifiedArtists = certifiedArtists
     }
@@ -256,6 +266,7 @@ private actor LoaderTrackStore: TrackStateStore {
             revision: .initial,
             membershipStamp: membership,
             presentIDs: Set(ids),
+            memberIdentities: memberIdentities,
             presentTracks: tracks,
             repairCandidates: repairCandidates,
             certificates: certificates

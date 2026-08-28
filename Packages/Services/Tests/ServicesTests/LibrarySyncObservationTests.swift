@@ -89,8 +89,8 @@ struct LibrarySyncObservationTests {
         #expect(!detection.didCompleteForceRefresh)
     }
 
-    @Test("Album artist precedence defines the producer scope")
-    func prefersAlbumArtist() async throws {
+    @Test("Either artist field defines the producer scope")
+    func matchesEitherArtistField() async throws {
         let includedID = try databaseID("A")
         let excludedID = try databaseID("B")
         let generation = try #require(LibraryGeneration(sourceValue: "album-artist-precedence"))
@@ -115,8 +115,8 @@ struct LibrarySyncObservationTests {
             Issue.record("Expected a replacement certificate")
             return
         }
-        let includedFingerprint = try MembershipFingerprint.make(ids: [includedID]).fingerprint
-        #expect(certificate.trackCount == 1)
+        let includedFingerprint = try MembershipFingerprint.make(ids: [includedID, excludedID]).fingerprint
+        #expect(certificate.trackCount == 2)
         #expect(certificate.observedFingerprint == includedFingerprint)
     }
 
@@ -336,7 +336,7 @@ struct LibrarySyncObservationTests {
         let service = makeService(store: store, reader: reader)
 
         await #expect(throws: LibrarySyncObservationError.invalidObservation(
-            detail: "metadata coverage does not match its rows"
+            detail: "metadata coverage does not match its request"
         )) {
             _ = try await service.detectObservation()
         }
