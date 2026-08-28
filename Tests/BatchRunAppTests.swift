@@ -168,7 +168,7 @@ struct BatchRunAppTests {
         }
         #expect(viewModel.pendingBatchExecution == nil)
         let validated = await fixture.admissionProbe.validated.first
-        #expect(validated?.match == .exactScope)
+        #expect(validated?.match == .subset)
         #expect(validated?.admission == admitted?.admission)
     }
 

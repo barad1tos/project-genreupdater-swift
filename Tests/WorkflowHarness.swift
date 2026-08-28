@@ -338,35 +338,43 @@ struct WorkflowAdmissionError: LocalizedError {
 actor WorkflowAdmissionProbe {
     private(set) var admitted: [WorkflowAdmissionEvent] = []
     private(set) var validated: [WorkflowAdmissionEvent] = []
-    private var shouldRejectValidation = false
+    private var admittedTrackIDs: Set<MusicDatabaseTrackID> = []
+    private var currentCertificate: ScopeCertificate?
+    private var shouldReplaceCertificateAfterAdmission = false
 
-    func rejectValidation() {
-        shouldRejectValidation = true
+    func replaceCertificateAfterAdmission() {
+        shouldReplaceCertificateAfterAdmission = true
     }
 
     func admit(tracks: [Track], match: AdmissionTrackMatch) throws -> ProcessingAdmission {
-        guard let membership = try? MembershipFingerprint.make(ids: []) else {
-            preconditionFailure("Empty membership must have a canonical fingerprint")
-        }
+        let trackIDs = try databaseIDs(for: tracks)
+        let membership = try MembershipFingerprint.make(ids: trackIDs)
         let observedAt = Date(timeIntervalSince1970: 100)
         let fingerprint = membership.fingerprint
+        let certificate = ScopeCertificate(
+            id: UUID(),
+            revision: .initial,
+            membership: membership,
+            testArtists: [],
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: fingerprint,
+                observedFingerprint: fingerprint,
+                trackCount: trackIDs.count
+            ),
+            observedAt: observedAt
+        )
         let admission = ProcessingAdmission(
             scopeID: UUID(),
-            certificate: ScopeCertificate(
-                id: UUID(),
-                revision: .initial,
-                membership: membership,
-                testArtists: [],
-                fieldSet: .processingV1,
-                evidence: ScopeEvidence(
-                    requestedFingerprint: fingerprint,
-                    observedFingerprint: fingerprint,
-                    trackCount: tracks.count
-                ),
-                observedAt: observedAt
-            ),
+            certificate: certificate,
             maximumMetadataAge: nil
         )
+        admittedTrackIDs = Set(trackIDs)
+        currentCertificate = certificate
+        if shouldReplaceCertificateAfterAdmission {
+            currentCertificate = replacing(certificate)
+            shouldReplaceCertificateAfterAdmission = false
+        }
         admitted.append(WorkflowAdmissionEvent(
             admission: admission,
             trackIDs: tracks.map(\.id),
@@ -385,9 +393,51 @@ actor WorkflowAdmissionProbe {
             trackIDs: tracks.map(\.id),
             match: match
         ))
-        if shouldRejectValidation {
+        let candidateIDs = try Set(databaseIDs(for: tracks))
+        guard let currentCertificate,
+              admission.certificate.id == currentCertificate.id,
+              try hasCurrentEvidence(currentCertificate)
+        else {
             throw WorkflowAdmissionError()
         }
+        let hasRequiredMatch = switch match {
+        case .exactScope:
+            candidateIDs == admittedTrackIDs
+        case .subset:
+            candidateIDs.isSubset(of: admittedTrackIDs)
+        }
+        guard hasRequiredMatch else { throw WorkflowAdmissionError() }
+    }
+
+    private func databaseIDs(for tracks: [Track]) throws -> [MusicDatabaseTrackID] {
+        let ids = try tracks.map { track in
+            guard let databaseID = MusicDatabaseTrackID(rawValue: track.id) else {
+                throw WorkflowAdmissionError()
+            }
+            return databaseID
+        }
+        guard Set(ids).count == ids.count else { throw WorkflowAdmissionError() }
+        return ids
+    }
+
+    private func hasCurrentEvidence(_ certificate: ScopeCertificate) throws -> Bool {
+        let fingerprint = try MembershipFingerprint.make(ids: Array(admittedTrackIDs)).fingerprint
+        return certificate.membership.fingerprint == fingerprint
+            && certificate.requestedFingerprint == fingerprint
+            && certificate.observedFingerprint == fingerprint
+            && certificate.trackCount == admittedTrackIDs.count
+    }
+
+    private func replacing(_ certificate: ScopeCertificate) -> ScopeCertificate {
+        ScopeCertificate(
+            id: UUID(),
+            revision: certificate.revision,
+            membership: certificate.membership,
+            testArtists: certificate.normalizedTestArtists,
+            fieldSet: certificate.fieldSet,
+            evidence: certificate.evidence,
+            observedAt: certificate.observedAt
+        )
     }
 }
 

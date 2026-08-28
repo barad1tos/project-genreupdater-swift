@@ -78,6 +78,57 @@ struct BatchProcessorTests {
         #expect(updates.last?.phase == .complete)
     }
 
+    @MainActor
+    @Test("Validation failure releases reservation without write side effects")
+    func validationFailureReleasesReservation() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var recordedCounts: [Int] = []
+        let calls = Accumulator<String>()
+        let processor = BatchProcessor(
+            checkpointManager: CheckpointManager(directory: directory),
+            featureGate: FeatureGate(
+                fixedTier: .pro,
+                usageRecorder: { recordedCounts.append($0) }
+            )
+        )
+
+        await #expect(throws: MockOperationError.self) {
+            _ = try await processor.process(
+                tracks: [makeTrack(id: "T1")],
+                validateWrite: {
+                    calls.append("rejected-validation")
+                    throw MockOperationError.failed
+                },
+                operation: { _ in
+                    calls.append("rejected-operation")
+                    return [ChangeLogEntry(changeType: .genreUpdate, trackID: "T1", artist: "Artist")]
+                },
+                progressHandler: { _ in }
+            )
+        }
+
+        #expect(calls.getAll() == ["rejected-validation"])
+        #expect(recordedCounts.isEmpty)
+        #expect(await processor.recoveryHoldID() == nil)
+
+        let entries = try await processor.process(
+            tracks: [makeTrack(id: "T2")],
+            validateWrite: { calls.append("accepted-validation") },
+            operation: { track in
+                calls.append("accepted-operation")
+                return [ChangeLogEntry(changeType: .genreUpdate, trackID: track.id, artist: track.artist)]
+            },
+            progressHandler: { _ in }
+        )
+
+        #expect(entries.map(\.trackID) == ["T2"])
+        #expect(calls.getAll() == ["rejected-validation", "accepted-validation", "accepted-operation"])
+        #expect(recordedCounts.isEmpty)
+        #expect(await processor.recoveryHoldID() == nil)
+    }
+
     @Test("Batch configuration clamps to experimental max batch size")
     func clampsExperimentalBatchSize() {
         var appConfiguration = AppConfiguration()

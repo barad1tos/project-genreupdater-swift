@@ -7,6 +7,49 @@ import Testing
 @Suite("Pending verification admission")
 @MainActor
 struct PendingAdmissionTests {
+    @Test("incremental full-library admission covers context and validates execution subset")
+    func incrementalFullLibraryUsesContextAdmission() async throws {
+        let run = makeRandomAccessLiveBatchRun(preflightState: .notDue)
+        run.viewModel.updateGenre = true
+        run.viewModel.updateYear = false
+
+        startRandomAccessLiveYearBatch(run)
+        try await waitForWorkflowToLeaveScanning(run.viewModel)
+
+        let admitted = await run.fixture.admissionProbe.admitted
+        let validated = await run.fixture.admissionProbe.validated
+        let admission = try #require(admitted.first)
+        let validation = try #require(validated.first)
+        #expect(admitted.count == 1)
+        #expect(validated.count == 1)
+        #expect(admission.match == .exactScope)
+        #expect(Set(admission.trackIDs) == Set(["ram-1", "ram-2", "batch-year"]))
+        #expect(validation.match == .subset)
+        #expect(validation.trackIDs == ["batch-year"])
+        #expect(validation.admission == admission.admission)
+    }
+
+    @Test("automatic pending preflight preserves full admission for remaining batch scope")
+    func automaticPendingPreflightPreservesFullAdmission() async throws {
+        let run = makeRandomAccessLiveBatchRun()
+
+        startRandomAccessLiveYearBatch(run)
+        try await waitForWorkflowToLeaveScanning(run.viewModel)
+
+        let admitted = await run.fixture.admissionProbe.admitted
+        let validated = await run.fixture.admissionProbe.validated
+        #expect(admitted.count == 2)
+        #expect(validated.count == 2)
+        #expect(admitted[0].match == .subset)
+        #expect(validated[0].match == .subset)
+        #expect(validated[0].admission == admitted[0].admission)
+        #expect(admitted[1].match == .exactScope)
+        #expect(Set(admitted[1].trackIDs) == Set(["ram-1", "ram-2", "batch-year"]))
+        #expect(validated[1].match == .subset)
+        #expect(validated[1].trackIDs == ["batch-year"])
+        #expect(validated[1].admission == admitted[1].admission)
+    }
+
     @Test("reviewed apply revalidates the admitted subset")
     func reviewedApplyRevalidatesAdmittedSubset() async {
         let fixture = makeWorkflowFixture()
@@ -73,7 +116,7 @@ struct PendingAdmissionTests {
             dueEntries: [randomAccessMemoriesPendingEntry()]
         )
         let admissionProbe = WorkflowAdmissionProbe()
-        await admissionProbe.rejectValidation()
+        await admissionProbe.replaceCertificateAfterAdmission()
         let fixture = makeRandomAccessWorkflowFixture(
             pendingVerificationService: pendingVerification
         ) { options in
@@ -93,7 +136,7 @@ struct PendingAdmissionTests {
     @Test("release year restore rejects a replaced certificate before writing")
     func restoreRejectsReplacedCertificateBeforeWriting() async {
         let admissionProbe = WorkflowAdmissionProbe()
-        await admissionProbe.rejectValidation()
+        await admissionProbe.replaceCertificateAfterAdmission()
         let fixture = makeWorkflowFixture(configure: { options in
             options.admissionProbe = admissionProbe
         })

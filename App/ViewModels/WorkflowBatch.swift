@@ -102,10 +102,11 @@ extension WorkflowViewModel {
         )
         processingTask = Task {
             do {
-                let admission = try await admitProcessing(tracksByIndex, .exactScope)
+                let admissionTracks = contextTracks ?? tracksByIndex
+                let admission = try await admitProcessing(admissionTracks, .exactScope)
                 pendingBatchExecution = .fullLibrary(FullLibraryBatch(
                     scope: UpdateTrackScope(tracks: tracksByIndex, trackPasses: trackPasses),
-                    contextTracks: contextTracks ?? tracksByIndex,
+                    contextTracks: admissionTracks,
                     preflightOutcome: preflightOutcome,
                     options: options,
                     admission: admission
@@ -217,7 +218,7 @@ extension WorkflowViewModel {
         let entries = try await batchProcessor.process(
             tracks: tracksByIndex,
             validateWrite: { [validateProcessing, admission = execution.admission] in
-                try await validateProcessing(admission, tracksByIndex, .exactScope)
+                try await validateProcessing(admission, tracksByIndex, .subset)
             },
             operation: operation,
             progressHandler: progressHandler
