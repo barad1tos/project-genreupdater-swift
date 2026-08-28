@@ -54,6 +54,14 @@ struct ProviderAdmissionCacheTests {
         let cache = MockCacheService()
         let probe = AdmissionCacheProbe()
         let service = AdmissionCacheService(probe: probe)
+        let hooks: ProviderAdmission.TestHooks = (
+            didEnqueue: {
+                Task { await probe.recordEnqueue() }
+            },
+            afterGrant: {
+                await probe.blockArmedGrant()
+            }
+        )
         let orchestrator = makeAPIOrchestrator(
             musicBrainz: service,
             discogs: MockAPIService(),
@@ -63,14 +71,7 @@ struct ProviderAdmissionCacheTests {
         ) {
             $0.maxConcurrentSourceCalls = 1
             $0.timeout = .seconds(2)
-            $0.providerAdmissionHooks = (
-                didEnqueue: {
-                    Task { await probe.recordEnqueue() }
-                },
-                afterGrant: {
-                    await probe.blockArmedGrant()
-                }
-            )
+            $0.providerAdmissionHooks = hooks
         }
         return AdmissionCacheFixture(orchestrator: orchestrator, probe: probe)
     }
