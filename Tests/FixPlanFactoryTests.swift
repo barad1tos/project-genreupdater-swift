@@ -710,8 +710,8 @@ private func makePlan(_ item: FixPlanItem) -> FixPlan {
         ),
         maximumMetadataAge: nil
     )
-    return FixPlan(
-        restoringID: FixPlanID(),
+    return FixPlan(restoring: .init(
+        id: FixPlanID(),
         revision: .initial,
         sourceRunID: RunID(),
         createdAt: capturedAt,
@@ -723,7 +723,7 @@ private func makePlan(_ item: FixPlanItem) -> FixPlan {
         scope: scope,
         admission: .certified(admission),
         items: [item]
-    )
+    ))
 }
 
 private func certifiedAdmission(from plan: FixPlan) -> ProcessingAdmission {

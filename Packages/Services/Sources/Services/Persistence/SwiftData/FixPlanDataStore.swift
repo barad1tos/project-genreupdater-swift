@@ -240,8 +240,8 @@ public actor FixPlanDataStore: FixPlanStore {
 
     private func makePlan(from persisted: PersistedFixPlan) throws -> FixPlan {
         let scopePayload = try decodeScopePayload(from: persisted)
-        return try FixPlan(
-            restoringID: FixPlanID(rawValue: persisted.planID),
+        return try FixPlan(restoring: .init(
+            id: FixPlanID(rawValue: persisted.planID),
             revision: FixPlanRevision(persisted.revision),
             sourceRunID: RunID(rawValue: persisted.sourceRunID),
             createdAt: persisted.createdAt,
@@ -259,7 +259,7 @@ public actor FixPlanDataStore: FixPlanStore {
                 field: "items",
                 planID: persisted.planID
             )
-        )
+        ))
     }
 
     private func decodeScopePayload(from persisted: PersistedFixPlan) throws -> FixPlanScopePayload {

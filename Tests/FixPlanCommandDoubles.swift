@@ -344,8 +344,8 @@ func makeCommandPlan(
         createdAt: Date(timeIntervalSince1970: 1_800_000_091),
         reason: "fixPlanCommandTest"
     )
-    return FixPlan(
-        restoringID: FixPlanID(rawValue: commandUUID("00000000-0000-0000-0000-000000000101")),
+    return FixPlan(restoring: .init(
+        id: FixPlanID(rawValue: commandUUID("00000000-0000-0000-0000-000000000101")),
         revision: .initial,
         sourceRunID: RunID(rawValue: commandUUID("00000000-0000-0000-0000-000000000102")),
         createdAt: Date(timeIntervalSince1970: 1_800_000_100),
@@ -373,7 +373,7 @@ func makeCommandPlan(
             ),
             makeCommandItem(id: "00000000-0000-0000-0000-000000000202", type: .yearUpdate)
         ]
-    )
+    ))
 }
 
 func makeCommandItem(

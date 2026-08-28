@@ -475,8 +475,8 @@ struct FixPlanDataTests {
         admission: FixPlanAdmission = .legacyUncertified,
         items: [FixPlanItem]? = nil
     ) -> FixPlan {
-        FixPlan(
-            restoringID: id,
+        FixPlan(restoring: .init(
+            id: id,
             revision: revision,
             sourceRunID: RunID(),
             createdAt: createdAt,
@@ -484,7 +484,7 @@ struct FixPlanDataTests {
             scope: scope ?? makeScope(createdAt: createdAt),
             admission: admission,
             items: items ?? [makeItem()]
-        )
+        ))
     }
 
     private func makeConfiguration() -> FixPlanConfig {

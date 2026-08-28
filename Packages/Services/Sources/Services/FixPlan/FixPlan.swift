@@ -112,6 +112,17 @@ public enum FixPlanAdmission: Codable, Equatable, Sendable {
 /// specific moment (ADR 0017). Items never mutate after creation; acceptance and
 /// rejection are recorded separately by `FixPlanReviewDecision`.
 public struct FixPlan: Equatable, Sendable {
+    struct Restoration: Sendable {
+        let id: FixPlanID
+        let revision: FixPlanRevision
+        let sourceRunID: RunID
+        let createdAt: Date
+        let configuration: FixPlanConfig
+        let scope: ProcessingScopeSnapshot
+        let admission: FixPlanAdmission
+        let items: [FixPlanItem]
+    }
+
     public let id: FixPlanID
     public let revision: FixPlanRevision
     /// Required — ADR 0017: every fix plan traces back to the run that produced it.
@@ -135,8 +146,8 @@ public struct FixPlan: Equatable, Sendable {
         guard admission.certifies(scope: scope) else {
             throw ProcessingAdmissionRejection.scopeMismatch
         }
-        self.init(
-            restoringID: id,
+        self.init(restoring: Restoration(
+            id: id,
             revision: revision,
             sourceRunID: sourceRunID,
             createdAt: createdAt,
@@ -144,26 +155,17 @@ public struct FixPlan: Equatable, Sendable {
             scope: scope,
             admission: .certified(admission),
             items: items
-        )
+        ))
     }
 
-    init(
-        restoringID id: FixPlanID,
-        revision: FixPlanRevision,
-        sourceRunID: RunID,
-        createdAt: Date,
-        configuration: FixPlanConfig,
-        scope: ProcessingScopeSnapshot,
-        admission: FixPlanAdmission,
-        items: [FixPlanItem]
-    ) {
-        self.id = id
-        self.revision = revision
-        self.sourceRunID = sourceRunID
-        self.createdAt = createdAt
-        self.configuration = configuration
-        self.scope = scope
-        self.admission = admission
-        self.items = items
+    init(restoring restoration: Restoration) {
+        id = restoration.id
+        revision = restoration.revision
+        sourceRunID = restoration.sourceRunID
+        createdAt = restoration.createdAt
+        configuration = restoration.configuration
+        scope = restoration.scope
+        admission = restoration.admission
+        items = restoration.items
     }
 }

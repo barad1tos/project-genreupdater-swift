@@ -317,8 +317,8 @@ private func makePlan(
         createdAt: Date(timeIntervalSince1970: 100),
         reason: "projection-test"
     )
-    return FixPlan(
-        restoringID: FixPlanID(rawValue: itemID(99)),
+    return FixPlan(restoring: .init(
+        id: FixPlanID(rawValue: itemID(99)),
         revision: .initial,
         sourceRunID: RunID(rawValue: itemID(98)),
         createdAt: Date(timeIntervalSince1970: 100),
@@ -326,7 +326,7 @@ private func makePlan(
         scope: scope,
         admission: admission ?? .certified(certifiedAdmission(scope: scope)),
         items: items
-    )
+    ))
 }
 
 private func certifiedAdmission(scope: ProcessingScopeSnapshot) -> ProcessingAdmission {

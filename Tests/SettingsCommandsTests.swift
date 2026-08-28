@@ -461,8 +461,8 @@ private func makeSettingsProbePlan(configuration: FixPlanConfig) -> FixPlan {
         createdAt: Date(timeIntervalSince1970: 100),
         reason: "settings-command-test"
     )
-    return FixPlan(
-        restoringID: FixPlanID(),
+    return FixPlan(restoring: .init(
+        id: FixPlanID(),
         revision: .initial,
         sourceRunID: RunID(),
         createdAt: Date(timeIntervalSince1970: 100),
@@ -470,5 +470,5 @@ private func makeSettingsProbePlan(configuration: FixPlanConfig) -> FixPlan {
         scope: scope,
         admission: .certified(workflowProcessingAdmission(scope: scope)),
         items: [item]
-    )
+    ))
 }

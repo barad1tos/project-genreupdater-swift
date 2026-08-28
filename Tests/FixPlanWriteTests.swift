@@ -46,8 +46,8 @@ struct FixPlanWriteTests {
             certificate: admitted.certificate,
             maximumMetadataAge: admitted.maximumMetadataAge
         )
-        let plan = FixPlan(
-            restoringID: FixPlanID(),
+        let plan = FixPlan(restoring: .init(
+            id: FixPlanID(),
             revision: .initial,
             sourceRunID: RunID(),
             createdAt: capturedAt,
@@ -59,7 +59,7 @@ struct FixPlanWriteTests {
             scope: planScope,
             admission: .certified(forgedAdmission),
             items: [item]
-        )
+        ))
         let decision = reviewDecision(
             for: plan,
             items: [FixPlanItemDecision(itemID: item.id, verdict: .accepted)]
@@ -363,8 +363,8 @@ private func fixPlan(items: [FixPlanItem], isLegacy: Bool = false) -> FixPlan {
         createdAt: capturedAt,
         reason: "unit-test"
     )
-    return FixPlan(
-        restoringID: FixPlanID(),
+    return FixPlan(restoring: .init(
+        id: FixPlanID(),
         revision: .initial,
         sourceRunID: RunID(),
         createdAt: capturedAt,
@@ -378,7 +378,7 @@ private func fixPlan(items: [FixPlanItem], isLegacy: Bool = false) -> FixPlan {
             ? .legacyUncertified
             : .certified(workflowProcessingAdmission(scope: scope)),
         items: items
-    )
+    ))
 }
 
 private func certifiedFixPlan(items: [FixPlanItem]) throws -> FixPlan {
