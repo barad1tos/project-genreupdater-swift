@@ -259,11 +259,11 @@ extension WorkflowViewModel {
             failedCount = outcome.failedTrackIDs.count
             return outcome
         } catch {
-            return await handlePendingPreflightError(error)
+            return await handlePreflightError(error)
         }
     }
 
-    private func handlePendingPreflightError(_ error: any Error) async -> PendingEntryOutcome {
+    private func handlePreflightError(_ error: any Error) async -> PendingEntryOutcome {
         switch error {
         case let cancellation as PendingVerificationCancellation:
             finishCancelledPendingVerification(outcome: cancellation.outcome)
