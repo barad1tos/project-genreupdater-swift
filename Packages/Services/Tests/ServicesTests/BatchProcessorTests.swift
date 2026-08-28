@@ -65,6 +65,7 @@ struct BatchProcessorTests {
 
         _ = try await processor.process(
             tracks: tracks,
+            validateWrite: {},
             operation: { _ in [] },
             progressHandler: { update in
                 accumulator.append(update)
@@ -157,6 +158,7 @@ struct BatchProcessorTests {
         let start = clock.now
         _ = try await processor.process(
             tracks: makeTracks(count: 2),
+            validateWrite: {},
             operation: { _ in [] },
             progressHandler: { _ in }
         )
@@ -181,6 +183,7 @@ struct BatchProcessorTests {
         await #expect(throws: BatchProcessorError.self) {
             try await processor.process(
                 tracks: makeTracks(count: 3),
+                validateWrite: {},
                 operation: { _ in [] },
                 progressHandler: { _ in
                     // Progress delivery is unrelated to unknown-outcome propagation.
@@ -213,6 +216,7 @@ struct BatchProcessorTests {
         do {
             _ = try await processor.process(
                 tracks: tracks,
+                validateWrite: {},
                 operation: { _ in
                     try await Task.sleep(for: .milliseconds(5))
                     return []
@@ -246,6 +250,7 @@ struct BatchProcessorTests {
         let tracks = makeTracks(count: 3)
         let changes = try await processor.process(
             tracks: tracks,
+            validateWrite: {},
             operation: { track in
                 [ChangeLogEntry(
                     changeType: .genreUpdate,
@@ -277,6 +282,7 @@ struct BatchProcessorTests {
 
         _ = try await processor.process(
             tracks: makeTracks(count: 1),
+            validateWrite: {},
             operation: { _ in [] },
             progressHandler: { _ in }
         )
@@ -301,6 +307,7 @@ struct BatchProcessorTests {
         let counter = Counter()
         let changes = try await processor.process(
             tracks: makeTracks(count: 3),
+            validateWrite: {},
             operation: { _ in
                 let count = await counter.increment()
                 if count == 2 {
@@ -337,6 +344,7 @@ struct BatchProcessorTests {
         do {
             _ = try await processor.process(
                 tracks: makeTracks(count: 3),
+                validateWrite: {},
                 operation: { track in
                     processedTrackIDs.append(track.id)
                     if track.id == "T1" {
@@ -401,6 +409,7 @@ struct BatchProcessorTests {
 
         let changes = try await processor.process(
             tracks: tracks,
+            validateWrite: {},
             operation: { track in
                 try await Task.sleep(for: .milliseconds(10))
                 return [ChangeLogEntry(

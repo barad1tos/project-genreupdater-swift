@@ -16,6 +16,7 @@ struct FixPlanFactoryTests {
         let automatic = FixPlanWriteInput(
             target: fixture.input.target,
             scope: fixture.input.scope,
+            admission: fixture.input.admission,
             configuration: RunConfig(
                 id: reviewed.id,
                 capturedAt: reviewed.capturedAt,
@@ -97,6 +98,7 @@ struct FixPlanFactoryTests {
         let baseInput = FixPlanWriteInput(
             target: fixture.input.target,
             scope: fixture.input.scope,
+            admission: fixture.input.admission,
             configuration: fixture.input.configuration,
             workItems: fixture.input.workItems
         )
@@ -250,6 +252,62 @@ struct FixPlanFactoryTests {
         #expect(await fixture.script.metadataFetches.isEmpty)
     }
 
+    @Test("Fix plan writer rejects admission evidence from another certificate")
+    @MainActor
+    func rejectsMismatchedAdmission() async {
+        let fixture = await makeWriteFixture(hasInitialRecovery: false)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let input = FixPlanWriteInput(
+            target: fixture.input.target,
+            scope: fixture.input.scope,
+            admission: replacingCertificate(in: fixture.input.admission),
+            configuration: fixture.input.configuration,
+            workItems: fixture.input.workItems
+        )
+
+        await #expect(throws: FixPlanWrite.Failure.self) {
+            _ = try await fixture.run(input)
+        }
+
+        #expect(await fixture.runtime.callCount == 0)
+        #expect(await fixture.script.metadataFetches.isEmpty)
+    }
+
+    @Test("Fix plan writer revalidates its exact certificate as a subset")
+    @MainActor
+    func revalidatesExactCertificateAsSubset() async throws {
+        let fixture = await makeWriteFixture(hasInitialRecovery: false)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        await fixture.script.returnChangedOutcome()
+
+        _ = try await fixture.run(fixture.input)
+
+        let validation = try #require(await fixture.validation.calls.first)
+        #expect(await fixture.validation.calls.count == 1)
+        #expect(validation.admission == fixture.input.admission)
+        #expect(validation.candidates.map(\.id) == ["AS-1"])
+        #expect(validation.match == .subset)
+    }
+
+    @Test("Replaced plan certificate stops before runtime and recovery")
+    @MainActor
+    func replacedCertificateStopsBeforeRuntimeAndRecovery() async throws {
+        let fixture = await makeWriteFixture(
+            hasInitialRecovery: false,
+            rejectsAdmission: true
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        await #expect(throws: FactoryAdmissionError.self) {
+            _ = try await fixture.run(fixture.input)
+        }
+
+        #expect(await fixture.validation.calls.count == 1)
+        #expect(await fixture.runtime.callCount == 0)
+        #expect(await fixture.script.metadataFetches.isEmpty)
+        #expect(await fixture.processor.recoveryHoldID() == nil)
+    }
+
     @Test("a landed write attributes its entries to the run it received")
     @MainActor
     func attributesEntriesToTheReceivedRun() async throws {
@@ -324,6 +382,7 @@ private enum StaleInputMutation: CaseIterable, Equatable {
         return FixPlanWriteInput(
             target: input.target,
             scope: scope,
+            admission: input.admission,
             configuration: configuration,
             workItems: workItems
         )
@@ -376,6 +435,7 @@ private struct WriteFixture {
     let script: ScriptSpy
     let processor: BatchProcessor
     let runtime: RuntimeProbe
+    let validation: AdmissionValidationProbe
     let coordinator: UpdateCoordinator
     let write: @Sendable (
         FixPlanWriteInput,
@@ -395,7 +455,8 @@ private struct WriteFixture {
 private func makeWriteFixture(
     hasInitialRecovery: Bool,
     featureGate: FeatureGate? = nil,
-    changeType: ChangeType = .genreUpdate
+    changeType: ChangeType = .genreUpdate,
+    rejectsAdmission: Bool = false
 ) async -> WriteFixture {
     let item = makeItem(changeType: changeType)
     let plan = makePlan(item)
@@ -419,10 +480,14 @@ private func makeWriteFixture(
     let coordinator = makeCoordinator(script: script, mapper: mapper, directory: directory)
     let recovery = RecoveryProbe(isHeld: hasInitialRecovery)
     let runtime = RuntimeProbe()
+    let validation = AdmissionValidationProbe(rejectsAdmission: rejectsAdmission)
     let write = FixPlanWrite.makeRunner(FixPlanWrite.RunnerDependencies(
         fixPlanStore: store,
         mapper: mapper,
         batchProcessor: processor,
+        validateProcessing: { admission, candidates, match in
+            try await validation.validate(admission, candidates: candidates, match: match)
+        },
         makeRuntime: { configuration, scope in
             #expect(configuration == plan.configuration)
             #expect(scope == plan.scope)
@@ -437,6 +502,7 @@ private func makeWriteFixture(
         script: script,
         processor: processor,
         runtime: runtime,
+        validation: validation,
         coordinator: coordinator,
         write: write,
         directory: directory
@@ -451,6 +517,7 @@ private func makeWriteInput(plan: FixPlan, decision: FixPlanReviewDecision) -> F
             decisionRevision: decision.revision
         ),
         scope: plan.scope,
+        admission: certifiedAdmission(from: plan),
         configuration: RunConfig(
             capturedAt: decision.decidedAt,
             writeAuthority: .reviewedPlan,
@@ -505,7 +572,7 @@ private func makeItem(changeType: ChangeType = .genreUpdate) -> FixPlanItem {
     FixPlanItem(
         id: UUID(),
         identity: FixPlanItemIdentity(
-            readID: "MK-1",
+            readID: "AS-1",
             appleScriptID: "AS-1",
             artist: "Artist",
             album: "Album",
@@ -533,6 +600,32 @@ private func makePlan(_ item: FixPlanItem) -> FixPlan {
     var configuration = AppConfiguration()
     configuration.applescript.batchProcessing.idsBatchSize = 7
     configuration.applescript.timeouts.idsBatchFetch = .seconds(45)
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: [],
+        knownTrackCount: 1,
+        createdAt: capturedAt,
+        reason: "unit-test"
+    )
+    guard let membership = try? MembershipFingerprint.make(ids: [testMusicDatabaseID("AS-1")]) else {
+        preconditionFailure("Factory admission membership must be valid")
+    }
+    let admission = ProcessingAdmission(
+        scopeID: scope.id,
+        certificate: ScopeCertificate(
+            id: UUID(),
+            revision: .initial,
+            membership: membership,
+            testArtists: [],
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: membership.fingerprint,
+                observedFingerprint: membership.fingerprint,
+                trackCount: 1
+            ),
+            observedAt: capturedAt
+        ),
+        maximumMetadataAge: nil
+    )
     return FixPlan(
         id: FixPlanID(),
         revision: .initial,
@@ -543,12 +636,62 @@ private func makePlan(_ item: FixPlanItem) -> FixPlan {
             options: UpdateOptions(),
             capturedAt: capturedAt
         ),
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: 1,
-            createdAt: capturedAt,
-            reason: "unit-test"
-        ),
+        scope: scope,
+        admission: .certified(admission),
         items: [item]
     )
+}
+
+private func certifiedAdmission(from plan: FixPlan) -> ProcessingAdmission {
+    guard case let .certified(admission) = plan.admission else {
+        preconditionFailure("Factory write plans must be certified")
+    }
+    return admission
+}
+
+private func replacingCertificate(in admission: ProcessingAdmission) -> ProcessingAdmission {
+    let certificate = admission.certificate
+    return ProcessingAdmission(
+        scopeID: admission.scopeID,
+        certificate: ScopeCertificate(
+            id: UUID(),
+            revision: certificate.revision,
+            membership: certificate.membership,
+            testArtists: certificate.normalizedTestArtists,
+            fieldSet: certificate.fieldSet,
+            evidence: certificate.evidence,
+            observedAt: certificate.observedAt
+        ),
+        maximumMetadataAge: admission.maximumMetadataAge
+    )
+}
+
+private actor AdmissionValidationProbe {
+    struct Call: Sendable {
+        let admission: ProcessingAdmission
+        let candidates: [Track]
+        let match: AdmissionTrackMatch
+    }
+
+    let rejectsAdmission: Bool
+    private(set) var calls: [Call] = []
+
+    init(rejectsAdmission: Bool) {
+        self.rejectsAdmission = rejectsAdmission
+    }
+
+    func validate(
+        _ admission: ProcessingAdmission,
+        candidates: [Track],
+        match: AdmissionTrackMatch
+    ) throws {
+        calls.append(Call(admission: admission, candidates: candidates, match: match))
+        if rejectsAdmission {
+            throw FactoryAdmissionError.replaced
+        }
+    }
+}
+
+private enum FactoryAdmissionError: Error {
+    case replaced
 }

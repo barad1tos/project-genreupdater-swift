@@ -74,8 +74,101 @@ private final class ClearanceProbe: @unchecked Sendable {
     }
 }
 
+private func emptyWriteOutcome<Value: Sendable>() -> WriteOutcomeProjection<Value> {
+    WriteOutcomeProjection(
+        appliedTrackIDs: { _ in [] },
+        partialTrackIDs: { _ in [] }
+    )
+}
+
 @Suite("Write admission")
 struct WriteAdmissionTests {
+    @MainActor
+    @Test("Recoverable validation failure has no write side effects")
+    func recoverableValidationFailureHasNoWriteSideEffects() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var recordedCounts: [Int] = []
+        let calls = CallList()
+        let processor = BatchProcessor(
+            checkpointManager: CheckpointManager(directory: directory),
+            featureGate: FeatureGate(
+                fixedTier: .free,
+                usageRecorder: { recordedCounts.append($0) }
+            )
+        )
+
+        await #expect(throws: AdmissionWriteError.self) {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 1,
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {
+                    calls.append("validate")
+                    throw AdmissionWriteError.failed
+                },
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { _ in ["T1"] },
+                    partialTrackIDs: { _ in ["T1"] }
+                ),
+                operation: {
+                    calls.append("operation")
+                    return MusicWriteResult.changed
+                }
+            )
+        }
+
+        #expect(calls.values == ["validate"])
+        #expect(recordedCounts.isEmpty)
+        #expect(await processor.recoveryHoldID() == nil)
+    }
+
+    @Test("Batch validation runs once before the first track")
+    func batchValidationRunsOnceBeforeFirstTrack() async throws {
+        let (directory, processor) = await makeProcessor(tier: .pro)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let calls = CallList()
+
+        _ = try await processor.process(
+            tracks: [admissionTrack("T1")],
+            validateWrite: { calls.append("validate") },
+            operation: { _ in
+                calls.append("operation")
+                return []
+            },
+            progressHandler: ignoreAdmissionProgress
+        )
+
+        #expect(calls.values == ["validate", "operation"])
+    }
+
+    @Test("Write validation waits for reservation")
+    func writeValidationWaitsForReservation() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BP-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let calls = CallList()
+        let processor = await BatchProcessor(
+            checkpointManager: CheckpointManager(directory: directory),
+            featureGate: FeatureGate(
+                fixedTier: .free,
+                freeTracksUsed: FeatureGate.freeTrackLimit
+            )
+        )
+
+        await #expect(throws: FeatureGateError.self) {
+            _ = try await processor.performRecoverableWrite(
+                trackCount: 1,
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: { calls.append("validate") },
+                outcome: emptyWriteOutcome(),
+                operation: { calls.append("operation") }
+            )
+        }
+
+        #expect(calls.values.isEmpty)
+    }
+
     @MainActor
     @Test("Recoverable writes record only returned applied track IDs")
     func recoverableWriteRecordsAppliedTracks() async throws {
@@ -103,9 +196,12 @@ struct WriteAdmissionTests {
 
         _ = try await processor.performRecoverableWrite(
             trackCount: 3,
-            requiredFeature: nil,
-            appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
-            partialTrackIDs: { _ in [] },
+            features: WriteFeatureRequirements(mutation: nil),
+            validateWrite: {},
+            outcome: WriteOutcomeProjection(
+                appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                partialTrackIDs: { _ in [] }
+            ),
             operation: { result }
         )
 
@@ -135,9 +231,12 @@ struct WriteAdmissionTests {
         for _ in 0 ..< 2 {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
-                requiredFeature: nil,
-                appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                    partialTrackIDs: { _ in [] }
+                ),
                 operation: { result }
             )
         }
@@ -163,9 +262,12 @@ struct WriteAdmissionTests {
         await #expect(throws: AdmissionWriteError.self) {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
-                requiredFeature: nil,
-                appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                    partialTrackIDs: { _ in [] }
+                ),
                 operation: { () async throws -> BatchUpdateResult in
                     throw AdmissionWriteError.failed
                 }
@@ -194,11 +296,14 @@ struct WriteAdmissionTests {
         await #expect(throws: AdmissionPartialWriteError.self) {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 2,
-                requiredFeature: nil,
-                appliedTrackIDs: { (_: BatchUpdateResult) in [] },
-                partialTrackIDs: { error in
-                    (error as? AdmissionPartialWriteError)?.trackIDs ?? []
-                },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { (_: BatchUpdateResult) in [] },
+                    partialTrackIDs: { error in
+                        (error as? AdmissionPartialWriteError)?.trackIDs ?? []
+                    }
+                ),
                 operation: { () async throws -> BatchUpdateResult in
                     throw partialOutcome
                 }
@@ -226,9 +331,12 @@ struct WriteAdmissionTests {
         await #expect(throws: AdmissionWriteError.self) {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 3,
-                requiredFeature: nil,
-                appliedTrackIDs: { (_: BatchUpdateResult) in [] },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { (_: BatchUpdateResult) in [] },
+                    partialTrackIDs: { _ in [] }
+                ),
                 operation: { () async throws -> BatchUpdateResult in
                     throw PartialWriteError(
                         appliedTrackIDs: ["T1", "T2"],
@@ -245,11 +353,11 @@ struct WriteAdmissionTests {
     func sharesWriteReservation() async throws {
         let (directory, processor) = await makeProcessor(tier: .pro)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let batchHold = WriteHold()
-        let calls = CallList()
+        let (batchHold, calls) = (WriteHold(), CallList())
         let batch = Task {
             try await processor.process(
                 tracks: [admissionTrack("T1")],
+                validateWrite: {},
                 operation: { _ in
                     calls.append("batch")
                     await batchHold.wait()
@@ -263,9 +371,9 @@ struct WriteAdmissionTests {
         await #expect(throws: BatchProcessorError.self) {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
-                requiredFeature: nil,
-                appliedTrackIDs: { _ in [] },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: emptyWriteOutcome(),
                 operation: {
                     calls.append("external-during-batch")
                     return MusicWriteResult.changed
@@ -280,9 +388,9 @@ struct WriteAdmissionTests {
         let external = Task {
             try await processor.performRecoverableWrite(
                 trackCount: 1,
-                requiredFeature: nil,
-                appliedTrackIDs: { _ in [] },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: emptyWriteOutcome(),
                 operation: {
                     calls.append("external")
                     await externalHold.wait()
@@ -295,6 +403,7 @@ struct WriteAdmissionTests {
         await #expect(throws: BatchProcessorError.self) {
             _ = try await processor.process(
                 tracks: [admissionTrack("T2")],
+                validateWrite: {},
                 operation: { _ in
                     calls.append("batch-during-external")
                     return []
@@ -327,9 +436,12 @@ struct WriteAdmissionTests {
         await #expect(throws: FeatureGateError.self) {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
-                requiredFeature: nil,
-                appliedTrackIDs: { _ in [] },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { _ in [] },
+                    partialTrackIDs: { _ in [] }
+                ),
                 operation: { calls.append("write") }
             )
         }
@@ -349,9 +461,12 @@ struct WriteAdmissionTests {
 
         _ = try await processor.performRecoverableWrite(
             trackCount: 1,
-            requiredFeature: nil,
-            appliedTrackIDs: { _ in [] },
-            partialTrackIDs: { _ in [] },
+            features: WriteFeatureRequirements(mutation: nil),
+            validateWrite: {},
+            outcome: WriteOutcomeProjection(
+                appliedTrackIDs: { _ in [] },
+                partialTrackIDs: { _ in [] }
+            ),
             operation: { calls.append("write") }
         )
 
@@ -372,9 +487,12 @@ struct WriteAdmissionTests {
         await #expect(throws: FeatureGateError.self) {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
-                requiredFeature: .artistAlbumCleaning,
-                appliedTrackIDs: { _ in [] },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: .artistAlbumCleaning),
+                validateWrite: {},
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { _ in [] },
+                    partialTrackIDs: { _ in [] }
+                ),
                 operation: { calls.append("write") }
             )
         }
@@ -395,9 +513,12 @@ struct WriteAdmissionTests {
 
         _ = try await processor.performRecoverableWrite(
             trackCount: 1,
-            requiredFeature: .artistAlbumCleaning,
-            appliedTrackIDs: { _ in [] },
-            partialTrackIDs: { _ in [] },
+            features: WriteFeatureRequirements(mutation: .artistAlbumCleaning),
+            validateWrite: {},
+            outcome: WriteOutcomeProjection(
+                appliedTrackIDs: { _ in [] },
+                partialTrackIDs: { _ in [] }
+            ),
             operation: { calls.append("write") }
         )
 
@@ -431,9 +552,12 @@ struct WriteAdmissionTests {
         await #expect(throws: AppleScriptOutcomeError.self) {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
-                requiredFeature: nil,
-                appliedTrackIDs: { _ in [] },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { _ in [] },
+                    partialTrackIDs: { _ in [] }
+                ),
                 operation: {
                     throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
                 }
@@ -451,9 +575,12 @@ struct WriteAdmissionTests {
         )
         _ = try await processor.performRecoverableWrite(
             trackCount: 1,
-            requiredFeature: nil,
-            appliedTrackIDs: { _ in [] },
-            partialTrackIDs: { _ in [] },
+            features: WriteFeatureRequirements(mutation: nil),
+            validateWrite: {},
+            outcome: WriteOutcomeProjection(
+                appliedTrackIDs: { _ in [] },
+                partialTrackIDs: { _ in [] }
+            ),
             operation: {
                 try await ScriptDispatch.run(secondCall, limiter: nil, gate: gate) { finish in
                     dispatches.append("second")
@@ -495,9 +622,12 @@ struct WriteAdmissionTests {
         do {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
-                requiredFeature: nil,
-                appliedTrackIDs: { _ in [] },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { _ in [] },
+                    partialTrackIDs: { _ in [] }
+                ),
                 operation: {
                     try await bridge.applySingleUpdate(
                         musicUpdate(databaseID: testDatabaseID("101"), property: .genre, value: "Metal"),
@@ -546,9 +676,12 @@ struct WriteAdmissionTests {
         do {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
-                requiredFeature: nil,
-                appliedTrackIDs: { _ in [] },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { _ in [] },
+                    partialTrackIDs: { _ in [] }
+                ),
                 operation: {
                     // Built inside the write so the 20 ms budget measures the
                     // dispatch this test is about. Reserving a write crosses to
@@ -609,9 +742,12 @@ struct WriteAdmissionTests {
         await #expect(throws: BatchProcessorError.self) {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
-                requiredFeature: nil,
-                appliedTrackIDs: { _ in [] },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { _ in [] },
+                    partialTrackIDs: { _ in [] }
+                ),
                 operation: {
                     dispatches.append("early-second")
                     return MusicWriteResult.changed

@@ -25,6 +25,7 @@ struct AdmissionTransitionTests {
 
         let entries = try await processor.process(
             tracks: [track],
+            validateWrite: {},
             operation: { _ in [] },
             progressHandler: { _ in
                 // Progress is irrelevant to the admission assertion.
@@ -70,9 +71,12 @@ struct AdmissionTransitionTests {
 
         _ = try await fixture.processor.performRecoverableWrite(
             trackCount: 1,
-            requiredFeature: nil,
-            appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
-            partialTrackIDs: { _ in [] },
+            features: WriteFeatureRequirements(mutation: nil),
+            validateWrite: {},
+            outcome: WriteOutcomeProjection(
+                appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                partialTrackIDs: { _ in [] }
+            ),
             operation: {
                 await fixture.tier.set(completionTier)
                 return result
@@ -90,11 +94,14 @@ struct AdmissionTransitionTests {
         await #expect(throws: TransitionPartialError.self) {
             _ = try await fixture.processor.performRecoverableWrite(
                 trackCount: 2,
-                requiredFeature: nil,
-                appliedTrackIDs: { (_: MusicWriteResult) in [] },
-                partialTrackIDs: { error in
-                    (error as? TransitionPartialError)?.trackIDs ?? []
-                },
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: {},
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { (_: MusicWriteResult) in [] },
+                    partialTrackIDs: { error in
+                        (error as? TransitionPartialError)?.trackIDs ?? []
+                    }
+                ),
                 operation: {
                     await fixture.tier.set(failureTier)
                     throw partialOutcome

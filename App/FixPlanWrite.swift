@@ -12,6 +12,11 @@ enum FixPlanWrite {
         let fixPlanStore: any FixPlanStore
         let mapper: TrackIDMapper
         let batchProcessor: BatchProcessor
+        let validateProcessing: @Sendable (
+            ProcessingAdmission,
+            [Track],
+            AdmissionTrackMatch
+        ) async throws -> Void
         let makeRuntime: @Sendable (FixPlanConfig, ProcessingScopeSnapshot) async throws -> Runtime
         let hasRunRecovery: @Sendable () async -> Bool
     }
@@ -19,6 +24,7 @@ enum FixPlanWrite {
     enum Failure: LocalizedError {
         case missingPlan(FixPlanID)
         case missingDecision(FixPlanID)
+        case uncertifiedPlan(FixPlanID)
         case staleDecision
         case staleInput
         case noAcceptedItems
@@ -32,6 +38,8 @@ enum FixPlanWrite {
                 "Fix plan \(planID.description) is unavailable"
             case let .missingDecision(planID):
                 "Review decision is missing for fix plan \(planID.description)"
+            case let .uncertifiedPlan(planID):
+                "Fix plan \(planID.description) has no certified mirror admission"
             case .staleDecision:
                 "Review decision changed before write run started"
             case .staleInput:
@@ -85,6 +93,11 @@ enum FixPlanWrite {
         decision: FixPlanReviewDecision,
         configuration: RunConfig
     ) throws -> FixPlanWriteInput {
+        guard case let .certified(admission) = plan.admission,
+              admission.scopeID == plan.scope.id
+        else {
+            throw Failure.uncertifiedPlan(plan.id)
+        }
         guard decision.planID == plan.id,
               decision.planRevision == plan.revision,
               configuration.writeAuthority.canWritePlan,
@@ -105,6 +118,7 @@ enum FixPlanWrite {
                 decisionRevision: decision.revision
             ),
             scope: plan.scope,
+            admission: admission,
             configuration: configuration,
             workItems: workItems
         )
@@ -224,54 +238,76 @@ enum FixPlanWrite {
                 guard case let .track(identity) = item.target else { return nil }
                 return identity.readID
             }).count
+            let processingTracks = processingTracks(from: input.workItems)
             return try await dependencies.batchProcessor.performRecoverableWrite(
                 trackCount: trackCount,
-                requiredFeature: requiredFeature(for: input.workItems),
-                requiredAdmissionFeature: input.requiredAdmissionFeature,
-                appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
-                partialTrackIDs: { _ in [] },
-                operation: {
-                    guard let plan = try await dependencies.fixPlanStore.plan(
-                        id: input.target.planID,
-                        revision: input.target.planRevision
-                    ) else {
-                        throw Failure.missingPlan(input.target.planID)
-                    }
-                    guard let decision = try await dependencies.fixPlanStore.currentDecision(
-                        for: input.target.planID
-                    ) else {
-                        throw Failure.missingDecision(input.target.planID)
-                    }
-                    guard decision.planRevision == input.target.planRevision,
-                          decision.revision == input.target.decisionRevision
-                    else {
-                        throw Failure.staleDecision
-                    }
-                    try validateInput(input, plan: plan, decision: decision)
-
-                    let changes = try proposedChanges(from: plan, decision: decision)
-                    let acceptedChanges = changes.filter(\.isAccepted)
-                    guard !acceptedChanges.isEmpty else {
-                        throw Failure.noAcceptedItems
-                    }
-
-                    let runtime = try await dependencies.makeRuntime(plan.configuration, input.scope)
-                    try await prepareWriteIDs(
-                        for: acceptedChanges,
-                        mapper: dependencies.mapper,
-                        verifier: runtime.verifier
+                features: WriteFeatureRequirements(
+                    mutation: requiredFeature(for: input.workItems),
+                    route: input.requiredAdmissionFeature
+                ),
+                validateWrite: {
+                    try await dependencies.validateProcessing(
+                        input.admission,
+                        processingTracks,
+                        .subset
                     )
-                    // The runtime coordinator is created per write; attribution
-                    // stays set for its whole lifetime.
-                    await runtime.coordinator.setRunAttribution(runID)
-                    return try await runtime.coordinator.applyAcceptedChanges(
-                        changes,
-                        progressHandler: ignoreProgress,
-                        checkpoint: checkpoint
+                },
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                    partialTrackIDs: { _ in [] }
+                ),
+                operation: {
+                    try await performWrite(
+                        input: input,
+                        runID: runID,
+                        checkpoint: checkpoint,
+                        dependencies: dependencies
                     )
                 }
             )
         }
+    }
+
+    private static func performWrite(
+        input: FixPlanWriteInput,
+        runID: RunID,
+        checkpoint: @escaping WorkCheckpointSink,
+        dependencies: RunnerDependencies
+    ) async throws -> BatchUpdateResult {
+        guard let plan = try await dependencies.fixPlanStore.plan(
+            id: input.target.planID,
+            revision: input.target.planRevision
+        ) else {
+            throw Failure.missingPlan(input.target.planID)
+        }
+        guard let decision = try await dependencies.fixPlanStore.currentDecision(for: input.target.planID) else {
+            throw Failure.missingDecision(input.target.planID)
+        }
+        guard decision.planRevision == input.target.planRevision,
+              decision.revision == input.target.decisionRevision
+        else {
+            throw Failure.staleDecision
+        }
+        try validateInput(input, plan: plan, decision: decision)
+
+        let changes = try proposedChanges(from: plan, decision: decision)
+        let acceptedChanges = changes.filter(\.isAccepted)
+        guard !acceptedChanges.isEmpty else {
+            throw Failure.noAcceptedItems
+        }
+
+        let runtime = try await dependencies.makeRuntime(plan.configuration, input.scope)
+        try await prepareWriteIDs(
+            for: acceptedChanges,
+            mapper: dependencies.mapper,
+            verifier: runtime.verifier
+        )
+        await runtime.coordinator.setRunAttribution(runID)
+        return try await runtime.coordinator.applyAcceptedChanges(
+            changes,
+            progressHandler: ignoreProgress,
+            checkpoint: checkpoint
+        )
     }
 
     private static func validateInput(
@@ -281,13 +317,36 @@ enum FixPlanWrite {
     ) throws {
         // The input crosses an async queue; it must still match the immutable plan revision.
         let expectedWorkItems = acceptedWorkItems(in: plan, decision: decision)
-        guard plan.scope == input.scope,
+        guard case let .certified(planAdmission) = plan.admission else {
+            throw Failure.uncertifiedPlan(plan.id)
+        }
+        guard planAdmission == input.admission,
+              plan.scope == input.scope,
               input.configuration.writeAuthority.canWritePlan,
               input.configuration.scopeID == plan.scope.id,
               input.configuration.settings == plan.configuration,
               input.workItems == expectedWorkItems
         else {
             throw Failure.staleInput
+        }
+    }
+
+    private static func processingTracks(from workItems: [RunWorkItem]) -> [Track] {
+        var seenIDs: Set<String> = []
+        return workItems.compactMap { item in
+            guard case let .track(identity) = item.target,
+                  seenIDs.insert(identity.readID).inserted
+            else {
+                return nil
+            }
+            return Track(
+                id: identity.readID,
+                name: identity.trackName,
+                artist: identity.artist,
+                album: identity.album,
+                albumArtist: identity.albumArtist,
+                appleScriptID: identity.appleScriptID
+            )
         }
     }
 
@@ -347,7 +406,8 @@ extension AppDependencies {
         guard let runtime,
               let fixPlanStore,
               let mapper = trackIDMapper,
-              let batchProcessor
+              let batchProcessor,
+              trackStore != nil
         else {
             AppLogger.make(category: "dependencies")
                 .warning("Fix plan writer unavailable: missing write prerequisites")
@@ -363,6 +423,17 @@ extension AppDependencies {
             fixPlanStore: fixPlanStore,
             mapper: mapper,
             batchProcessor: batchProcessor,
+            validateProcessing: { [weak self] admission, tracks, match in
+                guard let self else {
+                    throw ProcessingAdmissionFailure.unavailable(.fixPlanWrite)
+                }
+                try await self.validateProcessing(
+                    admission,
+                    tracks: tracks,
+                    match: match,
+                    action: .fixPlanWrite
+                )
+            },
             makeRuntime: { configuration, scope in
                 try await runtime.makeWrite(configuration: configuration, scope: scope)
             },

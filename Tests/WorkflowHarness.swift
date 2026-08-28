@@ -13,6 +13,44 @@ func noOpPrepareMutationMetadata(_: [Track]) async throws {
     // Default test hook intentionally skips mutation metadata preparation.
 }
 
+func workflowProcessingAdmission(
+    trackCount: Int,
+    testArtists: [String] = []
+) -> ProcessingAdmission {
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: testArtists,
+        knownTrackCount: trackCount,
+        createdAt: Date(timeIntervalSince1970: 100),
+        reason: "workflow-test"
+    )
+    return workflowProcessingAdmission(scope: scope)
+}
+
+func workflowProcessingAdmission(scope: ProcessingScopeSnapshot) -> ProcessingAdmission {
+    guard let membership = try? MembershipFingerprint.make(ids: []) else {
+        preconditionFailure("Empty membership must have a canonical fingerprint")
+    }
+    let observedAt = Date(timeIntervalSince1970: 100)
+    let fingerprint = membership.fingerprint
+    return ProcessingAdmission(
+        scopeID: scope.id,
+        certificate: ScopeCertificate(
+            id: UUID(),
+            revision: .initial,
+            membership: membership,
+            testArtists: scope.normalizedTestArtists,
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: fingerprint,
+                observedFingerprint: fingerprint,
+                trackCount: scope.knownTrackCount ?? 0
+            ),
+            observedAt: observedAt
+        ),
+        maximumMetadataAge: nil
+    )
+}
+
 struct WorkflowFixtureOptions {
     var apiServices: APIOrchestratorServices?
     var tier: Tier = .pro
@@ -34,6 +72,7 @@ struct WorkflowFixtureOptions {
         // Most workflow fixtures do not observe subscription persistence.
     }
     var featureGate: FeatureGate?
+    var admissionProbe = WorkflowAdmissionProbe()
 }
 
 private struct WorkflowFixtureInput {
@@ -131,7 +170,8 @@ private func assembleWorkflowFixture(_ input: WorkflowFixtureInput) -> WorkflowF
         batchProcessor: processor,
         runRecords: runRecords,
         observationGate: observationGate,
-        orchestrator: orchestrator
+        orchestrator: orchestrator,
+        admissionProbe: input.options.admissionProbe
     )
 }
 
@@ -223,7 +263,8 @@ private func makeFixtureViewModel(
     submitBatchRun: ((BatchRunInput) async throws -> RunSubmissionResult)? = nil,
     discardQueuedBatchRuns: (() async -> Void)? = nil
 ) -> WorkflowViewModel {
-    WorkflowViewModel(
+    let admissionProbe = input.options.admissionProbe
+    return WorkflowViewModel(
         dependencies: WorkflowViewModel.Dependencies(
             updateCoordinator: coordinator,
             batchProcessor: processor,
@@ -233,6 +274,16 @@ private func makeFixtureViewModel(
             runMaintenancePreflight: input.options.runMaintenancePreflight,
             ensureRecoveryHold: input.options.ensureRecoveryHold,
             clearRecovery: clearRecovery,
+            admitProcessing: { tracks, match in
+                try await admissionProbe.admit(tracks: tracks, match: match)
+            },
+            validateProcessing: { admission, tracks, match in
+                try await admissionProbe.validate(
+                    admission: admission,
+                    tracks: tracks,
+                    match: match
+                )
+            },
             prepareMutationMetadata: input.prepareMutationMetadata,
             resolveIncrementalTracks: input.resolveIncrementalTracks,
             invalidateAlbumYearCache: input.options.invalidateAlbumYearCache,
@@ -269,6 +320,75 @@ struct WorkflowFixture {
     let runRecords: FixtureRunRecords
     let observationGate: FixtureSyncGate
     let orchestrator: RunOrchestrator
+    let admissionProbe: WorkflowAdmissionProbe
+}
+
+struct WorkflowAdmissionEvent: Equatable, Sendable {
+    let admission: ProcessingAdmission
+    let trackIDs: [String]
+    let match: AdmissionTrackMatch
+}
+
+struct WorkflowAdmissionError: LocalizedError {
+    var errorDescription: String? {
+        "Fixture processing admission was rejected"
+    }
+}
+
+actor WorkflowAdmissionProbe {
+    private(set) var admitted: [WorkflowAdmissionEvent] = []
+    private(set) var validated: [WorkflowAdmissionEvent] = []
+    private var shouldRejectValidation = false
+
+    func rejectValidation() {
+        shouldRejectValidation = true
+    }
+
+    func admit(tracks: [Track], match: AdmissionTrackMatch) throws -> ProcessingAdmission {
+        guard let membership = try? MembershipFingerprint.make(ids: []) else {
+            preconditionFailure("Empty membership must have a canonical fingerprint")
+        }
+        let observedAt = Date(timeIntervalSince1970: 100)
+        let fingerprint = membership.fingerprint
+        let admission = ProcessingAdmission(
+            scopeID: UUID(),
+            certificate: ScopeCertificate(
+                id: UUID(),
+                revision: .initial,
+                membership: membership,
+                testArtists: [],
+                fieldSet: .processingV1,
+                evidence: ScopeEvidence(
+                    requestedFingerprint: fingerprint,
+                    observedFingerprint: fingerprint,
+                    trackCount: tracks.count
+                ),
+                observedAt: observedAt
+            ),
+            maximumMetadataAge: nil
+        )
+        admitted.append(WorkflowAdmissionEvent(
+            admission: admission,
+            trackIDs: tracks.map(\.id),
+            match: match
+        ))
+        return admission
+    }
+
+    func validate(
+        admission: ProcessingAdmission,
+        tracks: [Track],
+        match: AdmissionTrackMatch
+    ) throws {
+        validated.append(WorkflowAdmissionEvent(
+            admission: admission,
+            trackIDs: tracks.map(\.id),
+            match: match
+        ))
+        if shouldRejectValidation {
+            throw WorkflowAdmissionError()
+        }
+    }
 }
 
 actor FixtureRunRecords {

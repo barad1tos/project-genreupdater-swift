@@ -58,6 +58,7 @@ struct RunContinuationTests {
         let terminalInput = FixPlanWriteInput(
             target: writeTarget(),
             scope: scope,
+            admission: processingAdmission(scope: scope),
             configuration: makeRunConfiguration(
                 scopeID: scope.id,
                 capturedAt: capturedAt,
@@ -176,6 +177,7 @@ struct RunContinuationTests {
         return FixPlanWriteInput(
             target: target ?? writeTarget(),
             scope: scope,
+            admission: processingAdmission(scope: scope),
             configuration: makeRunConfiguration(
                 scopeID: scope.id,
                 capturedAt: capturedAt,

@@ -575,6 +575,7 @@ private func makeClosedSourceRecord(
         target: planTarget
             ?? FixPlanWriteTarget(planID: FixPlanID(), planRevision: .initial, decisionRevision: .initial),
         scope: scope,
+        admission: workflowProcessingAdmission(scope: scope),
         configuration: RunConfig(
             capturedAt: startedAt,
             writeAuthority: .reviewedPlan,

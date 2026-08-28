@@ -2,10 +2,112 @@ import Core
 import Foundation
 import Services
 
+enum ProcessingAdmissionAction: String, Sendable {
+    case workflowMutation = "Workflow mutation"
+    case fixPlanWrite = "Fix-plan write"
+}
+
+enum ProcessingAdmissionFailure: LocalizedError {
+    case unavailable(ProcessingAdmissionAction)
+    case rejected(ProcessingAdmissionAction, ProcessingAdmissionRejection)
+
+    var errorDescription: String? {
+        switch self {
+        case let .unavailable(action):
+            "\(action.rawValue) is unavailable until the library mirror is ready."
+        case let .rejected(action, reason):
+            "\(action.rawValue) was refused because its library evidence is no longer current (\(reason))."
+        }
+    }
+}
+
 /// Run-orchestrator wiring, split from the main dependencies file: the
 /// closures here bridge the actor's Sendable dependency surface onto
 /// main-actor services and providers.
 extension AppDependencies {
+    func makeWorkflowAdmission() -> @Sendable (
+        [Track],
+        AdmissionTrackMatch
+    ) async throws -> ProcessingAdmission {
+        { [weak self] tracks, match in
+            guard let self else {
+                throw ProcessingAdmissionFailure.unavailable(.workflowMutation)
+            }
+            return try await self.admitProcessing(
+                tracks: tracks,
+                match: match,
+                action: .workflowMutation
+            )
+        }
+    }
+
+    func makeWorkflowValidator() -> @Sendable (
+        ProcessingAdmission,
+        [Track],
+        AdmissionTrackMatch
+    ) async throws -> Void {
+        { [weak self] admission, tracks, match in
+            guard let self else {
+                throw ProcessingAdmissionFailure.unavailable(.workflowMutation)
+            }
+            try await self.validateProcessing(
+                admission,
+                tracks: tracks,
+                match: match,
+                action: .workflowMutation
+            )
+        }
+    }
+
+    func admitProcessing(
+        tracks: [Track],
+        match: AdmissionTrackMatch,
+        action: ProcessingAdmissionAction
+    ) async throws -> ProcessingAdmission {
+        guard let trackStore else {
+            throw ProcessingAdmissionFailure.unavailable(action)
+        }
+        let runtimeConfiguration = try LibrarySyncRuntimeConfiguration(configuration: config)
+        let requirement = runtimeConfiguration.processingRequirement
+        let now = Date()
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: requirement.normalizedTestArtists,
+            knownTrackCount: tracks.count,
+            createdAt: now,
+            reason: action.rawValue
+        )
+        let decision = try await trackStore.admit(scope: scope, requirement: requirement, at: now)
+        let admission: ProcessingAdmission
+        switch decision {
+        case let .admitted(captured, _):
+            admission = captured
+        case let .rejected(reason):
+            throw ProcessingAdmissionFailure.rejected(action, reason)
+        }
+        try await validateProcessing(admission, tracks: tracks, match: match, action: action)
+        return admission
+    }
+
+    func validateProcessing(
+        _ admission: ProcessingAdmission,
+        tracks: [Track],
+        match: AdmissionTrackMatch,
+        action: ProcessingAdmissionAction
+    ) async throws {
+        guard let trackStore else {
+            throw ProcessingAdmissionFailure.unavailable(action)
+        }
+        let decision = try await trackStore.revalidate(
+            admission,
+            candidates: tracks,
+            match: match,
+            at: Date()
+        )
+        if case let .rejected(reason) = decision {
+            throw ProcessingAdmissionFailure.rejected(action, reason)
+        }
+    }
+
     func writeDependencies(
         store: any RunRecordStore,
         processor: BatchProcessor,

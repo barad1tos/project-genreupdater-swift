@@ -148,6 +148,7 @@ func uncertainRunRecord(
             decisionRevision: .initial
         ),
         scope: scope,
+        admission: workflowProcessingAdmission(scope: scope),
         configuration: RunConfig(
             capturedAt: startedAt,
             writeAuthority: .reviewedPlan,

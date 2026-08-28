@@ -295,8 +295,18 @@ struct AutomaticWriteTests {
                 knownTrackCount: 75
             ))
         case .batch:
+            let scope = ProcessingScopeSnapshot.capture(
+                requestedTestArtists: [],
+                knownTrackCount: 75,
+                createdAt: Date(timeIntervalSince1970: 100),
+                reason: "automatic-write-superseding-batch"
+            )
             _ = await fixture.orchestrator.submit(.manualBatchUpdate(
-                input: BatchRunInput(options: UpdateOptions(), trackCount: 75),
+                input: BatchRunInput(
+                    options: UpdateOptions(),
+                    trackCount: 75,
+                    admission: processingAdmission(scope: scope)
+                ),
                 requestedTestArtists: [],
                 knownTrackCount: 75
             ))
@@ -636,6 +646,7 @@ private enum AutomaticInputMutation: CaseIterable, Equatable {
         return FixPlanWriteInput(
             target: target,
             scope: scope,
+            admission: input.admission,
             configuration: configuration,
             workItems: input.workItems
         )
@@ -672,6 +683,7 @@ private func admissionInput(authority: WriteAuthority) -> FixPlanWriteInput {
     return FixPlanWriteInput(
         target: input.target,
         scope: input.scope,
+        admission: input.admission,
         configuration: RunConfig(
             capturedAt: capturedAt,
             mode: .autoFix,

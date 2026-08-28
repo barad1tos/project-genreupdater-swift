@@ -231,6 +231,33 @@ func writeTarget() -> FixPlanWriteTarget {
     )
 }
 
+func processingAdmission(
+    scope: ProcessingScopeSnapshot,
+    certificateID: UUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 69))
+) -> ProcessingAdmission {
+    guard let membership = try? MembershipFingerprint.make(ids: []) else {
+        preconditionFailure("Empty membership must have a canonical fingerprint")
+    }
+    let fingerprint = membership.fingerprint
+    return ProcessingAdmission(
+        scopeID: scope.id,
+        certificate: ScopeCertificate(
+            id: certificateID,
+            revision: .initial,
+            membership: membership,
+            testArtists: scope.normalizedTestArtists,
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: fingerprint,
+                observedFingerprint: fingerprint,
+                trackCount: scope.knownTrackCount ?? 0
+            ),
+            observedAt: scope.createdAt
+        ),
+        maximumMetadataAge: nil
+    )
+}
+
 func writeInput(
     target: FixPlanWriteTarget = writeTarget(),
     artists: [String] = [],
@@ -247,6 +274,7 @@ func writeInput(
     return FixPlanWriteInput(
         target: target,
         scope: scope,
+        admission: processingAdmission(scope: scope),
         configuration: makeRunConfiguration(
             scopeID: scope.id,
             capturedAt: capturedAt,

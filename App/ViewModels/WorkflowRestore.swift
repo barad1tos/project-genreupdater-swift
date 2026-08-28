@@ -22,11 +22,17 @@ extension WorkflowViewModel {
             do {
                 let threshold = releaseYearRestoreThreshold
                 let coordinator = updateCoordinator
+                let admission = try await admitProcessing(scopedTracks, .subset)
                 restoreResult = try await batchProcessor.performRecoverableWrite(
                     trackCount: Set(scopedTracks.map(\.id)).count,
-                    requiredFeature: nil,
-                    appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
-                    partialTrackIDs: { _ in [] },
+                    features: WriteFeatureRequirements(mutation: nil),
+                    validateWrite: { [validateProcessing] in
+                        try await validateProcessing(admission, scopedTracks, .subset)
+                    },
+                    outcome: WriteOutcomeProjection(
+                        appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                        partialTrackIDs: { _ in [] }
+                    ),
                     operation: {
                         try await coordinator.restoreReleaseYears(
                             in: scopedTracks,

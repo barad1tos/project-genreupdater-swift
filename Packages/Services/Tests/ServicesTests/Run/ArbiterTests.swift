@@ -371,12 +371,14 @@ struct ArbiterTests {
     @Test("equal write intent covers the same reviewed target")
     func writeCoversSameTarget() {
         let target = Self.writeTarget("00000000-0000-0000-0000-000000000101")
-        let active = Self.lifecycle(
-            trigger: .manualCheck,
-            intent: .writeFixes,
-            writeTarget: target
+        let input = Self.writeInput(target)
+        let request = RunRequest.manualWrite(input: input)
+        let active = RunLifecycleSnapshot(
+            request: request,
+            scope: input.scope,
+            startedAt: Date(timeIntervalSince1970: 100),
+            phase: .active(.writing)
         )
-        let request = RunRequest.manualWrite(input: Self.writeInput(target))
 
         let decision = TriggerArbiter.decide(active: active, pending: [], incoming: request)
 
@@ -433,6 +435,58 @@ struct ArbiterTests {
         #expect(pending.map(\.request) == [older, newest])
     }
 
+    @Test("batch requests with different certificate evidence do not cover each other")
+    func batchCertificatesRemainDistinct() {
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 2,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "arbiter-admission-test"
+        )
+        let older = RunRequest.manualBatchUpdate(
+            input: BatchRunInput(
+                options: UpdateOptions(),
+                trackCount: 2,
+                admission: processingAdmission(
+                    scope: scope,
+                    certificateID: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1))
+                )
+            ),
+            requestedTestArtists: [],
+            knownTrackCount: 2
+        )
+        let newest = RunRequest.manualBatchUpdate(
+            input: BatchRunInput(
+                options: UpdateOptions(),
+                trackCount: 2,
+                admission: processingAdmission(
+                    scope: scope,
+                    certificateID: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2))
+                )
+            ),
+            requestedTestArtists: [],
+            knownTrackCount: 2
+        )
+        let active = Self.lifecycle(
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            requestedTestArtists: [],
+            knownTrackCount: 2
+        )
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [PendingTrigger(request: older)],
+            incoming: newest
+        )
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected distinct admission evidence to remain queued, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [older, newest])
+    }
+
     private static func request(
         trigger: RunTrigger,
         intent: RunIntent,
@@ -463,9 +517,19 @@ struct ArbiterTests {
                 ? RunRequest.manualWrite(input: input)
                 : RunRequest.automaticWrite(trigger: trigger, input: input)
         case .batchUpdate:
+            let scope = ProcessingScopeSnapshot.capture(
+                requestedTestArtists: requestedTestArtists,
+                knownTrackCount: knownTrackCount,
+                createdAt: Date(timeIntervalSince1970: 100),
+                reason: "arbiter-request"
+            )
             return RunRequest.batchUpdate(
                 trigger: trigger,
-                input: BatchRunInput(options: UpdateOptions(), trackCount: knownTrackCount ?? 0),
+                input: BatchRunInput(
+                    options: UpdateOptions(),
+                    trackCount: knownTrackCount ?? 0,
+                    admission: processingAdmission(scope: scope)
+                ),
                 requestedTestArtists: requestedTestArtists,
                 knownTrackCount: knownTrackCount
             )
@@ -523,7 +587,11 @@ struct ArbiterTests {
                 runID: RunID(),
                 request: .batchUpdate(
                     trigger: trigger,
-                    input: BatchRunInput(options: UpdateOptions(), trackCount: knownTrackCount ?? 0),
+                    input: BatchRunInput(
+                        options: UpdateOptions(),
+                        trackCount: knownTrackCount ?? 0,
+                        admission: processingAdmission(scope: scope)
+                    ),
                     requestedTestArtists: requestedTestArtists,
                     knownTrackCount: knownTrackCount
                 ),
@@ -586,6 +654,7 @@ struct ArbiterTests {
         return FixPlanWriteInput(
             target: target,
             scope: scope,
+            admission: processingAdmission(scope: scope),
             configuration: makeRunConfiguration(
                 scopeID: scope.id,
                 capturedAt: capturedAt,

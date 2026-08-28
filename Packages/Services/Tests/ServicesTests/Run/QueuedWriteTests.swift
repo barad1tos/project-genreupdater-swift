@@ -488,6 +488,7 @@ struct QueuedWriteTests {
                 decisionRevision: .initial
             ),
             scope: scope,
+            admission: processingAdmission(scope: scope),
             configuration: makeRunConfiguration(
                 scopeID: scope.id,
                 capturedAt: capturedAt,

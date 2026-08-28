@@ -43,6 +43,31 @@ public struct PartialWriteError: Error, Sendable {
     }
 }
 
+/// Entitlement requirements reserved together for one physical write.
+public struct WriteFeatureRequirements: Sendable {
+    public let mutation: AppFeature?
+    public let route: AppFeature?
+
+    public init(mutation: AppFeature?, route: AppFeature? = nil) {
+        self.mutation = mutation
+        self.route = route
+    }
+}
+
+/// Projects successful track identities from complete and partial write outcomes.
+public struct WriteOutcomeProjection<Value: Sendable>: Sendable {
+    let appliedTrackIDs: @Sendable (Value) -> Set<String>
+    let partialTrackIDs: @Sendable (any Error) -> Set<String>
+
+    public init(
+        appliedTrackIDs: @escaping @Sendable (Value) -> Set<String>,
+        partialTrackIDs: @escaping @Sendable (any Error) -> Set<String>
+    ) {
+        self.appliedTrackIDs = appliedTrackIDs
+        self.partialTrackIDs = partialTrackIDs
+    }
+}
+
 // MARK: - Resume State
 
 /// State loaded from a checkpoint for resume operations.
@@ -204,43 +229,41 @@ public actor BatchProcessor {
     ///   - trackCount: Distinct tracks this write may touch. Required rather
     ///     than defaulted so the compiler names every write path when the gate
     ///     moves; a default would let a caller opt out in silence.
-    ///   - requiredFeature: Additional paid feature required by the accepted
-    ///     write set, or `nil` when ordinary free-track admission is sufficient.
-    ///   - requiredAdmissionFeature: Feature required by the route that admitted
-    ///     the write, captured with the same live entitlement snapshot.
-    ///   - appliedTrackIDs: Projects the distinct tracks actually changed by a
-    ///     successful operation. Failed and no-op writes must not be returned.
-    ///   - partialTrackIDs: Projects known successful changes carried by a
-    ///     thrown partial outcome. Unknown outcomes must return an empty set.
+    ///   - features: Mutation and route features captured with the same live
+    ///     entitlement snapshot.
+    ///   - validateWrite: Revalidates the exact processing evidence after the
+    ///     write reservation succeeds and immediately before the operation.
+    ///   - outcome: Projects distinct successful track identities from complete
+    ///     and partial outcomes. Failed and no-op writes must not be returned.
     ///   - operation: Performs the admitted write and returns its result.
     public func performRecoverableWrite<Value: Sendable>(
         trackCount: Int,
-        requiredFeature: AppFeature?,
-        requiredAdmissionFeature: AppFeature? = nil,
-        appliedTrackIDs: @Sendable (Value) -> Set<String>,
-        partialTrackIDs: @Sendable (any Error) -> Set<String>,
+        features: WriteFeatureRequirements,
+        validateWrite: @escaping @Sendable () async throws -> Void,
+        outcome: WriteOutcomeProjection<Value>,
         operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
         let admission = try await reserveWrite(
             requiresBatchFeature: false,
-            requiredFeature: requiredFeature,
-            requiredAdmissionFeature: requiredAdmissionFeature,
+            requiredFeature: features.mutation,
+            requiredAdmissionFeature: features.route,
             trackCount: trackCount
         )
         defer { isWriteReserved = false }
+        try await validateWrite()
         do {
             let result = try await operation()
-            await featureGate.recordTrackUsage(for: appliedTrackIDs(result), admission: admission)
+            await featureGate.recordTrackUsage(for: outcome.appliedTrackIDs(result), admission: admission)
             return result
         } catch {
             let writeError: any Error
             let recordedTrackIDs: Set<String>
             if let partialWrite = error as? PartialWriteError {
                 writeError = partialWrite.underlyingError
-                recordedTrackIDs = partialWrite.appliedTrackIDs.union(partialTrackIDs(writeError))
+                recordedTrackIDs = partialWrite.appliedTrackIDs.union(outcome.partialTrackIDs(writeError))
             } else {
                 writeError = error
-                recordedTrackIDs = partialTrackIDs(error)
+                recordedTrackIDs = outcome.partialTrackIDs(error)
             }
 
             await featureGate.recordTrackUsage(for: recordedTrackIDs, admission: admission)
@@ -270,6 +293,7 @@ public actor BatchProcessor {
     public func process(
         tracks: [Track],
         resumeBatchID: UUID? = nil,
+        validateWrite: @escaping @Sendable () async throws -> Void,
         operation: @Sendable (Track) async throws -> [ChangeLogEntry],
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> [ChangeLogEntry] {
@@ -277,6 +301,7 @@ public actor BatchProcessor {
             return try await processBody(
                 tracks: tracks,
                 resumeBatchID: resumeBatchID,
+                validateWrite: validateWrite,
                 operation: operation,
                 progressHandler: progressHandler
             )
@@ -294,6 +319,7 @@ public actor BatchProcessor {
                 try await self.processBody(
                     tracks: tracks,
                     resumeBatchID: resumeBatchID,
+                    validateWrite: validateWrite,
                     operation: operation,
                     progressHandler: progressHandler
                 )
@@ -304,6 +330,7 @@ public actor BatchProcessor {
     private func processBody(
         tracks: [Track],
         resumeBatchID: UUID?,
+        validateWrite: @escaping @Sendable () async throws -> Void,
         operation: @Sendable (Track) async throws -> [ChangeLogEntry],
         progressHandler: @Sendable (ProgressUpdate) -> Void
     ) async throws -> [ChangeLogEntry] {
@@ -311,6 +338,7 @@ public actor BatchProcessor {
             requiresBatchFeature: true, requiredFeature: nil, trackCount: Set(tracks.map(\.id)).count
         )
         defer { isWriteReserved = false }
+        try await validateWrite()
         var resume = try await loadResumeState(
             tracks: tracks,
             resumeBatchID: resumeBatchID

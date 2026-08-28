@@ -713,6 +713,7 @@ struct WorkItemTests {
         let input = FixPlanWriteInput(
             target: writeTarget(),
             scope: scope,
+            admission: processingAdmission(scope: scope),
             configuration: makeRunConfiguration(
                 scopeID: scope.id,
                 capturedAt: capturedAt,

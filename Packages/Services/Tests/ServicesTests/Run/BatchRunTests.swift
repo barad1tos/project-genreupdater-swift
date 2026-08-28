@@ -10,7 +10,33 @@ import Testing
 @Suite("Batch runs")
 struct BatchRunTests {
     private func batchInput(trackCount: Int = 3) -> BatchRunInput {
-        BatchRunInput(options: UpdateOptions(), trackCount: trackCount)
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: trackCount,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "batch-run-test"
+        )
+        return BatchRunInput(
+            options: UpdateOptions(),
+            trackCount: trackCount,
+            admission: processingAdmission(scope: scope)
+        )
+    }
+
+    @Test("a batch request retains its exact processing admission")
+    func batchRetainsAdmission() {
+        let input = batchInput()
+        let request = RunRequest.manualBatchUpdate(
+            input: input,
+            requestedTestArtists: [],
+            knownTrackCount: input.trackCount
+        )
+
+        guard case let .batchUpdate(retained) = request.kind else {
+            Issue.record("Expected a batch request")
+            return
+        }
+        #expect(retained.admission == input.admission)
     }
 
     private func manualBatch(trackCount: Int = 3) -> RunRequest {
@@ -191,7 +217,7 @@ struct BatchRunTests {
     }
 
     @Test("an identical batch resubmit is already covered")
-    func identicalBatchIsAlreadyCovered() async throws {
+    func identicalBatchIsAlreadyCovered() async {
         let runnerGate = RunnerGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
@@ -202,9 +228,10 @@ struct BatchRunTests {
             }
         ))
 
-        let first = Task { await orchestrator.submit(manualBatch()) }
+        let request = manualBatch()
+        let first = Task { await orchestrator.submit(request) }
         await runnerGate.waitUntilEntered()
-        let second = await orchestrator.submit(manualBatch())
+        let second = await orchestrator.submit(request)
         guard case .alreadyCovered = second else {
             Issue.record("Expected alreadyCovered, got \(second)")
             return
@@ -215,7 +242,7 @@ struct BatchRunTests {
     }
 
     @Test("a batch and a plan write queue independently")
-    func batchAndPlanWriteQueueIndependently() async throws {
+    func batchAndPlanWriteQueueIndependently() async {
         let runnerGate = RunnerGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { SyncResult() },
@@ -264,7 +291,7 @@ struct BatchRunTests {
     }
 
     @Test("recovery restoration discards a queued batch fail-closed")
-    func recoveryRestorationDiscardsQueuedBatch() async throws {
+    func recoveryRestorationDiscardsQueuedBatch() async {
         let gate = WriteSyncGate()
         let runnerProbe = RunnerInvocationProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
@@ -323,7 +350,7 @@ struct BatchRunTests {
     }
 
     @Test("cancelling before start discards the pending batch trigger")
-    func discardPendingBatchRunsDropsQueuedTrigger() async throws {
+    func discardPendingBatchRunsDropsQueuedTrigger() async {
         let gate = WriteSyncGate()
         let runnerProbe = RunnerInvocationProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
@@ -447,14 +474,18 @@ private actor RunnerGate {
             continuation.resume()
         }
         enterContinuations = []
-        if isReleased { return }
+        if isReleased {
+            return
+        }
         await withCheckedContinuation { continuation in
             releaseContinuations.append(continuation)
         }
     }
 
     func waitUntilEntered() async {
-        if isEntered { return }
+        if isEntered {
+            return
+        }
         await withCheckedContinuation { continuation in
             enterContinuations.append(continuation)
         }
