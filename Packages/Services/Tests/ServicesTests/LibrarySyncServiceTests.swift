@@ -54,29 +54,25 @@ actor SyncMockScriptClient: MusicAppReading {
             identityLookupIDs: requestedIdentityIDs,
             metadataLookupIDs: requestedMetadataIDs
         )
-        let observedIdentityIDs = Set(derivedIdentities.map(\.databaseID))
-        let missingIdentityIDs = identityRequestedIDs.subtracting(observedIdentityIDs)
         let observedMetadataIDs = Set(rows.map(\.databaseID))
+        let coverage = Self.makeCoverage(
+            request: request,
+            identities: derivedIdentities,
+            identityRequestedIDs: identityRequestedIDs,
+            metadataRequestedIDs: Set(requestedMetadataIDs),
+            metadataObservedIDs: observedMetadataIDs
+        )
         return LibraryObservation(
             tracks: rows,
             identities: derivedIdentities,
-            censusIDs: censusIDs,
-            currentIDs: currentIDs,
-            scope: request.scope,
-            observedAt: observedAt(),
-            membership: request.scope.source == .fullLibrary
-                ? .full
-                : .scoped(unobservedIDs: missingIdentityIDs),
-            identity: IdentityCompleteness(
-                requestedIDs: identityRequestedIDs,
-                observedIDs: observedIdentityIDs
+            epoch: LibraryObservationEpoch(
+                censusIDs: censusIDs,
+                currentIDs: currentIDs,
+                scope: request.scope,
+                observedAt: observedAt(),
+                generation: generation
             ),
-            metadata: MetadataCompleteness(
-                requestedIDs: Set(requestedMetadataIDs),
-                observedIDs: observedMetadataIDs
-            ),
-            generation: generation,
-            issues: []
+            coverage: coverage
         )
     }
 
@@ -89,6 +85,31 @@ actor SyncMockScriptClient: MusicAppReading {
             throw AppleScriptBridgeError.parseError(scriptName: "sync-mock", detail: "Missing generation")
         }
         return generation
+    }
+
+    private static func makeCoverage(
+        request: LibraryObservationRequest,
+        identities: [LibraryIdentityRow],
+        identityRequestedIDs: Set<MusicDatabaseTrackID>,
+        metadataRequestedIDs: Set<MusicDatabaseTrackID>,
+        metadataObservedIDs: Set<MusicDatabaseTrackID>
+    ) -> LibraryObservationCoverage {
+        let identityObservedIDs = Set(identities.map(\.databaseID))
+        let missingIdentityIDs = identityRequestedIDs.subtracting(identityObservedIDs)
+        return LibraryObservationCoverage(
+            membership: request.scope.source == .fullLibrary
+                ? .full
+                : .scoped(unobservedIDs: missingIdentityIDs),
+            identity: IdentityCompleteness(
+                requestedIDs: identityRequestedIDs,
+                observedIDs: identityObservedIDs
+            ),
+            metadata: MetadataCompleteness(
+                requestedIDs: metadataRequestedIDs,
+                observedIDs: metadataObservedIDs
+            ),
+            issues: []
+        )
     }
 
     private static func identityRow(

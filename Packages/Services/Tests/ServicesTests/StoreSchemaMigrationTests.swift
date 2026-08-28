@@ -487,13 +487,15 @@ struct StoreSchemaMigrationTests {
         ))
         if let isPresent {
             context.insert(PersistedMirrorState(revisionValue: 8))
-            context.insert(PersistedLibraryMember(
+            let member = PersistedLibraryMember(
                 databaseID: "current-track",
                 isPresent: isPresent,
-                firstSeenRevisionValue: 3,
-                removalRevisionValue: 7,
-                removedAt: Self.timestamp
-            ))
+                firstSeenRevisionValue: 3
+            )
+            if !isPresent {
+                member.markRemoved(revision: MirrorRevision(value: 7), at: Self.timestamp)
+            }
+            context.insert(member)
         }
         try context.save()
     }

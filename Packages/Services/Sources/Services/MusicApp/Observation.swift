@@ -192,6 +192,49 @@ public enum LibraryObservationIssue: Equatable, Sendable {
     case metadataUnobserved(databaseID: MusicDatabaseTrackID, detail: String)
 }
 
+/// Generation-fenced library membership and processing scope for one observation.
+public struct LibraryObservationEpoch: Equatable, Sendable {
+    public let censusIDs: Set<MusicDatabaseTrackID>
+    public let currentIDs: Set<MusicDatabaseTrackID>
+    public let scope: ProcessingScopeSnapshot
+    public let observedAt: Date
+    public let generation: LibraryGeneration
+
+    public init(
+        censusIDs: Set<MusicDatabaseTrackID>,
+        currentIDs: Set<MusicDatabaseTrackID>,
+        scope: ProcessingScopeSnapshot,
+        observedAt: Date,
+        generation: LibraryGeneration
+    ) {
+        self.censusIDs = censusIDs
+        self.currentIDs = currentIDs
+        self.scope = scope
+        self.observedAt = observedAt
+        self.generation = generation
+    }
+}
+
+/// Completeness evidence and issues reported by one library observation.
+public struct LibraryObservationCoverage: Equatable, Sendable {
+    public let membership: MembershipCompleteness
+    public let identity: IdentityCompleteness
+    public let metadata: MetadataCompleteness
+    public let issues: [LibraryObservationIssue]
+
+    public init(
+        membership: MembershipCompleteness,
+        identity: IdentityCompleteness,
+        metadata: MetadataCompleteness,
+        issues: [LibraryObservationIssue]
+    ) {
+        self.membership = membership
+        self.identity = identity
+        self.metadata = metadata
+        self.issues = issues
+    }
+}
+
 /// Minimal AppleScript identity row used only for processing-scope classification.
 public struct LibraryIdentityRow: Equatable, Sendable {
     public let databaseID: MusicDatabaseTrackID
@@ -314,41 +357,48 @@ extension Observed {
 public struct LibraryObservation: Equatable, Sendable {
     public let tracks: [LibraryTrackRow]
     public let identities: [LibraryIdentityRow]
+    public let epoch: LibraryObservationEpoch
+    public let coverage: LibraryObservationCoverage
+
     /// Full Music database membership captured in the same generation as this observation.
-    public let censusIDs: Set<MusicDatabaseTrackID>
-    public let currentIDs: Set<MusicDatabaseTrackID>
-    public let scope: ProcessingScopeSnapshot
-    public let observedAt: Date
-    public let membership: MembershipCompleteness
-    public let identity: IdentityCompleteness
-    public let metadata: MetadataCompleteness
-    public let generation: LibraryGeneration
-    public let issues: [LibraryObservationIssue]
+    public var censusIDs: Set<MusicDatabaseTrackID> {
+        epoch.censusIDs
+    }
+    public var currentIDs: Set<MusicDatabaseTrackID> {
+        epoch.currentIDs
+    }
+    public var scope: ProcessingScopeSnapshot {
+        epoch.scope
+    }
+    public var observedAt: Date {
+        epoch.observedAt
+    }
+    public var generation: LibraryGeneration {
+        epoch.generation
+    }
+    public var membership: MembershipCompleteness {
+        coverage.membership
+    }
+    public var identity: IdentityCompleteness {
+        coverage.identity
+    }
+    public var metadata: MetadataCompleteness {
+        coverage.metadata
+    }
+    public var issues: [LibraryObservationIssue] {
+        coverage.issues
+    }
 
     public init(
         tracks: [LibraryTrackRow],
         identities: [LibraryIdentityRow] = [],
-        censusIDs: Set<MusicDatabaseTrackID>,
-        currentIDs: Set<MusicDatabaseTrackID>,
-        scope: ProcessingScopeSnapshot,
-        observedAt: Date,
-        membership: MembershipCompleteness,
-        identity: IdentityCompleteness = IdentityCompleteness(requestedIDs: [], observedIDs: []),
-        metadata: MetadataCompleteness,
-        generation: LibraryGeneration,
-        issues: [LibraryObservationIssue]
+        epoch: LibraryObservationEpoch,
+        coverage: LibraryObservationCoverage
     ) {
         self.tracks = tracks
         self.identities = identities
-        self.censusIDs = censusIDs
-        self.currentIDs = currentIDs
-        self.scope = scope
-        self.observedAt = observedAt
-        self.membership = membership
-        self.identity = identity
-        self.metadata = metadata
-        self.generation = generation
-        self.issues = issues
+        self.epoch = epoch
+        self.coverage = coverage
     }
 }
 

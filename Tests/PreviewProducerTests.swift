@@ -709,15 +709,19 @@ private actor PreviewSyncObserver: MusicAppReading {
         return LibraryObservation(
             tracks: rows,
             identities: identities,
-            censusIDs: currentIDs,
-            currentIDs: currentIDs,
-            scope: request.scope,
-            observedAt: observedAt,
-            membership: request.scope.source == .fullLibrary ? .full : .scoped(unobservedIDs: []),
-            identity: IdentityCompleteness(requestedIDs: currentIDs, observedIDs: currentIDs),
-            metadata: MetadataCompleteness(requestedIDs: currentIDs, observedIDs: currentIDs),
-            generation: generation,
-            issues: []
+            epoch: LibraryObservationEpoch(
+                censusIDs: currentIDs,
+                currentIDs: currentIDs,
+                scope: request.scope,
+                observedAt: observedAt,
+                generation: generation
+            ),
+            coverage: LibraryObservationCoverage(
+                membership: request.scope.source == .fullLibrary ? .full : .scoped(unobservedIDs: []),
+                identity: IdentityCompleteness(requestedIDs: currentIDs, observedIDs: currentIDs),
+                metadata: MetadataCompleteness(requestedIDs: currentIDs, observedIDs: currentIDs),
+                issues: []
+            )
         )
     }
 }

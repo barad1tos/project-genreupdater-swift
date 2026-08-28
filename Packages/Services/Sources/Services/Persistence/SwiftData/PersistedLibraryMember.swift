@@ -84,24 +84,12 @@ extension StoreSchemaV6 {
             databaseID: String,
             isPresent: Bool,
             firstSeenRevisionValue: UInt64,
-            lastSeenFingerprint: String? = nil,
-            removalRevisionValue: UInt64? = nil,
-            removedAt: Date? = nil,
-            artist: String? = nil,
-            albumArtist: String? = nil,
-            identityObservedAt: Date? = nil,
-            identityRevisionValue: UInt64? = nil
+            lastSeenFingerprint: String? = nil
         ) {
             self.databaseID = databaseID
             self.isPresent = isPresent
             self.firstSeenRevisionValue = firstSeenRevisionValue
             self.lastSeenFingerprint = lastSeenFingerprint
-            self.removalRevisionValue = removalRevisionValue
-            self.removedAt = removedAt
-            self.artist = artist
-            self.albumArtist = albumArtist
-            self.identityObservedAt = identityObservedAt
-            self.identityRevisionValue = identityRevisionValue
         }
     }
 }

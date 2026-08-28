@@ -45,18 +45,25 @@ actor MusicAppTestObserver: MusicAppReading {
         return LibraryObservation(
             tracks: rows,
             identities: identities,
-            censusIDs: censusIDs,
-            currentIDs: currentIDs,
-            scope: request.scope,
-            observedAt: Date(timeIntervalSince1970: 1_800_000_000),
-            membership: request.scope.source == .fullLibrary ? .full : .scoped(unobservedIDs: []),
-            identity: IdentityCompleteness(
-                requestedIDs: reportedIdentityIDs,
-                observedIDs: Set(identities.map(\.databaseID))
+            epoch: LibraryObservationEpoch(
+                censusIDs: censusIDs,
+                currentIDs: currentIDs,
+                scope: request.scope,
+                observedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                generation: generation
             ),
-            metadata: MetadataCompleteness(requestedIDs: requestedIDs, observedIDs: Set(rows.map(\.databaseID))),
-            generation: generation,
-            issues: []
+            coverage: LibraryObservationCoverage(
+                membership: request.scope.source == .fullLibrary ? .full : .scoped(unobservedIDs: []),
+                identity: IdentityCompleteness(
+                    requestedIDs: reportedIdentityIDs,
+                    observedIDs: Set(identities.map(\.databaseID))
+                ),
+                metadata: MetadataCompleteness(
+                    requestedIDs: requestedIDs,
+                    observedIDs: Set(rows.map(\.databaseID))
+                ),
+                issues: []
+            )
         )
     }
 

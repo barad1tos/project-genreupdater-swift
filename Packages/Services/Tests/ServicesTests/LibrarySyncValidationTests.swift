@@ -73,15 +73,19 @@ struct LibrarySyncValidationTests {
         let observation = try LibraryObservation(
             tracks: [metadataRow(databaseID: databaseID)],
             identities: [],
-            censusIDs: [databaseID],
-            currentIDs: [databaseID],
-            scope: request.scope,
-            observedAt: identity.observedAt,
-            membership: .scoped(unobservedIDs: []),
-            identity: IdentityCompleteness(requestedIDs: [], observedIDs: []),
-            metadata: MetadataCompleteness(requestedIDs: [databaseID], observedIDs: [databaseID]),
-            generation: #require(LibraryGeneration(sourceValue: "G1")),
-            issues: []
+            epoch: LibraryObservationEpoch(
+                censusIDs: [databaseID],
+                currentIDs: [databaseID],
+                scope: request.scope,
+                observedAt: identity.observedAt,
+                generation: #require(LibraryGeneration(sourceValue: "G1"))
+            ),
+            coverage: LibraryObservationCoverage(
+                membership: .scoped(unobservedIDs: []),
+                identity: IdentityCompleteness(requestedIDs: [], observedIDs: []),
+                metadata: MetadataCompleteness(requestedIDs: [databaseID], observedIDs: [databaseID]),
+                issues: []
+            )
         )
 
         await #expect(throws: LibrarySyncObservationError.invalidObservation(
@@ -120,18 +124,22 @@ struct LibrarySyncValidationTests {
         try LibraryObservation(
             tracks: [],
             identities: [identity],
-            censusIDs: [identity.databaseID],
-            currentIDs: currentIDs,
-            scope: request.scope,
-            observedAt: Date(timeIntervalSince1970: 1_800_000_000),
-            membership: .scoped(unobservedIDs: []),
-            identity: IdentityCompleteness(
-                requestedIDs: [identity.databaseID],
-                observedIDs: [identity.databaseID]
+            epoch: LibraryObservationEpoch(
+                censusIDs: [identity.databaseID],
+                currentIDs: currentIDs,
+                scope: request.scope,
+                observedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                generation: #require(LibraryGeneration(sourceValue: "G1"))
             ),
-            metadata: MetadataCompleteness(requestedIDs: [], observedIDs: []),
-            generation: #require(LibraryGeneration(sourceValue: "G1")),
-            issues: []
+            coverage: LibraryObservationCoverage(
+                membership: .scoped(unobservedIDs: []),
+                identity: IdentityCompleteness(
+                    requestedIDs: [identity.databaseID],
+                    observedIDs: [identity.databaseID]
+                ),
+                metadata: MetadataCompleteness(requestedIDs: [], observedIDs: []),
+                issues: []
+            )
         )
     }
 

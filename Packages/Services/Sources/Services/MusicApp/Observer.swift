@@ -122,22 +122,26 @@ public actor MusicAppObserver: MusicAppReading {
         return LibraryObservation(
             tracks: orderedRows,
             identities: orderedIdentities,
-            censusIDs: censusIDs,
-            currentIDs: admittedIDs,
-            scope: request.scope,
-            observedAt: Date(),
-            membership: membership,
-            identity: IdentityCompleteness(
-                requestedIDs: identityRequestedIDs,
-                observedIDs: observedIdentityIDs
+            epoch: LibraryObservationEpoch(
+                censusIDs: censusIDs,
+                currentIDs: admittedIDs,
+                scope: request.scope,
+                observedAt: Date(),
+                generation: census.generation
             ),
-            metadata: MetadataCompleteness(
-                requestedIDs: Set(metadata.requestedIDs),
-                observedIDs: observedMetadataIDs
-            ),
-            generation: census.generation,
-            issues: scopedIdentityIssues(for: missingIdentityIDs, request: request)
-                + metadataIssues(for: missingMetadataIDs)
+            coverage: LibraryObservationCoverage(
+                membership: membership,
+                identity: IdentityCompleteness(
+                    requestedIDs: identityRequestedIDs,
+                    observedIDs: observedIdentityIDs
+                ),
+                metadata: MetadataCompleteness(
+                    requestedIDs: Set(metadata.requestedIDs),
+                    observedIDs: observedMetadataIDs
+                ),
+                issues: scopedIdentityIssues(for: missingIdentityIDs, request: request)
+                    + metadataIssues(for: missingMetadataIDs)
+            )
         )
     }
 

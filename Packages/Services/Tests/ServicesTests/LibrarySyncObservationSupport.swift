@@ -111,21 +111,25 @@ actor ObservationReader: MusicAppReading {
         return LibraryObservation(
             tracks: template.rows,
             identities: identities,
-            censusIDs: template.censusIDs,
-            currentIDs: template.currentIDs,
-            scope: request.scope,
-            observedAt: Date(timeIntervalSince1970: 1_800_000_000),
-            membership: template.membership,
-            identity: IdentityCompleteness(
-                requestedIDs: identityIDs,
-                observedIDs: observedIdentityIDs
+            epoch: LibraryObservationEpoch(
+                censusIDs: template.censusIDs,
+                currentIDs: template.currentIDs,
+                scope: request.scope,
+                observedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                generation: template.generation
             ),
-            metadata: MetadataCompleteness(
-                requestedIDs: template.requestedIDs,
-                observedIDs: template.observedIDs
-            ),
-            generation: template.generation,
-            issues: []
+            coverage: LibraryObservationCoverage(
+                membership: template.membership,
+                identity: IdentityCompleteness(
+                    requestedIDs: identityIDs,
+                    observedIDs: observedIdentityIDs
+                ),
+                metadata: MetadataCompleteness(
+                    requestedIDs: template.requestedIDs,
+                    observedIDs: template.observedIDs
+                ),
+                issues: []
+            )
         )
     }
 }
