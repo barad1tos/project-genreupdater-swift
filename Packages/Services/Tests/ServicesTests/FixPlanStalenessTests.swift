@@ -125,6 +125,31 @@ struct FixPlanStalenessTests {
         #expect(staleness.reasons.isEmpty)
     }
 
+    @Test("changed Test Artists matching rule produces scopeChanged")
+    func changedMatchingRuleProducesScopeChanged() throws {
+        let currentScope = makeStalenessTestScope(requestedTestArtists: ["Aphex Twin"])
+        let legacyScope = ProcessingScopeSnapshot(
+            id: currentScope.id,
+            createdAt: currentScope.createdAt,
+            source: currentScope.source,
+            normalizedTestArtists: currentScope.normalizedTestArtists,
+            matchingRule: "effective-artist-v0",
+            knownTrackCount: currentScope.knownTrackCount,
+            fingerprint: currentScope.fingerprint,
+            reason: currentScope.reason
+        )
+        let configuration = makeStalenessTestConfiguration()
+        let plan = try makeStalenessTestPlan(scope: legacyScope, configuration: configuration)
+
+        let staleness = FixPlanStaleness.evaluate(
+            plan: plan,
+            currentScope: currentScope,
+            currentConfiguration: configuration
+        )
+
+        #expect(staleness.reasons == [.scopeChanged])
+    }
+
     @Test("scope and configuration changes together produce both reasons")
     func scopeAndConfigurationChangesTogetherProduceBothReasons() throws {
         let scope = makeStalenessTestScope(requestedTestArtists: ["Aphex Twin"])

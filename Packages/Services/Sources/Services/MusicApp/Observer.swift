@@ -70,7 +70,7 @@ public actor MusicAppObserver: MusicAppReading {
         censusIDs: [MusicDatabaseTrackID],
         request: LibraryObservationRequest
     ) async throws -> IdentityLane {
-        let requestedIdentityIDs = identityIDs(for: censusIDs, request: request)
+        let requestedIdentityIDs = request.identityLookupIDs(in: censusIDs)
         let sourceIdentities = requestedIdentityIDs.isEmpty
             ? []
             : try await source.fetchIdentity(for: requestedIdentityIDs)
@@ -86,11 +86,7 @@ public actor MusicAppObserver: MusicAppReading {
         admittedIDs: Set<MusicDatabaseTrackID>,
         request: LibraryObservationRequest
     ) async throws -> MetadataLane {
-        let requestedMetadataIDs = metadataIDs(
-            for: censusIDs,
-            admittedIDs: admittedIDs,
-            request: request
-        )
+        let requestedMetadataIDs = request.metadataLookupIDs(in: censusIDs, admittedIDs: admittedIDs)
         let sourceTracks = requestedMetadataIDs.isEmpty
             ? []
             : try await source.fetchMetadata(for: requestedMetadataIDs)
@@ -143,36 +139,6 @@ public actor MusicAppObserver: MusicAppReading {
             issues: scopedIdentityIssues(for: missingIdentityIDs, request: request)
                 + metadataIssues(for: missingMetadataIDs)
         )
-    }
-
-    private func identityIDs(
-        for censusIDs: [MusicDatabaseTrackID],
-        request: LibraryObservationRequest
-    ) -> [MusicDatabaseTrackID] {
-        guard request.scope.source == .testArtists else { return [] }
-        switch request.refresh {
-        case .force:
-            return censusIDs
-        case .fast, .membershipOnly:
-            let classifiedIDs = Set(request.inventory.identitiesByID.keys)
-            return censusIDs.filter { !classifiedIDs.contains($0) }
-        }
-    }
-
-    private func metadataIDs(
-        for censusIDs: [MusicDatabaseTrackID],
-        admittedIDs: Set<MusicDatabaseTrackID>,
-        request: LibraryObservationRequest
-    ) -> [MusicDatabaseTrackID] {
-        switch request.refresh {
-        case .fast:
-            let previousIDs = Set(request.previous.tracksByID.keys)
-            return censusIDs.filter { admittedIDs.contains($0) && !previousIDs.contains($0) }
-        case .force:
-            return censusIDs.filter(admittedIDs.contains)
-        case .membershipOnly:
-            return []
-        }
     }
 
     private func normalizeIdentities(

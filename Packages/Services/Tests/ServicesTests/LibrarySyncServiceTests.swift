@@ -32,7 +32,7 @@ actor SyncMockScriptClient: MusicAppReading {
             }
             .sorted { $0.rawValue < $1.rawValue }
         let observedTracks = trackQueue.isEmpty ? tracksByID : trackQueue.removeFirst()
-        let requestedIdentityIDs = Self.identityIDs(allIDs, request: request)
+        let requestedIdentityIDs = request.identityLookupIDs(in: allIDs)
         let identityRows = requestedIdentityIDs.compactMap { databaseID -> LibraryIdentityRow? in
             guard let track = observedTracks[databaseID.rawValue] else { return nil }
             return Self.identityRow(track, databaseID: databaseID)
@@ -44,15 +44,16 @@ actor SyncMockScriptClient: MusicAppReading {
             observed: identitiesByID,
             scope: request.scope
         )
-        let requestedMetadataIDs = Self.metadataIDs(allIDs, admittedIDs: currentIDs, request: request)
+        let requestedMetadataIDs = request.metadataLookupIDs(in: allIDs, admittedIDs: currentIDs)
         let rows = requestedMetadataIDs.compactMap { databaseID -> LibraryTrackRow? in
             guard let track = observedTracks[databaseID.rawValue] else { return nil }
             return Self.observationRow(track, databaseID: databaseID)
         }
         let derivedIdentities = request.scope.source == .fullLibrary ? rows.map(\.identityRow) : identityRows
-        let identityRequestedIDs = request.scope.source == .fullLibrary
-            ? Set(requestedMetadataIDs)
-            : Set(requestedIdentityIDs)
+        let identityRequestedIDs = request.reportedIdentityIDs(
+            identityLookupIDs: requestedIdentityIDs,
+            metadataLookupIDs: requestedMetadataIDs
+        )
         let observedIdentityIDs = Set(derivedIdentities.map(\.databaseID))
         let missingIdentityIDs = identityRequestedIDs.subtracting(observedIdentityIDs)
         let observedMetadataIDs = Set(rows.map(\.databaseID))
@@ -88,44 +89,6 @@ actor SyncMockScriptClient: MusicAppReading {
             throw AppleScriptBridgeError.parseError(scriptName: "sync-mock", detail: "Missing generation")
         }
         return generation
-    }
-
-    private static func previousIDs(from mirror: LibraryMirrorReference) -> Set<MusicDatabaseTrackID> {
-        switch mirror {
-        case .initial:
-            []
-        case let .verified(index):
-            Set(index.tracksByID.keys)
-        }
-    }
-
-    private static func identityIDs(
-        _ censusIDs: [MusicDatabaseTrackID],
-        request: LibraryObservationRequest
-    ) -> [MusicDatabaseTrackID] {
-        guard request.scope.source == .testArtists else { return [] }
-        return switch request.refresh {
-        case .force:
-            censusIDs
-        case .fast, .membershipOnly:
-            censusIDs.filter { request.inventory.identitiesByID[$0] == nil }
-        }
-    }
-
-    private static func metadataIDs(
-        _ censusIDs: [MusicDatabaseTrackID],
-        admittedIDs: Set<MusicDatabaseTrackID>,
-        request: LibraryObservationRequest
-    ) -> [MusicDatabaseTrackID] {
-        switch request.refresh {
-        case .fast:
-            let previousIDs = previousIDs(from: request.previous)
-            return censusIDs.filter { admittedIDs.contains($0) && !previousIDs.contains($0) }
-        case .force:
-            return censusIDs.filter(admittedIDs.contains)
-        case .membershipOnly:
-            return []
-        }
     }
 
     private static func identityRow(

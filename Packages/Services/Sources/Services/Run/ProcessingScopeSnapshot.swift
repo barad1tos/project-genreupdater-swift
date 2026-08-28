@@ -48,14 +48,16 @@ public struct ProcessingScopeSnapshot: Codable, Equatable, Sendable {
             .map { $0.lowercased() }
             .joined(separator: "|")
         let trackCountFingerprint = knownTrackCount.map(String.init) ?? "unknown"
+        let rule = ArtistAllowList.scopeRuleIdentifier
+        let ruleFingerprint = source == .testArtists ? ":rule=\(rule)" : ""
 
         return Self(
             createdAt: createdAt,
             source: source,
             normalizedTestArtists: normalizedArtists,
-            matchingRule: "Core.ArtistAllowList.effectiveArtist.localizedCaseInsensitiveCompare",
+            matchingRule: rule,
             knownTrackCount: knownTrackCount,
-            fingerprint: "\(source.rawValue):\(artistFingerprint):tracks=\(trackCountFingerprint)",
+            fingerprint: "\(source.rawValue):\(artistFingerprint)\(ruleFingerprint):tracks=\(trackCountFingerprint)",
             reason: reason
         )
     }

@@ -457,6 +457,7 @@ extension LibrarySyncService {
                 )
             }
         }
+        try validateLookupCoverage(observation, request: request)
         let hasValidMembership = request.scope.source == .fullLibrary
             ? observation.currentIDs == observation.censusIDs
             : observation.currentIDs.isSubset(of: observation.censusIDs)
@@ -481,6 +482,32 @@ extension LibrarySyncService {
             throw LibrarySyncObservationError.invalidObservation(detail: "scoped membership has full provenance")
         default:
             break
+        }
+    }
+
+    private func validateLookupCoverage(
+        _ observation: LibraryObservation,
+        request: LibraryObservationRequest
+    ) throws {
+        let orderedCensusIDs = observation.censusIDs.sorted { $0.rawValue < $1.rawValue }
+        let expectedIdentityLookups = request.identityLookupIDs(in: orderedCensusIDs)
+        let expectedMetadataLookups = request.metadataLookupIDs(
+            in: orderedCensusIDs,
+            admittedIDs: observation.currentIDs
+        )
+        let expectedIdentityIDs = request.reportedIdentityIDs(
+            identityLookupIDs: expectedIdentityLookups,
+            metadataLookupIDs: expectedMetadataLookups
+        )
+        guard observation.identity.requestedIDs == expectedIdentityIDs else {
+            throw LibrarySyncObservationError.invalidObservation(
+                detail: "identity coverage does not match its request"
+            )
+        }
+        guard observation.metadata.requestedIDs == Set(expectedMetadataLookups) else {
+            throw LibrarySyncObservationError.invalidObservation(
+                detail: "metadata coverage does not match its request"
+            )
         }
     }
 

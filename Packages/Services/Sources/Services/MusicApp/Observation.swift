@@ -118,6 +118,41 @@ public struct LibraryObservationRequest: Equatable, Sendable {
     }
 }
 
+extension LibraryObservationRequest {
+    func identityLookupIDs(in censusIDs: [MusicDatabaseTrackID]) -> [MusicDatabaseTrackID] {
+        guard scope.source == .testArtists else { return [] }
+        switch refresh {
+        case .force:
+            return censusIDs
+        case .fast, .membershipOnly:
+            let classifiedIDs = Set(inventory.identitiesByID.keys)
+            return censusIDs.filter { !classifiedIDs.contains($0) }
+        }
+    }
+
+    func metadataLookupIDs(
+        in censusIDs: [MusicDatabaseTrackID],
+        admittedIDs: Set<MusicDatabaseTrackID>
+    ) -> [MusicDatabaseTrackID] {
+        switch refresh {
+        case .fast:
+            let previousIDs = Set(previous.tracksByID.keys)
+            return censusIDs.filter { admittedIDs.contains($0) && !previousIDs.contains($0) }
+        case .force:
+            return censusIDs.filter(admittedIDs.contains)
+        case .membershipOnly:
+            return []
+        }
+    }
+
+    func reportedIdentityIDs(
+        identityLookupIDs: [MusicDatabaseTrackID],
+        metadataLookupIDs: [MusicDatabaseTrackID]
+    ) -> Set<MusicDatabaseTrackID> {
+        scope.source == .fullLibrary ? Set(metadataLookupIDs) : Set(identityLookupIDs)
+    }
+}
+
 /// Completeness of the current membership set, independent of metadata lookup coverage.
 public enum MembershipCompleteness: Equatable, Sendable {
     case full

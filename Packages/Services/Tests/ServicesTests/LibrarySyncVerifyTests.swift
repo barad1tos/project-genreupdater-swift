@@ -113,6 +113,53 @@ struct LibrarySyncVerifyTests {
         #expect(try await store.readiness(testArtists: ["Target"]).isReady)
     }
 
+    @Test("Database verification persists identity facts without a membership delta")
+    func verificationPersistsIdentityWithoutMembershipDelta() async throws {
+        let observedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let bridge = SyncMockScriptClient(observedAt: { observedAt })
+        let store = try TrackDataStore.createInMemory()
+        let databaseID = testDatabaseID("T1")
+        let track = Track(
+            id: databaseID.rawValue,
+            name: "One",
+            artist: "Target",
+            album: "Album",
+            appleScriptID: databaseID.rawValue
+        )
+        let membership = try MembershipFingerprint.make(ids: [databaseID])
+        _ = try await store.commitMirror(MirrorCommit(
+            baseRevision: .initial,
+            inventoryChange: .replace(
+                stamp: membership,
+                ids: [databaseID],
+                identities: [],
+                observedAt: observedAt
+            ),
+            repairs: [],
+            upserts: [track],
+            certificates: .invalidate(.incompleteObservation)
+        ))
+        await bridge.setLibrary(ids: [databaseID.rawValue], tracks: [databaseID.rawValue: track])
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncIdentity-\(UUID().uuidString)")
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log",
+                testArtists: ["Target"]
+            ),
+            observer: bridge
+        )
+
+        _ = try await service.verifyAndCleanDatabase(force: true)
+
+        let snapshot = try await store.loadMirrorSnapshot()
+        #expect(snapshot.memberIdentities[databaseID]?.artist == "Target")
+        #expect(snapshot.memberIdentities[databaseID]?.albumArtist == nil)
+        #expect(snapshot.memberIdentities[databaseID]?.observedAt == observedAt)
+    }
+
     @Test("Database verification stops after the configured conflict retries")
     func verificationRetryLimit() async throws {
         let bridge = SyncMockScriptClient()

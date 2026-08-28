@@ -2,6 +2,8 @@ import Foundation
 
 /// Shared normalization and matching for artist-scoped update allow-lists.
 public enum ArtistAllowList {
+    public static let scopeRuleIdentifier = "artist-or-album-artist-v1"
+
     public static func normalized(_ artists: [String]) -> [String] {
         var normalizedArtists: [String] = []
 

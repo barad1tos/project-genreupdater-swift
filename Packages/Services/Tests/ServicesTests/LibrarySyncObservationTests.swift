@@ -336,7 +336,7 @@ struct LibrarySyncObservationTests {
         let service = makeService(store: store, reader: reader)
 
         await #expect(throws: LibrarySyncObservationError.invalidObservation(
-            detail: "metadata coverage does not match its rows"
+            detail: "metadata coverage does not match its request"
         )) {
             _ = try await service.detectObservation()
         }

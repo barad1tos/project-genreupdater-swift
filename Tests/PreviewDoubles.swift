@@ -19,29 +19,29 @@ actor MusicAppTestObserver: MusicAppReading {
         let identitiesByID = Dictionary(uniqueKeysWithValues: tracksByID.map { databaseID, track in
             (databaseID, row(track, databaseID: databaseID).identityRow)
         })
-        let requestedIdentityIDs = identityIDs(censusIDs: censusIDs, request: request)
+        let orderedCensusIDs = censusIDs.sorted { $0.rawValue < $1.rawValue }
+        let requestedIdentityIDs = request.identityLookupIDs(in: orderedCensusIDs)
         let observedIdentities = identitiesByID.filter { requestedIdentityIDs.contains($0.key) }
         let currentIDs = request.inventory.admittedIDs(
             censusIDs: censusIDs,
             observed: observedIdentities,
             scope: request.scope
         )
-        let previousIDs = Set(request.previous.tracksByID.keys)
-        let requestedIDs: Set<MusicDatabaseTrackID> = switch request.refresh {
-        case .fast:
-            currentIDs.subtracting(previousIDs)
-        case .force:
-            currentIDs
-        case .membershipOnly:
-            []
-        }
-        let rows = requestedIDs.sorted { $0.rawValue < $1.rawValue }.compactMap { databaseID in
+        let requestedMetadataIDs = request.metadataLookupIDs(
+            in: orderedCensusIDs,
+            admittedIDs: currentIDs
+        )
+        let requestedIDs = Set(requestedMetadataIDs)
+        let rows = requestedMetadataIDs.compactMap { databaseID in
             tracksByID[databaseID].map { row($0, databaseID: databaseID) }
         }
         let identities = request.scope.source == .fullLibrary
             ? rows.map(\.identityRow)
             : observedIdentities.values.sorted { $0.databaseID.rawValue < $1.databaseID.rawValue }
-        let reportedIdentityIDs = request.scope.source == .fullLibrary ? requestedIDs : requestedIdentityIDs
+        let reportedIdentityIDs = request.reportedIdentityIDs(
+            identityLookupIDs: requestedIdentityIDs,
+            metadataLookupIDs: requestedMetadataIDs
+        )
         return LibraryObservation(
             tracks: rows,
             identities: identities,
@@ -58,19 +58,6 @@ actor MusicAppTestObserver: MusicAppReading {
             generation: generation,
             issues: []
         )
-    }
-
-    private func identityIDs(
-        censusIDs: Set<MusicDatabaseTrackID>,
-        request: LibraryObservationRequest
-    ) -> Set<MusicDatabaseTrackID> {
-        guard request.scope.source == .testArtists else { return [] }
-        switch request.refresh {
-        case .force:
-            return censusIDs
-        case .fast, .membershipOnly:
-            return censusIDs.subtracting(request.inventory.identitiesByID.keys)
-        }
     }
 
     private func row(_ track: Track, databaseID: MusicDatabaseTrackID) -> LibraryTrackRow {

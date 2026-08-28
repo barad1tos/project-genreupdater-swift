@@ -96,8 +96,18 @@ actor ObservationReader: MusicAppReading {
             throw error
         }
         let template = templates.count == 1 ? templates[0] : templates.removeFirst()
-        let identities = template.rows.map(\.identityRow)
-        let identityIDs = Set(identities.map(\.databaseID))
+        let censusIDs = template.censusIDs.sorted { $0.rawValue < $1.rawValue }
+        let identityLookups = request.identityLookupIDs(in: censusIDs)
+        let metadataLookups = request.metadataLookupIDs(
+            in: censusIDs,
+            admittedIDs: template.currentIDs
+        )
+        let identityIDs = request.reportedIdentityIDs(
+            identityLookupIDs: identityLookups,
+            metadataLookupIDs: metadataLookups
+        )
+        let identities = template.rows.map(\.identityRow).filter { identityIDs.contains($0.databaseID) }
+        let observedIdentityIDs = Set(identities.map(\.databaseID))
         return LibraryObservation(
             tracks: template.rows,
             identities: identities,
@@ -106,7 +116,10 @@ actor ObservationReader: MusicAppReading {
             scope: request.scope,
             observedAt: Date(timeIntervalSince1970: 1_800_000_000),
             membership: template.membership,
-            identity: IdentityCompleteness(requestedIDs: identityIDs, observedIDs: identityIDs),
+            identity: IdentityCompleteness(
+                requestedIDs: identityIDs,
+                observedIDs: observedIdentityIDs
+            ),
             metadata: MetadataCompleteness(
                 requestedIDs: template.requestedIDs,
                 observedIDs: template.observedIDs

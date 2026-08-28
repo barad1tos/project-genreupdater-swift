@@ -15,6 +15,7 @@ struct ProcessingScopeSnapshotTests {
 
         #expect(snapshot.source == .fullLibrary)
         #expect(snapshot.normalizedTestArtists.isEmpty)
+        #expect(snapshot.matchingRule == "artist-or-album-artist-v1")
         #expect(snapshot.knownTrackCount == 35224)
         #expect(snapshot.fingerprint == "fullLibrary::tracks=35224")
     }
@@ -30,6 +31,8 @@ struct ProcessingScopeSnapshotTests {
 
         #expect(snapshot.source == .testArtists)
         #expect(snapshot.normalizedTestArtists == ["Aphex Twin", "Boards of Canada"])
-        #expect(snapshot.fingerprint == "testArtists:aphex twin|boards of canada:tracks=75")
+        #expect(snapshot.matchingRule == "artist-or-album-artist-v1")
+        #expect(snapshot.fingerprint ==
+            "testArtists:aphex twin|boards of canada:rule=artist-or-album-artist-v1:tracks=75")
     }
 }

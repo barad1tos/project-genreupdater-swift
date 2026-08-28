@@ -251,7 +251,6 @@ struct LibrarySyncRepairTests {
             censusIDs: [databaseID],
             currentIDs: [databaseID],
             membership: .full,
-            requestedIDs: [databaseID],
             generation: #require(LibraryGeneration(sourceValue: "repair-generation"))
         ))
         let service = LibrarySyncService(trackStore: store, observer: reader)
@@ -294,13 +293,11 @@ struct LibrarySyncRepairTests {
         membership: MembershipCompleteness = .full
     ) throws -> RepairFixture {
         let ids = try databaseIDs(currentIDs)
-        let rowIDs = Set(rows.map(\.databaseID))
         let reader = try RepairObservationReader(template: RepairObservationTemplate(
             rows: rows,
             censusIDs: ids,
             currentIDs: ids,
             membership: membership,
-            requestedIDs: rowIDs,
             generation: #require(LibraryGeneration(sourceValue: "repair-generation"))
         ))
         let store = RepairMirrorStore(stored: stored)
@@ -399,7 +396,6 @@ private struct RepairObservationTemplate: Sendable {
     let censusIDs: Set<MusicDatabaseTrackID>
     let currentIDs: Set<MusicDatabaseTrackID>
     let membership: MembershipCompleteness
-    let requestedIDs: Set<MusicDatabaseTrackID>
     let generation: LibraryGeneration
 }
 
@@ -413,16 +409,33 @@ private actor RepairObservationReader: MusicAppReading {
 
     func observe(_ request: LibraryObservationRequest) -> LibraryObservation {
         requests.append(request)
+        let censusIDs = template.censusIDs.sorted { $0.rawValue < $1.rawValue }
+        let identityLookups = request.identityLookupIDs(in: censusIDs)
+        let metadataLookups = request.metadataLookupIDs(
+            in: censusIDs,
+            admittedIDs: template.currentIDs
+        )
+        let identityIDs = request.reportedIdentityIDs(
+            identityLookupIDs: identityLookups,
+            metadataLookupIDs: metadataLookups
+        )
+        let identities = template.rows.map(\.identityRow).filter { identityIDs.contains($0.databaseID) }
+        let observedIDs = Set(template.rows.map(\.databaseID))
         return LibraryObservation(
             tracks: template.rows,
+            identities: identities,
             censusIDs: template.censusIDs,
             currentIDs: template.currentIDs,
             scope: request.scope,
             observedAt: Date(timeIntervalSince1970: 1_800_000_000),
             membership: template.membership,
+            identity: IdentityCompleteness(
+                requestedIDs: identityIDs,
+                observedIDs: Set(identities.map(\.databaseID))
+            ),
             metadata: MetadataCompleteness(
-                requestedIDs: template.requestedIDs,
-                observedIDs: template.requestedIDs
+                requestedIDs: Set(metadataLookups),
+                observedIDs: observedIDs
             ),
             generation: template.generation,
             issues: []

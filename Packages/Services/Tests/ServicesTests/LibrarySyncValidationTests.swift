@@ -49,6 +49,48 @@ struct LibrarySyncValidationTests {
         }
     }
 
+    @Test("Force validation requires current identity coverage")
+    func rejectsForceWithoutIdentityCoverage() async throws {
+        let databaseID = testDatabaseID("A")
+        let identity = MemberIdentity(
+            databaseID: databaseID,
+            artist: "Target",
+            albumArtist: nil,
+            observedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let inventory = try #require(LibraryInventoryIndex(identitiesByID: [databaseID: identity]))
+        let request = LibraryObservationRequest(
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: ["Target"],
+                knownTrackCount: 1,
+                createdAt: identity.observedAt,
+                reason: "force-validation"
+            ),
+            refresh: .force,
+            previous: .initial,
+            inventory: inventory
+        )
+        let observation = try LibraryObservation(
+            tracks: [metadataRow(databaseID: databaseID)],
+            identities: [],
+            censusIDs: [databaseID],
+            currentIDs: [databaseID],
+            scope: request.scope,
+            observedAt: identity.observedAt,
+            membership: .scoped(unobservedIDs: []),
+            identity: IdentityCompleteness(requestedIDs: [], observedIDs: []),
+            metadata: MetadataCompleteness(requestedIDs: [databaseID], observedIDs: [databaseID]),
+            generation: #require(LibraryGeneration(sourceValue: "G1")),
+            issues: []
+        )
+
+        await #expect(throws: LibrarySyncObservationError.invalidObservation(
+            detail: "identity coverage does not match its request"
+        )) {
+            try await makeService().validate(observation, request: request)
+        }
+    }
+
     private func makeService() -> LibrarySyncService {
         LibrarySyncService(
             trackStore: ObservationMirrorStore(stored: []),
@@ -90,6 +132,26 @@ struct LibrarySyncValidationTests {
             metadata: MetadataCompleteness(requestedIDs: [], observedIDs: []),
             generation: #require(LibraryGeneration(sourceValue: "G1")),
             issues: []
+        )
+    }
+
+    private func metadataRow(databaseID: MusicDatabaseTrackID) -> LibraryTrackRow {
+        LibraryTrackRow(
+            databaseID: databaseID,
+            metadata: LibraryTrackMetadata(
+                text: LibraryTrackText(
+                    name: .value("Track"),
+                    artist: .value("Target"),
+                    album: .value("Album"),
+                    albumArtist: .absent
+                ),
+                genre: .absent,
+                editableYear: .absent,
+                releaseYear: .absent,
+                dateAdded: .absent,
+                lastModified: .absent,
+                status: .absent
+            )
         )
     }
 }
