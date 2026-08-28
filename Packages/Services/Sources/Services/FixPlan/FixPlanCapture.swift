@@ -2,12 +2,12 @@ import Foundation
 
 /// Freezes a preview run's proposed changes into an immutable fix plan
 /// (ADR 0017).
-public enum FixPlanCapture {
-    public struct Evidence: Sendable {
-        public let scope: ProcessingScopeSnapshot
-        public let admission: ProcessingAdmission
+enum FixPlanCapture {
+    struct Evidence: Sendable {
+        let scope: ProcessingScopeSnapshot
+        let admission: ProcessingAdmission
 
-        public init(scope: ProcessingScopeSnapshot, admission: ProcessingAdmission) throws {
+        init(scope: ProcessingScopeSnapshot, admission: ProcessingAdmission) throws {
             guard admission.certifies(scope: scope) else {
                 throw ProcessingAdmissionRejection.scopeMismatch
             }
@@ -18,7 +18,7 @@ public enum FixPlanCapture {
 
     /// Pure mapping — no determination logic. Returns `nil` for empty
     /// proposals: a no-fix analysis is a sync/no-op record, not a fix plan.
-    public static func makePlan(
+    static func makePlan(
         from proposals: [ProposedChange],
         sourceRunID: RunID,
         evidence: Evidence,

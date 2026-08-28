@@ -1,7 +1,7 @@
 import Core
 import Foundation
-import Services
 import Testing
+@testable import Services
 
 @Suite("FixPlan wire format")
 struct FixPlanTests {
