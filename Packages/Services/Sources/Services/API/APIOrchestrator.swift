@@ -99,6 +99,9 @@ public struct APIOrchestratorConfiguration: Sendable {
     public var discogsSearchConfiguration: DiscogsSearchConfig
     public var yearLogic: YearLogicConfig
     public var dateProvider: @Sendable () -> Date
+    #if DEBUG
+    var providerAdmissionHooks: ProviderAdmission.TestHooks?
+    #endif
 
     public init() {
         reachability = nil
@@ -118,6 +121,9 @@ public struct APIOrchestratorConfiguration: Sendable {
         discogsReissueKeywords = MetadataRuleDefaults.releaseReissues
         discogsSearchConfiguration = DiscogsSearchConfig()
         yearLogic = YearLogicConfig()
+        #if DEBUG
+        providerAdmissionHooks = nil
+        #endif
     }
 
     /// Maps every config-derived field from `AppConfiguration`.
@@ -214,7 +220,14 @@ public actor APIOrchestrator {
         negativeResultTTL = max(0, configuration.negativeResultTTL)
         candidateResultTTL = configuration.candidateResultTTL.flatMap { $0 > 0 ? $0 : nil }
         disabledSources = configuration.disabledSources
+        #if DEBUG
+        providerAdmission = ProviderAdmission(
+            limit: configuration.maxConcurrentSourceCalls,
+            hooks: configuration.providerAdmissionHooks
+        )
+        #else
         providerAdmission = ProviderAdmission(limit: configuration.maxConcurrentSourceCalls)
+        #endif
         soundtrackPatterns = configuration.soundtrackPatterns
         variousArtistsNames = configuration.variousArtistsNames
         discogsReissueKeywords = configuration.discogsReissueKeywords
