@@ -357,37 +357,16 @@ extension Observed {
 public struct LibraryObservation: Equatable, Sendable {
     public let tracks: [LibraryTrackRow]
     public let identities: [LibraryIdentityRow]
-    public let epoch: LibraryObservationEpoch
-    public let coverage: LibraryObservationCoverage
-
     /// Full Music database membership captured in the same generation as this observation.
-    public var censusIDs: Set<MusicDatabaseTrackID> {
-        epoch.censusIDs
-    }
-    public var currentIDs: Set<MusicDatabaseTrackID> {
-        epoch.currentIDs
-    }
-    public var scope: ProcessingScopeSnapshot {
-        epoch.scope
-    }
-    public var observedAt: Date {
-        epoch.observedAt
-    }
-    public var generation: LibraryGeneration {
-        epoch.generation
-    }
-    public var membership: MembershipCompleteness {
-        coverage.membership
-    }
-    public var identity: IdentityCompleteness {
-        coverage.identity
-    }
-    public var metadata: MetadataCompleteness {
-        coverage.metadata
-    }
-    public var issues: [LibraryObservationIssue] {
-        coverage.issues
-    }
+    public let censusIDs: Set<MusicDatabaseTrackID>
+    public let currentIDs: Set<MusicDatabaseTrackID>
+    public let scope: ProcessingScopeSnapshot
+    public let observedAt: Date
+    public let membership: MembershipCompleteness
+    public let identity: IdentityCompleteness
+    public let metadata: MetadataCompleteness
+    public let generation: LibraryGeneration
+    public let issues: [LibraryObservationIssue]
 
     public init(
         tracks: [LibraryTrackRow],
@@ -397,8 +376,15 @@ public struct LibraryObservation: Equatable, Sendable {
     ) {
         self.tracks = tracks
         self.identities = identities
-        self.epoch = epoch
-        self.coverage = coverage
+        censusIDs = epoch.censusIDs
+        currentIDs = epoch.currentIDs
+        scope = epoch.scope
+        observedAt = epoch.observedAt
+        membership = coverage.membership
+        identity = coverage.identity
+        metadata = coverage.metadata
+        generation = epoch.generation
+        issues = coverage.issues
     }
 }
 
