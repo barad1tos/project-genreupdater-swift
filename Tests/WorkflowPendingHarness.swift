@@ -40,6 +40,7 @@ struct RandomAccessWorkflowFixtureOptions {
     var recordTrackUsage: (Int) -> Void = { _ in
         // Pending fixtures opt in only when the scenario asserts allowance usage.
     }
+    var admissionProbe = WorkflowAdmissionProbe()
 }
 
 enum PendingPreflightState {
@@ -205,6 +206,7 @@ func makeRandomAccessWorkflowFixture(
         fixtureOptions.ensureRecoveryHold = options.ensureRecoveryHold
         fixtureOptions.updateIncrementalRunTimestamp = options.updateIncrementalRunTimestamp
         fixtureOptions.recordTrackUsage = options.recordTrackUsage
+        fixtureOptions.admissionProbe = options.admissionProbe
     }
 }
 

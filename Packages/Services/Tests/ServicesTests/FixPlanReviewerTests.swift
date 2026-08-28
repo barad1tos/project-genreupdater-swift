@@ -23,9 +23,15 @@ private func makeReviewerTestItem(id: UUID = UUID()) -> FixPlanItem {
     )
 }
 
-private func makeReviewerTestPlan(items: [FixPlanItem]) -> FixPlan {
+private func makeReviewerTestPlan(items: [FixPlanItem]) throws -> FixPlan {
     let capturedAt = Date(timeIntervalSince1970: 100)
-    return FixPlan(
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: [],
+        knownTrackCount: 10,
+        createdAt: capturedAt,
+        reason: "unit-test"
+    )
+    return try FixPlan(
         id: FixPlanID(),
         revision: .initial,
         sourceRunID: RunID(),
@@ -35,12 +41,8 @@ private func makeReviewerTestPlan(items: [FixPlanItem]) -> FixPlan {
             options: UpdateOptions(),
             capturedAt: capturedAt
         ),
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: 10,
-            createdAt: capturedAt,
-            reason: "unit-test"
-        ),
+        scope: scope,
+        admission: processingAdmission(scope: scope),
         items: items
     )
 }
@@ -50,9 +52,9 @@ private func makeReviewerTestPlan(items: [FixPlanItem]) -> FixPlan {
 @Suite("FixPlanReviewer — pure review transforms")
 struct FixPlanReviewerTests {
     @Test("initial decision accepts every item at revision one")
-    func initialDecisionAcceptsEveryItemAtRevisionOne() {
+    func initialDecisionAcceptsEveryItemAtRevisionOne() throws {
         let items = [makeReviewerTestItem(), makeReviewerTestItem(), makeReviewerTestItem()]
-        let plan = makeReviewerTestPlan(items: items)
+        let plan = try makeReviewerTestPlan(items: items)
 
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 200))
 
@@ -65,8 +67,8 @@ struct FixPlanReviewerTests {
     }
 
     @Test("acceptingAll advances revision by one and accepts every item")
-    func acceptingAllAdvancesRevisionAndAcceptsEveryItem() {
-        let plan = makeReviewerTestPlan(items: [makeReviewerTestItem(), makeReviewerTestItem()])
+    func acceptingAllAdvancesRevisionAndAcceptsEveryItem() throws {
+        let plan = try makeReviewerTestPlan(items: [makeReviewerTestItem(), makeReviewerTestItem()])
         let initial = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 200))
         let rejected = FixPlanReviewer.rejectingAll(initial, at: Date(timeIntervalSince1970: 201))
 
@@ -79,8 +81,8 @@ struct FixPlanReviewerTests {
     }
 
     @Test("rejectingAll advances revision by one and rejects every item")
-    func rejectingAllAdvancesRevisionAndRejectsEveryItem() {
-        let plan = makeReviewerTestPlan(items: [makeReviewerTestItem(), makeReviewerTestItem()])
+    func rejectingAllAdvancesRevisionAndRejectsEveryItem() throws {
+        let plan = try makeReviewerTestPlan(items: [makeReviewerTestItem(), makeReviewerTestItem()])
         let initial = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 200))
 
         let rejected = FixPlanReviewer.rejectingAll(initial, at: Date(timeIntervalSince1970: 201))
@@ -95,7 +97,7 @@ struct FixPlanReviewerTests {
     func togglingItemFlipsExactlyOneVerdictAndAdvancesRevision() throws {
         let firstItem = makeReviewerTestItem()
         let secondItem = makeReviewerTestItem()
-        let plan = makeReviewerTestPlan(items: [firstItem, secondItem])
+        let plan = try makeReviewerTestPlan(items: [firstItem, secondItem])
         let initial = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 200))
 
         let toggled = try #require(
@@ -112,8 +114,8 @@ struct FixPlanReviewerTests {
     }
 
     @Test("togglingItem returns nil for an itemID not part of the decision")
-    func togglingItemReturnsNilForUnknownItemID() {
-        let plan = makeReviewerTestPlan(items: [makeReviewerTestItem()])
+    func togglingItemReturnsNilForUnknownItemID() throws {
+        let plan = try makeReviewerTestPlan(items: [makeReviewerTestItem()])
         let initial = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 200))
 
         let toggled = FixPlanReviewer.togglingItem(UUID(), in: initial, at: Date(timeIntervalSince1970: 201))

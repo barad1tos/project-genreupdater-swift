@@ -23,8 +23,7 @@ struct RunRuntimeFactory {
     ) async throws -> LibrarySyncService {
         let appConfiguration = try scopedConfiguration(
             configuration.appConfiguration,
-            scope: scope,
-            albumTarget: configuration.albumTarget
+            scope: scope
         )
         let cacheConfiguration = cacheConfiguration(for: appConfiguration)
         let runServices = try await services.prepareObservation(
@@ -39,12 +38,7 @@ struct RunRuntimeFactory {
                 cache: cache,
                 configuration: cacheConfiguration
             ),
-            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
-                configuration: appConfiguration,
-                albumTargetIdentity: configuration.albumTarget.map {
-                    AlbumIdentity(artist: $0.artist, album: $0.album)
-                }
-            ),
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: appConfiguration),
             observer: runServices.observer
         )
     }
@@ -187,22 +181,17 @@ struct RunRuntimeFactory {
         albumTarget: FixPlanAlbumTarget? = nil
     ) throws -> AppConfiguration {
         var scoped = configuration
-        scoped.development.testArtists = syncArtistScope(scope: scope, albumTarget: albumTarget)
+        scoped.development.testArtists = targetedArtistScope(scope: scope, albumTarget: albumTarget)
         try scoped.validate()
         return scoped
     }
 
-    /// A one-album preview inside a test-artist scope narrows the sync
-    /// READ to the target's artist — a strict subset of the scope's own
-    /// allow-list semantics, so no track the scope admitted is lost.
-    /// The FULL-LIBRARY case narrows through the read request's ALBUM
-    /// IDENTITY instead (makeSync passes it): the admission predicate
-    /// admits collaboration spellings via lookup aliases, which artist
-    /// strings never could. In the scoped case both mechanisms apply and
-    /// the allow-list stays the stricter gate (never widen). Empty or
-    /// unknown target artists and out-of-scope targets fail OPEN to the
-    /// scope: never widen, never guess.
-    func syncArtistScope(
+    /// A one-album preview or write inside a test-artist scope narrows its
+    /// runtime context to the target artist without widening the submitted
+    /// scope. Full-library runs retain their empty allow-list; album identity
+    /// remains a plan-level selection concern. Unknown or out-of-scope target
+    /// artists fall back to the submitted scope.
+    func targetedArtistScope(
         scope: ProcessingScopeSnapshot,
         albumTarget: FixPlanAlbumTarget?
     ) -> [String] {

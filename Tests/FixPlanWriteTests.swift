@@ -1,11 +1,101 @@
 import Core
 import Foundation
-import Services
 import Testing
 @testable import Genre_Updater
+@testable import Services
 
 @Suite("FixPlanWrite")
 struct FixPlanWriteTests {
+    @Test("Legacy plans cannot create write input")
+    func legacyPlanCannotCreateWriteInput() {
+        let item = fixPlanItem(id: UUID(), index: 1)
+        let plan = fixPlan(items: [item], isLegacy: true)
+        let decision = reviewDecision(
+            for: plan,
+            items: [FixPlanItemDecision(itemID: item.id, verdict: .accepted)]
+        )
+
+        #expect(throws: FixPlanWrite.Failure.self) {
+            _ = try FixPlanWrite.makeInput(
+                plan: plan,
+                decision: decision,
+                configuration: writeConfiguration(for: plan, decidedAt: decision.decidedAt)
+            )
+        }
+    }
+
+    @Test("Restored plan with mismatched certified scope cannot create write input")
+    func mismatchedCertifiedPlanCannotCreateWriteInput() {
+        let item = fixPlanItem(id: UUID(), index: 1)
+        let capturedAt = Date(timeIntervalSince1970: 100)
+        let planScope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Plan Artist"],
+            knownTrackCount: 1,
+            createdAt: capturedAt,
+            reason: "unit-test"
+        )
+        let admittedScope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Admitted Artist"],
+            knownTrackCount: 1,
+            createdAt: capturedAt,
+            reason: "unit-test"
+        )
+        let admitted = workflowProcessingAdmission(scope: admittedScope)
+        let forgedAdmission = ProcessingAdmission(
+            scopeID: planScope.id,
+            certificate: admitted.certificate,
+            maximumMetadataAge: admitted.maximumMetadataAge
+        )
+        let plan = FixPlan(restoring: .init(
+            id: FixPlanID(),
+            revision: .initial,
+            sourceRunID: RunID(),
+            createdAt: capturedAt,
+            configuration: FixPlanConfig.capture(
+                configuration: AppConfiguration(),
+                options: UpdateOptions(),
+                capturedAt: capturedAt
+            ),
+            scope: planScope,
+            admission: .certified(forgedAdmission),
+            items: [item]
+        ))
+        let decision = reviewDecision(
+            for: plan,
+            items: [FixPlanItemDecision(itemID: item.id, verdict: .accepted)]
+        )
+
+        #expect(throws: FixPlanWrite.Failure.self) {
+            _ = try FixPlanWrite.makeInput(
+                plan: plan,
+                decision: decision,
+                configuration: writeConfiguration(for: plan, decidedAt: decision.decidedAt)
+            )
+        }
+    }
+
+    @Test("Certified plans preserve their exact admission in write input")
+    func certifiedPlanPreservesAdmission() throws {
+        let item = fixPlanItem(id: UUID(), index: 1)
+        let plan = try certifiedFixPlan(items: [item])
+        let decision = reviewDecision(
+            for: plan,
+            items: [FixPlanItemDecision(itemID: item.id, verdict: .accepted)]
+        )
+
+        let input = try FixPlanWrite.makeInput(
+            plan: plan,
+            decision: decision,
+            configuration: writeConfiguration(for: plan, decidedAt: decision.decidedAt)
+        )
+
+        guard case let .certified(admission) = plan.admission else {
+            Issue.record("Expected certified plan")
+            return
+        }
+        #expect(input.admission == admission)
+    }
+
     @Test("reviewed write ID refresh uses typed database identities")
     func usesPlanSettings() async throws {
         let scriptClient = WriteIDScriptSpy()
@@ -265,9 +355,15 @@ private func appleScriptTrack(from track: Track) -> Track {
     )
 }
 
-private func fixPlan(items: [FixPlanItem]) -> FixPlan {
+private func fixPlan(items: [FixPlanItem], isLegacy: Bool = false) -> FixPlan {
     let capturedAt = Date(timeIntervalSince1970: 100)
-    return FixPlan(
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: [],
+        knownTrackCount: items.count,
+        createdAt: capturedAt,
+        reason: "unit-test"
+    )
+    return FixPlan(restoring: .init(
         id: FixPlanID(),
         revision: .initial,
         sourceRunID: RunID(),
@@ -277,13 +373,67 @@ private func fixPlan(items: [FixPlanItem]) -> FixPlan {
             options: UpdateOptions(),
             capturedAt: capturedAt
         ),
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: items.count,
-            createdAt: capturedAt,
-            reason: "unit-test"
-        ),
+        scope: scope,
+        admission: isLegacy
+            ? .legacyUncertified
+            : .certified(workflowProcessingAdmission(scope: scope)),
         items: items
+    ))
+}
+
+private func certifiedFixPlan(items: [FixPlanItem]) throws -> FixPlan {
+    let capturedAt = Date(timeIntervalSince1970: 100)
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: [],
+        knownTrackCount: items.count,
+        createdAt: capturedAt,
+        reason: "unit-test"
+    )
+    let databaseIDs = try items.map { item in
+        try #require(MusicDatabaseTrackID(rawValue: item.identity.appleScriptID ?? item.identity.readID))
+    }
+    let membership = try MembershipFingerprint.make(ids: databaseIDs)
+    let admission = ProcessingAdmission(
+        scopeID: scope.id,
+        certificate: ScopeCertificate(
+            id: UUID(),
+            revision: .initial,
+            membership: membership,
+            testArtists: [],
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: membership.fingerprint,
+                observedFingerprint: membership.fingerprint,
+                trackCount: databaseIDs.count
+            ),
+            observedAt: capturedAt
+        ),
+        maximumMetadataAge: nil
+    )
+    return try FixPlan(
+        id: FixPlanID(),
+        revision: .initial,
+        sourceRunID: RunID(),
+        createdAt: capturedAt,
+        configuration: FixPlanConfig.capture(
+            configuration: AppConfiguration(),
+            options: UpdateOptions(),
+            capturedAt: capturedAt
+        ),
+        scope: scope,
+        admission: admission,
+        items: items
+    )
+}
+
+private func writeConfiguration(for plan: FixPlan, decidedAt: Date) -> RunConfig {
+    RunConfig(
+        capturedAt: decidedAt,
+        writeAuthority: .reviewedPlan,
+        automation: .manualOnly,
+        scopeID: plan.scope.id,
+        settings: plan.configuration,
+        hadRecoveryHold: false
     )
 }
 

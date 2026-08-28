@@ -191,6 +191,12 @@ final class WorkflowViewModel {
     let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
     let ensureRecoveryHold: () async -> Bool
     let clearRecovery: (UUID) async throws -> Void
+    let admitProcessing: @Sendable ([Track], AdmissionTrackMatch) async throws -> ProcessingAdmission
+    let validateProcessing: @Sendable (
+        ProcessingAdmission,
+        [Track],
+        AdmissionTrackMatch
+    ) async throws -> Void
     let prepareMutationMetadata: (([Track]) async throws -> Void)?
     let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
     let invalidateAlbumYearCache: (() async -> Void)?
@@ -221,6 +227,8 @@ final class WorkflowViewModel {
         runMaintenancePreflight = dependencies.runMaintenancePreflight
         ensureRecoveryHold = dependencies.ensureRecoveryHold
         clearRecovery = dependencies.clearRecovery
+        admitProcessing = dependencies.admitProcessing
+        validateProcessing = dependencies.validateProcessing
         prepareMutationMetadata = dependencies.prepareMutationMetadata
         resolveIncrementalTracks = dependencies.resolveIncrementalTracks
         invalidateAlbumYearCache = dependencies.invalidateAlbumYearCache
@@ -459,15 +467,21 @@ final class WorkflowViewModel {
                 minConfidence: confidencePercentage,
                 autoAccept: false
             )
-            totalCount = max(totalCount, acceptedTracks.count)
-            pendingBatchExecution = .applyAccepted(AcceptedChangesBatch(
-                accepted: accepted,
-                trackCount: acceptedTracks.count,
-                options: options
-            ))
             do {
+                let admission = try await admitProcessing(acceptedTracks, .subset)
+                totalCount = max(totalCount, acceptedTracks.count)
+                pendingBatchExecution = .applyAccepted(AcceptedChangesBatch(
+                    accepted: accepted,
+                    trackCount: acceptedTracks.count,
+                    options: options,
+                    admission: admission
+                ))
                 let submission = try await submitBatchRun(
-                    BatchRunInput(options: options, trackCount: acceptedTracks.count)
+                    BatchRunInput(
+                        options: options,
+                        trackCount: acceptedTracks.count,
+                        admission: admission
+                    )
                 )
                 applyBatchSubmissionResult(submission)
             } catch is CancellationError {

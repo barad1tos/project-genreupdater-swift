@@ -71,7 +71,12 @@ struct PreviewPlanTests {
         probe: PreviewProducerProbe
     ) -> Producer {
         dependencies.makePreviewProducer(dependencies: FixPlanProducer.Dependencies(
-            loadTracks: { await probe.loadTracks() },
+            loadAdmission: { scope, _ in
+                await .admitted(
+                    workflowProcessingAdmission(scope: scope),
+                    tracks: probe.loadTracks()
+                )
+            },
             makeRuntime: { _, _ in
                 FixPlanProducer.Runtime(
                     refreshIdentity: { await probe.refreshWriteIdentity(for: $0, scope: $1) },

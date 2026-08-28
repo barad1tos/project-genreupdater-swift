@@ -64,6 +64,7 @@ func automaticInput(
             decisionRevision: .initial
         ),
         scope: scope,
+        admission: processingAdmission(scope: scope),
         configuration: RunConfig(
             capturedAt: capturedAt,
             mode: planning.mode,

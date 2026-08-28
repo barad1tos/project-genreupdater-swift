@@ -163,7 +163,12 @@ struct Domain12ParityReplayTests {
 
     private func makeProducer(_ spy: FixPlanProducerSpy) -> FixPlanProducer {
         FixPlanProducer(dependencies: .init(
-            loadTracks: { await spy.loadTracks() },
+            loadAdmission: { scope, _ in
+                await .admitted(
+                    processingAdmission(scope: scope),
+                    tracks: spy.loadTracks()
+                )
+            },
             makeRuntime: { _, _ in
                 FixPlanProducer.Runtime(
                     refreshIdentity: { try await spy.refreshWriteIdentity(for: $0, scope: $1) },

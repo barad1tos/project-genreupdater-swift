@@ -160,11 +160,18 @@ extension WorkflowViewModel {
             let admissionTracks = dueEntries.flatMap {
                 Self.pendingAlbumTracks(for: $0, in: admissionGroups)
             }
+            let admissionCandidates = Self.uniqueTracks(admissionTracks)
+            let admission = try await admitProcessing(admissionCandidates, .subset)
             let runOutcome = try await batchProcessor.performRecoverableWrite(
-                trackCount: Set(admissionTracks.map(\.id)).count,
-                requiredFeature: nil,
-                appliedTrackIDs: { Set($0.completed.map(\.trackID)) },
-                partialTrackIDs: Self.partialTrackIDs,
+                trackCount: admissionCandidates.count,
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: { [validateProcessing] in
+                    try await validateProcessing(admission, admissionCandidates, .subset)
+                },
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { Set($0.completed.map(\.trackID)) },
+                    partialTrackIDs: Self.partialTrackIDs
+                ),
                 operation: { @MainActor [self] in
                     try await performPendingVerification(
                         dueEntries: dueEntries,
@@ -192,7 +199,9 @@ extension WorkflowViewModel {
             finishFailedPendingVerification(outcome: PendingEntryOutcome(), error: error)
         }
     }
+}
 
+extension WorkflowViewModel {
     func runPendingVerificationBeforeBatchIfDue(
         preflightResult: MaintenancePreflightResult?,
         tracks: [Track]
@@ -225,11 +234,18 @@ extension WorkflowViewModel {
 
             let trackContext = await pendingVerificationTrackContext(from: pendingScopeTracks)
             preparePendingVerificationScope(tracks: trackContext.tracks, dueEntries: dueEntries)
+            let admissionCandidates = Self.uniqueTracks(trackContext.tracks)
+            let admission = try await admitProcessing(admissionCandidates, .subset)
             let outcome = try await batchProcessor.performRecoverableWrite(
-                trackCount: Set(trackContext.tracks.map(\.id)).count,
-                requiredFeature: nil,
-                appliedTrackIDs: { Set($0.completed.map(\.trackID)) },
-                partialTrackIDs: Self.partialTrackIDs,
+                trackCount: admissionCandidates.count,
+                features: WriteFeatureRequirements(mutation: nil),
+                validateWrite: { [validateProcessing] in
+                    try await validateProcessing(admission, admissionCandidates, .subset)
+                },
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { Set($0.completed.map(\.trackID)) },
+                    partialTrackIDs: Self.partialTrackIDs
+                ),
                 operation: { @MainActor [self] in
                     try await performPendingVerification(
                         dueEntries: dueEntries,
@@ -242,20 +258,27 @@ extension WorkflowViewModel {
             await refreshPendingVerificationReportSummary(snapshot: finalSnapshot, outcome: outcome)
             failedCount = outcome.failedTrackIDs.count
             return outcome
-        } catch let cancellation as PendingVerificationCancellation {
+        } catch {
+            return await handlePreflightError(error)
+        }
+    }
+
+    private func handlePreflightError(_ error: any Error) async -> PendingEntryOutcome {
+        switch error {
+        case let cancellation as PendingVerificationCancellation:
             finishCancelledPendingVerification(outcome: cancellation.outcome)
             return cancellation.outcome
-        } catch let error as AppleScriptOutcomeError {
-            await handleUnknownOutcome(error)
+        case let outcomeError as AppleScriptOutcomeError:
+            await handleUnknownOutcome(outcomeError)
             return PendingEntryOutcome()
-        } catch let failure as PendingVerificationFailure {
+        case let failure as PendingVerificationFailure:
             finishFailedPendingVerification(outcome: failure.outcome, error: failure.underlyingError)
             return failure.outcome
-        } catch is CancellationError {
+        case is CancellationError:
             let outcome = PendingEntryOutcome()
             finishCancelledPendingVerification(outcome: outcome)
             return outcome
-        } catch {
+        default:
             finishFailedPendingVerification(outcome: PendingEntryOutcome(), error: error)
             return PendingEntryOutcome()
         }

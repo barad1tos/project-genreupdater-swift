@@ -26,7 +26,11 @@ struct BatchRunAppTests {
         }
 
         let result = try await dependencies.submitBatchRun(
-            input: BatchRunInput(options: UpdateOptions(), trackCount: 2)
+            input: BatchRunInput(
+                options: UpdateOptions(),
+                trackCount: 2,
+                admission: workflowProcessingAdmission(trackCount: 2)
+            )
         )
 
         guard case .completedNoOp = result else {
@@ -51,7 +55,11 @@ struct BatchRunAppTests {
         )))
 
         let result = try await dependencies.submitBatchRun(
-            input: BatchRunInput(options: UpdateOptions(), trackCount: 2)
+            input: BatchRunInput(
+                options: UpdateOptions(),
+                trackCount: 2,
+                admission: workflowProcessingAdmission(trackCount: 2)
+            )
         )
 
         guard case .failed = result else {
@@ -146,6 +154,9 @@ struct BatchRunAppTests {
         ])
         await viewModel.processingTask?.value
         #expect(viewModel.pendingBatchExecution != nil)
+        let admitted = await fixture.admissionProbe.admitted.first
+        #expect(admitted?.match == .exactScope)
+        viewModel.updateYear.toggle()
 
         await fixture.observationGate.release()
         _ = await observation.value
@@ -156,6 +167,9 @@ struct BatchRunAppTests {
             return
         }
         #expect(viewModel.pendingBatchExecution == nil)
+        let validated = await fixture.admissionProbe.validated.first
+        #expect(validated?.match == .subset)
+        #expect(validated?.admission == admitted?.admission)
     }
 
     @Test("cancelling a queued batch records an honest cancelled run")
@@ -371,7 +385,11 @@ struct BatchRunAppTests {
         }
 
         _ = try await dependencies.submitBatchRun(
-            input: BatchRunInput(options: UpdateOptions(), trackCount: 1)
+            input: BatchRunInput(
+                options: UpdateOptions(),
+                trackCount: 1,
+                admission: workflowProcessingAdmission(trackCount: 1, testArtists: ["Clutch"])
+            )
         )
 
         #expect(await records.records.first?.scope.source == .testArtists)

@@ -22,6 +22,13 @@ enum PendingBatchExecution {
         case let .applyAccepted(apply): apply.trackCount
         }
     }
+
+    var admission: ProcessingAdmission {
+        switch self {
+        case let .fullLibrary(batch): batch.admission
+        case let .applyAccepted(apply): apply.admission
+        }
+    }
 }
 
 struct FullLibraryBatch {
@@ -29,12 +36,14 @@ struct FullLibraryBatch {
     let contextTracks: [Track]
     let preflightOutcome: PendingEntryOutcome
     let options: UpdateOptions
+    let admission: ProcessingAdmission
 }
 
 struct AcceptedChangesBatch {
     let accepted: [ProposedChange]
     let trackCount: Int
     let options: UpdateOptions
+    let admission: ProcessingAdmission
 
     var requiredFeature: AppFeature? {
         accepted.lazy.compactMap(\.changeType.requiredWriteFeature).first
@@ -91,17 +100,23 @@ extension WorkflowViewModel {
             minConfidence: confidencePercentage,
             autoAccept: true
         )
-        pendingBatchExecution = .fullLibrary(FullLibraryBatch(
-            scope: UpdateTrackScope(tracks: tracksByIndex, trackPasses: trackPasses),
-            contextTracks: contextTracks ?? tracksByIndex,
-            preflightOutcome: preflightOutcome,
-            options: options
-        ))
-
         processingTask = Task {
             do {
+                let admissionTracks = contextTracks ?? tracksByIndex
+                let admission = try await admitProcessing(admissionTracks, .exactScope)
+                pendingBatchExecution = .fullLibrary(FullLibraryBatch(
+                    scope: UpdateTrackScope(tracks: tracksByIndex, trackPasses: trackPasses),
+                    contextTracks: admissionTracks,
+                    preflightOutcome: preflightOutcome,
+                    options: options,
+                    admission: admission
+                ))
                 let submission = try await submitBatchRun(
-                    BatchRunInput(options: options, trackCount: tracksByIndex.count)
+                    BatchRunInput(
+                        options: options,
+                        trackCount: tracksByIndex.count,
+                        admission: admission
+                    )
                 )
                 applyBatchSubmissionResult(submission)
             } catch is CancellationError {
@@ -127,7 +142,8 @@ extension WorkflowViewModel {
             throw CancellationError()
         }
         guard input.options == execution.options,
-              input.trackCount == execution.trackCount
+              input.trackCount == execution.trackCount,
+              input.admission == execution.admission
         else {
             // The record must never claim input A while the runner
             // executes stash B (divergence would be a silent lie). The
@@ -201,6 +217,9 @@ extension WorkflowViewModel {
 
         let entries = try await batchProcessor.process(
             tracks: tracksByIndex,
+            validateWrite: { [validateProcessing, admission = execution.admission] in
+                try await validateProcessing(admission, tracksByIndex, .subset)
+            },
             operation: operation,
             progressHandler: progressHandler
         )
@@ -231,9 +250,18 @@ extension WorkflowViewModel {
         do {
             let batchResult = try await batchProcessor.performRecoverableWrite(
                 trackCount: Set(apply.accepted.map(\.track.id)).count,
-                requiredFeature: apply.requiredFeature,
-                appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
-                partialTrackIDs: { _ in [] },
+                features: WriteFeatureRequirements(mutation: apply.requiredFeature),
+                validateWrite: { [validateProcessing, admission = apply.admission] in
+                    try await validateProcessing(
+                        admission,
+                        Self.uniqueTracks(apply.accepted.map(\.track)),
+                        .subset
+                    )
+                },
+                outcome: WriteOutcomeProjection(
+                    appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
+                    partialTrackIDs: { _ in [] }
+                ),
                 operation: {
                     try await coordinator.applyAcceptedChanges(
                         apply.accepted,

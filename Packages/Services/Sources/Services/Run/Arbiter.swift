@@ -22,7 +22,15 @@ enum TriggerArbiter {
         let strongestRank = candidateKeys.map(\.rank).max() ?? activeKey.rank
 
         if incomingKey.rank < strongestRank {
-            return .alreadyCovered(pending)
+            if candidateKeys.contains(where: { key in
+                key.rank >= incomingKey.rank && key.covers(incomingKey)
+            }) {
+                return .alreadyCovered(pending)
+            }
+            let retainedPending = zip(pending, pendingKeys).compactMap { trigger, key in
+                key.rank < incomingKey.rank && incomingKey.covers(key) ? nil : trigger
+            }
+            return .queue(retainedPending + [PendingTrigger(request: incoming)])
         }
 
         if incomingKey.rank == strongestRank {
@@ -72,6 +80,7 @@ private struct RequestKey {
     let previewFingerprint: String?
     let fixPlanPolicy: FixPlanRunPolicy?
     let writeTarget: FixPlanWriteTarget?
+    let processingAdmission: ProcessingAdmission?
 
     init(lifecycle: RunLifecycleSnapshot) {
         rank = TriggerArbiter.rank(trigger: lifecycle.trigger, intent: lifecycle.intent)
@@ -81,6 +90,7 @@ private struct RequestKey {
             FixPlanRunPolicy(mode: $0.mode, automation: $0.automation)
         }
         writeTarget = lifecycle.writeTarget
+        processingAdmission = lifecycle.processingAdmission
     }
 
     init(request: RunRequest) {
@@ -89,10 +99,12 @@ private struct RequestKey {
         previewFingerprint = request.previewConfiguration?.fingerprint
         fixPlanPolicy = request.fixPlanPolicy
         writeTarget = request.writeTarget
+        processingAdmission = request.processingAdmission
     }
 
     func covers(_ other: Self) -> Bool {
         guard scope.covers(other.scope) else { return false }
+        guard processingAdmission == other.processingAdmission else { return false }
         if rank.intentPriority == IntentPriority.previewFixes {
             guard other.rank.intentPriority == IntentPriority.previewFixes,
                   let previewFingerprint,

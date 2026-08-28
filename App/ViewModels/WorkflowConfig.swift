@@ -12,6 +12,12 @@ extension WorkflowViewModel {
         let runMaintenancePreflight: (() async -> MaintenancePreflightResult?)?
         let ensureRecoveryHold: () async -> Bool
         let clearRecovery: (UUID) async throws -> Void
+        let admitProcessing: @Sendable ([Track], AdmissionTrackMatch) async throws -> ProcessingAdmission
+        let validateProcessing: @Sendable (
+            ProcessingAdmission,
+            [Track],
+            AdmissionTrackMatch
+        ) async throws -> Void
         let prepareMutationMetadata: (([Track]) async throws -> Void)?
         let resolveIncrementalTracks: ([Track], IncrementalTrackScopeOptions) async -> [Track]
         let invalidateAlbumYearCache: (() async -> Void)?
@@ -29,6 +35,15 @@ extension WorkflowViewModel {
             runMaintenancePreflight: (() async -> MaintenancePreflightResult?)? = nil,
             ensureRecoveryHold: @escaping () async -> Bool = { false },
             clearRecovery: @escaping (UUID) async throws -> Void,
+            admitProcessing: @escaping @Sendable (
+                [Track],
+                AdmissionTrackMatch
+            ) async throws -> ProcessingAdmission,
+            validateProcessing: @escaping @Sendable (
+                ProcessingAdmission,
+                [Track],
+                AdmissionTrackMatch
+            ) async throws -> Void,
             prepareMutationMetadata: (([Track]) async throws -> Void)? = nil,
             resolveIncrementalTracks: @escaping (
                 [Track],
@@ -48,6 +63,8 @@ extension WorkflowViewModel {
             self.runMaintenancePreflight = runMaintenancePreflight
             self.ensureRecoveryHold = ensureRecoveryHold
             self.clearRecovery = clearRecovery
+            self.admitProcessing = admitProcessing
+            self.validateProcessing = validateProcessing
             self.prepareMutationMetadata = prepareMutationMetadata
             self.resolveIncrementalTracks = resolveIncrementalTracks
             self.invalidateAlbumYearCache = invalidateAlbumYearCache

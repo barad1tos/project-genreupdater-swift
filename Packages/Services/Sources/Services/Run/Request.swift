@@ -51,10 +51,12 @@ public struct FixPlanRunPolicy: Equatable, Sendable {
 public struct BatchRunInput: Equatable, Sendable {
     public let options: UpdateOptions
     public let trackCount: Int
+    public let admission: ProcessingAdmission
 
-    public init(options: UpdateOptions, trackCount: Int) {
+    public init(options: UpdateOptions, trackCount: Int, admission: ProcessingAdmission) {
         self.options = options
         self.trackCount = trackCount
+        self.admission = admission
     }
 }
 
@@ -95,6 +97,14 @@ public enum RunRequestKind: Equatable, Sendable {
             nil
         }
     }
+
+    public var processingAdmission: ProcessingAdmission? {
+        switch self {
+        case .observeLibrary, .previewFixes: nil
+        case let .writeFixes(input): input.admission
+        case let .batchUpdate(input): input.admission
+        }
+    }
 }
 
 public struct RunRequest: Equatable, Sendable {
@@ -121,6 +131,10 @@ public struct RunRequest: Equatable, Sendable {
 
     public var previewConfiguration: FixPlanConfig? {
         kind.previewConfiguration
+    }
+
+    public var processingAdmission: ProcessingAdmission? {
+        kind.processingAdmission
     }
 
     var canWriteLibrary: Bool {

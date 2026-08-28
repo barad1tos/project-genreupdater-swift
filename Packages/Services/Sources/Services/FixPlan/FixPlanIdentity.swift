@@ -70,6 +70,7 @@ public struct FixPlanWriteTarget: Codable, Equatable, Sendable {
 public struct FixPlanWriteInput: Equatable, Sendable {
     public let target: FixPlanWriteTarget
     public let scope: ProcessingScopeSnapshot
+    public let admission: ProcessingAdmission
     public let configuration: RunConfig
     public let workItems: [RunWorkItem]
     public private(set) var requiredAdmissionFeature: AppFeature?
@@ -77,11 +78,13 @@ public struct FixPlanWriteInput: Equatable, Sendable {
     public init(
         target: FixPlanWriteTarget,
         scope: ProcessingScopeSnapshot,
+        admission: ProcessingAdmission,
         configuration: RunConfig,
         workItems: [RunWorkItem]
     ) {
         self.target = target
         self.scope = scope
+        self.admission = admission
         self.configuration = configuration
         self.workItems = workItems
         requiredAdmissionFeature = nil

@@ -23,6 +23,43 @@ struct FixPlanDataTests {
         #expect(try await store.latestPlan() == plan)
     }
 
+    @Test("certified admission round-trips inside the existing scope blob")
+    func certifiedAdmissionRoundTrips() async throws {
+        let store = try makeStore()
+        let scope = makeScope()
+        let admission = try makeAdmission(scope: scope)
+        let plan = makePlan(scope: scope, admission: .certified(admission))
+
+        try await store.savePlan(
+            plan,
+            initialDecision: FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 101))
+        )
+
+        let loaded = try #require(try await store.plan(id: plan.id, revision: plan.revision))
+        #expect(loaded.scope == scope)
+        #expect(loaded.admission == .certified(admission))
+    }
+
+    @Test("legacy raw scope blob loads without write authority")
+    func loadsLegacyUncertified() async throws {
+        let container = try makeContainer()
+        let planID = UUID()
+        let legacyScope = makeScope()
+        try insertPersistedPlan(
+            planID: planID,
+            scopeSnapshotData: JSONEncoder().encode(legacyScope),
+            into: container
+        )
+        let store = FixPlanDataStore(modelContainer: container)
+
+        let loaded = try #require(try await store.plan(
+            id: FixPlanID(rawValue: planID),
+            revision: .initial
+        ))
+        #expect(loaded.scope == legacyScope)
+        #expect(loaded.admission == .legacyUncertified)
+    }
+
     @Test("coupled artist evidence survives a file-backed store relaunch")
     func coupledArtistEvidenceSurvivesRelaunch() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -434,17 +471,20 @@ struct FixPlanDataTests {
         id: FixPlanID = FixPlanID(),
         revision: FixPlanRevision = .initial,
         createdAt: Date = Date(timeIntervalSince1970: 100),
+        scope: ProcessingScopeSnapshot? = nil,
+        admission: FixPlanAdmission = .legacyUncertified,
         items: [FixPlanItem]? = nil
     ) -> FixPlan {
-        FixPlan(
+        FixPlan(restoring: .init(
             id: id,
             revision: revision,
             sourceRunID: RunID(),
             createdAt: createdAt,
             configuration: makeConfiguration(),
-            scope: makeScope(createdAt: createdAt),
+            scope: scope ?? makeScope(createdAt: createdAt),
+            admission: admission,
             items: items ?? [makeItem()]
-        )
+        ))
     }
 
     private func makeConfiguration() -> FixPlanConfig {
@@ -469,6 +509,26 @@ struct FixPlanDataTests {
             knownTrackCount: 75,
             createdAt: createdAt,
             reason: "manualCheck"
+        )
+    }
+
+    private func makeAdmission(scope: ProcessingScopeSnapshot) throws -> ProcessingAdmission {
+        try ProcessingAdmission(
+            scopeID: scope.id,
+            certificate: ScopeCertificate(
+                id: UUID(),
+                revision: MirrorRevision(value: 7),
+                membership: MembershipStamp(fingerprint: String(repeating: "b", count: 64)),
+                testArtists: scope.normalizedTestArtists,
+                fieldSet: .processingV1,
+                evidence: ScopeEvidence(
+                    requestedFingerprint: "requested",
+                    observedFingerprint: "observed",
+                    trackCount: scope.knownTrackCount ?? 0
+                ),
+                observedAt: Date(timeIntervalSince1970: 99)
+            ),
+            maximumMetadataAge: 604_800
         )
     }
 

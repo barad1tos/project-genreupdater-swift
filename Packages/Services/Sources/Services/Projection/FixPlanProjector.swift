@@ -37,15 +37,8 @@ public enum FixPlanProjector {
         }
         let acceptedCount = items.count(where: { $0.verdict == .accepted })
         let missingIdentityCount = items.count { $0.verdict == .accepted && !$0.hasWriteID }
+        let hasCertifiedAdmission = hasCertifiedAdmission(for: plan)
         let status: FixPlanProjectionStatus = staleness.isStale ? .stale : .ready
-        let issues = missingIdentityCount == 0 ? [] : [
-            OperationalIssue(
-                id: "fix-plan-write-identity",
-                category: .safetyBlocked,
-                summary: "Write identity required",
-                technicalDetail: "Accepted items without AppleScript ID: \(missingIdentityCount)"
-            )
-        ]
 
         return FixPlanProjection(
             revision: .initial,
@@ -61,19 +54,53 @@ public enum FixPlanProjector {
                 items: items,
                 status: status,
                 acceptedCount: acceptedCount,
-                missingIdentityCount: missingIdentityCount
+                missingIdentityCount: missingIdentityCount,
+                hasCertifiedAdmission: hasCertifiedAdmission
             ),
             stalenessReasons: staleness.reasons,
             items: items,
-            operationalIssues: issues
+            operationalIssues: makeOperationalIssues(
+                hasCertifiedAdmission: hasCertifiedAdmission,
+                missingIdentityCount: missingIdentityCount
+            )
         )
+    }
+
+    private static func hasCertifiedAdmission(for plan: FixPlan) -> Bool {
+        guard case let .certified(admission) = plan.admission else { return false }
+        return admission.certifies(scope: plan.scope)
+    }
+
+    private static func makeOperationalIssues(
+        hasCertifiedAdmission: Bool,
+        missingIdentityCount: Int
+    ) -> [OperationalIssue] {
+        var issues: [OperationalIssue] = []
+        if !hasCertifiedAdmission {
+            issues.append(OperationalIssue(
+                id: "fix-plan-admission",
+                category: .safetyBlocked,
+                summary: "Certified library evidence required",
+                technicalDetail: "This fix plan has no valid library evidence for its captured processing scope."
+            ))
+        }
+        if missingIdentityCount > 0 {
+            issues.append(OperationalIssue(
+                id: "fix-plan-write-identity",
+                category: .safetyBlocked,
+                summary: "Write identity required",
+                technicalDetail: "Accepted items without AppleScript ID: \(missingIdentityCount)"
+            ))
+        }
+        return issues
     }
 
     private static func makeSummary(
         items: [FixPlanProjectionItem],
         status: FixPlanProjectionStatus,
         acceptedCount: Int,
-        missingIdentityCount: Int
+        missingIdentityCount: Int,
+        hasCertifiedAdmission: Bool
     ) -> FixPlanProjection.Summary {
         let affectedAlbums = Set(items.map {
             AlbumIdentity.key(artist: $0.artist, album: $0.album)
@@ -92,7 +119,10 @@ public enum FixPlanProjector {
             affectedTrackCount: affectedTracks.count,
             affectedAlbumCount: affectedAlbums.count,
             averageConfidence: averageConfidence(for: items),
-            canApply: status == .ready && acceptedCount > 0 && missingIdentityCount == 0
+            canApply: status == .ready
+                && acceptedCount > 0
+                && missingIdentityCount == 0
+                && hasCertifiedAdmission
         )
     }
 

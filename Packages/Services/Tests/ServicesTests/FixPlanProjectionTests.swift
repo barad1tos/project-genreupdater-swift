@@ -1,7 +1,7 @@
 import Core
 import Foundation
-import Services
 import Testing
+@testable import Services
 
 @Suite("FixPlanProjection")
 struct FixPlanProjectionTests {
@@ -169,6 +169,60 @@ struct FixPlanProjectionTests {
         #expect(projection.operationalIssues.map(\.category) == [.safetyBlocked])
     }
 
+    @Test("legacy plan without certified admission is safety blocked")
+    func blocksLegacyPlan() {
+        let plan = makePlan(
+            items: [makeItem(type: .genreUpdate)],
+            admission: .legacyUncertified
+        )
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: decidedAt)
+
+        let projection = FixPlanProjector.makeProjection(
+            plan: plan,
+            decision: decision,
+            staleness: FixPlanStaleness.evaluate(
+                plan: plan,
+                currentScope: plan.scope,
+                currentConfiguration: plan.configuration
+            )
+        )
+
+        #expect(!projection.canApply)
+        #expect(projection.operationalIssues.contains { issue in
+            issue.id == "fix-plan-admission" && issue.category == .safetyBlocked
+        })
+    }
+
+    @Test("restored plan with mismatched certified admission is safety blocked")
+    func blocksMismatchedAdmission() {
+        let admittedScope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Another Artist"],
+            knownTrackCount: 42,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "projection-test"
+        )
+        let plan = makePlan(
+            items: [makeItem(type: .genreUpdate)],
+            admission: .certified(certifiedAdmission(scope: admittedScope))
+        )
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: decidedAt)
+
+        let projection = FixPlanProjector.makeProjection(
+            plan: plan,
+            decision: decision,
+            staleness: FixPlanStaleness.evaluate(
+                plan: plan,
+                currentScope: plan.scope,
+                currentConfiguration: plan.configuration
+            )
+        )
+
+        #expect(!projection.canApply)
+        #expect(projection.operationalIssues.contains { issue in
+            issue.id == "fix-plan-admission" && issue.category == .safetyBlocked
+        })
+    }
+
     @Test("rejected item without write identity does not block accepted items")
     func rejectedMissingIDAllowsApply() {
         let missingID = itemID(1)
@@ -254,21 +308,47 @@ private let decidedAt = Date(timeIntervalSince1970: 101)
 
 private func makePlan(
     items: [FixPlanItem],
-    configuration: FixPlanConfig = makeConfiguration()
+    configuration: FixPlanConfig = makeConfiguration(),
+    admission: FixPlanAdmission? = nil
 ) -> FixPlan {
-    FixPlan(
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: ["Aphex Twin"],
+        knownTrackCount: 42,
+        createdAt: Date(timeIntervalSince1970: 100),
+        reason: "projection-test"
+    )
+    return FixPlan(restoring: .init(
         id: FixPlanID(rawValue: itemID(99)),
         revision: .initial,
         sourceRunID: RunID(rawValue: itemID(98)),
         createdAt: Date(timeIntervalSince1970: 100),
         configuration: configuration,
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: ["Aphex Twin"],
-            knownTrackCount: 42,
-            createdAt: Date(timeIntervalSince1970: 100),
-            reason: "projection-test"
-        ),
+        scope: scope,
+        admission: admission ?? .certified(certifiedAdmission(scope: scope)),
         items: items
+    ))
+}
+
+private func certifiedAdmission(scope: ProcessingScopeSnapshot) -> ProcessingAdmission {
+    guard let membership = try? MembershipFingerprint.make(ids: []) else {
+        preconditionFailure("Empty membership must have a canonical fingerprint")
+    }
+    return ProcessingAdmission(
+        scopeID: scope.id,
+        certificate: ScopeCertificate(
+            id: UUID(),
+            revision: .initial,
+            membership: membership,
+            testArtists: scope.normalizedTestArtists,
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: membership.fingerprint,
+                observedFingerprint: membership.fingerprint,
+                trackCount: scope.knownTrackCount ?? 0
+            ),
+            observedAt: scope.createdAt
+        ),
+        maximumMetadataAge: nil
     )
 }
 

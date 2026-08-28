@@ -120,6 +120,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
     public let scope: ProcessingScopeSnapshot
     public let previewConfiguration: FixPlanConfig?
     public let writeTarget: FixPlanWriteTarget?
+    public let processingAdmission: ProcessingAdmission?
     public let configuration: RunConfig?
     public let continuesRunID: RunID?
     let workLedger: WorkLedger
@@ -211,6 +212,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         self.scope = scope
         previewConfiguration = nil
         writeTarget = nil
+        processingAdmission = nil
         configuration = nil
         continuesRunID = nil
         workLedger = WorkLedger([])
@@ -233,6 +235,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         self.scope = scope
         previewConfiguration = request.previewConfiguration
         writeTarget = request.writeTarget
+        processingAdmission = request.processingAdmission
         if let policy = request.fixPlanPolicy,
            let previewConfiguration = request.previewConfiguration {
             configuration = RunConfig(
@@ -269,6 +272,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         self.scope = scope
         self.previewConfiguration = previewConfiguration
         writeTarget = nil
+        processingAdmission = nil
         configuration = nil
         continuesRunID = nil
         workLedger = WorkLedger([])
@@ -292,6 +296,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         self.scope = scope
         previewConfiguration = nil
         self.writeTarget = writeTarget
+        processingAdmission = nil
         configuration = nil
         continuesRunID = nil
         workLedger = WorkLedger([])
@@ -307,6 +312,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         scope = record.scope
         previewConfiguration = nil
         writeTarget = record.writeTarget
+        processingAdmission = nil
         configuration = record.configuration
         continuesRunID = record.continuesRunID
         workLedger = record.workLedger
@@ -326,6 +332,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         scope = snapshot.scope
         previewConfiguration = snapshot.previewConfiguration
         writeTarget = snapshot.writeTarget
+        processingAdmission = snapshot.processingAdmission
         configuration = snapshot.configuration
         continuesRunID = snapshot.continuesRunID
         self.workLedger = workLedger ?? snapshot.workLedger

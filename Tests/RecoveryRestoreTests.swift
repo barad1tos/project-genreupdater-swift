@@ -285,6 +285,7 @@ private func emptyWriteInput() -> FixPlanWriteInput {
             decisionRevision: .initial
         ),
         scope: scope,
+        admission: workflowProcessingAdmission(scope: scope),
         configuration: RunConfig(
             capturedAt: capturedAt,
             writeAuthority: .reviewedPlan,

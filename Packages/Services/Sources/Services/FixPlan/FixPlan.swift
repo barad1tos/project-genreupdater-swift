@@ -102,10 +102,27 @@ public struct FixPlanItem: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// Admission evidence carried by an immutable fix plan.
+public enum FixPlanAdmission: Codable, Equatable, Sendable {
+    case certified(ProcessingAdmission)
+    case legacyUncertified
+}
+
 /// An immutable snapshot of the exact proposal GenreUpdater showed the user at a
 /// specific moment (ADR 0017). Items never mutate after creation; acceptance and
 /// rejection are recorded separately by `FixPlanReviewDecision`.
 public struct FixPlan: Equatable, Sendable {
+    struct Restoration: Sendable {
+        let id: FixPlanID
+        let revision: FixPlanRevision
+        let sourceRunID: RunID
+        let createdAt: Date
+        let configuration: FixPlanConfig
+        let scope: ProcessingScopeSnapshot
+        let admission: FixPlanAdmission
+        let items: [FixPlanItem]
+    }
+
     public let id: FixPlanID
     public let revision: FixPlanRevision
     /// Required — ADR 0017: every fix plan traces back to the run that produced it.
@@ -113,6 +130,7 @@ public struct FixPlan: Equatable, Sendable {
     public let createdAt: Date
     public let configuration: FixPlanConfig
     public let scope: ProcessingScopeSnapshot
+    public let admission: FixPlanAdmission
     public let items: [FixPlanItem]
 
     public init(
@@ -122,14 +140,32 @@ public struct FixPlan: Equatable, Sendable {
         createdAt: Date,
         configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot,
+        admission: ProcessingAdmission,
         items: [FixPlanItem]
-    ) {
-        self.id = id
-        self.revision = revision
-        self.sourceRunID = sourceRunID
-        self.createdAt = createdAt
-        self.configuration = configuration
-        self.scope = scope
-        self.items = items
+    ) throws {
+        guard admission.certifies(scope: scope) else {
+            throw ProcessingAdmissionRejection.scopeMismatch
+        }
+        self.init(restoring: Restoration(
+            id: id,
+            revision: revision,
+            sourceRunID: sourceRunID,
+            createdAt: createdAt,
+            configuration: configuration,
+            scope: scope,
+            admission: .certified(admission),
+            items: items
+        ))
+    }
+
+    init(restoring restoration: Restoration) {
+        id = restoration.id
+        revision = restoration.revision
+        sourceRunID = restoration.sourceRunID
+        createdAt = restoration.createdAt
+        configuration = restoration.configuration
+        scope = restoration.scope
+        admission = restoration.admission
+        items = restoration.items
     }
 }

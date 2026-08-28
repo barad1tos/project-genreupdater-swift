@@ -30,18 +30,24 @@ public struct FixPlanProducer: Sendable {
     }
 
     public struct Dependencies: Sendable {
-        public let loadTracks: @Sendable () async throws -> [Track]
+        public let loadAdmission: @Sendable (
+            ProcessingScopeSnapshot,
+            FixPlanConfig
+        ) async throws -> ProcessingAdmissionDecision
         public let makeRuntime: @Sendable (FixPlanConfig, ProcessingScopeSnapshot) async throws -> Runtime
         public let savePlan: @Sendable (FixPlan, FixPlanReviewDecision) async throws -> Void
         public let now: @Sendable () -> Date
 
         public init(
-            loadTracks: @escaping @Sendable () async throws -> [Track],
+            loadAdmission: @escaping @Sendable (
+                ProcessingScopeSnapshot,
+                FixPlanConfig
+            ) async throws -> ProcessingAdmissionDecision,
             makeRuntime: @escaping @Sendable (FixPlanConfig, ProcessingScopeSnapshot) async throws -> Runtime,
             savePlan: @escaping @Sendable (FixPlan, FixPlanReviewDecision) async throws -> Void,
             now: @escaping @Sendable () -> Date
         ) {
-            self.loadTracks = loadTracks
+            self.loadAdmission = loadAdmission
             self.makeRuntime = makeRuntime
             self.savePlan = savePlan
             self.now = now
@@ -60,20 +66,20 @@ public struct FixPlanProducer: Sendable {
         configuration: FixPlanConfig
     ) async throws -> FixPlanProduction {
         let options = configuration.determinationOptions
-        let tracks = try await dependencies.loadTracks()
-        let scopedTracks = Self.scopedTracks(tracks, scope: scope)
-        let targetedTracks = Self.albumTargetedTracks(scopedTracks, target: configuration.albumTarget)
+        let planningInput = try await loadPlanningInput(scope: scope, configuration: configuration)
+        let (admission, admittedTracks) = planningInput
+        let targetedTracks = Self.albumTargetedTracks(admittedTracks, target: configuration.albumTarget)
         guard !targetedTracks.isEmpty else { return .empty }
         let runtime = try await dependencies.makeRuntime(configuration, scope)
         // Artist evidence spans the full scope, so its authoritative grouping
         // metadata must be refreshed even when proposals target one album.
-        try await runtime.refreshIdentity(scopedTracks, scope)
+        try await runtime.refreshIdentity(admittedTracks, scope)
         let albumTracksByTrackID = await runtime.albumContext(targetedTracks)
         // Artist context spans the FULL scope: dominant-genre
         // determination must see the artist's other albums, or a
         // targeted preview would propose different metadata than a
         // whole-scope one for the same track.
-        let artistTracksByTrackID = await runtime.artistContext(scopedTracks)
+        let artistTracksByTrackID = await runtime.artistContext(admittedTracks)
         let yearRunScope = YearRunScope()
         let context = PlanContext(
             runtime: runtime,
@@ -93,19 +99,32 @@ public struct FixPlanProducer: Sendable {
             minConfidence: options.minConfidence
         )
         let producedAt = dependencies.now()
-        guard let plan = FixPlanCapture.makePlan(
+        let plan = try FixPlanCapture.makePlan(
             from: filteredProposals,
             sourceRunID: sourceRunID,
-            scope: scope,
+            evidence: .init(scope: scope, admission: admission),
             configuration: configuration,
             createdAt: producedAt
-        ) else {
+        )
+        guard let plan else {
             return .empty
         }
 
         let decision = FixPlanReviewer.initialDecision(for: plan, at: producedAt)
         try await dependencies.savePlan(plan, decision)
         return FixPlanProduction(planID: plan.id, proposalCount: plan.items.count)
+    }
+
+    private func loadPlanningInput(
+        scope: ProcessingScopeSnapshot,
+        configuration: FixPlanConfig
+    ) async throws -> (ProcessingAdmission, [Track]) {
+        switch try await dependencies.loadAdmission(scope, configuration) {
+        case let .admitted(admission, tracks):
+            (admission, tracks)
+        case let .rejected(reason):
+            throw reason
+        }
     }
 
     private func determineProposals(
@@ -230,21 +249,6 @@ public struct FixPlanProducer: Sendable {
     private struct IndexedProposals: Sendable {
         let trackIndex: Int
         let proposals: [ProposedChange]
-    }
-
-    private static func scopedTracks(_ tracks: [Track], scope: ProcessingScopeSnapshot) -> [Track] {
-        switch scope.source {
-        case .fullLibrary:
-            tracks
-        case .testArtists:
-            // A .testArtists snapshot with an empty normalized list cannot
-            // come from capture(); a decoded or hand-built one must fail
-            // CLOSED — ArtistAllowList.filter's empty-list arm would widen
-            // the plan to the whole library on the write path.
-            scope.normalizedTestArtists.isEmpty
-                ? []
-                : ArtistAllowList.filter(tracks, allowedArtists: scope.normalizedTestArtists)
-        }
     }
 
     /// Intersects already-scoped tracks with one album's CANONICAL

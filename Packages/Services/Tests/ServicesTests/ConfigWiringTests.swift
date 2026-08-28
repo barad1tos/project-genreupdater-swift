@@ -70,6 +70,54 @@ struct ConfigWiringTests {
         ))
     }
 
+    @Test("Library sync runtime owns the processing mirror requirement")
+    func mapsProcessingRequirement() {
+        let expiringConfiguration = LibrarySyncRuntimeConfiguration(
+            forceMetadataScanIntervalDays: 3,
+            testArtists: [" Aphex Twin "]
+        )
+        let nonExpiringConfiguration = LibrarySyncRuntimeConfiguration(
+            forceMetadataScanIntervalDays: 0,
+            testArtists: []
+        )
+
+        #expect(expiringConfiguration.processingRequirement == MirrorRequirement(
+            testArtists: ["Aphex Twin"],
+            fieldSet: .processingV1,
+            maximumMetadataAge: 259_200
+        ))
+        #expect(nonExpiringConfiguration.processingRequirement == MirrorRequirement(
+            testArtists: [],
+            fieldSet: .processingV1,
+            maximumMetadataAge: nil
+        ))
+    }
+
+    @Test("Zero metadata interval disables scheduled force refresh")
+    func zeroMetadataIntervalDisablesScheduledRefresh() async throws {
+        let refresh = try await scheduledRefresh(
+            intervalDays: 0,
+            elapsedSinceForceScan: 2_592_000
+        )
+
+        #expect(refresh == .fast)
+    }
+
+    @Test("Positive metadata interval changes mode at its exact boundary")
+    func positiveMetadataIntervalUsesExactBoundary() async throws {
+        let beforeBoundary = try await scheduledRefresh(
+            intervalDays: 3,
+            elapsedSinceForceScan: 259_199
+        )
+        let atBoundary = try await scheduledRefresh(
+            intervalDays: 3,
+            elapsedSinceForceScan: 259_200
+        )
+
+        #expect(beforeBoundary == .fast)
+        #expect(atBoundary == .force)
+    }
+
     @Test(
         "Library sync retry policy rejects unsafe programmatic delays",
         arguments: [-0.1, Double.nan, Double.infinity, 1e308]
@@ -192,5 +240,43 @@ struct ConfigWiringTests {
         let runtime = UpdateRuntimeConfiguration(configuration: configuration)
 
         #expect(runtime.cacheTrustThreshold == 94)
+    }
+
+    private func scheduledRefresh(
+        intervalDays: Int,
+        elapsedSinceForceScan: TimeInterval
+    ) async throws -> MetadataRefreshPolicy {
+        let currentDate = Date(timeIntervalSince1970: 1_800_000_000)
+        let track = Track(
+            id: "T1",
+            name: "Song",
+            artist: "Artist",
+            album: "Album"
+        )
+        let observer = SyncMockScriptClient(observedAt: { currentDate })
+        let store = SyncMockTrackStore()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        await observer.setLibrary(ids: [track.id], tracks: [track.id: track])
+        await store.setStored([track], certificateDate: currentDate)
+        await snapshotService.setMetadata(LibraryCacheMetadata(
+            trackCount: 1,
+            snapshotHash: "hash",
+            timestamp: currentDate,
+            libraryModificationDate: currentDate,
+            lastForceScanDate: currentDate.addingTimeInterval(-elapsedSinceForceScan)
+        ))
+        let service = LibrarySyncService(
+            trackStore: store,
+            librarySnapshotService: snapshotService,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                forceMetadataScanIntervalDays: intervalDays
+            ),
+            currentDate: { currentDate },
+            observer: observer
+        )
+
+        _ = try await service.detectObservation()
+        let request = try #require(await observer.recordedObservationRequests().first)
+        return request.refresh
     }
 }

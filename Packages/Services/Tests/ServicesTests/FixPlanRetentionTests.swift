@@ -182,8 +182,8 @@ struct FixPlanRetentionTests {
     func deletePlansRemovesOrphansWithDecisions() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let planStore = FixPlanDataStore(modelContainer: container)
-        let kept = makePlan()
-        let orphan = makePlan()
+        let kept = try makePlan()
+        let orphan = try makePlan()
         try await planStore.savePlan(kept, initialDecision: FixPlanReviewer.initialDecision(for: kept, at: baseDate))
         try await planStore.savePlan(
             orphan,
@@ -205,8 +205,8 @@ struct FixPlanRetentionTests {
     func deletePlansKeepsKeepingSet() async throws {
         let container = try ModelContainerFactory.createInMemory()
         let planStore = FixPlanDataStore(modelContainer: container)
-        let current = makePlan()
-        let queued = makePlan()
+        let current = try makePlan()
+        let queued = try makePlan()
         try await planStore.savePlan(
             current,
             initialDecision: FixPlanReviewer.initialDecision(for: current, at: baseDate)
@@ -228,8 +228,8 @@ struct FixPlanRetentionTests {
         let container = try ModelContainerFactory.createInMemory()
         let runStore = RunRecordDataStore(modelContainer: container)
         let planStore = FixPlanDataStore(modelContainer: container)
-        let oldPlan = makePlan()
-        let newPlan = makePlan()
+        let oldPlan = try makePlan()
+        let newPlan = try makePlan()
         try await planStore.savePlan(
             oldPlan,
             initialDecision: FixPlanReviewer.initialDecision(for: oldPlan, at: baseDate)
@@ -286,7 +286,7 @@ struct FixPlanRetentionTests {
         )
     }
 
-    private func makePlan() -> FixPlan {
+    private func makePlan() throws -> FixPlan {
         let scope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: ["Aphex Twin"],
             knownTrackCount: 75,
@@ -308,7 +308,7 @@ struct FixPlanRetentionTests {
             confidence: 92,
             source: "MusicBrainz"
         )
-        return FixPlan(
+        return try FixPlan(
             id: FixPlanID(),
             revision: .initial,
             sourceRunID: RunID(),
@@ -319,6 +319,7 @@ struct FixPlanRetentionTests {
                 options: UpdateOptions()
             ),
             scope: scope,
+            admission: processingAdmission(scope: scope),
             items: [item]
         )
     }

@@ -53,7 +53,7 @@ extension LibrarySyncService {
         guard let mirror = LibraryMirrorIndex(tracksByID: scopedByID) else {
             throw LibrarySyncObservationError.invalidObservation(detail: "stored mirror index is inconsistent")
         }
-        let requirement = mirrorRequirement()
+        let requirement = runtimeConfiguration.processingRequirement
         let readiness = snapshot.readiness(for: requirement, at: currentDate())
         let previous: LibraryMirrorReference = readiness.isReady ? .verified(mirror) : .initial
         let request = LibraryObservationRequest(scope: scope, refresh: refresh, previous: previous)
@@ -211,16 +211,6 @@ extension LibrarySyncService {
             ),
             observedAt: observation.observedAt
         ))
-    }
-
-    private func mirrorRequirement() -> MirrorRequirement {
-        let scanDays = runtimeConfiguration.forceMetadataScanIntervalDays
-        let maximumAge = scanDays > 0 ? TimeInterval(scanDays) * 86400 : nil
-        return MirrorRequirement(
-            testArtists: runtimeConfiguration.testArtists,
-            fieldSet: .processingV1,
-            maximumMetadataAge: maximumAge
-        )
     }
 
     private struct MirrorRepair {
@@ -501,12 +491,11 @@ extension LibrarySyncService {
         if force {
             return true
         }
-        guard runtimeConfiguration.forceMetadataScanIntervalDays > 0,
+        guard let interval = runtimeConfiguration.processingRequirement.maximumMetadataAge,
               let metadata = await librarySnapshotService?.getSnapshotMetadata(),
               let lastForceScanDate = metadata.lastForceScanDate
         else { return false }
 
-        let interval = TimeInterval(runtimeConfiguration.forceMetadataScanIntervalDays) * 86400
         return currentDate().timeIntervalSince(lastForceScanDate) >= interval
     }
 

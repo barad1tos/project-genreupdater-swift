@@ -32,6 +32,7 @@ struct BatchRecoveryTests {
         await #expect(throws: AppleScriptOutcomeError.self) {
             _ = try await processor.process(
                 tracks: makeRecoveryTracks(count: 3),
+                validateWrite: passWriteValidation,
                 operation: { track in
                     processedTrackIDs.append(track.id)
                     if track.id == "T1" {
@@ -66,6 +67,7 @@ struct BatchRecoveryTests {
         let restartedTrackIDs = RecoveryList<String>()
         _ = try await restartedProcessor.process(
             tracks: makeRecoveryTracks(count: 3),
+            validateWrite: passWriteValidation,
             operation: { track in
                 restartedTrackIDs.append(track.id)
                 return []
@@ -87,6 +89,7 @@ struct BatchRecoveryTests {
         await #expect(throws: AppleScriptOutcomeError.self) {
             _ = try await processor.process(
                 tracks: makeRecoveryTracks(count: 2),
+                validateWrite: passWriteValidation,
                 operation: { _ in
                     throw AppleScriptOutcomeError(scriptName: "update_property", duration: .seconds(3))
                 },
@@ -100,6 +103,7 @@ struct BatchRecoveryTests {
         let restartedTrackIDs = RecoveryList<String>()
         _ = try await processor.process(
             tracks: makeRecoveryTracks(count: 2),
+            validateWrite: passWriteValidation,
             operation: { track in
                 restartedTrackIDs.append(track.id)
                 return []
@@ -127,6 +131,7 @@ struct BatchRecoveryTests {
         await #expect(throws: AppleScriptOutcomeError.self) {
             _ = try await processor.process(
                 tracks: makeRecoveryTracks(count: 1),
+                validateWrite: passWriteValidation,
                 operation: { _ in
                     let checkpointDirectory = root.appendingPathComponent("checkpoints")
                     try FileManager.default.removeItem(at: checkpointDirectory)
@@ -146,6 +151,7 @@ struct BatchRecoveryTests {
         await #expect(throws: BatchProcessorError.self) {
             _ = try await restarted.process(
                 tracks: makeRecoveryTracks(count: 1),
+                validateWrite: passWriteValidation,
                 operation: { track in
                     writeCalls.append(track.id)
                     return []
@@ -194,6 +200,7 @@ private func expectRecoveryBlock(_ processor: BatchProcessor, id: UUID) async {
     do {
         _ = try await processor.process(
             tracks: makeRecoveryTracks(count: 3),
+            validateWrite: passWriteValidation,
             operation: { track in
                 trackIDs.append(track.id)
                 return []

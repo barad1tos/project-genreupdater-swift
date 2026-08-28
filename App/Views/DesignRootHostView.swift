@@ -849,6 +849,8 @@ extension AppDependencies {
             clearRecovery: { id in
                 try await self.clearRecoveryHold(id: id)
             },
+            admitProcessing: makeWorkflowAdmission(),
+            validateProcessing: makeWorkflowValidator(),
             prepareMutationMetadata: { mutationTracks in
                 _ = try await self.refreshTrackIDMappingOrThrow(
                     musicKitTracks: mutationTracks,

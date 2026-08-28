@@ -1,7 +1,7 @@
 import Core
 import Foundation
-import Services
 @testable import Genre_Updater
+@testable import Services
 
 @MainActor
 final class FixPlanCommandHarness {
@@ -338,7 +338,13 @@ func makeCommandPlan(
 ) -> FixPlan {
     var configuration = AppConfiguration()
     configuration.runtime.automationStrategy = automationStrategy
-    return FixPlan(
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: ["Björk"],
+        knownTrackCount: 12,
+        createdAt: Date(timeIntervalSince1970: 1_800_000_091),
+        reason: "fixPlanCommandTest"
+    )
+    return FixPlan(restoring: .init(
         id: FixPlanID(rawValue: commandUUID("00000000-0000-0000-0000-000000000101")),
         revision: .initial,
         sourceRunID: RunID(rawValue: commandUUID("00000000-0000-0000-0000-000000000102")),
@@ -357,12 +363,8 @@ func makeCommandPlan(
             ),
             capturedAt: Date(timeIntervalSince1970: 1_800_000_090)
         ),
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: ["Björk"],
-            knownTrackCount: 12,
-            createdAt: Date(timeIntervalSince1970: 1_800_000_091),
-            reason: "fixPlanCommandTest"
-        ),
+        scope: scope,
+        admission: .certified(workflowProcessingAdmission(scope: scope)),
         items: [
             makeCommandItem(
                 id: "00000000-0000-0000-0000-000000000201",
@@ -371,7 +373,7 @@ func makeCommandPlan(
             ),
             makeCommandItem(id: "00000000-0000-0000-0000-000000000202", type: .yearUpdate)
         ]
-    )
+    ))
 }
 
 func makeCommandItem(

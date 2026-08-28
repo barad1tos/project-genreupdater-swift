@@ -10,6 +10,10 @@ func testDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {
     return databaseID
 }
 
+func passWriteValidation() async throws {
+    // Callers isolate post-admission behavior; rejection paths use dedicated validators.
+}
+
 func musicUpdate(
     databaseID: MusicDatabaseTrackID,
     property: MusicTrackProperty,
