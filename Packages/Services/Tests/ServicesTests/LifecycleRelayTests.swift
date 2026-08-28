@@ -98,7 +98,7 @@ struct LifecycleRelayTests {
         await relay.attach(to: orchestrator)
         await submitObservation(orchestrator)
         // Let the forwarding task drain the boundary into the relay.
-        await waitUntil { await relay.latestSnapshot() != nil }
+        await waitUntil { await relay.latestSnapshot()?.isActive == false }
 
         let updates = await relay.subscribe()
         var iterator = updates.makeAsyncIterator()
