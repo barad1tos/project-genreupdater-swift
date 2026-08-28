@@ -179,7 +179,9 @@ struct FixPlanIdentityTests {
         scopeProbe: YearScopeProbe
     ) -> FixPlanProducer {
         FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
-            loadTracks: { tracks },
+            loadAdmission: { scope, _ in
+                .admitted(processingAdmission(scope: scope), tracks: tracks)
+            },
             makeRuntime: { _, _ in
                 FixPlanProducer.Runtime(
                     refreshIdentity: { tracks, _ in #expect(tracks.count == 2) },
@@ -215,7 +217,9 @@ struct FixPlanIdentityTests {
         capture: PlanCapture
     ) -> FixPlanProducer {
         FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
-            loadTracks: { [track] },
+            loadAdmission: { scope, _ in
+                .admitted(processingAdmission(scope: scope), tracks: [track])
+            },
             makeRuntime: { _, _ in
                 FixPlanProducer.Runtime(
                     refreshIdentity: { tracks, _ in

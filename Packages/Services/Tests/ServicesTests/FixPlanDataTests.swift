@@ -476,7 +476,7 @@ struct FixPlanDataTests {
         items: [FixPlanItem]? = nil
     ) -> FixPlan {
         FixPlan(
-            id: id,
+            restoringID: id,
             revision: revision,
             sourceRunID: RunID(),
             createdAt: createdAt,

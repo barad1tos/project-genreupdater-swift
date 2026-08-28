@@ -308,6 +308,47 @@ struct FixPlanFactoryTests {
         #expect(await fixture.processor.recoveryHoldID() == nil)
     }
 
+    @Test(
+        "Certificate replacement while queued stops eventual writes",
+        arguments: QueuedAdmissionPath.allCases
+    )
+    @MainActor
+    func queuedAdmissionFails(_ path: QueuedAdmissionPath) async throws {
+        let fixture = await makeWriteFixture(hasInitialRecovery: false)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let request = try path.request(input: fixture.input)
+        let holdID = UUID()
+        let orchestrator = RunOrchestrator(dependencies: .init(
+            synchronizeLibrary: { SyncResult() },
+            persistRunRecord: { _ in
+                // Persistence is outside this queued-admission boundary test.
+            },
+            write: .init(writeFixPlan: fixture.write),
+            currentDecisionTarget: { _ in fixture.input.target }
+        ))
+        await orchestrator.restoreRecoveryHold(id: holdID)
+        _ = await orchestrator.submit(request)
+        await fixture.validation.rejectAdmission()
+        _ = await orchestrator.resolveRecovery(
+            id: holdID,
+            runID: nil,
+            at: Date(timeIntervalSince1970: 300)
+        )
+
+        let release = await orchestrator.releaseQueuedWrite()
+
+        guard case let .released(.failed(snapshot)) = release else {
+            Issue.record("Expected queued write to fail admission, got \(release)")
+            return
+        }
+        #expect(snapshot.finishedAt != nil)
+        #expect(snapshot.workItems.allSatisfy { $0.state == .outcome(.failed) })
+        #expect(await fixture.validation.calls.count == 1)
+        #expect(await fixture.runtime.callCount == 0)
+        #expect(await fixture.script.metadataFetches.isEmpty)
+        #expect(await fixture.processor.recoveryHoldID() == nil)
+    }
+
     @Test("a landed write attributes its entries to the run it received")
     @MainActor
     func attributesEntriesToTheReceivedRun() async throws {
@@ -426,6 +467,49 @@ private enum StaleInputMutation: CaseIterable, Equatable {
             options: settings.determinationOptions,
             capturedAt: settings.capturedAt,
             hasDiscogsAccess: settings.hasDiscogsAccess
+        )
+    }
+}
+
+enum QueuedAdmissionPath: CaseIterable {
+    case manual
+    case continuation
+
+    func request(input: FixPlanWriteInput) throws -> RunRequest {
+        switch self {
+        case .manual:
+            .manualWrite(input: input)
+        case .continuation:
+            try .continuation(of: sourceRecord(input: input), input: input)
+        }
+    }
+
+    private func sourceRecord(input: FixPlanWriteInput) throws -> RunRecord {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let failedItems = try input.workItems.map {
+            try $0.transition(to: .outcome(.failed), detail: "Retryable failure")
+        }
+        return RunRecord(
+            header: .init(
+                runID: RunID(),
+                requestID: RunRequestID(),
+                trigger: .manualCheck,
+                intent: .writeFixes,
+                scope: input.scope,
+                continuesRunID: nil,
+                startedAt: startedAt
+            ),
+            configuration: input.configuration,
+            writeTarget: input.target,
+            transitions: [
+                RunLifecycleTransition(state: .cancelled, timestamp: startedAt.addingTimeInterval(5)),
+            ],
+            workItems: failedItems,
+            status: .init(
+                syncSummary: nil,
+                failureMessage: nil,
+                finishedAt: startedAt.addingTimeInterval(5)
+            )
         )
     }
 }
@@ -627,7 +711,7 @@ private func makePlan(_ item: FixPlanItem) -> FixPlan {
         maximumMetadataAge: nil
     )
     return FixPlan(
-        id: FixPlanID(),
+        restoringID: FixPlanID(),
         revision: .initial,
         sourceRunID: RunID(),
         createdAt: capturedAt,
@@ -673,11 +757,15 @@ private actor AdmissionValidationProbe {
         let match: AdmissionTrackMatch
     }
 
-    let rejectsAdmission: Bool
+    private var rejectsAdmission: Bool
     private(set) var calls: [Call] = []
 
     init(rejectsAdmission: Bool) {
         self.rejectsAdmission = rejectsAdmission
+    }
+
+    func rejectAdmission() {
+        rejectsAdmission = true
     }
 
     func validate(

@@ -155,7 +155,7 @@ struct AnalyticsBoundaryTests {
         await #expect(throws: BatchProcessorError.self) {
             try await processor.process(
                 tracks: [instrumentationTrack(id: "T1")],
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 operation: { _ in throw CancellationError() },
                 progressHandler: ignoreAcceptedChangeProgress
             )

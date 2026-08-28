@@ -1,8 +1,8 @@
 import Core
 import Foundation
-import Services
 import Testing
 @testable import Genre_Updater
+@testable import Services
 
 @Suite("Preview producer runtime")
 @MainActor
@@ -51,6 +51,33 @@ struct PreviewProducerTests {
         #expect(production == .empty)
         #expect(await store.mirrorLoadCount() == 1)
         #expect(await store.allTrackLoadTotal() == 0)
+    }
+
+    @Test("album-targeted sync certifies the submitted scope for production preview")
+    func certifiesAlbumPreview() async throws {
+        let fixture = try await makeAlbumPreviewFixture()
+        let sync = try await fixture.runtime.makeSync(
+            configuration: fixture.configuration,
+            scope: fixture.scope
+        )
+        _ = try await sync.synchronizeNow(forceMetadataRefresh: true)
+        let producer = try #require(fixture.dependencies.makePreviewProducer(runtime: fixture.runtime))
+        let production = try await producer(RunID(), fixture.scope, fixture.configuration)
+        let snapshot = try await fixture.store.loadMirrorSnapshot()
+        let requirement = try LibrarySyncRuntimeConfiguration(
+            configuration: fixture.appConfiguration
+        ).processingRequirement
+        #expect(snapshot.readiness(for: requirement, at: Date()).isReady)
+        #expect(production.proposalCount == 1)
+        let planID = try #require(production.planID)
+        let plan = try #require(await fixture.planStore.plan(id: planID, revision: .initial))
+        guard case let .certified(admission) = plan.admission else {
+            Issue.record("Production preview must persist certified admission")
+            return
+        }
+        #expect(admission.scopeID == fixture.scope.id)
+        #expect(Set(admission.certificate.normalizedTestArtists) == Set(fixture.scope.normalizedTestArtists))
+        #expect(plan.items.map(\.identity.readID) == [fixture.target.id])
     }
 
     @Test("Invalid historical configuration blocks sync before runtime services")
@@ -350,8 +377,9 @@ struct PreviewProducerTests {
         )
         _ = try await runtime.makeSync(configuration: configuration, scope: scope)
         let previewRuntime = try await runtime.makePreview(configuration: configuration, scope: scope)
+        let admission = try unitAdmission(scope: scope, tracks: rawTracks)
         let producer = FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
-            loadTracks: { rawTracks },
+            loadAdmission: { _, _ in .admitted(admission, tracks: rawTracks) },
             makeRuntime: { _, _ in
                 FixPlanProducer.Runtime(
                     refreshIdentity: previewRuntime.refreshIdentity,
@@ -428,6 +456,33 @@ struct PreviewProducerTests {
         ]
     }
 
+    private func unitAdmission(
+        scope: ProcessingScopeSnapshot,
+        tracks: [Track]
+    ) throws -> ProcessingAdmission {
+        let trackIDs = try tracks.map { track in
+            try #require(MusicDatabaseTrackID(rawValue: track.id))
+        }
+        let membership = try MembershipFingerprint.make(ids: trackIDs)
+        return ProcessingAdmission(
+            scopeID: scope.id,
+            certificate: ScopeCertificate(
+                id: UUID(),
+                revision: .initial,
+                membership: membership,
+                testArtists: scope.normalizedTestArtists,
+                fieldSet: .processingV1,
+                evidence: ScopeEvidence(
+                    requestedFingerprint: membership.fingerprint,
+                    observedFingerprint: membership.fingerprint,
+                    trackCount: trackIDs.count
+                ),
+                observedAt: Date(timeIntervalSince1970: 100)
+            ),
+            maximumMetadataAge: nil
+        )
+    }
+
     @Test("discard removes submitted Discogs access")
     func discardsDiscogsAccess() async throws {
         let services = RunServiceFactory(
@@ -494,14 +549,174 @@ struct PreviewProducerTests {
     }
 }
 
+private struct AlbumPreviewFixture {
+    let appConfiguration: AppConfiguration
+    let configuration: FixPlanConfig
+    let scope: ProcessingScopeSnapshot
+    let target: Track
+    let runtime: RunRuntimeFactory
+    let dependencies: AppDependencies
+    let store: TrackDataStore
+    let planStore: FixPlanDataStore
+}
+
+@MainActor
+private func makeAlbumPreviewFixture() async throws -> AlbumPreviewFixture {
+    let observedAt = Date()
+    let tracks = albumPreviewTracks()
+    var appConfiguration = AppConfiguration()
+    appConfiguration.development.testArtists = [tracks.target.artist, tracks.context.artist]
+    appConfiguration.cleaning.genreMappings = ["Rock": "Metal"]
+    appConfiguration.genreUpdate.overrideExisting = true
+    appConfiguration.yearRetrieval.enabled = false
+    let configuration = FixPlanConfig.capture(
+        configuration: appConfiguration,
+        options: UpdateOptions(updateGenre: true, updateYear: false),
+        capturedAt: observedAt,
+        albumTarget: FixPlanAlbumTarget(artist: tracks.target.artist, album: tracks.target.album)
+    )
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: appConfiguration.development.testArtists,
+        knownTrackCount: 2,
+        createdAt: observedAt,
+        reason: "album-preview-admission-test"
+    )
+    let container = try ModelContainerFactory.createInMemory()
+    let store = TrackDataStore(modelContainer: container)
+    try await store.initialize()
+    let planStore = FixPlanDataStore(modelContainer: container)
+    let cache = try GRDBCacheService.createInMemory()
+    try await cache.initialize()
+    let runtime = makeAlbumRuntime(
+        tracks: [tracks.target, tracks.context],
+        observedAt: observedAt,
+        store: store,
+        cache: cache
+    )
+    let dependencies = AppDependencies(
+        configurationLoader: { appConfiguration },
+        modelContainerFactory: ModelContainerFactory.createInMemory
+    )
+    dependencies.configureLibraryPersistenceForTesting(trackStore: store, fixPlanStore: planStore)
+    return AlbumPreviewFixture(
+        appConfiguration: appConfiguration,
+        configuration: configuration,
+        scope: scope,
+        target: tracks.target,
+        runtime: runtime,
+        dependencies: dependencies,
+        store: store,
+        planStore: planStore
+    )
+}
+
+private func albumPreviewTracks() -> (target: Track, context: Track) {
+    let target = Track(
+        id: "target",
+        name: "Target Song",
+        artist: "Probe Artist",
+        album: "Target Album",
+        genre: "Rock",
+        dateAdded: Date(timeIntervalSince1970: 50),
+        trackStatus: TrackKind.subscription.rawValue,
+        appleScriptID: "target"
+    )
+    let context = Track(
+        id: "context",
+        name: "Context Song",
+        artist: "Context Artist",
+        album: "Context Album",
+        genre: "Electronic",
+        dateAdded: Date(timeIntervalSince1970: 40),
+        trackStatus: TrackKind.subscription.rawValue,
+        appleScriptID: "context"
+    )
+    return (target, context)
+}
+
+@MainActor
+private func makeAlbumRuntime(
+    tracks: [Track],
+    observedAt: Date,
+    store: TrackDataStore,
+    cache: GRDBCacheService
+) -> RunRuntimeFactory {
+    let script = PreviewScriptClient(tracks: tracks)
+    let services = RunServiceFactory(
+        makeMusicAccess: { _ in
+            RunMusicAccess(
+                identifier: script,
+                writer: script,
+                observer: PreviewSyncObserver(tracks: tracks, observedAt: observedAt)
+            )
+        },
+        makePendingVerification: { _ in nil }
+    )
+    return RunRuntimeFactory(
+        services: services,
+        store: store,
+        gate: FeatureGate(fixedTier: .pro),
+        cache: cache,
+        undo: UndoCoordinator(musicApp: script),
+        mapper: TrackIDMapper(),
+        reachability: nil,
+        discogsAccessStore: DiscogsAccessStore(),
+        analytics: nil
+    )
+}
+
 private enum RuntimeEntryPoint: CaseIterable {
-    case sync
-    case preview
-    case write
+    case sync, preview, write
 }
 
 private func previewAccess(_ scripts: PreviewScriptClient) -> RunMusicAccess {
     RunMusicAccess(identifier: scripts, writer: scripts, observer: MusicAppTestObserver(tracks: []))
+}
+
+private actor PreviewSyncObserver: MusicAppReading {
+    private let tracks: [Track]
+    private let observedAt: Date
+
+    init(tracks: [Track], observedAt: Date) {
+        self.tracks = tracks
+        self.observedAt = observedAt
+    }
+
+    func observe(_ request: LibraryObservationRequest) throws -> LibraryObservation {
+        let generation = try #require(LibraryGeneration(sourceValue: "album-preview-test"))
+        let rows = tracks.compactMap { track -> LibraryTrackRow? in
+            guard let databaseID = track.databaseID else { return nil }
+            return LibraryTrackRow(
+                databaseID: databaseID,
+                metadata: LibraryTrackMetadata(
+                    text: LibraryTrackText(
+                        name: .value(track.name),
+                        artist: .value(track.artist),
+                        album: .value(track.album),
+                        albumArtist: track.albumArtist.map(Observed.value) ?? .absent
+                    ),
+                    genre: track.genre.map(Observed.value) ?? .absent,
+                    editableYear: track.year.map(Observed.value) ?? .absent,
+                    releaseYear: track.releaseYear.map(Observed.value) ?? .absent,
+                    dateAdded: track.dateAdded.map(Observed.value) ?? .absent,
+                    lastModified: track.lastModified.map(Observed.value) ?? .absent,
+                    status: track.trackStatus.map(Observed.value) ?? .absent
+                )
+            )
+        }
+        let currentIDs = Set(rows.map(\.databaseID))
+        return LibraryObservation(
+            tracks: rows,
+            censusIDs: currentIDs,
+            currentIDs: currentIDs,
+            scope: request.scope,
+            observedAt: observedAt,
+            membership: request.scope.source == .fullLibrary ? .full : .scoped(unobservedIDs: []),
+            metadata: MetadataCompleteness(requestedIDs: currentIDs, observedIDs: currentIDs),
+            generation: generation,
+            issues: []
+        )
+    }
 }
 
 private actor PreviewAdmissionStore: TrackStateStore {
@@ -535,7 +750,9 @@ private actor PreviewAdmissionStore: TrackStateStore {
         )
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        throw PreviewStoreError.unexpectedInitialize
+    }
 
     func loadAllTracks() async throws -> [Track] {
         allTrackLoads += 1
@@ -555,7 +772,9 @@ private actor PreviewAdmissionStore: TrackStateStore {
         nil
     }
 
-    func persistAppliedChange(_: ChangeLogEntry) async throws {}
+    func persistAppliedChange(_: ChangeLogEntry) async throws {
+        throw PreviewStoreError.unexpectedPersist
+    }
 
     func getUnprocessedTracks() async throws -> [Track] {
         []
@@ -575,5 +794,7 @@ private actor PreviewAdmissionStore: TrackStateStore {
 }
 
 private enum PreviewStoreError: Error {
+    case unexpectedInitialize
     case unexpectedLoadAll
+    case unexpectedPersist
 }

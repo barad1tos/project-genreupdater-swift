@@ -360,6 +360,63 @@ struct FixPlanTests {
         #expect(ReviewDecisionRevision(1) < ReviewDecisionRevision(2))
     }
 
+    @Test("new fix plans reject admission certified for another scope")
+    func newPlansRejectMismatchedAdmission() throws {
+        let planScope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Plan Artist"],
+            knownTrackCount: 1,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "unit-test"
+        )
+        let admittedScope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Admitted Artist"],
+            knownTrackCount: 1,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "unit-test"
+        )
+        let admission = try makeAdmission(scope: admittedScope)
+
+        #expect(throws: ProcessingAdmissionRejection.scopeMismatch) {
+            _ = try FixPlan(
+                id: FixPlanID(),
+                revision: .initial,
+                sourceRunID: RunID(),
+                createdAt: Date(timeIntervalSince1970: 100),
+                configuration: FixPlanConfig.capture(
+                    configuration: AppConfiguration(),
+                    options: UpdateOptions(),
+                    capturedAt: Date(timeIntervalSince1970: 100)
+                ),
+                scope: planScope,
+                admission: admission,
+                items: []
+            )
+        }
+    }
+
+    @Test("capture evidence rejects admission certified for another scope")
+    func captureEvidenceRejectsMismatchedAdmission() throws {
+        let planScope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Plan Artist"],
+            knownTrackCount: 1,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "unit-test"
+        )
+        let admittedScope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Admitted Artist"],
+            knownTrackCount: 1,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "unit-test"
+        )
+
+        #expect(throws: ProcessingAdmissionRejection.scopeMismatch) {
+            _ = try FixPlanCapture.Evidence(
+                scope: planScope,
+                admission: makeAdmission(scope: admittedScope)
+            )
+        }
+    }
+
     // MARK: - FixPlanCapture
 
     @Test("makePlan maps every ProposedChange field into a FixPlanItem")
@@ -393,10 +450,10 @@ struct FixPlanTests {
 
         let sourceRunID = RunID()
         let plan = try #require(
-            FixPlanCapture.makePlan(
+            try FixPlanCapture.makePlan(
                 from: [proposal],
                 sourceRunID: sourceRunID,
-                scope: scope,
+                evidence: makeEvidence(scope: scope),
                 configuration: configuration,
                 createdAt: Date(timeIntervalSince1970: 200)
             )
@@ -456,10 +513,10 @@ struct FixPlanTests {
             capturedAt: Date(timeIntervalSince1970: 100)
         )
 
-        let plan = try #require(FixPlanCapture.makePlan(
+        let plan = try #require(try FixPlanCapture.makePlan(
             from: [proposal],
             sourceRunID: RunID(),
-            scope: scope,
+            evidence: makeEvidence(scope: scope),
             configuration: configuration,
             createdAt: Date(timeIntervalSince1970: 200)
         ))
@@ -482,16 +539,17 @@ struct FixPlanTests {
             )
         }
 
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 3,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "unit-test"
+        )
         let plan = try #require(
-            FixPlanCapture.makePlan(
+            try FixPlanCapture.makePlan(
                 from: proposals,
                 sourceRunID: RunID(),
-                scope: ProcessingScopeSnapshot.capture(
-                    requestedTestArtists: [],
-                    knownTrackCount: 3,
-                    createdAt: Date(timeIntervalSince1970: 100),
-                    reason: "unit-test"
-                ),
+                evidence: makeEvidence(scope: scope),
                 configuration: FixPlanConfig.capture(
                     configuration: AppConfiguration(),
                     options: UpdateOptions(),
@@ -518,16 +576,17 @@ struct FixPlanTests {
             source: "manual"
         )
 
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 1,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "unit-test"
+        )
         let plan = try #require(
-            FixPlanCapture.makePlan(
+            try FixPlanCapture.makePlan(
                 from: [proposal],
                 sourceRunID: RunID(),
-                scope: ProcessingScopeSnapshot.capture(
-                    requestedTestArtists: [],
-                    knownTrackCount: 1,
-                    createdAt: Date(timeIntervalSince1970: 100),
-                    reason: "unit-test"
-                ),
+                evidence: makeEvidence(scope: scope),
                 configuration: FixPlanConfig.capture(
                     configuration: AppConfiguration(),
                     options: UpdateOptions(),
@@ -542,16 +601,17 @@ struct FixPlanTests {
     }
 
     @Test("makePlan returns nil for empty proposals")
-    func makePlanReturnsNilForEmptyProposals() {
-        let plan = FixPlanCapture.makePlan(
+    func makePlanReturnsNilForEmptyProposals() throws {
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 0,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "unit-test"
+        )
+        let plan = try FixPlanCapture.makePlan(
             from: [],
             sourceRunID: RunID(),
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: [],
-                knownTrackCount: 0,
-                createdAt: Date(timeIntervalSince1970: 100),
-                reason: "unit-test"
-            ),
+            evidence: makeEvidence(scope: scope),
             configuration: FixPlanConfig.capture(
                 configuration: AppConfiguration(),
                 options: UpdateOptions(),
@@ -598,19 +658,19 @@ struct FixPlanTests {
         )
 
         let acceptedPlan = try #require(
-            FixPlanCapture.makePlan(
+            try FixPlanCapture.makePlan(
                 from: [acceptedProposal],
                 sourceRunID: RunID(),
-                scope: scope,
+                evidence: makeEvidence(scope: scope),
                 configuration: configuration,
                 createdAt: Date(timeIntervalSince1970: 200)
             )
         )
         let rejectedPlan = try #require(
-            FixPlanCapture.makePlan(
+            try FixPlanCapture.makePlan(
                 from: [rejectedProposal],
                 sourceRunID: RunID(),
-                scope: scope,
+                evidence: makeEvidence(scope: scope),
                 configuration: configuration,
                 createdAt: Date(timeIntervalSince1970: 200)
             )
@@ -618,4 +678,32 @@ struct FixPlanTests {
 
         #expect(acceptedPlan.items == rejectedPlan.items)
     }
+}
+
+private func makeAdmission(scope: ProcessingScopeSnapshot) throws -> ProcessingAdmission {
+    let membership = try MembershipFingerprint.make(ids: [])
+    return ProcessingAdmission(
+        scopeID: scope.id,
+        certificate: ScopeCertificate(
+            id: UUID(),
+            revision: .initial,
+            membership: membership,
+            testArtists: scope.normalizedTestArtists,
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: membership.fingerprint,
+                observedFingerprint: membership.fingerprint,
+                trackCount: scope.knownTrackCount ?? 0
+            ),
+            observedAt: scope.createdAt
+        ),
+        maximumMetadataAge: nil
+    )
+}
+
+private func makeEvidence(scope: ProcessingScopeSnapshot) throws -> FixPlanCapture.Evidence {
+    try FixPlanCapture.Evidence(
+        scope: scope,
+        admission: makeAdmission(scope: scope)
+    )
 }

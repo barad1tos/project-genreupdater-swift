@@ -1,9 +1,9 @@
 import Core
 import DesignUI
 import Foundation
-import Services
 import Testing
 @testable import Genre_Updater
+@testable import Services
 
 @Suite("Settings commands")
 @MainActor
@@ -455,18 +455,20 @@ private struct SaveProbeFailure: Error {}
 @MainActor
 private func makeSettingsProbePlan(configuration: FixPlanConfig) -> FixPlan {
     let item = makeCommandItem(id: "00000000-0000-0000-0000-000000000901", type: .genreUpdate)
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: [],
+        knownTrackCount: nil,
+        createdAt: Date(timeIntervalSince1970: 100),
+        reason: "settings-command-test"
+    )
     return FixPlan(
-        id: FixPlanID(),
+        restoringID: FixPlanID(),
         revision: .initial,
         sourceRunID: RunID(),
         createdAt: Date(timeIntervalSince1970: 100),
         configuration: configuration,
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: nil,
-            createdAt: Date(timeIntervalSince1970: 100),
-            reason: "settings-command-test"
-        ),
+        scope: scope,
+        admission: .certified(workflowProcessingAdmission(scope: scope)),
         items: [item]
     )
 }

@@ -554,7 +554,7 @@ struct DependencyConfigTests {
                 // This test reads a stored fix plan without mutating app configuration.
             }
         )
-        let plan = try #require(makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
+        let plan = try #require(try makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
             at: Date(timeIntervalSince1970: 1_800_000_100),
             hasDiscogsAccess: true
         )))
@@ -590,7 +590,7 @@ struct DependencyConfigTests {
         )
         // The target is the plan's identity, not a live setting: staleness
         // must not flag it as configuration drift.
-        let plan = try #require(makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
+        let plan = try #require(try makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
             at: Date(timeIntervalSince1970: 1_800_000_100),
             hasDiscogsAccess: true,
             albumTarget: FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant")
@@ -684,7 +684,7 @@ actor StoredFixPlanStore: FixPlanStore {
     }
 }
 
-func makeStoredFixPlan(configuration: FixPlanConfig) -> FixPlan? {
+func makeStoredFixPlan(configuration: FixPlanConfig) throws -> FixPlan? {
     let track = Track(
         id: "stored-track",
         name: "Stored Track",
@@ -702,14 +702,18 @@ func makeStoredFixPlan(configuration: FixPlanConfig) -> FixPlan? {
         confidence: 73,
         source: "test"
     )
-    return FixPlanCapture.makePlan(
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: [],
+        knownTrackCount: nil,
+        createdAt: Date(timeIntervalSince1970: 1_800_000_100),
+        reason: "stored-plan-test"
+    )
+    return try FixPlanCapture.makePlan(
         from: [proposal],
         sourceRunID: RunID(),
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: nil,
-            createdAt: Date(timeIntervalSince1970: 1_800_000_100),
-            reason: "stored-plan-test"
+        evidence: .init(
+            scope: scope,
+            admission: workflowProcessingAdmission(scope: scope)
         ),
         configuration: configuration,
         createdAt: Date(timeIntervalSince1970: 1_800_000_100)

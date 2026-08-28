@@ -37,7 +37,6 @@ public struct FixPlanProducer: Sendable {
         public let makeRuntime: @Sendable (FixPlanConfig, ProcessingScopeSnapshot) async throws -> Runtime
         public let savePlan: @Sendable (FixPlan, FixPlanReviewDecision) async throws -> Void
         public let now: @Sendable () -> Date
-        fileprivate let loadLegacyTracks: (@Sendable () async throws -> [Track])?
 
         public init(
             loadAdmission: @escaping @Sendable (
@@ -52,22 +51,6 @@ public struct FixPlanProducer: Sendable {
             self.makeRuntime = makeRuntime
             self.savePlan = savePlan
             self.now = now
-            loadLegacyTracks = nil
-        }
-
-        /// Preserves source compatibility without fabricating admission evidence.
-        /// Production wiring must use `loadAdmission`.
-        public init(
-            loadTracks: @escaping @Sendable () async throws -> [Track],
-            makeRuntime: @escaping @Sendable (FixPlanConfig, ProcessingScopeSnapshot) async throws -> Runtime,
-            savePlan: @escaping @Sendable (FixPlan, FixPlanReviewDecision) async throws -> Void,
-            now: @escaping @Sendable () -> Date
-        ) {
-            loadAdmission = { _, _ in .rejected(.scopeMismatch) }
-            self.makeRuntime = makeRuntime
-            self.savePlan = savePlan
-            self.now = now
-            loadLegacyTracks = loadTracks
         }
     }
 
@@ -83,9 +66,7 @@ public struct FixPlanProducer: Sendable {
         configuration: FixPlanConfig
     ) async throws -> FixPlanProduction {
         let options = configuration.determinationOptions
-        guard let planningInput = try await loadPlanningInput(scope: scope, configuration: configuration) else {
-            return .empty
-        }
+        let planningInput = try await loadPlanningInput(scope: scope, configuration: configuration)
         let (admission, admittedTracks) = planningInput
         let targetedTracks = Self.albumTargetedTracks(admittedTracks, target: configuration.albumTarget)
         guard !targetedTracks.isEmpty else { return .empty }
@@ -118,23 +99,13 @@ public struct FixPlanProducer: Sendable {
             minConfidence: options.minConfidence
         )
         let producedAt = dependencies.now()
-        let plan = if let admission {
-            FixPlanCapture.makePlan(
-                from: filteredProposals,
-                sourceRunID: sourceRunID,
-                evidence: .init(scope: scope, admission: admission),
-                configuration: configuration,
-                createdAt: producedAt
-            )
-        } else {
-            FixPlanCapture.makePlan(
-                from: filteredProposals,
-                sourceRunID: sourceRunID,
-                scope: scope,
-                configuration: configuration,
-                createdAt: producedAt
-            )
-        }
+        let plan = try FixPlanCapture.makePlan(
+            from: filteredProposals,
+            sourceRunID: sourceRunID,
+            evidence: .init(scope: scope, admission: admission),
+            configuration: configuration,
+            createdAt: producedAt
+        )
         guard let plan else {
             return .empty
         }
@@ -147,16 +118,12 @@ public struct FixPlanProducer: Sendable {
     private func loadPlanningInput(
         scope: ProcessingScopeSnapshot,
         configuration: FixPlanConfig
-    ) async throws -> (ProcessingAdmission?, [Track])? {
-        if let loadLegacyTracks = dependencies.loadLegacyTracks {
-            return try await (nil, Self.legacyScopedTracks(loadLegacyTracks(), scope: scope))
-        }
-
+    ) async throws -> (ProcessingAdmission, [Track]) {
         switch try await dependencies.loadAdmission(scope, configuration) {
         case let .admitted(admission, tracks):
-            return (admission, tracks)
-        case .rejected:
-            return nil
+            (admission, tracks)
+        case let .rejected(reason):
+            throw reason
         }
     }
 
@@ -282,21 +249,6 @@ public struct FixPlanProducer: Sendable {
     private struct IndexedProposals: Sendable {
         let trackIndex: Int
         let proposals: [ProposedChange]
-    }
-
-    private static func legacyScopedTracks(_ tracks: [Track], scope: ProcessingScopeSnapshot) -> [Track] {
-        switch scope.source {
-        case .fullLibrary:
-            tracks
-        case .testArtists:
-            // A .testArtists snapshot with an empty normalized list cannot
-            // come from capture(); a decoded or hand-built one must fail
-            // CLOSED — ArtistAllowList.filter's empty-list arm would widen
-            // the plan to the whole library on the write path.
-            scope.normalizedTestArtists.isEmpty
-                ? []
-                : ArtistAllowList.filter(tracks, allowedArtists: scope.normalizedTestArtists)
-        }
     }
 
     /// Intersects already-scoped tracks with one album's CANONICAL

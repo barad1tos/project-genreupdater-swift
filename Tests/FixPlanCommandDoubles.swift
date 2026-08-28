@@ -1,7 +1,7 @@
 import Core
 import Foundation
-import Services
 @testable import Genre_Updater
+@testable import Services
 
 @MainActor
 final class FixPlanCommandHarness {
@@ -345,7 +345,7 @@ func makeCommandPlan(
         reason: "fixPlanCommandTest"
     )
     return FixPlan(
-        id: FixPlanID(rawValue: commandUUID("00000000-0000-0000-0000-000000000101")),
+        restoringID: FixPlanID(rawValue: commandUUID("00000000-0000-0000-0000-000000000101")),
         revision: .initial,
         sourceRunID: RunID(rawValue: commandUUID("00000000-0000-0000-0000-000000000102")),
         createdAt: Date(timeIntervalSince1970: 1_800_000_100),

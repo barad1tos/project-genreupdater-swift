@@ -129,7 +129,32 @@ public struct FixPlan: Equatable, Sendable {
         createdAt: Date,
         configuration: FixPlanConfig,
         scope: ProcessingScopeSnapshot,
-        admission: FixPlanAdmission = .legacyUncertified,
+        admission: ProcessingAdmission,
+        items: [FixPlanItem]
+    ) throws {
+        guard admission.certifies(scope: scope) else {
+            throw ProcessingAdmissionRejection.scopeMismatch
+        }
+        self.init(
+            restoringID: id,
+            revision: revision,
+            sourceRunID: sourceRunID,
+            createdAt: createdAt,
+            configuration: configuration,
+            scope: scope,
+            admission: .certified(admission),
+            items: items
+        )
+    }
+
+    init(
+        restoringID id: FixPlanID,
+        revision: FixPlanRevision,
+        sourceRunID: RunID,
+        createdAt: Date,
+        configuration: FixPlanConfig,
+        scope: ProcessingScopeSnapshot,
+        admission: FixPlanAdmission,
         items: [FixPlanItem]
     ) {
         self.id = id

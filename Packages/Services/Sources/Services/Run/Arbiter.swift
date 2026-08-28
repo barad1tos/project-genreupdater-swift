@@ -22,7 +22,15 @@ enum TriggerArbiter {
         let strongestRank = candidateKeys.map(\.rank).max() ?? activeKey.rank
 
         if incomingKey.rank < strongestRank {
-            return .alreadyCovered(pending)
+            if candidateKeys.contains(where: { key in
+                key.rank >= incomingKey.rank && key.covers(incomingKey)
+            }) {
+                return .alreadyCovered(pending)
+            }
+            let retainedPending = zip(pending, pendingKeys).compactMap { trigger, key in
+                key.rank < incomingKey.rank && incomingKey.covers(key) ? nil : trigger
+            }
+            return .queue(retainedPending + [PendingTrigger(request: incoming)])
         }
 
         if incomingKey.rank == strongestRank {

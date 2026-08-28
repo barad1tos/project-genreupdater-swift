@@ -7,7 +7,10 @@ public enum FixPlanCapture {
         public let scope: ProcessingScopeSnapshot
         public let admission: ProcessingAdmission
 
-        public init(scope: ProcessingScopeSnapshot, admission: ProcessingAdmission) {
+        public init(scope: ProcessingScopeSnapshot, admission: ProcessingAdmission) throws {
+            guard admission.certifies(scope: scope) else {
+                throw ProcessingAdmissionRejection.scopeMismatch
+            }
             self.scope = scope
             self.admission = admission
         }
@@ -21,41 +24,7 @@ public enum FixPlanCapture {
         evidence: Evidence,
         configuration: FixPlanConfig,
         createdAt: Date
-    ) -> FixPlan? {
-        makePlan(
-            from: proposals,
-            sourceRunID: sourceRunID,
-            scopeEvidence: (evidence.scope, .certified(evidence.admission)),
-            configuration: configuration,
-            createdAt: createdAt
-        )
-    }
-
-    /// Builds an uncertified plan for source compatibility with historical callers.
-    /// Production plan creation must use the admission-bearing overload above.
-    public static func makePlan(
-        from proposals: [ProposedChange],
-        sourceRunID: RunID,
-        scope: ProcessingScopeSnapshot,
-        configuration: FixPlanConfig,
-        createdAt: Date
-    ) -> FixPlan? {
-        makePlan(
-            from: proposals,
-            sourceRunID: sourceRunID,
-            scopeEvidence: (scope, .legacyUncertified),
-            configuration: configuration,
-            createdAt: createdAt
-        )
-    }
-
-    private static func makePlan(
-        from proposals: [ProposedChange],
-        sourceRunID: RunID,
-        scopeEvidence: (scope: ProcessingScopeSnapshot, admission: FixPlanAdmission),
-        configuration: FixPlanConfig,
-        createdAt: Date
-    ) -> FixPlan? {
+    ) throws -> FixPlan? {
         guard !proposals.isEmpty else { return nil }
 
         let items = proposals.map { proposal in
@@ -78,14 +47,14 @@ public enum FixPlanCapture {
             )
         }
 
-        return FixPlan(
+        return try FixPlan(
             id: FixPlanID(),
             revision: .initial,
             sourceRunID: sourceRunID,
             createdAt: createdAt,
             configuration: configuration,
-            scope: scopeEvidence.scope,
-            admission: scopeEvidence.admission,
+            scope: evidence.scope,
+            admission: evidence.admission,
             items: items
         )
     }

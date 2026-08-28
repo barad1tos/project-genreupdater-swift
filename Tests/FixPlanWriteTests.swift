@@ -1,15 +1,65 @@
 import Core
 import Foundation
-import Services
 import Testing
 @testable import Genre_Updater
+@testable import Services
 
 @Suite("FixPlanWrite")
 struct FixPlanWriteTests {
     @Test("Legacy plans cannot create write input")
     func legacyPlanCannotCreateWriteInput() {
         let item = fixPlanItem(id: UUID(), index: 1)
-        let plan = fixPlan(items: [item])
+        let plan = fixPlan(items: [item], isLegacy: true)
+        let decision = reviewDecision(
+            for: plan,
+            items: [FixPlanItemDecision(itemID: item.id, verdict: .accepted)]
+        )
+
+        #expect(throws: FixPlanWrite.Failure.self) {
+            _ = try FixPlanWrite.makeInput(
+                plan: plan,
+                decision: decision,
+                configuration: writeConfiguration(for: plan, decidedAt: decision.decidedAt)
+            )
+        }
+    }
+
+    @Test("Restored plan with mismatched certified scope cannot create write input")
+    func mismatchedCertifiedPlanCannotCreateWriteInput() {
+        let item = fixPlanItem(id: UUID(), index: 1)
+        let capturedAt = Date(timeIntervalSince1970: 100)
+        let planScope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Plan Artist"],
+            knownTrackCount: 1,
+            createdAt: capturedAt,
+            reason: "unit-test"
+        )
+        let admittedScope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Admitted Artist"],
+            knownTrackCount: 1,
+            createdAt: capturedAt,
+            reason: "unit-test"
+        )
+        let admitted = workflowProcessingAdmission(scope: admittedScope)
+        let forgedAdmission = ProcessingAdmission(
+            scopeID: planScope.id,
+            certificate: admitted.certificate,
+            maximumMetadataAge: admitted.maximumMetadataAge
+        )
+        let plan = FixPlan(
+            restoringID: FixPlanID(),
+            revision: .initial,
+            sourceRunID: RunID(),
+            createdAt: capturedAt,
+            configuration: FixPlanConfig.capture(
+                configuration: AppConfiguration(),
+                options: UpdateOptions(),
+                capturedAt: capturedAt
+            ),
+            scope: planScope,
+            admission: .certified(forgedAdmission),
+            items: [item]
+        )
         let decision = reviewDecision(
             for: plan,
             items: [FixPlanItemDecision(itemID: item.id, verdict: .accepted)]
@@ -305,10 +355,16 @@ private func appleScriptTrack(from track: Track) -> Track {
     )
 }
 
-private func fixPlan(items: [FixPlanItem]) -> FixPlan {
+private func fixPlan(items: [FixPlanItem], isLegacy: Bool = false) -> FixPlan {
     let capturedAt = Date(timeIntervalSince1970: 100)
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: [],
+        knownTrackCount: items.count,
+        createdAt: capturedAt,
+        reason: "unit-test"
+    )
     return FixPlan(
-        id: FixPlanID(),
+        restoringID: FixPlanID(),
         revision: .initial,
         sourceRunID: RunID(),
         createdAt: capturedAt,
@@ -317,12 +373,10 @@ private func fixPlan(items: [FixPlanItem]) -> FixPlan {
             options: UpdateOptions(),
             capturedAt: capturedAt
         ),
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: items.count,
-            createdAt: capturedAt,
-            reason: "unit-test"
-        ),
+        scope: scope,
+        admission: isLegacy
+            ? .legacyUncertified
+            : .certified(workflowProcessingAdmission(scope: scope)),
         items: items
     )
 }
@@ -356,7 +410,7 @@ private func certifiedFixPlan(items: [FixPlanItem]) throws -> FixPlan {
         ),
         maximumMetadataAge: nil
     )
-    return FixPlan(
+    return try FixPlan(
         id: FixPlanID(),
         revision: .initial,
         sourceRunID: RunID(),
@@ -367,7 +421,7 @@ private func certifiedFixPlan(items: [FixPlanItem]) throws -> FixPlan {
             capturedAt: capturedAt
         ),
         scope: scope,
-        admission: .certified(admission),
+        admission: admission,
         items: items
     )
 }

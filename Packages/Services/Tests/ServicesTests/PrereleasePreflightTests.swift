@@ -255,7 +255,9 @@ struct PrereleasePreflightTests {
 
     private func makeFixPlanProducer(coordinator: UpdateCoordinator, tracks: [Track]) -> FixPlanProducer {
         FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
-            loadTracks: { tracks },
+            loadAdmission: { scope, _ in
+                .admitted(processingAdmission(scope: scope), tracks: tracks)
+            },
             makeRuntime: { _, _ in
                 FixPlanProducer.Runtime(
                     refreshIdentity: { _, _ in

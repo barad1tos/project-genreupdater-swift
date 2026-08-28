@@ -437,36 +437,9 @@ struct ArbiterTests {
 
     @Test("batch requests with different certificate evidence do not cover each other")
     func batchCertificatesRemainDistinct() {
-        let scope = ProcessingScopeSnapshot.capture(
-            requestedTestArtists: [],
-            knownTrackCount: 2,
-            createdAt: Date(timeIntervalSince1970: 100),
-            reason: "arbiter-admission-test"
-        )
-        let older = RunRequest.manualBatchUpdate(
-            input: BatchRunInput(
-                options: UpdateOptions(),
-                trackCount: 2,
-                admission: processingAdmission(
-                    scope: scope,
-                    certificateID: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1))
-                )
-            ),
-            requestedTestArtists: [],
-            knownTrackCount: 2
-        )
-        let newest = RunRequest.manualBatchUpdate(
-            input: BatchRunInput(
-                options: UpdateOptions(),
-                trackCount: 2,
-                admission: processingAdmission(
-                    scope: scope,
-                    certificateID: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2))
-                )
-            ),
-            requestedTestArtists: [],
-            knownTrackCount: 2
-        )
+        let scope = Self.admissionScope()
+        let older = Self.batchRequest(trigger: .manualCheck, scope: scope, certificate: 101)
+        let newest = Self.batchRequest(trigger: .manualCheck, scope: scope, certificate: 102)
         let active = Self.lifecycle(
             trigger: .manualCheck,
             intent: .observeLibrary,
@@ -485,6 +458,116 @@ struct ArbiterTests {
             return
         }
         #expect(pending.map(\.request) == [older, newest])
+    }
+
+    @Test("lower-priority batch with different admission queues behind existing work")
+    func lowerPriorityQueues() {
+        let scope = Self.admissionScope()
+        let active = Self.activeBatch(scope: scope, certificate: 201)
+        let queuedRequest = Self.batchRequest(trigger: .fileSystemEvent, scope: scope, certificate: 202)
+        let incoming = Self.batchRequest(trigger: .backgroundSync, scope: scope, certificate: 203)
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [PendingTrigger(request: queuedRequest)],
+            incoming: incoming
+        )
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected distinct lower-priority admission to queue, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [queuedRequest, incoming])
+    }
+
+    @Test("lower-priority batch is covered by queued matching admission")
+    func pendingAdmissionCovers() {
+        let scope = Self.admissionScope()
+        let active = Self.activeBatch(scope: scope, certificate: 301)
+        let queuedRequest = Self.batchRequest(trigger: .fileSystemEvent, scope: scope, certificate: 302)
+        let incoming = Self.batchRequest(trigger: .backgroundSync, scope: scope, certificate: 302)
+        let queued = PendingTrigger(request: queuedRequest)
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [queued],
+            incoming: incoming
+        )
+
+        guard case let .alreadyCovered(pending) = decision else {
+            Issue.record("Expected queued matching admission to cover incoming work, got \(decision)")
+            return
+        }
+        #expect(pending == [queued])
+    }
+
+    @Test("intermediate batch replaces covered weaker work and preserves distinct pending work")
+    func replacesCoveredPending() {
+        let scope = Self.admissionScope()
+        let otherScope = Self.admissionScope(["Other Artist"])
+        let active = Self.activeBatch(scope: scope, certificate: 401)
+        let differentAdmission = Self.batchRequest(trigger: .backgroundSync, scope: scope, certificate: 403)
+        let covered = Self.batchRequest(trigger: .backgroundSync, scope: scope, certificate: 402)
+        let differentScope = Self.batchRequest(trigger: .backgroundSync, scope: otherScope, certificate: 404)
+        let incoming = Self.batchRequest(trigger: .fileSystemEvent, scope: scope, certificate: 402)
+
+        let decision = TriggerArbiter.decide(
+            active: active,
+            pending: [
+                PendingTrigger(request: differentAdmission),
+                PendingTrigger(request: covered),
+                PendingTrigger(request: differentScope),
+            ],
+            incoming: incoming
+        )
+
+        guard case let .queue(pending) = decision else {
+            Issue.record("Expected intermediate trigger to replace only covered weaker work, got \(decision)")
+            return
+        }
+        #expect(pending.map(\.request) == [differentAdmission, differentScope, incoming])
+    }
+
+    private static func batchRequest(
+        trigger: RunTrigger,
+        scope: ProcessingScopeSnapshot,
+        certificate: Int
+    ) -> RunRequest {
+        RunRequest.batchUpdate(
+            trigger: trigger,
+            input: BatchRunInput(
+                options: UpdateOptions(),
+                trackCount: scope.knownTrackCount ?? 0,
+                admission: processingAdmission(scope: scope, certificateID: certificateID(certificate))
+            ),
+            requestedTestArtists: scope.normalizedTestArtists,
+            knownTrackCount: scope.knownTrackCount
+        )
+    }
+
+    private static func activeBatch(scope: ProcessingScopeSnapshot, certificate: Int) -> RunLifecycleSnapshot {
+        RunLifecycleSnapshot(
+            request: batchRequest(trigger: .manualCheck, scope: scope, certificate: certificate),
+            scope: scope,
+            startedAt: Date(timeIntervalSince1970: 100),
+            phase: .active(.writing)
+        )
+    }
+
+    private static func admissionScope(_ artists: [String] = []) -> ProcessingScopeSnapshot {
+        ProcessingScopeSnapshot.capture(
+            requestedTestArtists: artists,
+            knownTrackCount: 2,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "arbiter-admission-test"
+        )
+    }
+
+    private static func certificateID(_ number: Int) -> UUID {
+        guard let certificateID = UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", number)) else {
+            preconditionFailure("Invalid certificate number: \(number)")
+        }
+        return certificateID
     }
 
     private static func request(

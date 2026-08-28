@@ -197,7 +197,7 @@ struct WriteAdmissionTests {
         _ = try await processor.performRecoverableWrite(
             trackCount: 3,
             features: WriteFeatureRequirements(mutation: nil),
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             outcome: WriteOutcomeProjection(
                 appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
                 partialTrackIDs: { _ in [] }
@@ -232,7 +232,7 @@ struct WriteAdmissionTests {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: WriteOutcomeProjection(
                     appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
                     partialTrackIDs: { _ in [] }
@@ -263,7 +263,7 @@ struct WriteAdmissionTests {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: WriteOutcomeProjection(
                     appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
                     partialTrackIDs: { _ in [] }
@@ -297,7 +297,7 @@ struct WriteAdmissionTests {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 2,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: WriteOutcomeProjection(
                     appliedTrackIDs: { (_: BatchUpdateResult) in [] },
                     partialTrackIDs: { error in
@@ -332,7 +332,7 @@ struct WriteAdmissionTests {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 3,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: WriteOutcomeProjection(
                     appliedTrackIDs: { (_: BatchUpdateResult) in [] },
                     partialTrackIDs: { _ in [] }
@@ -357,7 +357,7 @@ struct WriteAdmissionTests {
         let batch = Task {
             try await processor.process(
                 tracks: [admissionTrack("T1")],
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 operation: { _ in
                     calls.append("batch")
                     await batchHold.wait()
@@ -372,7 +372,7 @@ struct WriteAdmissionTests {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: emptyWriteOutcome(),
                 operation: {
                     calls.append("external-during-batch")
@@ -389,7 +389,7 @@ struct WriteAdmissionTests {
             try await processor.performRecoverableWrite(
                 trackCount: 1,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: emptyWriteOutcome(),
                 operation: {
                     calls.append("external")
@@ -403,7 +403,7 @@ struct WriteAdmissionTests {
         await #expect(throws: BatchProcessorError.self) {
             _ = try await processor.process(
                 tracks: [admissionTrack("T2")],
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 operation: { _ in
                     calls.append("batch-during-external")
                     return []
@@ -437,7 +437,7 @@ struct WriteAdmissionTests {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: WriteOutcomeProjection(
                     appliedTrackIDs: { _ in [] },
                     partialTrackIDs: { _ in [] }
@@ -462,7 +462,7 @@ struct WriteAdmissionTests {
         _ = try await processor.performRecoverableWrite(
             trackCount: 1,
             features: WriteFeatureRequirements(mutation: nil),
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             outcome: WriteOutcomeProjection(
                 appliedTrackIDs: { _ in [] },
                 partialTrackIDs: { _ in [] }
@@ -488,7 +488,7 @@ struct WriteAdmissionTests {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
                 features: WriteFeatureRequirements(mutation: .artistAlbumCleaning),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: WriteOutcomeProjection(
                     appliedTrackIDs: { _ in [] },
                     partialTrackIDs: { _ in [] }
@@ -514,7 +514,7 @@ struct WriteAdmissionTests {
         _ = try await processor.performRecoverableWrite(
             trackCount: 1,
             features: WriteFeatureRequirements(mutation: .artistAlbumCleaning),
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             outcome: WriteOutcomeProjection(
                 appliedTrackIDs: { _ in [] },
                 partialTrackIDs: { _ in [] }
@@ -553,7 +553,7 @@ struct WriteAdmissionTests {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: WriteOutcomeProjection(
                     appliedTrackIDs: { _ in [] },
                     partialTrackIDs: { _ in [] }
@@ -576,7 +576,7 @@ struct WriteAdmissionTests {
         _ = try await processor.performRecoverableWrite(
             trackCount: 1,
             features: WriteFeatureRequirements(mutation: nil),
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             outcome: WriteOutcomeProjection(
                 appliedTrackIDs: { _ in [] },
                 partialTrackIDs: { _ in [] }
@@ -623,7 +623,7 @@ struct WriteAdmissionTests {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: WriteOutcomeProjection(
                     appliedTrackIDs: { _ in [] },
                     partialTrackIDs: { _ in [] }
@@ -677,7 +677,7 @@ struct WriteAdmissionTests {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: WriteOutcomeProjection(
                     appliedTrackIDs: { _ in [] },
                     partialTrackIDs: { _ in [] }
@@ -743,7 +743,7 @@ struct WriteAdmissionTests {
             _ = try await processor.performRecoverableWrite(
                 trackCount: 1,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: WriteOutcomeProjection(
                     appliedTrackIDs: { _ in [] },
                     partialTrackIDs: { _ in [] }

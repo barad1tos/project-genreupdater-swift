@@ -8,20 +8,21 @@ struct FixPlanProducerTests {
     private let sourceRunID = RunID()
     private let producedAt = Date(timeIntervalSince1970: 1_700_000_000)
 
-    @Test("rejected admission creates neither runtime nor plan")
-    func rejectsAdmission() async throws {
+    @Test("rejected admission fails instead of masquerading as an empty plan")
+    func rejectsAdmission() async {
         let spy = FixPlanProducerSpy(
             tracks: [track("BLOCKED")],
             admissionRejection: .scopeMismatch
         )
 
-        let production = try await makeProducer(spy).producePlan(
-            sourceRunID: sourceRunID,
-            scope: scope(requestedTestArtists: [], knownTrackCount: 1),
-            configuration: configuration()
-        )
+        await #expect(throws: ProcessingAdmissionRejection.scopeMismatch) {
+            _ = try await makeProducer(spy).producePlan(
+                sourceRunID: sourceRunID,
+                scope: scope(requestedTestArtists: [], knownTrackCount: 1),
+                configuration: configuration()
+            )
+        }
 
-        #expect(production == .empty)
         #expect(await spy.runtimeCreationCount() == 0)
         #expect(await spy.savedPlans().isEmpty)
     }

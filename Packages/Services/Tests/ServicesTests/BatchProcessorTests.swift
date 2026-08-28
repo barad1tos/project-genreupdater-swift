@@ -65,7 +65,7 @@ struct BatchProcessorTests {
 
         _ = try await processor.process(
             tracks: tracks,
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             operation: { _ in [] },
             progressHandler: { update in
                 accumulator.append(update)
@@ -105,7 +105,7 @@ struct BatchProcessorTests {
                     calls.append("rejected-operation")
                     return [ChangeLogEntry(changeType: .genreUpdate, trackID: "T1", artist: "Artist")]
                 },
-                progressHandler: { _ in }
+                progressHandler: ignoreBatchProgress
             )
         }
 
@@ -120,7 +120,7 @@ struct BatchProcessorTests {
                 calls.append("accepted-operation")
                 return [ChangeLogEntry(changeType: .genreUpdate, trackID: track.id, artist: track.artist)]
             },
-            progressHandler: { _ in }
+            progressHandler: ignoreBatchProgress
         )
 
         #expect(entries.map(\.trackID) == ["T2"])
@@ -209,9 +209,9 @@ struct BatchProcessorTests {
         let start = clock.now
         _ = try await processor.process(
             tracks: makeTracks(count: 2),
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             operation: { _ in [] },
-            progressHandler: { _ in }
+            progressHandler: ignoreBatchProgress
         )
         let elapsed = start.duration(to: clock.now)
 
@@ -234,7 +234,7 @@ struct BatchProcessorTests {
         await #expect(throws: BatchProcessorError.self) {
             try await processor.process(
                 tracks: makeTracks(count: 3),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 operation: { _ in [] },
                 progressHandler: { _ in
                     // Progress delivery is unrelated to unknown-outcome propagation.
@@ -267,12 +267,12 @@ struct BatchProcessorTests {
         do {
             _ = try await processor.process(
                 tracks: tracks,
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 operation: { _ in
                     try await Task.sleep(for: .milliseconds(5))
                     return []
                 },
-                progressHandler: { _ in }
+                progressHandler: ignoreBatchProgress
             )
             Issue.record("Expected cancellation error")
         } catch is BatchProcessorError {
@@ -301,7 +301,7 @@ struct BatchProcessorTests {
         let tracks = makeTracks(count: 3)
         let changes = try await processor.process(
             tracks: tracks,
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             operation: { track in
                 [ChangeLogEntry(
                     changeType: .genreUpdate,
@@ -309,7 +309,7 @@ struct BatchProcessorTests {
                     artist: track.artist
                 )]
             },
-            progressHandler: { _ in }
+            progressHandler: ignoreBatchProgress
         )
 
         #expect(changes.count == 3)
@@ -333,9 +333,9 @@ struct BatchProcessorTests {
 
         _ = try await processor.process(
             tracks: makeTracks(count: 1),
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             operation: { _ in [] },
-            progressHandler: { _ in }
+            progressHandler: ignoreBatchProgress
         )
 
         let finalState = await processor.state
@@ -358,7 +358,7 @@ struct BatchProcessorTests {
         let counter = Counter()
         let changes = try await processor.process(
             tracks: makeTracks(count: 3),
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             operation: { _ in
                 let count = await counter.increment()
                 if count == 2 {
@@ -370,7 +370,7 @@ struct BatchProcessorTests {
                     artist: "A"
                 )]
             },
-            progressHandler: { _ in }
+            progressHandler: ignoreBatchProgress
         )
 
         // 2 succeeded, 1 failed
@@ -395,7 +395,7 @@ struct BatchProcessorTests {
         do {
             _ = try await processor.process(
                 tracks: makeTracks(count: 3),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 operation: { track in
                     processedTrackIDs.append(track.id)
                     if track.id == "T1" {
@@ -460,7 +460,7 @@ struct BatchProcessorTests {
 
         let changes = try await processor.process(
             tracks: tracks,
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             operation: { track in
                 try await Task.sleep(for: .milliseconds(10))
                 return [ChangeLogEntry(
@@ -469,7 +469,7 @@ struct BatchProcessorTests {
                     artist: track.artist
                 )]
             },
-            progressHandler: { _ in }
+            progressHandler: ignoreBatchProgress
         )
 
         controlTask.cancel()
@@ -482,4 +482,8 @@ struct BatchProcessorTests {
 
 private enum MockOperationError: Error {
     case failed
+}
+
+private func ignoreBatchProgress(_ update: ProgressUpdate) {
+    _ = update
 }

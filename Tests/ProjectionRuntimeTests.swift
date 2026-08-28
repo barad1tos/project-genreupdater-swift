@@ -260,7 +260,7 @@ struct ProjectionRuntimeTests {
     @Test("a terminal preview boundary refreshes the fix plan")
     func previewTerminalRefreshesFixPlan() async throws {
         let dependencies = makeDependencies()
-        let plan = try #require(makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
+        let plan = try #require(try makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
             at: Date(timeIntervalSince1970: 1_800_000_100),
             hasDiscogsAccess: true
         )))

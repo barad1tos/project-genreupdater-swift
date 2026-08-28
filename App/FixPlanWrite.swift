@@ -94,7 +94,7 @@ enum FixPlanWrite {
         configuration: RunConfig
     ) throws -> FixPlanWriteInput {
         guard case let .certified(admission) = plan.admission,
-              admission.scopeID == plan.scope.id
+              admission.certifies(scope: plan.scope)
         else {
             throw Failure.uncertifiedPlan(plan.id)
         }
@@ -317,7 +317,9 @@ enum FixPlanWrite {
     ) throws {
         // The input crosses an async queue; it must still match the immutable plan revision.
         let expectedWorkItems = acceptedWorkItems(in: plan, decision: decision)
-        guard case let .certified(planAdmission) = plan.admission else {
+        guard case let .certified(planAdmission) = plan.admission,
+              planAdmission.certifies(scope: plan.scope)
+        else {
             throw Failure.uncertifiedPlan(plan.id)
         }
         guard planAdmission == input.admission,

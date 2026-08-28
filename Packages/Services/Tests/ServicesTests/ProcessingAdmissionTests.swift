@@ -231,6 +231,50 @@ struct ProcessingAdmissionTests {
             )
         }
     }
+
+    @Test("Every rejection explains how to recover")
+    func rejectionExplainsRecovery() throws {
+        let databaseID = try #require(MusicDatabaseTrackID(rawValue: "track-a"))
+        let cases: [(ProcessingAdmissionRejection, String)] = [
+            (
+                .mirror(.stale(.membershipChanged)),
+                "The Music library changed before processing. Scan the library again."
+            ),
+            (
+                .mirror(.incomplete(.metadataMissing(count: 2))),
+                "The library mirror is missing required metadata for 2 tracks. Scan the library again."
+            ),
+            (
+                .mirror(.unavailable(MirrorFailure(category: .storage, detail: "database unavailable"))),
+                "The library mirror is unavailable (storage): database unavailable. Try the scan again."
+            ),
+            (
+                .scopeMismatch,
+                "The requested processing scope does not match its library evidence. Start the run again."
+            ),
+            (
+                .certificateChanged,
+                "The library evidence changed before processing. Scan the library again."
+            ),
+            (
+                .nonCanonicalTrack("legacy-read-id"),
+                "Track legacy-read-id lacks canonical Music database identity. "
+                    + "Repair the library mirror and scan again."
+            ),
+            (
+                .duplicateTrack(databaseID),
+                "Track track-a appears more than once in the processing set. Repair the library mirror and scan again."
+            ),
+            (
+                .trackSetMismatch,
+                "The processing tracks no longer match the certified library scope. Scan the library again."
+            ),
+        ]
+
+        for (rejection, expectedDescription) in cases {
+            #expect(rejection.localizedDescription == expectedDescription)
+        }
+    }
 }
 
 private struct AdmissionFixture {
@@ -340,7 +384,9 @@ private actor AdmissionTrackStore: TrackStateStore {
         shouldFailSnapshotLoads = true
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // The fixture receives its complete in-memory snapshot at construction.
+    }
 
     func loadAllTracks() async throws -> [Track] {
         snapshot.presentTracks

@@ -25,7 +25,7 @@ struct AdmissionTransitionTests {
 
         let entries = try await processor.process(
             tracks: [track],
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             operation: { _ in [] },
             progressHandler: { _ in
                 // Progress is irrelevant to the admission assertion.
@@ -72,7 +72,7 @@ struct AdmissionTransitionTests {
         _ = try await fixture.processor.performRecoverableWrite(
             trackCount: 1,
             features: WriteFeatureRequirements(mutation: nil),
-            validateWrite: {},
+            validateWrite: passWriteValidation,
             outcome: WriteOutcomeProjection(
                 appliedTrackIDs: { Set($0.entries.map(\.trackID)) },
                 partialTrackIDs: { _ in [] }
@@ -95,7 +95,7 @@ struct AdmissionTransitionTests {
             _ = try await fixture.processor.performRecoverableWrite(
                 trackCount: 2,
                 features: WriteFeatureRequirements(mutation: nil),
-                validateWrite: {},
+                validateWrite: passWriteValidation,
                 outcome: WriteOutcomeProjection(
                     appliedTrackIDs: { (_: MusicWriteResult) in [] },
                     partialTrackIDs: { error in
