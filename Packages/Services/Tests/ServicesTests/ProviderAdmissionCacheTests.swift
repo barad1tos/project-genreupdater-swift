@@ -6,7 +6,7 @@ import Testing
 @Suite("APIOrchestrator — provider admission cache")
 struct ProviderAdmissionCacheTests {
     @Test("Candidate cache hits bypass a busy permit")
-    func candidateHitSkipsAdmission() async throws {
+    func candidateHitSkipsAdmission() async {
         let fixture = makeFixture()
         let seeded = await fixture.orchestrator.getReleaseCandidates(
             artist: "Cached Candidate",
@@ -16,7 +16,7 @@ struct ProviderAdmissionCacheTests {
         )
         #expect(seeded.map(\.year) == [1990])
 
-        let candidates = try await cachedResultWhileBusy(fixture) {
+        let candidates = await cachedWhileBusy(fixture) {
             await fixture.orchestrator.getReleaseCandidates(
                 artist: "Cached Candidate",
                 album: "Cached Album",
@@ -28,7 +28,7 @@ struct ProviderAdmissionCacheTests {
     }
 
     @Test("Direct-year cache hits bypass a busy permit")
-    func yearHitSkipsAdmission() async throws {
+    func yearHitSkipsAdmission() async {
         let fixture = makeFixture()
         let seeded = await fixture.orchestrator.getAlbumYear(
             artist: "Cached Year",
@@ -38,7 +38,7 @@ struct ProviderAdmissionCacheTests {
         )
         #expect(seeded.year == 2000)
 
-        let year = try await cachedResultWhileBusy(fixture) {
+        let year = await cachedWhileBusy(fixture) {
             await fixture.orchestrator.getAlbumYear(
                 artist: "Cached Year",
                 album: "Cached Album",
@@ -62,15 +62,24 @@ struct ProviderAdmissionCacheTests {
         ) {
             $0.maxConcurrentSourceCalls = 1
             $0.timeout = .seconds(2)
+            $0.providerAdmissionHooks = (
+                didEnqueue: {
+                    Task { await probe.recordEnqueue() }
+                },
+                afterGrant: {
+                    await probe.blockArmedGrant()
+                }
+            )
         }
         return AdmissionCacheFixture(orchestrator: orchestrator, probe: probe)
     }
 
-    private func cachedResultWhileBusy<Result: Sendable>(
+    private func cachedWhileBusy<Result: Sendable>(
         _ fixture: AdmissionCacheFixture,
         operation: @escaping @Sendable () async -> Result
-    ) async throws -> Result {
-        let blocker: Task<YearResult, any Error> = Task {
+    ) async -> Result {
+        await fixture.probe.armGrantBlock()
+        let blocker = Task {
             await fixture.orchestrator.getAlbumYear(
                 artist: "Blocker",
                 album: "Blocked Album",
@@ -78,23 +87,19 @@ struct ProviderAdmissionCacheTests {
                 earliestTrackAddedYear: nil
             )
         }
-        #expect(await fixture.probe.waitUntilBlocked())
+        await fixture.probe.waitForGrant()
         let blockedCalls = await fixture.probe.callCounts
-        let cached: Task<Result, any Error> = Task {
+        let enqueueCount = await fixture.probe.enqueueCount
+        let cached = Task {
             await operation()
         }
 
-        do {
-            let result = try await taskValue(cached, timeout: .milliseconds(200))
-            #expect(await fixture.probe.callCounts == blockedCalls)
-            await fixture.probe.releaseBlocker()
-            _ = try await taskValue(blocker, timeout: .seconds(1))
-            return result
-        } catch {
-            await fixture.probe.releaseBlocker()
-            _ = try? await blocker.value
-            throw error
-        }
+        let result = await cached.value
+        #expect(await fixture.probe.enqueueCount == enqueueCount)
+        #expect(await fixture.probe.callCounts == blockedCalls)
+        await fixture.probe.releaseGrantBlock()
+        _ = await blocker.value
+        return result
     }
 }
 
@@ -106,11 +111,18 @@ private struct AdmissionCacheFixture: Sendable {
 private actor AdmissionCacheProbe {
     private var candidateCalls = 0
     private var yearCalls = 0
-    private var isBlocked = false
-    private var blockerContinuation: CheckedContinuation<Void, Never>?
+    private var enqueuedCalls = 0
+    private var isGrantArmed = false
+    private var isGrantBlocked = false
+    private var grantBlockContinuation: CheckedContinuation<Void, Never>?
+    private var grantEntryContinuations: [CheckedContinuation<Void, Never>] = []
 
     var callCounts: (candidate: Int, year: Int) {
         (candidate: candidateCalls, year: yearCalls)
+    }
+
+    var enqueueCount: Int {
+        enqueuedCalls
     }
 
     func candidates(artist: String, album: String) -> [ReleaseCandidate] {
@@ -125,30 +137,43 @@ private actor AdmissionCacheProbe {
         ]
     }
 
-    func year(artist: String) async -> YearResult {
+    func year(artist _: String) async -> YearResult {
         yearCalls += 1
-        guard artist == "Blocker" else {
-            return YearResult(year: 2000, confidence: 90, yearScores: [2000: 90])
-        }
+        return YearResult(year: 2000, confidence: 90, yearScores: [2000: 90])
+    }
 
-        isBlocked = true
+    func armGrantBlock() {
+        isGrantArmed = true
+    }
+
+    func blockArmedGrant() async {
+        guard isGrantArmed else { return }
+        isGrantArmed = false
+        isGrantBlocked = true
+        let entryContinuations = grantEntryContinuations
+        grantEntryContinuations.removeAll()
+        entryContinuations.forEach { $0.resume() }
         await withCheckedContinuation { continuation in
-            blockerContinuation = continuation
+            grantBlockContinuation = continuation
         }
-        return YearResult()
+        isGrantBlocked = false
     }
 
-    func waitUntilBlocked() async -> Bool {
-        let deadline = ContinuousClock().now.advanced(by: .seconds(1))
-        while !isBlocked, ContinuousClock().now < deadline {
-            try? await Task.sleep(for: .milliseconds(1))
+    func waitForGrant() async {
+        guard !isGrantBlocked else { return }
+        await withCheckedContinuation { continuation in
+            grantEntryContinuations.append(continuation)
         }
-        return isBlocked
     }
 
-    func releaseBlocker() {
-        blockerContinuation?.resume()
-        blockerContinuation = nil
+    func recordEnqueue() {
+        enqueuedCalls += 1
+        releaseGrantBlock()
+    }
+
+    func releaseGrantBlock() {
+        grantBlockContinuation?.resume()
+        grantBlockContinuation = nil
     }
 }
 
