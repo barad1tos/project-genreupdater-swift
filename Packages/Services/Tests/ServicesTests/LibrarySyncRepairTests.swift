@@ -27,7 +27,7 @@ struct LibrarySyncRepairTests {
         #expect(repair.target.appleScriptID == "AS1")
         #expect(repair.target.originalArtist == "Before")
         #expect(update.upserts.isEmpty)
-        #expect(membershipIDs(update.membershipChange)?.map(\.rawValue) == ["AS1"])
+        #expect(inventoryIDs(update.inventoryChange)?.map(\.rawValue) == ["AS1"])
     }
 
     @Test("Unique metadata identity repairs a row without direct evidence")
@@ -283,7 +283,7 @@ struct LibrarySyncRepairTests {
         #expect(await fixture.store.updates.count == 1)
         #expect(update.repairs.map(\.sourceID) == ["MK1"])
         #expect(update.upserts.map(\.id) == ["NEW"])
-        #expect(membershipIDs(update.membershipChange)?.map(\.rawValue) == ["AS1", "NEW"])
+        #expect(inventoryIDs(update.inventoryChange)?.map(\.rawValue) == ["AS1", "NEW"])
     }
 
     private func makeFixture(
@@ -466,7 +466,7 @@ private actor RepairMirrorStore: TrackStateStore {
                 stored.append(repair.target)
             }
         }
-        applyMembership(update.membershipChange, to: &stored)
+        applyInventory(update.inventoryChange, to: &stored)
         for track in update.upserts {
             stored.removeAll { $0.id == track.id }
             stored.append(track)

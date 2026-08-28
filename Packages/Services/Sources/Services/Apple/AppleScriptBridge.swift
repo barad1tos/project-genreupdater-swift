@@ -196,7 +196,7 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
             timeout: effectiveTimeout
         ) { [self] ids, remaining in
             try await runScriptBody(
-                name: TrackLookup.scriptName,
+                name: TrackLookup<Core.Track>.scriptName,
                 arguments: [ids.joined(separator: ",")],
                 timeout: remaining
             )
@@ -227,6 +227,28 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
 
     func fetchCensus() async throws -> TrackIDCensus {
         try await fetchTrackIDCensus()
+    }
+
+    func fetchIdentity(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [LibraryIdentityRow] {
+        try await TrackLookup(
+            batchSize: trackIDBatchSize,
+            timeout: config.timeouts.idsBatchFetch
+        ) { [self] ids, remaining in
+            try await runScriptBody(
+                name: TrackLookup<LibraryIdentityRow>.scriptName,
+                arguments: [ids.joined(separator: ","), "identity"],
+                timeout: remaining
+            )
+        } parse: { output in
+            do {
+                return try TrackWireCodec.decodeIdentityRecords(
+                    output,
+                    scriptName: TrackLookup<LibraryIdentityRow>.scriptName
+                )
+            } catch let error as TrackWireError {
+                throw AppleScriptBridgeError.parseError(scriptName: error.scriptName, detail: error.detail)
+            }
+        }.run(ids: databaseIDs.map(\.rawValue))
     }
 
     public func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Core.Track] {
@@ -492,7 +514,7 @@ extension AppleScriptBridge {
     /// Parse AppleScript output into Track objects.
     static func parseTrackOutput(_ output: String) throws -> [Core.Track] {
         do {
-            return try TrackWireCodec.decodeRecords(output, scriptName: TrackLookup.scriptName)
+            return try TrackWireCodec.decodeRecords(output, scriptName: TrackLookup<Core.Track>.scriptName)
         } catch let error as TrackWireError {
             throw AppleScriptBridgeError.parseError(scriptName: error.scriptName, detail: error.detail)
         }

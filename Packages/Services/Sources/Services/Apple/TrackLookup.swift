@@ -1,11 +1,13 @@
 import Core
 
-struct TrackLookup {
-    static let scriptName = "lookup_tracks"
+struct TrackLookup<Element: Sendable> {
+    static var scriptName: String {
+        "lookup_tracks"
+    }
 
     typealias Fetch = @Sendable ([String], Duration) async throws -> String?
     typealias Now = @Sendable () -> ContinuousClock.Instant
-    typealias Parse = @Sendable (String) throws -> [Core.Track]
+    typealias Parse = @Sendable (String) throws -> [Element]
 
     private let batchSize: Int
     private let batchTimeout: Duration
@@ -27,13 +29,13 @@ struct TrackLookup {
         self.parse = parse
     }
 
-    func run(ids: [String]) async throws -> [Core.Track] {
+    func run(ids: [String]) async throws -> [Element] {
         guard !ids.isEmpty else { return [] }
 
         let batchCount = 1 + (ids.count - 1) / batchSize
         let totalTimeout = batchTimeout * batchCount
         let deadline = now().advanced(by: totalTimeout)
-        var tracks: [Core.Track] = []
+        var elements: [Element] = []
         var startIndex = 0
 
         while startIndex < ids.count {
@@ -48,12 +50,12 @@ struct TrackLookup {
                 startIndex = endIndex
                 continue
             }
-            try tracks.append(contentsOf: parse(output))
+            try elements.append(contentsOf: parse(output))
             guard now() <= deadline else { throw timeoutError(duration: totalTimeout) }
             startIndex = endIndex
         }
 
-        return tracks
+        return elements
     }
 
     private func timeoutError(duration: Duration) -> AppleScriptBridgeError {

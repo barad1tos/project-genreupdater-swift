@@ -15,7 +15,17 @@ actor MusicAppTestObserver: MusicAppReading {
         let tracksByID = Dictionary(uniqueKeysWithValues: tracks.compactMap { track in
             track.databaseID.map { ($0, track) }
         })
-        let currentIDs = Set(tracksByID.keys)
+        let censusIDs = Set(tracksByID.keys)
+        let identitiesByID = Dictionary(uniqueKeysWithValues: tracksByID.map { databaseID, track in
+            (databaseID, row(track, databaseID: databaseID).identityRow)
+        })
+        let requestedIdentityIDs = identityIDs(censusIDs: censusIDs, request: request)
+        let observedIdentities = identitiesByID.filter { requestedIdentityIDs.contains($0.key) }
+        let currentIDs = request.inventory.admittedIDs(
+            censusIDs: censusIDs,
+            observed: observedIdentities,
+            scope: request.scope
+        )
         let previousIDs = Set(request.previous.tracksByID.keys)
         let requestedIDs: Set<MusicDatabaseTrackID> = switch request.refresh {
         case .fast:
@@ -28,17 +38,39 @@ actor MusicAppTestObserver: MusicAppReading {
         let rows = requestedIDs.sorted { $0.rawValue < $1.rawValue }.compactMap { databaseID in
             tracksByID[databaseID].map { row($0, databaseID: databaseID) }
         }
+        let identities = request.scope.source == .fullLibrary
+            ? rows.map(\.identityRow)
+            : observedIdentities.values.sorted { $0.databaseID.rawValue < $1.databaseID.rawValue }
+        let reportedIdentityIDs = request.scope.source == .fullLibrary ? requestedIDs : requestedIdentityIDs
         return LibraryObservation(
             tracks: rows,
-            censusIDs: currentIDs,
+            identities: identities,
+            censusIDs: censusIDs,
             currentIDs: currentIDs,
             scope: request.scope,
             observedAt: Date(timeIntervalSince1970: 1_800_000_000),
             membership: request.scope.source == .fullLibrary ? .full : .scoped(unobservedIDs: []),
+            identity: IdentityCompleteness(
+                requestedIDs: reportedIdentityIDs,
+                observedIDs: Set(identities.map(\.databaseID))
+            ),
             metadata: MetadataCompleteness(requestedIDs: requestedIDs, observedIDs: Set(rows.map(\.databaseID))),
             generation: generation,
             issues: []
         )
+    }
+
+    private func identityIDs(
+        censusIDs: Set<MusicDatabaseTrackID>,
+        request: LibraryObservationRequest
+    ) -> Set<MusicDatabaseTrackID> {
+        guard request.scope.source == .testArtists else { return [] }
+        switch request.refresh {
+        case .force:
+            return censusIDs
+        case .fast, .membershipOnly:
+            return censusIDs.subtracting(request.inventory.identitiesByID.keys)
+        }
     }
 
     private func row(_ track: Track, databaseID: MusicDatabaseTrackID) -> LibraryTrackRow {
@@ -60,6 +92,88 @@ actor MusicAppTestObserver: MusicAppReading {
             )
         )
     }
+}
+
+actor PreviewAdmissionStore: TrackStateStore {
+    private let snapshot: TrackMirrorSnapshot
+    private var mirrorLoads = 0
+    private var allTrackLoads = 0
+
+    init(track: Track, testArtists: [String], observedAt: Date) throws {
+        guard let databaseID = track.databaseID else { throw PreviewStoreError.nonCanonicalTrack }
+        let membership = try MembershipFingerprint.make(ids: [databaseID])
+        let certificate = ScopeCertificate(
+            id: UUID(),
+            revision: .initial,
+            membership: membership,
+            testArtists: testArtists,
+            fieldSet: .processingV1,
+            evidence: ScopeEvidence(
+                requestedFingerprint: membership.fingerprint,
+                observedFingerprint: membership.fingerprint,
+                trackCount: 1
+            ),
+            observedAt: observedAt
+        )
+        snapshot = TrackMirrorSnapshot(
+            revision: .initial,
+            membershipStamp: membership,
+            presentIDs: [databaseID],
+            memberIdentities: testIdentityIndex(for: [track], observedAt: observedAt),
+            presentTracks: [track],
+            repairCandidates: [],
+            certificates: [certificate]
+        )
+    }
+
+    func initialize() async throws {
+        throw PreviewStoreError.unexpectedInitialize
+    }
+
+    func loadAllTracks() async throws -> [Track] {
+        allTrackLoads += 1
+        throw PreviewStoreError.unexpectedLoadAll
+    }
+
+    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        mirrorLoads += 1
+        return snapshot
+    }
+
+    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
+        try MirrorCommitResult(revision: commit.baseRevision.advanced())
+    }
+
+    func getTrack(byID _: String) async throws -> Track? {
+        nil
+    }
+
+    func persistAppliedChange(_: ChangeLogEntry) async throws {
+        throw PreviewStoreError.unexpectedPersist
+    }
+
+    func getUnprocessedTracks() async throws -> [Track] {
+        []
+    }
+
+    func trackCount() async throws -> Int {
+        snapshot.presentTracks.count
+    }
+
+    func mirrorLoadCount() -> Int {
+        mirrorLoads
+    }
+
+    func allTrackLoadTotal() -> Int {
+        allTrackLoads
+    }
+}
+
+private enum PreviewStoreError: Error {
+    case nonCanonicalTrack
+    case unexpectedInitialize
+    case unexpectedLoadAll
+    case unexpectedPersist
 }
 
 struct RunConfigSnapshot: Sendable {

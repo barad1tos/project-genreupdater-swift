@@ -163,6 +163,10 @@ struct MirrorReadinessTests {
         let snapshot = makeSnapshot(
             presentIDs: presentIDs,
             tracks: [track(id: "A", artist: "Metallica")],
+            identities: [
+                targetID: identity(id: targetID, artist: "Metallica"),
+                outsideID: identity(id: outsideID, artist: "Other"),
+            ],
             certificates: [certificate]
         )
 
@@ -181,6 +185,10 @@ struct MirrorReadinessTests {
         let snapshot = makeSnapshot(
             presentIDs: presentIDs,
             tracks: [track(id: "B", artist: "Other")],
+            identities: [
+                targetID: identity(id: targetID, artist: "Metallica"),
+                outsideID: identity(id: outsideID, artist: "Other"),
+            ],
             certificates: [certificate]
         )
 
@@ -339,15 +347,60 @@ struct MirrorReadinessTests {
         #expect(snapshot.readiness(for: requirement(), at: observedAt) == .ready(makeCertificate()))
     }
 
-    @Test("Album artist excludes a track even when its primary artist matches the scope")
-    func rejectsNonmatchingAlbumArtist() {
+    @Test("Primary artist admits a track even when its album artist is outside the scope")
+    func admitsMatchingPrimaryArtist() {
         let snapshot = makeSnapshot(
             tracks: [track(id: "A", artist: "Metallica", albumArtist: "Other")],
             certificates: [makeCertificate()]
         )
 
+        #expect(snapshot.readiness(for: requirement(), at: observedAt) == .ready(makeCertificate()))
+    }
+
+    @Test("Current member identity excludes stale processing metadata from scope")
+    func identityExcludesStaleMetadata() {
+        let databaseID = databaseID("A")
+        let certificate = makeCertificate(trackIDs: [])
+        let snapshot = makeSnapshot(
+            tracks: [track(id: "A", artist: "Metallica")],
+            identities: [databaseID: identity(id: databaseID, artist: "Other")],
+            certificates: [certificate]
+        )
+
+        #expect(snapshot.admission(for: requirement(), at: observedAt) == .admitted(AdmittedMirror(
+            certificate: certificate,
+            tracks: []
+        )))
+    }
+
+    @Test("Current member identity admits a track despite stale processing identity")
+    func identityAdmitsStaleMetadata() {
+        let databaseID = databaseID("A")
+        let currentTrack = track(id: "A", artist: "Other")
+        let certificate = makeCertificate()
+        let snapshot = makeSnapshot(
+            tracks: [currentTrack],
+            identities: [databaseID: identity(id: databaseID, artist: "Metallica")],
+            certificates: [certificate]
+        )
+
+        #expect(snapshot.admission(for: requirement(), at: observedAt) == .admitted(AdmittedMirror(
+            certificate: certificate,
+            tracks: [currentTrack]
+        )))
+    }
+
+    @Test("Unknown member identity fails closed for Test Artists")
+    func rejectsUnknownIdentity() {
+        let certificate = makeCertificate(trackIDs: [])
+        let snapshot = makeSnapshot(
+            tracks: [track(id: "A", artist: "Other")],
+            identities: [:],
+            certificates: [certificate]
+        )
+
         #expect(snapshot.readiness(for: requirement(), at: observedAt) ==
-            .incomplete(.metadataMissing(count: 1)))
+            .incomplete(.identityMissing(count: 1)))
     }
 
     @Test("A certificate committed at another revision is superseded")
@@ -397,14 +450,17 @@ struct MirrorReadinessTests {
         revision: MirrorRevision = MirrorRevision(value: 8),
         presentIDs: Set<MusicDatabaseTrackID>? = nil,
         tracks: [Track]? = nil,
+        identities: [MusicDatabaseTrackID: MemberIdentity]? = nil,
         certificates: [ScopeCertificate]
     ) -> TrackMirrorSnapshot {
         let resolvedTracks = tracks ?? [track(id: "A", artist: "Metallica")]
         let resolvedIDs = presentIDs ?? Set(resolvedTracks.compactMap(\.databaseID))
+        let resolvedIdentities = identities ?? identityIndex(for: resolvedTracks)
         return TrackMirrorSnapshot(
             revision: revision,
             membershipStamp: membership(ids: Array(resolvedIDs)),
             presentIDs: resolvedIDs,
+            memberIdentities: resolvedIdentities,
             presentTracks: resolvedTracks,
             repairCandidates: [],
             certificates: certificates
@@ -445,6 +501,32 @@ struct MirrorReadinessTests {
             albumArtist: albumArtist,
             appleScriptID: id
         )
+    }
+
+    private func identity(
+        id: MusicDatabaseTrackID,
+        artist: String?,
+        albumArtist: String? = nil
+    ) -> MemberIdentity {
+        MemberIdentity(
+            databaseID: id,
+            artist: artist,
+            albumArtist: albumArtist,
+            observedAt: observedAt
+        )
+    }
+
+    private func identityIndex(for tracks: [Track]) -> [MusicDatabaseTrackID: MemberIdentity] {
+        var identities: [MusicDatabaseTrackID: MemberIdentity] = [:]
+        for track in tracks {
+            guard let databaseID = track.databaseID, identities[databaseID] == nil else { continue }
+            identities[databaseID] = identity(
+                id: databaseID,
+                artist: track.artist,
+                albumArtist: track.albumArtist
+            )
+        }
+        return identities
     }
 
     private func databaseID(_ value: String) -> MusicDatabaseTrackID {

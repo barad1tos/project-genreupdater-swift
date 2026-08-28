@@ -32,16 +32,39 @@ struct SyncDetection {
     let observation: ObservationID
     let result: SyncResult
     let certificateChange: CertificateChange
-    let membershipChange: MembershipChange
+    let inventoryChange: InventoryChange
     let repairs: [TrackMirrorRepair]
     let upserts: [Track]
     let previousTracks: [String: Track]
     let didCompleteForceRefresh: Bool
 }
 
+private struct DetectionContext {
+    let snapshot: TrackMirrorSnapshot
+    let repairCandidates: [Track]
+    let canonicalStored: [MusicDatabaseTrackID: Track]
+    let scopedByID: [MusicDatabaseTrackID: Track]
+    let request: LibraryObservationRequest
+    let readiness: MirrorReadiness
+    let refresh: MetadataRefreshPolicy
+}
+
 extension LibrarySyncService {
     func detectObservation(forceMetadataRefresh: Bool = false) async throws -> SyncDetection {
         let snapshot = try await trackStore.loadMirrorSnapshot()
+        let context = try await detectionContext(
+            snapshot: snapshot,
+            forceMetadataRefresh: forceMetadataRefresh
+        )
+        let observation = try await observer.observe(context.request)
+        try validate(observation, request: context.request)
+        return try projectDetection(observation, context: context)
+    }
+
+    private func detectionContext(
+        snapshot: TrackMirrorSnapshot,
+        forceMetadataRefresh: Bool
+    ) async throws -> DetectionContext {
         let presentTracks = snapshot.presentTracks
         let scopedPresent = tracksInConfiguredScope(presentTracks)
         let repairCandidates = tracksInConfiguredScope(snapshot.repairCandidates)
@@ -53,54 +76,79 @@ extension LibrarySyncService {
         guard let mirror = LibraryMirrorIndex(tracksByID: scopedByID) else {
             throw LibrarySyncObservationError.invalidObservation(detail: "stored mirror index is inconsistent")
         }
+        guard let inventory = LibraryInventoryIndex(identitiesByID: snapshot.memberIdentities) else {
+            throw LibrarySyncObservationError.invalidObservation(detail: "stored inventory index is inconsistent")
+        }
         let requirement = runtimeConfiguration.processingRequirement
         let readiness = snapshot.readiness(for: requirement, at: currentDate())
         let previous: LibraryMirrorReference = readiness.isReady ? .verified(mirror) : .initial
-        let request = LibraryObservationRequest(scope: scope, refresh: refresh, previous: previous)
-        let observation = try await observer.observe(request)
-        try validate(observation, request: request)
+        return DetectionContext(
+            snapshot: snapshot,
+            repairCandidates: repairCandidates,
+            canonicalStored: canonicalStored,
+            scopedByID: scopedByID,
+            request: LibraryObservationRequest(
+                scope: scope,
+                refresh: refresh,
+                previous: previous,
+                inventory: inventory
+            ),
+            readiness: readiness,
+            refresh: refresh
+        )
+    }
 
-        let repair = try planRepair(legacyTracks: repairCandidates, observation: observation)
-        var mirrorBaseline = canonicalStored
+    private func projectDetection(
+        _ observation: LibraryObservation,
+        context: DetectionContext
+    ) throws -> SyncDetection {
+        let repair = try planRepair(legacyTracks: context.repairCandidates, observation: observation)
+        var mirrorBaseline = context.canonicalStored
         mirrorBaseline.merge(repair.baseline) { existing, _ in existing }
         let classification = try reconcile(
             observation,
             storedByID: mirrorBaseline,
-            scopedStoredIDs: Set(scopedByID.keys).union(repair.baseline.keys)
+            scopedStoredIDs: Set(context.scopedByID.keys).union(repair.baseline.keys)
         )
         let ordinaryUpserts = upsertsExcludingRepairs(
             classification.upserts,
             repairedIDs: Set(repair.baseline.keys)
         )
+        var projectedMirror = mirrorBaseline
+        for track in ordinaryUpserts {
+            guard let databaseID = track.databaseID else { continue }
+            projectedMirror[databaseID] = track
+        }
+        let certifiedIDs = Set(projectedMirror.keys).intersection(observation.currentIDs)
         let result = fullMembershipResult(
             classification.result,
-            storedIDs: Set(canonicalStored.keys),
+            storedIDs: context.snapshot.presentIDs,
             censusIDs: observation.censusIDs
         )
-        let isMetadataComplete = hasCompleteMetadata(observation)
+        let isMetadataComplete = hasCompleteMetadata(observation) && observation.identity.isComplete
         let certificateTransition = try certificateChange(
             for: observation,
-            baseRevision: snapshot.revision,
-            previousReadiness: readiness,
-            hasTrackMutations: !repair.repairs.isEmpty || !ordinaryUpserts.isEmpty,
-            isMetadataComplete: isMetadataComplete
+            baseRevision: context.snapshot.revision,
+            previousReadiness: context.readiness,
+            certifiedIDs: certifiedIDs,
+            hasTrackMutations: !repair.repairs.isEmpty || !ordinaryUpserts.isEmpty
         )
-        let membershipTransition = try membershipChange(
+        let inventoryTransition = try inventoryChange(
             for: observation,
             certificateChange: certificateTransition
         )
         return SyncDetection(
-            baseRevision: snapshot.revision,
+            baseRevision: context.snapshot.revision,
             observation: ObservationID(),
             result: result,
             certificateChange: certificateTransition,
-            membershipChange: membershipTransition,
+            inventoryChange: inventoryTransition,
             repairs: repair.repairs,
             upserts: ordinaryUpserts,
             previousTracks: Dictionary(uniqueKeysWithValues: mirrorBaseline.map {
                 ($0.key.rawValue, $0.value)
             }),
-            didCompleteForceRefresh: refresh == .force && isMetadataComplete
+            didCompleteForceRefresh: context.refresh == .force && isMetadataComplete
         )
     }
 
@@ -128,12 +176,12 @@ extension LibrarySyncService {
         }.sorted { $0.id < $1.id }
     }
 
-    private func membershipChange(
+    private func inventoryChange(
         for observation: LibraryObservation,
         certificateChange: CertificateChange
-    ) throws -> MembershipChange {
+    ) throws -> InventoryChange {
         guard certificateChange != .preserve else { return .preserve }
-        return try membershipChange(for: observation)
+        return try inventoryChange(for: observation)
     }
 
     private func fullMembershipResult(
@@ -151,26 +199,50 @@ extension LibrarySyncService {
         )
     }
 
-    func membershipChange(for observation: LibraryObservation) throws -> MembershipChange {
+    func inventoryChange(for observation: LibraryObservation) throws -> InventoryChange {
         let censusIDs = observation.censusIDs.sorted { $0.rawValue < $1.rawValue }
+        let identities = observation.identities.compactMap { row in
+            memberIdentity(from: row, observedAt: observation.observedAt)
+        }
         return try .replace(
             stamp: MembershipFingerprint.make(ids: censusIDs),
             ids: censusIDs,
+            identities: identities,
             observedAt: observation.observedAt
         )
+    }
+
+    private func memberIdentity(from row: LibraryIdentityRow, observedAt: Date) -> MemberIdentity? {
+        guard let artist = identityValue(row.artist),
+              let albumArtist = identityValue(row.albumArtist)
+        else { return nil }
+        return MemberIdentity(
+            databaseID: row.databaseID,
+            artist: artist,
+            albumArtist: albumArtist,
+            observedAt: observedAt
+        )
+    }
+
+    private func identityValue(_ observed: Observed<String>) -> String?? {
+        switch observed {
+        case let .value(value): .some(value)
+        case .absent: .some(nil)
+        case .unobserved: nil
+        }
     }
 
     private func certificateChange(
         for observation: LibraryObservation,
         baseRevision: MirrorRevision,
         previousReadiness: MirrorReadiness,
-        hasTrackMutations: Bool,
-        isMetadataComplete: Bool
+        certifiedIDs: Set<MusicDatabaseTrackID>,
+        hasTrackMutations: Bool
     ) throws -> CertificateChange {
         guard runtimeConfiguration.albumTargetIdentity == nil else {
             return .invalidate(.narrowedObservation)
         }
-        guard isMetadataComplete else {
+        guard hasCompleteMetadata(observation), observation.identity.isComplete else {
             return .invalidate(.incompleteObservation)
         }
         let hasCompleteMembership = switch (observation.scope.source, observation.membership) {
@@ -188,13 +260,13 @@ extension LibrarySyncService {
         let membership = try MembershipFingerprint.make(ids: Array(observation.censusIDs))
         if case let .ready(previousCertificate) = previousReadiness,
            previousCertificate.membership == membership,
-           Set(observation.tracks.map(\.databaseID)) != observation.currentIDs,
+           observation.identity.requestedIDs.isEmpty,
+           observation.metadata.requestedIDs.isEmpty,
            !hasTrackMutations {
             return .preserve
         }
 
-        let observedIDs = Set(observation.tracks.map(\.databaseID))
-        guard observedIDs == observation.currentIDs else {
+        guard certifiedIDs == observation.currentIDs else {
             return .invalidate(.membershipChanged)
         }
         let scopeFingerprint = try MembershipFingerprint.make(ids: Array(observation.currentIDs)).fingerprint
@@ -360,6 +432,31 @@ extension LibrarySyncService {
         guard rowIDSet.count == rowIDs.count else {
             throw LibrarySyncObservationError.invalidObservation(detail: "metadata rows contain duplicate IDs")
         }
+        let identityIDs = observation.identities.map(\.databaseID)
+        let identityIDSet = Set(identityIDs)
+        guard identityIDSet.count == identityIDs.count else {
+            throw LibrarySyncObservationError.invalidObservation(detail: "identity rows contain duplicate IDs")
+        }
+        if request.scope.source == .testArtists {
+            guard observation.identities.allSatisfy(\.hasCompleteFields) else {
+                throw LibrarySyncObservationError.invalidObservation(
+                    detail: "identity rows contain unobserved fields"
+                )
+            }
+            let identitiesByID = Dictionary(uniqueKeysWithValues: observation.identities.map {
+                ($0.databaseID, $0)
+            })
+            let expectedCurrentIDs = request.inventory.admittedIDs(
+                censusIDs: observation.censusIDs,
+                observed: identitiesByID,
+                scope: request.scope
+            )
+            guard observation.currentIDs == expectedCurrentIDs else {
+                throw LibrarySyncObservationError.invalidObservation(
+                    detail: "current scope does not match identity classification"
+                )
+            }
+        }
         let hasValidMembership = request.scope.source == .fullLibrary
             ? observation.currentIDs == observation.censusIDs
             : observation.currentIDs.isSubset(of: observation.censusIDs)
@@ -370,6 +467,9 @@ extension LibrarySyncService {
               hasExpectedRows,
               observation.metadata.requestedIDs.isSubset(of: observation.censusIDs),
               observation.metadata.observedIDs.isSubset(of: observation.metadata.requestedIDs),
+              observation.identity.requestedIDs.isSubset(of: observation.censusIDs),
+              observation.identity.observedIDs.isSubset(of: observation.identity.requestedIDs),
+              identityIDSet == observation.identity.observedIDs,
               rowIDSet.isSubset(of: observation.currentIDs)
         else {
             throw LibrarySyncObservationError.invalidObservation(detail: "metadata coverage does not match its rows")

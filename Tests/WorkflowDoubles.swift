@@ -28,7 +28,7 @@ extension TrackStateStore {
         try await commitMirror(MirrorCommit(
             baseRevision: revision,
             observation: ObservationID(),
-            membershipChange: testMembership(for: canonicalTracks),
+            inventoryChange: testInventory(for: canonicalTracks),
             repairs: [],
             upserts: canonicalTracks,
             certificates: .replace(certificate)
@@ -36,13 +36,38 @@ extension TrackStateStore {
     }
 }
 
-private func testMembership(for tracks: [Track]) throws -> MembershipChange {
+private func testInventory(for tracks: [Track]) throws -> InventoryChange {
     let ids = tracks.compactMap(\.databaseID).sorted { $0.rawValue < $1.rawValue }
     return try .replace(
         stamp: testMembershipStamp(for: ids),
         ids: ids,
+        identities: testIdentities(for: tracks),
         observedAt: Date(timeIntervalSince1970: 1_700_000_000)
     )
+}
+
+func testIdentities(
+    for tracks: [Track],
+    observedAt: Date = Date(timeIntervalSince1970: 1_700_000_000)
+) -> [MemberIdentity] {
+    tracks.compactMap { track in
+        guard let databaseID = track.databaseID else { return nil }
+        return MemberIdentity(
+            databaseID: databaseID,
+            artist: track.artist,
+            albumArtist: track.albumArtist,
+            observedAt: observedAt
+        )
+    }.sorted { $0.databaseID.rawValue < $1.databaseID.rawValue }
+}
+
+func testIdentityIndex(
+    for tracks: [Track],
+    observedAt: Date = Date(timeIntervalSince1970: 1_700_000_000)
+) -> [MusicDatabaseTrackID: MemberIdentity] {
+    testIdentities(for: tracks, observedAt: observedAt).reduce(into: [:]) { result, identity in
+        result[identity.databaseID] = identity
+    }
 }
 
 func testMembershipStamp(for ids: [MusicDatabaseTrackID]) throws -> MembershipStamp {

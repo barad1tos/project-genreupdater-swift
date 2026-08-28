@@ -109,10 +109,35 @@ public struct TrackMirrorRepair: Sendable {
     }
 }
 
-/// The canonical-library membership evidence carried by a mirror mutation.
-public enum MembershipChange: Equatable, Sendable {
+/// Minimal AppleScript identity used to classify one canonical library member.
+public struct MemberIdentity: Equatable, Sendable {
+    public let databaseID: MusicDatabaseTrackID
+    public let artist: String?
+    public let albumArtist: String?
+    public let observedAt: Date
+
+    public init(
+        databaseID: MusicDatabaseTrackID,
+        artist: String?,
+        albumArtist: String?,
+        observedAt: Date
+    ) {
+        self.databaseID = databaseID
+        self.artist = artist
+        self.albumArtist = albumArtist
+        self.observedAt = observedAt
+    }
+}
+
+/// Canonical-library membership and observed classification carried by one mirror mutation.
+public enum InventoryChange: Equatable, Sendable {
     case preserve
-    case replace(stamp: MembershipStamp, ids: [MusicDatabaseTrackID], observedAt: Date)
+    case replace(
+        stamp: MembershipStamp,
+        ids: [MusicDatabaseTrackID],
+        identities: [MemberIdentity],
+        observedAt: Date
+    )
 }
 
 /// Protocol for persisting the track metadata mirror and processing state.

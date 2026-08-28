@@ -10,14 +10,14 @@ func repairValidationCases(
     [
         (MirrorCommit(
             baseRevision: revision,
-            membershipChange: .preserve,
+            inventoryChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "missing", target: target)],
             upserts: [],
             certificates: .invalidate(.incompleteObservation)
         ), .missingSource(id: "missing")),
         (MirrorCommit(
             baseRevision: revision,
-            membershipChange: .preserve,
+            inventoryChange: .preserve,
             repairs: [
                 TrackMirrorRepair(sourceID: "legacy", target: target),
                 TrackMirrorRepair(sourceID: "legacy", target: other),
@@ -26,7 +26,7 @@ func repairValidationCases(
         ), .duplicateRepairSources(ids: ["legacy"])),
         (MirrorCommit(
             baseRevision: revision,
-            membershipChange: .preserve,
+            inventoryChange: .preserve,
             repairs: [
                 TrackMirrorRepair(sourceID: "legacy", target: target),
                 TrackMirrorRepair(sourceID: "occupied", target: target),
@@ -35,21 +35,21 @@ func repairValidationCases(
         ), .duplicateRepairTargets(ids: [testDatabaseID("target")])),
         (MirrorCommit(
             baseRevision: revision,
-            membershipChange: .preserve,
+            inventoryChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "legacy", target: occupied)],
             upserts: [],
             certificates: .invalidate(.incompleteObservation)
         ), .targetExists(id: testDatabaseID("occupied"))),
         (MirrorCommit(
             baseRevision: revision,
-            membershipChange: .preserve,
+            inventoryChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "legacy", target: target)],
             upserts: [target],
             certificates: .invalidate(.incompleteObservation)
         ), .identityOverlap(ids: [testDatabaseID("target")])),
         (MirrorCommit(
             baseRevision: revision,
-            membershipChange: .preserve,
+            inventoryChange: .preserve,
             repairs: [TrackMirrorRepair(sourceID: "legacy", target: legacy)],
             upserts: [],
             certificates: .invalidate(.incompleteObservation)

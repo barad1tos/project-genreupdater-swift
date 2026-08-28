@@ -42,6 +42,49 @@ public struct LibraryMirrorIndex: Equatable, Sendable {
     }
 }
 
+/// Persisted minimal identity classification keyed by canonical Music.app database ID.
+public struct LibraryInventoryIndex: Equatable, Sendable {
+    public static let empty = Self(verifiedIdentities: [:])
+
+    public let identitiesByID: [MusicDatabaseTrackID: MemberIdentity]
+
+    public init?(identitiesByID: [MusicDatabaseTrackID: MemberIdentity]) {
+        guard identitiesByID.allSatisfy({ $0.key == $0.value.databaseID }) else { return nil }
+        self.init(verifiedIdentities: identitiesByID)
+    }
+
+    private init(verifiedIdentities: [MusicDatabaseTrackID: MemberIdentity]) {
+        identitiesByID = verifiedIdentities
+    }
+
+    func admittedIDs(
+        censusIDs: Set<MusicDatabaseTrackID>,
+        observed: [MusicDatabaseTrackID: LibraryIdentityRow],
+        scope: ProcessingScopeSnapshot
+    ) -> Set<MusicDatabaseTrackID> {
+        guard scope.source == .testArtists else { return censusIDs }
+
+        var admitted = Set<MusicDatabaseTrackID>()
+        for (databaseID, identity) in identitiesByID where censusIDs.contains(databaseID) {
+            if ArtistAllowList.containsNormalized(
+                artist: identity.artist,
+                albumArtist: identity.albumArtist,
+                in: scope.normalizedTestArtists
+            ) {
+                admitted.insert(databaseID)
+            }
+        }
+        for (databaseID, identity) in observed where censusIDs.contains(databaseID) {
+            if identity.matches(scope) {
+                admitted.insert(databaseID)
+            } else {
+                admitted.remove(databaseID)
+            }
+        }
+        return admitted
+    }
+}
+
 public enum LibraryMirrorReference: Equatable, Sendable {
     case initial
     case verified(LibraryMirrorIndex)
@@ -60,15 +103,18 @@ public struct LibraryObservationRequest: Equatable, Sendable {
     public let scope: ProcessingScopeSnapshot
     public let refresh: MetadataRefreshPolicy
     public let previous: LibraryMirrorReference
+    public let inventory: LibraryInventoryIndex
 
     public init(
         scope: ProcessingScopeSnapshot,
         refresh: MetadataRefreshPolicy,
-        previous: LibraryMirrorReference
+        previous: LibraryMirrorReference,
+        inventory: LibraryInventoryIndex = .empty
     ) {
         self.scope = scope
         self.refresh = refresh
         self.previous = previous
+        self.inventory = inventory
     }
 }
 
@@ -88,8 +134,64 @@ public struct MetadataCompleteness: Equatable, Sendable {
     }
 }
 
+/// IDs requested and returned by minimal member-identity classification.
+public struct IdentityCompleteness: Equatable, Sendable {
+    public let requestedIDs: Set<MusicDatabaseTrackID>
+    public let observedIDs: Set<MusicDatabaseTrackID>
+
+    public var isComplete: Bool {
+        requestedIDs == observedIDs
+    }
+
+    public init(
+        requestedIDs: Set<MusicDatabaseTrackID>,
+        observedIDs: Set<MusicDatabaseTrackID>
+    ) {
+        self.requestedIDs = requestedIDs
+        self.observedIDs = observedIDs
+    }
+}
+
 public enum LibraryObservationIssue: Equatable, Sendable {
+    case identityUnobserved(databaseID: MusicDatabaseTrackID, detail: String)
     case metadataUnobserved(databaseID: MusicDatabaseTrackID, detail: String)
+}
+
+/// Minimal AppleScript identity row used only for processing-scope classification.
+public struct LibraryIdentityRow: Equatable, Sendable {
+    public let databaseID: MusicDatabaseTrackID
+    public let artist: Observed<String>
+    public let albumArtist: Observed<String>
+
+    public init(
+        databaseID: MusicDatabaseTrackID,
+        artist: Observed<String>,
+        albumArtist: Observed<String>
+    ) {
+        self.databaseID = databaseID
+        self.artist = artist
+        self.albumArtist = albumArtist
+    }
+
+    func matches(_ scope: ProcessingScopeSnapshot) -> Bool {
+        guard scope.source == .testArtists else { return true }
+        return ArtistAllowList.containsNormalized(
+            artist: artist.value,
+            albumArtist: albumArtist.value,
+            in: scope.normalizedTestArtists
+        )
+    }
+
+    var hasCompleteFields: Bool {
+        artist.isObserved && albumArtist.isObserved
+    }
+}
+
+extension Observed where Value == String {
+    fileprivate var value: String? {
+        guard case let .value(value) = self else { return nil }
+        return value
+    }
 }
 
 public struct LibraryTrackText: Equatable, Sendable {
@@ -159,22 +261,8 @@ public struct LibraryTrackRow: Equatable, Sendable {
             && status.isObserved
     }
 
-    func matches(_ scope: ProcessingScopeSnapshot) -> Bool {
-        guard scope.source == .testArtists else { return true }
-        let effectiveArtist: String? = switch albumArtist {
-        case let .value(albumArtist):
-            ArtistAllowList.normalizedName(albumArtist)
-        case .absent:
-            if case let .value(artist) = artist {
-                ArtistAllowList.normalizedName(artist)
-            } else {
-                nil
-            }
-        case .unobserved:
-            nil
-        }
-        guard let effectiveArtist else { return false }
-        return ArtistAllowList.containsNormalized(effectiveArtist, in: scope.normalizedTestArtists)
+    var identityRow: LibraryIdentityRow {
+        LibraryIdentityRow(databaseID: databaseID, artist: artist, albumArtist: albumArtist)
     }
 }
 
@@ -190,22 +278,52 @@ extension Observed {
 /// One generation-fenced processing observation below the existing projection layer.
 public struct LibraryObservation: Equatable, Sendable {
     public let tracks: [LibraryTrackRow]
+    public let identities: [LibraryIdentityRow]
     /// Full Music database membership captured in the same generation as this observation.
     public let censusIDs: Set<MusicDatabaseTrackID>
     public let currentIDs: Set<MusicDatabaseTrackID>
     public let scope: ProcessingScopeSnapshot
     public let observedAt: Date
     public let membership: MembershipCompleteness
+    public let identity: IdentityCompleteness
     public let metadata: MetadataCompleteness
     public let generation: LibraryGeneration
     public let issues: [LibraryObservationIssue]
+
+    public init(
+        tracks: [LibraryTrackRow],
+        identities: [LibraryIdentityRow] = [],
+        censusIDs: Set<MusicDatabaseTrackID>,
+        currentIDs: Set<MusicDatabaseTrackID>,
+        scope: ProcessingScopeSnapshot,
+        observedAt: Date,
+        membership: MembershipCompleteness,
+        identity: IdentityCompleteness = IdentityCompleteness(requestedIDs: [], observedIDs: []),
+        metadata: MetadataCompleteness,
+        generation: LibraryGeneration,
+        issues: [LibraryObservationIssue]
+    ) {
+        self.tracks = tracks
+        self.identities = identities
+        self.censusIDs = censusIDs
+        self.currentIDs = currentIDs
+        self.scope = scope
+        self.observedAt = observedAt
+        self.membership = membership
+        self.identity = identity
+        self.metadata = metadata
+        self.generation = generation
+        self.issues = issues
+    }
 }
 
 enum MusicAppObservationError: Error, LocalizedError {
     case censusChanged
     case generationChanged(started: LibraryGeneration, ended: LibraryGeneration)
     case duplicateMetadata(MusicDatabaseTrackID)
+    case duplicateIdentity(MusicDatabaseTrackID)
     case unexpectedMetadata(MusicDatabaseTrackID)
+    case unexpectedIdentity(MusicDatabaseTrackID)
     case unresolvedMetadataIdentity
 
     var errorDescription: String? {
@@ -216,8 +334,12 @@ enum MusicAppObservationError: Error, LocalizedError {
             "Music library generation changed during observation (\(started.rawValue) to \(ended.rawValue))"
         case let .duplicateMetadata(databaseID):
             "Metadata lookup returned database ID \(databaseID.rawValue) more than once"
+        case let .duplicateIdentity(databaseID):
+            "Identity lookup returned database ID \(databaseID.rawValue) more than once"
         case let .unexpectedMetadata(databaseID):
             "Metadata lookup returned unrequested database ID \(databaseID.rawValue)"
+        case let .unexpectedIdentity(databaseID):
+            "Identity lookup returned unrequested database ID \(databaseID.rawValue)"
         case .unresolvedMetadataIdentity:
             "Metadata lookup returned a track without a resolved AppleScript database ID"
         }

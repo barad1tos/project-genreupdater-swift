@@ -16,8 +16,8 @@ struct ArtistAllowListTests {
         #expect(ArtistAllowList.contains("Beatles", in: ["  "]))
     }
 
-    @Test("Track filtering keeps only allowed effective artists")
-    func filteringKeepsOnlyAllowedEffectiveArtists() {
+    @Test("Track filtering keeps only allowed artists")
+    func filteringKeepsOnlyAllowedArtists() {
         let tracks = [
             Track(id: "1", name: "Only for the Weak", artist: "In Flames", album: "Clayman"),
             Track(id: "2", name: "Come Together", artist: "Beatles", album: "Abbey Road"),
@@ -26,6 +26,29 @@ struct ArtistAllowListTests {
         let filtered = ArtistAllowList.filter(tracks, allowedArtists: ["in flames"])
 
         #expect(filtered.map(\.id) == ["1"])
+    }
+
+    @Test("Track scope matches either primary artist or album artist")
+    func trackScopeMatchesEitherArtistField() {
+        let primaryMatch = Track(
+            id: "primary",
+            name: "Song",
+            artist: "Target",
+            album: "Album",
+            albumArtist: "Other"
+        )
+        let albumMatch = Track(
+            id: "album",
+            name: "Song",
+            artist: "Other",
+            album: "Album",
+            albumArtist: "Target"
+        )
+
+        #expect(ArtistAllowList.filter(
+            [primaryMatch, albumMatch],
+            allowedArtists: ["target"]
+        ).map(\.id) == ["primary", "album"])
     }
 
     @Test("Track filtering supports Cyrillic artist names")

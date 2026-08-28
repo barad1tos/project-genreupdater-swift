@@ -39,7 +39,7 @@ public enum ModelContainerFactory {
     }
 
     static func makeSchema() -> Schema {
-        Schema(versionedSchema: StoreSchemaV5.self)
+        Schema(versionedSchema: StoreSchemaV6.self)
     }
 
     static func create(schema: Schema, configuration: ModelConfiguration) throws -> ModelContainer {

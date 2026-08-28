@@ -28,7 +28,7 @@ public enum CertificateChange: Equatable, Sendable {
 public struct MirrorCommit: Sendable {
     public let baseRevision: MirrorRevision
     public let observation: ObservationID
-    public let membershipChange: MembershipChange
+    public let inventoryChange: InventoryChange
     public let repairs: [TrackMirrorRepair]
     public let upserts: [Track]
     public let certificates: CertificateChange
@@ -36,14 +36,14 @@ public struct MirrorCommit: Sendable {
     public init(
         baseRevision: MirrorRevision,
         observation: ObservationID = ObservationID(),
-        membershipChange: MembershipChange,
+        inventoryChange: InventoryChange,
         repairs: [TrackMirrorRepair],
         upserts: [Track],
         certificates: CertificateChange
     ) {
         self.baseRevision = baseRevision
         self.observation = observation
-        self.membershipChange = membershipChange
+        self.inventoryChange = inventoryChange
         self.repairs = repairs
         self.upserts = upserts
         self.certificates = certificates
