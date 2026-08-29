@@ -1,4 +1,5 @@
 import Core
+import Foundation
 
 extension UpdateCoordinator {
     static func changeToLogEntry(
@@ -90,5 +91,32 @@ extension UpdateCoordinator {
         }
 
         return entry
+    }
+}
+
+extension ChangeLogEntry {
+    func scoped(to runID: UUID) -> Self {
+        var scoped = ChangeLogEntry(
+            id: RunChangeID.make(runID: runID, itemID: id),
+            timestamp: timestamp,
+            changeType: changeType,
+            trackID: trackID,
+            artist: artist,
+            trackName: trackName,
+            albumName: albumName,
+            oldGenre: oldGenre,
+            newGenre: newGenre,
+            oldYear: oldYear,
+            newYear: newYear,
+            oldTrackName: oldTrackName,
+            newTrackName: newTrackName,
+            oldAlbumName: oldAlbumName,
+            newAlbumName: newAlbumName,
+            oldArtist: oldArtist,
+            newArtist: newArtist,
+            albumArtistChange: albumArtistChange
+        )
+        scoped.runID = runID
+        return scoped
     }
 }

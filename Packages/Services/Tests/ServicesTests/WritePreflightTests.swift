@@ -52,11 +52,7 @@ struct WritePreflightTests {
         let written = await fixture.bridge.writtenProperties
         #expect(written.isEmpty)
         #expect(result.entries.isEmpty)
-        #expect(result.noOpEntries.count == 1)
-        #expect(result.noOpEntries.first?.trackID == "AS1")
-        #expect(result.noOpEntries.first?.changeType == .yearUpdate)
-        #expect(result.noOpEntries.first?.oldYear == 1970)
-        #expect(result.noOpEntries.first?.newYear == 1970)
+        #expect(result.noOpEntries.isEmpty)
         #expect(result.failedTrackIDs.isEmpty)
     }
 
@@ -260,7 +256,11 @@ struct WritePreflightTests {
             )
         )
 
-        let outcome = try await fixture.coordinator.applyChangeOutcome(change)
+        let checkpoints = PreflightCheckpointRecorder()
+        let outcome = try await fixture.coordinator.applyChangeOutcome(
+            change,
+            checkpoint: { await checkpoints.append($0) }
+        )
 
         #expect(outcome.entry == nil)
         #expect(outcome.noOpEntry?.trackID == "AS1")
@@ -268,6 +268,16 @@ struct WritePreflightTests {
         #expect(await fixture.bridge.batchUpdates.isEmpty)
         #expect(await fixture.bridge.writtenProperties.isEmpty)
         #expect(await fixture.trackStore.appliedUpdates.map(\.id) == ["AS1"])
+        #expect(await checkpoints.values.last?.writeChanges == [
+            change.id: WorkChange(
+                changeType: .artistRename,
+                oldValue: "Massive",
+                newValue: "Massive Attack",
+                confidence: 100,
+                source: "Artist Renamer",
+                albumArtistChange: change.albumArtistChange
+            ),
+        ])
     }
 
     @Test("Generated year update still writes already-processed metadata")

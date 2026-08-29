@@ -8,14 +8,14 @@ import Foundation
 public enum RecoveryEvidenceRepair {
     /// The change-history entry a work item's landed write should have
     /// recorded, or nil when the item carries no write identity.
-    public static func changeLogEntry(for item: RunWorkItem) -> ChangeLogEntry? {
+    public static func changeLogEntry(for item: RunWorkItem, runID: UUID) -> ChangeLogEntry? {
         guard case let .track(identity) = item.target,
               let rawDatabaseID = identity.appleScriptID,
               let databaseID = MusicDatabaseTrackID(rawValue: rawDatabaseID)
         else { return nil }
         let change = item.effectiveChange
         var entry = ChangeLogEntry(
-            id: item.id,
+            id: RunChangeID.make(runID: runID, itemID: item.id),
             timestamp: .now,
             changeType: change.changeType,
             trackID: databaseID.rawValue,
@@ -41,6 +41,7 @@ public enum RecoveryEvidenceRepair {
             entry.newArtist = change.newValue
             entry.albumArtistChange = change.albumArtistChange
         }
+        entry.runID = runID
         return entry
     }
 
@@ -59,18 +60,25 @@ public enum RecoveryEvidenceRepair {
         }
     }
 
+    /// Terminal no-op items whose observed Music.app values still need a
+    /// durable mirror finalization, but must never create undo history.
+    public static func noOpItems(in items: [RunWorkItem]) -> [RunWorkItem] {
+        items.filter { $0.state == .outcome(.noFixNeeded) }
+    }
+
     /// Returns one canonical durable event for every landed work item.
     /// Existing history keeps its event identity; missing history uses the
-    /// stable work-item identity so retries and relaunches converge.
+    /// deterministic run-scoped identity so retries and relaunches converge
+    /// without colliding with a continuation of the same plan item.
     public static func finalizationEntries(
         for items: [RunWorkItem],
         existing: [ChangeLogEntry],
         runID: UUID
     ) -> [ChangeLogEntry] {
         items.compactMap { item in
-            guard let candidate = changeLogEntry(for: item) else { return nil }
+            guard let candidate = changeLogEntry(for: item, runID: runID) else { return nil }
             if let recorded = existing.first(where: {
-                matchesStoredEvent($0, itemID: item.id, candidate: candidate, runID: runID)
+                matchesStoredEvent($0, candidate: candidate, runID: runID)
             }) {
                 return recorded
             }
@@ -93,12 +101,10 @@ public enum RecoveryEvidenceRepair {
 
     private static func matchesStoredEvent(
         _ recorded: ChangeLogEntry,
-        itemID: UUID,
         candidate: ChangeLogEntry,
         runID: UUID
     ) -> Bool {
-        recorded.id == itemID
-            || (recorded.runID == runID && matches(recorded, candidate))
+        recorded.runID == runID && matches(recorded, candidate)
     }
 
     private static func matchesChange(_ recorded: ChangeLogEntry, _ candidate: ChangeLogEntry) -> Bool {

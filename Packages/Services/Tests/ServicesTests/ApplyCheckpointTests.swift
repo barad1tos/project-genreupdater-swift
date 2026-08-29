@@ -191,8 +191,8 @@ extension ApplyAcceptedTests {
         await expectCachesCleared(for: track, fixture: fixture)
     }
 
-    @Test("Preflight no-op clears caches before terminal checkpoint")
-    func noOpCacheOrder() async throws {
+    @Test("Processed-year preflight skip preserves caches before terminal checkpoint")
+    func processedYearSkipPreservesCaches() async throws {
         let fixture = await makeCoordinator()
         let itemID = UUID()
         var track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1969)
@@ -208,7 +208,7 @@ extension ApplyAcceptedTests {
             source: "MusicBrainz",
             isAccepted: true
         )
-        let failure = storeFailure(for: .afterVerification([itemID: .noFixNeeded]))
+        let failure = storeFailure(for: .afterVerification([itemID: .skipped]))
 
         await expectCheckpointFailure(failure) {
             _ = try await fixture.coordinator.applyAcceptedChanges(
@@ -223,7 +223,13 @@ extension ApplyAcceptedTests {
         }
 
         #expect(await fixture.bridge.writtenProperties.isEmpty)
-        await expectCachesCleared(for: track, fixture: fixture)
+        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album)?.year == track.year)
+        #expect(await fixture.cache.getCachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            source: "musicbrainz"
+        )?.year == track.year)
+        #expect(await !fixture.snapshot.wasCleared())
     }
 
     @Test("Dispatched no-change clears caches before terminal checkpoint")

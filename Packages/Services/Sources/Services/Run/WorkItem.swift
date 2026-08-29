@@ -81,7 +81,7 @@ public struct WorkCheckpoint: Equatable, Sendable {
         self.writeChanges = writeChanges
     }
 
-    /// Carries the authoritative metadata effect into the durable pre-dispatch checkpoint.
+    /// Carries the authoritative metadata effect into a durable write or no-op finalization checkpoint.
     public static func beforeAttempt(_ writeChanges: [UUID: WorkChange]) -> Self {
         Self(
             boundary: .beforeAttempt,
@@ -97,10 +97,14 @@ public struct WorkCheckpoint: Equatable, Sendable {
         )
     }
 
-    public static func afterVerification(_ outcomes: [UUID: WorkOutcome]) -> Self {
+    public static func afterVerification(
+        _ outcomes: [UUID: WorkOutcome],
+        writeChanges: [UUID: WorkChange] = [:]
+    ) -> Self {
         Self(
             boundary: .afterVerification,
-            states: outcomes.mapValues(WorkState.outcome)
+            states: outcomes.mapValues(WorkState.outcome),
+            writeChanges: writeChanges
         )
     }
 }
@@ -238,8 +242,9 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
     public let id: UUID
     public let target: WorkTarget
     public let change: WorkChange
-    /// Authoritative metadata effect persisted immediately before dispatch.
-    /// Nil means the item has not crossed that boundary, or predates this evidence.
+    /// Authoritative metadata effect persisted before dispatch or when a no-op
+    /// is verified. Nil means the item has not crossed either boundary, or
+    /// predates this evidence.
     public let writeChange: WorkChange?
     public let state: WorkState
     public let detail: String?
@@ -392,8 +397,9 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             throw WorkStateError.invalid(current: state, next: nextState)
         }
         if let suppliedWriteChange {
+            let capturesNoOp = nextState == .outcome(.noFixNeeded)
             guard suppliedWriteChange.isValidReconciliation(of: change),
-                  writeChange != nil || nextState == .attempting
+                  writeChange != nil || nextState == .attempting || capturesNoOp
             else {
                 throw WorkStateError.invalid(current: state, next: nextState)
             }

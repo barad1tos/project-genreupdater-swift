@@ -7,11 +7,13 @@ import Testing
 struct RecoveryEvidenceRepairTests {
     @Test("a written genre item rebuilds its history entry")
     func rebuildsGenreEntry() throws {
+        let runID = UUID()
         let item = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
 
-        let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: item))
+        let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: item, runID: runID))
 
-        #expect(entry.id == item.id)
+        #expect(entry.id == RunChangeID.make(runID: runID, itemID: item.id))
+        #expect(entry.runID == runID)
         #expect(entry.trackID == "persistent-1")
         #expect(entry.changeType == .genreUpdate)
         #expect(entry.oldGenre == "Rock")
@@ -29,7 +31,7 @@ struct RecoveryEvidenceRepairTests {
             newValue: "2001"
         )
 
-        let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: item))
+        let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: item, runID: UUID()))
 
         #expect(entry.oldYear == 1999)
         #expect(entry.newYear == 2001)
@@ -58,7 +60,7 @@ struct RecoveryEvidenceRepairTests {
             )
         )
 
-        let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: RunWorkItem(item: item)))
+        let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: RunWorkItem(item: item), runID: UUID()))
 
         #expect(entry.oldArtist == "Massive")
         #expect(entry.newArtist == "Massive Attack")
@@ -83,7 +85,7 @@ struct RecoveryEvidenceRepairTests {
             source: "Library"
         )
 
-        #expect(RecoveryEvidenceRepair.changeLogEntry(for: RunWorkItem(item: item)) == nil)
+        #expect(RecoveryEvidenceRepair.changeLogEntry(for: RunWorkItem(item: item), runID: UUID()) == nil)
     }
 
     @Test("repair uses the reconciled write effect instead of stale plan evidence")
@@ -106,7 +108,7 @@ struct RecoveryEvidenceRepairTests {
             writeChange: writeChange
         )
 
-        let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: item))
+        let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: item, runID: UUID()))
 
         #expect(entry.oldArtist == "Massive")
         #expect(entry.newArtist == "Massive Attack")
@@ -144,7 +146,7 @@ struct RecoveryEvidenceRepairTests {
     func reusesDurableHistoryIdentity() throws {
         let runID = UUID()
         let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
-        let candidate = try #require(RecoveryEvidenceRepair.changeLogEntry(for: landed))
+        let candidate = try #require(RecoveryEvidenceRepair.changeLogEntry(for: landed, runID: runID))
         var existing = ChangeLogEntry(
             id: UUID(),
             timestamp: Date(timeIntervalSince1970: 1_700_000_000),
@@ -171,7 +173,7 @@ struct RecoveryEvidenceRepairTests {
     func keepsForeignHistorySeparate() throws {
         let runID = UUID()
         let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
-        let candidate = try #require(RecoveryEvidenceRepair.changeLogEntry(for: landed))
+        let candidate = try #require(RecoveryEvidenceRepair.changeLogEntry(for: landed, runID: runID))
         var foreign = ChangeLogEntry(
             id: UUID(),
             timestamp: Date(timeIntervalSince1970: 1_700_000_000),
@@ -191,14 +193,41 @@ struct RecoveryEvidenceRepairTests {
             runID: runID
         )
 
-        #expect(entries.map(\.id) == [landed.id])
+        #expect(entries.map(\.id) == [RunChangeID.make(runID: runID, itemID: landed.id)])
+    }
+
+    @Test("continuation gives the same plan item a new run-scoped event identity")
+    func scopesRepeatedItemToRun() throws {
+        let itemID = UUID()
+        let landed = makeWorkItem(
+            id: itemID,
+            state: .outcome(.written),
+            oldValue: "Rock",
+            newValue: "Stoner Rock"
+        )
+        let firstRunID = UUID()
+        let first = try #require(RecoveryEvidenceRepair.finalizationEntries(
+            for: [landed],
+            existing: [],
+            runID: firstRunID
+        ).first)
+        let secondRunID = UUID()
+        let second = try #require(RecoveryEvidenceRepair.finalizationEntries(
+            for: [landed],
+            existing: [first],
+            runID: secondRunID
+        ).first)
+
+        #expect(first.id != second.id)
+        #expect(first.runID == firstRunID)
+        #expect(second.runID == secondRunID)
     }
 
     @Test("finalization does not reuse a same-run event with a different source effect")
     func keepsDistinctTransition() throws {
         let runID = UUID()
         let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
-        let candidate = try #require(RecoveryEvidenceRepair.changeLogEntry(for: landed))
+        let candidate = try #require(RecoveryEvidenceRepair.changeLogEntry(for: landed, runID: runID))
         var existing = ChangeLogEntry(
             id: UUID(),
             timestamp: Date(timeIntervalSince1970: 1_700_000_000),
@@ -218,7 +247,7 @@ struct RecoveryEvidenceRepairTests {
             runID: runID
         )
 
-        #expect(entries.map(\.id) == [landed.id])
+        #expect(entries.map(\.id) == [RunChangeID.make(runID: runID, itemID: landed.id)])
     }
 
     @Test("same-run read identity is rewritten to the Music.app database ID")

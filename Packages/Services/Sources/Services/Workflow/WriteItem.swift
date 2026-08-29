@@ -31,14 +31,7 @@ struct PreparedWrite {
     }
 
     var writeChange: WorkChange {
-        WorkChange(
-            changeType: change.changeType,
-            oldValue: change.oldValue,
-            newValue: change.newValue,
-            confidence: change.confidence,
-            source: change.source,
-            albumArtistChange: change.albumArtistChange
-        )
+        change.workChange
     }
 
     func dispatch(
@@ -72,6 +65,12 @@ enum PreparedWriteOutcome {
     case skipped
 }
 
+enum WritePreflightDecision {
+    case write
+    case noOp
+    case skip
+}
+
 extension UpdateCoordinator {
     @discardableResult
     func applyChange(
@@ -96,7 +95,10 @@ extension UpdateCoordinator {
             return try await applyPreparedWrite(write, checkpoint: checkpoint)
         case let .noOp(preparedChange, databaseID):
             await invalidateCaches(for: change)
-            try await checkpoint?(.afterVerification([change.id: .noFixNeeded]))
+            try await checkpoint?(.afterVerification(
+                [change.id: .noFixNeeded],
+                writeChanges: [change.id: preparedChange.workChange]
+            ))
             let entry = try await recordObservedChange(preparedChange, databaseID: databaseID)
             return (nil, entry)
         case .skipped:
@@ -151,7 +153,10 @@ extension UpdateCoordinator {
         let result = try await dispatchWrite(write, checkpoint: checkpoint)
         guard result == .changed else {
             await invalidateCaches(for: write.change)
-            try await checkpoint?(.afterVerification([write.change.id: .noFixNeeded]))
+            try await checkpoint?(.afterVerification(
+                [write.change.id: .noFixNeeded],
+                writeChanges: [write.change.id: write.writeChange]
+            ))
             let entry = try await recordObservedChange(write.change, databaseID: write.databaseID)
             return (nil, entry)
         }
@@ -241,26 +246,21 @@ extension UpdateCoordinator {
         )
         let property = Self.musicProperty(for: preparedChange.changeType)
         let databaseID = try await databaseID(for: mutationTrack)
-        if isReviewedChange,
-           idMapper != nil,
-           let albumArtistChange = preparedChange.albumArtistChange,
-           Self.valueMatches(preparedChange.newValue, in: mutationTrack, property: property),
-           Self.valueMatches(
-               albumArtistChange.newValue,
-               in: mutationTrack,
-               property: .albumArtist
-           ) {
-            return .noOp(change: preparedChange, databaseID: databaseID)
-        }
-        if isReviewedChange,
-           try !shouldWrite(preparedChange, to: mutationTrack, property: property) {
-            log.info(
-                """
-                Skipped reviewed \(preparedChange.changeType.rawValue, privacy: .public) for track \
-                \(preparedChange.track.id, privacy: .private) after write preflight
-                """
-            )
-            return .noOp(change: preparedChange, databaseID: databaseID)
+        if isReviewedChange {
+            switch try preflightDecision(preparedChange, for: mutationTrack, property: property) {
+            case .write:
+                break
+            case .noOp:
+                return .noOp(change: preparedChange, databaseID: databaseID)
+            case .skip:
+                log.info(
+                    """
+                    Skipped reviewed \(preparedChange.changeType.rawValue, privacy: .public) for track \
+                    \(preparedChange.track.id, privacy: .private) after write preflight
+                    """
+                )
+                return .skipped
+            }
         }
 
         return try .write(PreparedWrite(
@@ -297,14 +297,20 @@ extension UpdateCoordinator {
         return change.copy(albumArtistChange: albumArtistChange)
     }
 
-    func shouldWrite(
+    func preflightDecision(
         _ change: ProposedChange,
-        to mutationTrack: Track,
+        for mutationTrack: Track,
         property: MusicTrackProperty,
         staleTrackID: String? = nil
-    ) throws -> Bool {
+    ) throws -> WritePreflightDecision {
         if change.changeType == .yearUpdate, mutationTrack.hasBeenProcessed {
-            return false
+            return .skip
+        }
+        if idMapper != nil,
+           let albumArtistChange = change.albumArtistChange,
+           Self.valueMatches(change.newValue, in: mutationTrack, property: property),
+           Self.valueMatches(albumArtistChange.newValue, in: mutationTrack, property: .albumArtist) {
+            return .noOp
         }
         guard Self.valueMatches(change.oldValue, in: mutationTrack, property: property) ||
             Self.valueMatches(change.newValue, in: mutationTrack, property: property)
@@ -314,7 +320,7 @@ extension UpdateCoordinator {
                 property: property.rawValue
             )
         }
-        return true
+        return .write
     }
 
     private func databaseID(for track: Track) async throws -> MusicDatabaseTrackID {
@@ -407,6 +413,17 @@ extension UpdateCoordinator {
 }
 
 extension ProposedChange {
+    var workChange: WorkChange {
+        WorkChange(
+            changeType: changeType,
+            oldValue: oldValue,
+            newValue: newValue,
+            confidence: confidence,
+            source: source,
+            albumArtistChange: albumArtistChange
+        )
+    }
+
     func copy(track: Track? = nil, albumArtistChange: AlbumArtistChange?) -> Self {
         ProposedChange(
             id: id,

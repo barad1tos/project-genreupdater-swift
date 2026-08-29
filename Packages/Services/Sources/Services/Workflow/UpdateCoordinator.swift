@@ -86,9 +86,7 @@ public actor UpdateCoordinator {
     /// are never persisted.
     func attributed(_ entry: ChangeLogEntry) -> ChangeLogEntry {
         guard entry.runID == nil, let runAttributionID else { return entry }
-        var stamped = entry
-        stamped.runID = runAttributionID.rawValue
-        return stamped
+        return entry.scoped(to: runAttributionID.rawValue)
     }
 
     public func updateRuntimeConfiguration(
