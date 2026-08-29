@@ -159,6 +159,20 @@ extension PersistedTrack {
         releaseYear = MusicAppYear.normalized(track.releaseYear)
     }
 
+    func mirrorMatches(_ track: Core.Track, databaseID: MusicDatabaseTrackID) -> Bool {
+        trackID == databaseID.rawValue
+            && appleScriptID == databaseID.rawValue
+            && name == track.name
+            && artist == track.artist
+            && album == track.album
+            && genre == track.genre
+            && year == MusicAppYear.normalized(track.year)
+            && dateAdded == track.dateAdded
+            && albumArtist == track.albumArtist
+            && trackStatus == track.trackStatus
+            && releaseYear == MusicAppYear.normalized(track.releaseYear)
+    }
+
     func repairMirror(with track: Core.Track, databaseID: MusicDatabaseTrackID) {
         trackID = databaseID.rawValue
         updateMirror(from: track, databaseID: databaseID)

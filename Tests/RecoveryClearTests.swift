@@ -117,10 +117,12 @@ struct RecoveryClearTests {
             oldValue: "Artist",
             newValue: "Renamed Artist",
             changeType: .artistRename,
-            capturedAlbumArtist: "Various Artists",
-            albumArtistChange: AlbumArtistChange(
-                oldValue: "Artist",
-                newValue: "Renamed Artist"
+            albumArtist: RecoveryAlbumArtistFixture(
+                capturedValue: "Various Artists",
+                change: AlbumArtistChange(
+                    oldValue: "Artist",
+                    newValue: "Renamed Artist"
+                )
             ),
             writeChange: writeChange
         )
@@ -242,10 +244,12 @@ struct RecoveryClearTests {
             oldValue: "Artist",
             newValue: "Renamed Artist",
             changeType: .artistRename,
-            capturedAlbumArtist: "Various Artists",
-            albumArtistChange: AlbumArtistChange(
-                oldValue: "Artist",
-                newValue: "Renamed Artist"
+            albumArtist: RecoveryAlbumArtistFixture(
+                capturedValue: "Various Artists",
+                change: AlbumArtistChange(
+                    oldValue: "Artist",
+                    newValue: "Renamed Artist"
+                )
             ),
             writeChange: writeChange
         )

@@ -1,4 +1,5 @@
 import Core
+import DesignUI
 import Foundation
 import Testing
 @testable import Genre_Updater
@@ -258,10 +259,8 @@ struct RecoveryNoOpTests {
         let recoveryID = UUID()
         let item = recoveryWorkItem(
             state: .outcome(.noFixNeeded),
-            oldValue: nil,
-            newValue: "1970",
-            changeType: .yearUpdate,
-            appleScriptID: nil
+            change: RecoveryWorkChangeFixture(oldValue: nil, newValue: "1970", changeType: .yearUpdate),
+            identity: RecoveryTrackIdentityFixture(appleScriptID: nil)
         )
         let record = recoveryRunRecord(recoveryID: recoveryID, workItems: [item])
         let relaunch = try await makeRelaunchedStore(seeding: record)
@@ -380,6 +379,7 @@ struct RecoveryNoOpTests {
         #expect(!detail.workItems.contains { $0.id == fixture.observedItem.id })
         #expect(blockedRow.canDismiss)
         #expect(blockedRow.attentionLabel == "The track is no longer available in Music.app")
+        try assertCappedRecoveryAction(detail: detail, fixture: fixture)
 
         try await setup.dependencies.dismissRecoveryWork(
             id: fixture.record.runID.rawValue,
@@ -411,10 +411,12 @@ struct RecoveryNoOpTests {
             oldValue: "Artist",
             newValue: "Renamed Artist",
             changeType: .artistRename,
-            capturedAlbumArtist: "Artist",
-            albumArtistChange: AlbumArtistChange(
-                oldValue: "Artist",
-                newValue: "Renamed Artist"
+            albumArtist: RecoveryAlbumArtistFixture(
+                capturedValue: "Artist",
+                change: AlbumArtistChange(
+                    oldValue: "Artist",
+                    newValue: "Renamed Artist"
+                )
             )
         )
         do {
@@ -505,34 +507,73 @@ private struct CappedMixedNoOpRecovery {
     let observedTrack: Track
 }
 
+@MainActor
+private func assertCappedRecoveryAction(
+    detail: RunReportDetailProjection,
+    fixture: CappedMixedNoOpRecovery
+) throws {
+    let snapshot = ReportDetailAdapter.makeSnapshot(from: detail)
+    let blockedRow = try #require(
+        snapshot.workItems.first(where: { $0.id == fixture.blockedItem.id.uuidString })
+    )
+    let descriptor = try #require(
+        RecoveryItemActionDescriptor.make(detail: snapshot, item: blockedRow)
+    )
+    #expect(descriptor.attentionLabel == "The track is no longer available in Music.app")
+    #expect(descriptor.tone == .warning)
+    #expect(descriptor.sectionTitle == "Keep the mirror unchanged")
+    #expect(descriptor.accessibilityLabel == "Acknowledge recovery item")
+    #expect(descriptor.reasons == ["Track removed", "Identity changed", "Keep mirror unchanged"])
+    #expect(descriptor.runID == fixture.record.runID.rawValue.uuidString)
+    #expect(descriptor.itemID == fixture.blockedItem.id.uuidString)
+    #expect(snapshot.workItems.filter { $0.id != descriptor.itemID }.allSatisfy {
+        RecoveryItemActionDescriptor.make(detail: snapshot, item: $0) == nil
+    })
+    var routedAction: (runID: String, itemID: String, reason: String)?
+    descriptor.perform(
+        reason: "Track removed",
+        using: RecoveryDetailActions(
+            applyRemainingFixes: { _ in },
+            dismissItem: { runID, itemID, reason in
+                routedAction = (runID, itemID, reason)
+            },
+            dismissPreparedItems: { _, _, _ in }
+        )
+    )
+    #expect(routedAction?.runID == fixture.record.runID.rawValue.uuidString)
+    #expect(routedAction?.itemID == fixture.blockedItem.id.uuidString)
+    #expect(routedAction?.reason == "Track removed")
+}
+
 private func makeCappedMixedNoOpRecovery(recoveryID: UUID) -> CappedMixedNoOpRecovery {
     let ordinaryItems = (0 ..< RunReportDetailBuilder.shownWorkItemLimit).map { index in
         recoveryWorkItem(
             state: .outcome(.skipped),
-            oldValue: nil,
-            newValue: nil,
-            readID: "ordinary-read-\(index)",
-            appleScriptID: "ordinary-\(index)",
-            trackName: "Ordinary \(index)"
+            change: RecoveryWorkChangeFixture(oldValue: nil, newValue: nil),
+            identity: RecoveryTrackIdentityFixture(
+                readID: "ordinary-read-\(index)",
+                appleScriptID: "ordinary-\(index)",
+                trackName: "Ordinary \(index)"
+            )
         )
     }
     let observedItem = recoveryWorkItem(
         state: .outcome(.noFixNeeded),
-        oldValue: nil,
-        newValue: "1970",
-        changeType: .yearUpdate,
-        readID: "observed-read",
-        appleScriptID: "observed-1",
-        trackName: "Observed track"
+        change: RecoveryWorkChangeFixture(oldValue: nil, newValue: "1970", changeType: .yearUpdate),
+        identity: RecoveryTrackIdentityFixture(
+            readID: "observed-read",
+            appleScriptID: "observed-1",
+            trackName: "Observed track"
+        )
     )
     let blockedItem = recoveryWorkItem(
         state: .outcome(.noFixNeeded),
-        oldValue: nil,
-        newValue: "1970",
-        changeType: .yearUpdate,
-        readID: "missing-read",
-        appleScriptID: "missing-1",
-        trackName: "Missing track"
+        change: RecoveryWorkChangeFixture(oldValue: nil, newValue: "1970", changeType: .yearUpdate),
+        identity: RecoveryTrackIdentityFixture(
+            readID: "missing-read",
+            appleScriptID: "missing-1",
+            trackName: "Missing track"
+        )
     )
     let mirrorTracks = [
         cappedRecoveryTrack(id: "observed-1", name: "Observed track", year: 2001),

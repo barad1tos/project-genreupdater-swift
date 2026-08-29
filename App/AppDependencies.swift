@@ -162,6 +162,7 @@ final class AppDependencies {
     private(set) var isDiscogsAccessAvailable: Bool?
     @ObservationIgnored var trackCountSource: (@Sendable () async -> Int?)?
     @ObservationIgnored var recoveryClearTasks: [UUID: Task<Void, Error>] = [:]
+    @ObservationIgnored let recoveryMutationGate = RecoveryMutationGate()
     @ObservationIgnored private var isInitializing = false
 
     func setDiscogsIssue(_ issue: DiscogsCredentialIssue?) {

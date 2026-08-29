@@ -108,37 +108,83 @@ actor RecoveryChangeLogStore: ChangeLogStore {
     }
 }
 
+struct RecoveryTrackIdentityFixture {
+    let readID: String
+    let appleScriptID: String?
+    let artist: String
+    let album: String
+    let trackName: String
+    let capturedAlbumArtist: String?
+
+    init(
+        readID: String = "read-1",
+        appleScriptID: String? = "persistent-1",
+        artist: String = "Artist",
+        album: String = "Album",
+        trackName: String = "Track",
+        capturedAlbumArtist: String? = nil
+    ) {
+        self.readID = readID
+        self.appleScriptID = appleScriptID
+        self.artist = artist
+        self.album = album
+        self.trackName = trackName
+        self.capturedAlbumArtist = capturedAlbumArtist
+    }
+}
+
+struct RecoveryWorkChangeFixture {
+    let oldValue: String?
+    let newValue: String?
+    let changeType: ChangeType
+    let albumArtistChange: AlbumArtistChange?
+
+    init(
+        oldValue: String?,
+        newValue: String?,
+        changeType: ChangeType = .genreUpdate,
+        albumArtistChange: AlbumArtistChange? = nil
+    ) {
+        self.oldValue = oldValue
+        self.newValue = newValue
+        self.changeType = changeType
+        self.albumArtistChange = albumArtistChange
+    }
+}
+
+struct RecoveryAlbumArtistFixture {
+    let capturedValue: String?
+    let change: AlbumArtistChange?
+
+    init(capturedValue: String? = nil, change: AlbumArtistChange? = nil) {
+        self.capturedValue = capturedValue
+        self.change = change
+    }
+}
+
 /// One track item for app-hosted recovery fixtures.
 func recoveryWorkItem(
-    id: UUID = UUID(),
     state: WorkState,
-    oldValue: String?,
-    newValue: String?,
-    changeType: ChangeType = .genreUpdate,
-    readID: String = "read-1",
-    appleScriptID: String? = "persistent-1",
-    artist: String = "Artist",
-    album: String = "Album",
-    trackName: String = "Track",
-    capturedAlbumArtist: String? = nil,
-    albumArtistChange: AlbumArtistChange? = nil,
+    change fixtureChange: RecoveryWorkChangeFixture,
+    id: UUID = UUID(),
+    identity: RecoveryTrackIdentityFixture = RecoveryTrackIdentityFixture(),
     writeChange: WorkChange? = nil
 ) -> RunWorkItem {
     let target = WorkTarget.track(FixPlanItemIdentity(
-        readID: readID,
-        appleScriptID: appleScriptID,
-        artist: artist,
-        album: album,
-        trackName: trackName,
-        albumArtist: capturedAlbumArtist
+        readID: identity.readID,
+        appleScriptID: identity.appleScriptID,
+        artist: identity.artist,
+        album: identity.album,
+        trackName: identity.trackName,
+        albumArtist: identity.capturedAlbumArtist
     ))
     let change = WorkChange(
-        changeType: changeType,
-        oldValue: oldValue,
-        newValue: newValue,
+        changeType: fixtureChange.changeType,
+        oldValue: fixtureChange.oldValue,
+        newValue: fixtureChange.newValue,
         confidence: 90,
         source: "Library",
-        albumArtistChange: albumArtistChange
+        albumArtistChange: fixtureChange.albumArtistChange
     )
     if let writeChange {
         return RunWorkItem(
@@ -210,17 +256,18 @@ func uncertainRunRecord(
     oldValue: String? = "Rock",
     newValue: String? = "Stoner Rock",
     changeType: ChangeType = .genreUpdate,
-    capturedAlbumArtist: String? = nil,
-    albumArtistChange: AlbumArtistChange? = nil,
+    albumArtist: RecoveryAlbumArtistFixture = RecoveryAlbumArtistFixture(),
     writeChange: WorkChange? = nil
 ) -> (record: RunRecord, item: RunWorkItem) {
     let item = recoveryWorkItem(
         state: itemState,
-        oldValue: oldValue,
-        newValue: newValue,
-        changeType: changeType,
-        capturedAlbumArtist: capturedAlbumArtist,
-        albumArtistChange: albumArtistChange,
+        change: RecoveryWorkChangeFixture(
+            oldValue: oldValue,
+            newValue: newValue,
+            changeType: changeType,
+            albumArtistChange: albumArtist.change
+        ),
+        identity: RecoveryTrackIdentityFixture(capturedAlbumArtist: albumArtist.capturedValue),
         writeChange: writeChange
     )
     return (recoveryRunRecord(recoveryID: recoveryID, workItems: [item]), item)
@@ -296,10 +343,12 @@ actor FlakyRecoveryStore: RunRecordStore {
 
     private let base: any RunRecordStore
     private var failingReads: Int
+    private var failingUpserts: Int
 
-    init(base: any RunRecordStore, failingReads: Int) {
+    init(base: any RunRecordStore, failingReads: Int = 0, failingUpserts: Int = 0) {
         self.base = base
         self.failingReads = failingReads
+        self.failingUpserts = failingUpserts
     }
 
     func recoveryRecords() async throws -> RunReportPage {
@@ -311,6 +360,10 @@ actor FlakyRecoveryStore: RunRecordStore {
     }
 
     func upsert(_ record: RunRecord) async throws {
+        if failingUpserts > 0 {
+            failingUpserts -= 1
+            throw StoreDown()
+        }
         try await base.upsert(record)
     }
 
@@ -360,6 +413,41 @@ actor FlakyRecoveryStore: RunRecordStore {
 
     func retainedPlanIDs() async throws -> Set<FixPlanID>? {
         try await base.retainedPlanIDs()
+    }
+}
+
+actor SuspendedRecoveryVerifier: MusicAppVerifying {
+    private let tracks: [Track]
+    private var isEntered = false
+    private var isReleased = false
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(tracks: [Track]) {
+        self.tracks = tracks
+    }
+
+    func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Track] {
+        isEntered = true
+        entryWaiters.forEach { $0.resume() }
+        entryWaiters.removeAll()
+        if !isReleased {
+            await withCheckedContinuation { releaseWaiters.append($0) }
+        }
+        return databaseIDs.compactMap { databaseID in
+            tracks.first { $0.databaseID == databaseID }
+        }
+    }
+
+    func waitUntilEntered() async {
+        guard !isEntered else { return }
+        await withCheckedContinuation { entryWaiters.append($0) }
+    }
+
+    func release() {
+        isReleased = true
+        releaseWaiters.forEach { $0.resume() }
+        releaseWaiters.removeAll()
     }
 }
 

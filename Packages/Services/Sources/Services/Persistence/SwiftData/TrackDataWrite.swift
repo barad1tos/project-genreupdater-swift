@@ -47,10 +47,16 @@ extension TrackDataStore {
                     updated: updatedTrack,
                     persisted: persistedTrack
                 )
+                let hasObservedMirrorState = try hasObservedMirrorState(
+                    change,
+                    updated: updatedTrack,
+                    persisted: persistedTrack
+                )
                 guard !isRepeatedCommit(
                     history: historyChange,
                     storedHistory: storedHistory,
-                    hasAppliedState: hasAppliedState
+                    hasAppliedState: hasAppliedState,
+                    hasObservedMirrorState: hasObservedMirrorState
                 ) else {
                     applyHistory(historyChange, entry: change, stored: storedHistory, track: persistedTrack)
                     return
@@ -124,11 +130,12 @@ extension TrackDataStore {
     private func isRepeatedCommit(
         history: HistoryChange,
         storedHistory: PersistedChangeLogEntry?,
-        hasAppliedState: Bool
+        hasAppliedState: Bool,
+        hasObservedMirrorState: Bool
     ) -> Bool {
         switch history {
         case .ignore:
-            false
+            hasObservedMirrorState
         case .record:
             storedHistory != nil
                 && hasAppliedState
@@ -136,6 +143,22 @@ extension TrackDataStore {
             storedHistory == nil
                 && hasAppliedState
         }
+    }
+
+    private func hasObservedMirrorState(
+        _ change: ChangeLogEntry,
+        updated: Track,
+        persisted: PersistedTrack
+    ) throws -> Bool {
+        guard let databaseID = MusicDatabaseTrackID(rawValue: change.trackID),
+              persisted.mirrorMatches(updated, databaseID: databaseID)
+        else { return false }
+        guard change.changeType == .artistRename else { return true }
+        let descriptor = FetchDescriptor<PersistedLibraryMember>(
+            predicate: #Predicate { $0.databaseID == change.trackID && $0.isPresent }
+        )
+        guard let member = try modelContext.fetch(descriptor).first else { return false }
+        return member.artist == updated.artist && member.albumArtist == updated.albumArtist
     }
 
     private func updateTrack(

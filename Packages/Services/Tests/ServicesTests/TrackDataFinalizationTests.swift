@@ -66,6 +66,36 @@ extension TrackDataTests {
         #expect(history.isEmpty)
     }
 
+    @Test("Observed no-op retry does not advance an already finalized mirror")
+    func observedRetryIsIdempotent() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = TrackDataStore(modelContainer: container)
+        try await store.initialize()
+        try await store.seedMirror([sampleTrack()])
+        let change = ChangeLogEntry(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 1_800_000_000),
+            changeType: .genreUpdate,
+            trackID: "T001",
+            artist: "Test Artist",
+            trackName: "Test Song",
+            albumName: "Test Album",
+            oldGenre: "Metal",
+            newGenre: "Metal"
+        )
+
+        let firstRevision = try await store.commitObservedChange(change)
+        let secondRevision = try await store.commitObservedChange(change)
+
+        let snapshot = try await store.loadMirrorSnapshot()
+        let history = try ModelContext(container).fetch(FetchDescriptor<PersistedChangeLogEntry>())
+        #expect(firstRevision == MirrorRevision(value: 2))
+        #expect(secondRevision == firstRevision)
+        #expect(snapshot.revision == firstRevision)
+        #expect(snapshot.presentTracks.first?.genre == "Metal")
+        #expect(history.isEmpty)
+    }
+
     @Test("Existing history repairs an unfinished mirror finalization once")
     func repairsHistoricSplitFinalization() async throws {
         let container = try ModelContainerFactory.createInMemory()

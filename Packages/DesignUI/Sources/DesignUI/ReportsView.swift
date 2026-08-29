@@ -44,11 +44,6 @@ struct ReportsView: View {
     /// without a default makes that omission a compile error.
     let reportNotice: ReportNotice?
     private static let dismissalReasons = ["Duplicate", "Handled manually", "Not wanted"]
-    private static let legacyNoOpAcknowledgementReasons = [
-        "Track removed",
-        "Identity changed",
-        "Keep mirror unchanged",
-    ]
     private let cols = [GridItem(.adaptive(minimum: 260), spacing: 14)]
 
     var body: some View {
@@ -387,22 +382,23 @@ struct ReportsView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Ayu.fg2)
             ForEach(detail.workItems) { item in
+                let action = RecoveryItemActionDescriptor.make(detail: detail, item: item)
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(item.changeLabel)
                             .font(.system(size: 13))
                             .foregroundStyle(Ayu.fg)
                             .lineLimit(1)
-                        if let detailLabel = item.attentionLabel ?? item.dismissedLabel {
+                        if let detailLabel = action?.attentionLabel ?? item.dismissedLabel {
                             Text(detailLabel)
                                 .font(.system(size: 11.5))
-                                .foregroundStyle(item.attentionLabel == nil ? Ayu.fgMuted : Ayu.warning)
+                                .foregroundStyle(action?.attentionLabel == nil ? Ayu.fgMuted : Ayu.warning)
                         }
                     }
                     Spacer()
-                    TagPill(text: item.stateLabel, tone: workItemTone(item))
-                    if detail.canDismissItems, item.canDismiss {
-                        dismissItemMenu(runID: detail.runID, item: item)
+                    TagPill(text: item.stateLabel, tone: action?.tone ?? workItemTone(item))
+                    if let action {
+                        recoveryItemMenu(action)
                     }
                 }
             }
@@ -417,29 +413,18 @@ struct ReportsView: View {
     }
 
     private func workItemTone(_ item: RunReportWorkItemRow) -> Tone {
-        if item.isWriteUncertain || (item.canDismiss && !item.isOpen) {
+        if item.isWriteUncertain {
             return .warning
         }
         return item.isOpen ? .info : .neutral
     }
 
-    private func dismissItemMenu(runID: String, item: RunReportWorkItemRow) -> some View {
-        let acknowledgesLegacyNoOp = item.canDismiss && !item.isOpen
-        let sectionTitle = if acknowledgesLegacyNoOp {
-            "Keep the mirror unchanged"
-        } else if item.isWriteUncertain {
-            "Write status is uncertain — dismissing records your explicit decision"
-        } else {
-            "Dismiss item"
-        }
-        return Menu {
-            Section(sectionTitle) {
-                ForEach(
-                    acknowledgesLegacyNoOp ? Self.legacyNoOpAcknowledgementReasons : Self.dismissalReasons,
-                    id: \.self
-                ) { reason in
+    private func recoveryItemMenu(_ descriptor: RecoveryItemActionDescriptor) -> some View {
+        Menu {
+            Section(descriptor.sectionTitle) {
+                ForEach(descriptor.reasons, id: \.self) { reason in
                     Button(reason) {
-                        recoveryActions?.dismissItem(runID, item.id, reason)
+                        descriptor.perform(reason: reason, using: recoveryActions)
                     }
                 }
             }
@@ -450,7 +435,7 @@ struct ReportsView: View {
         }
         .menuIndicator(.hidden)
         .fixedSize()
-        .accessibilityLabel(acknowledgesLegacyNoOp ? "Acknowledge recovery item" : "Dismiss work item")
+        .accessibilityLabel(descriptor.accessibilityLabel)
     }
 
     @ViewBuilder

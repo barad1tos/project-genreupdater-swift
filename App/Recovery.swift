@@ -123,25 +123,35 @@ extension AppDependencies {
             throw AppDependencyServiceError.runRecordStoreUnavailable
         }
         let activeRunID = await runOrchestrator?.activeLifecycle()?.runID
-        // The command surface carries run IDs (navigation currency) while
-        // holds mint their own UUIDs, so match both keys like preflight does.
-        let page = try await runRecordStore.recoveryRecords()
-        guard let record = page.records.first(where: {
+        let initialPage = try await runRecordStore.recoveryRecords()
+        guard let initialRecord = initialPage.records.first(where: {
             ($0.runID.rawValue == id || $0.recoveryID == id) && $0.runID != activeRunID
         }) else {
             throw AppDependencyServiceError.recoveryUnavailable
         }
-        let dismissedAt = Date()
-        let updated: RunRecord
-        if isIndividual {
-            guard itemIDs.count == 1, let itemID = itemIDs.first else {
+        let mutationID = initialRecord.recoveryID ?? initialRecord.runID.rawValue
+        try await withRecoveryMutation(id: mutationID) {
+            let activeRunID = await runOrchestrator?.activeLifecycle()?.runID
+            // The command surface carries run IDs (navigation currency) while
+            // holds mint their own UUIDs, so match both keys like preflight does.
+            let page = try await runRecordStore.recoveryRecords()
+            guard let record = page.records.first(where: {
+                ($0.runID.rawValue == id || $0.recoveryID == id) && $0.runID != activeRunID
+            }) else {
                 throw AppDependencyServiceError.recoveryUnavailable
             }
-            updated = try record.dismissingUncertainWork(id: itemID, reason: reason, at: dismissedAt)
-        } else {
-            updated = try record.dismissingWork(ids: Set(itemIDs), reason: reason, at: dismissedAt)
+            let dismissedAt = Date()
+            let updated: RunRecord
+            if isIndividual {
+                guard itemIDs.count == 1, let itemID = itemIDs.first else {
+                    throw AppDependencyServiceError.recoveryUnavailable
+                }
+                updated = try record.dismissingUncertainWork(id: itemID, reason: reason, at: dismissedAt)
+            } else {
+                updated = try record.dismissingWork(ids: Set(itemIDs), reason: reason, at: dismissedAt)
+            }
+            try await runRecordStore.upsert(updated)
         }
-        try await runRecordStore.upsert(updated)
     }
 
     func runRecoveryPreflight(runID: RunID) async -> RecoveryPreflightOutcome {
@@ -237,26 +247,31 @@ extension AppDependencies {
             throw AppDependencyServiceError.recoveryBlocked
         }
         let observedOutcomes = try await observeOutcomes(for: record)
-        try await repairFinalizationEvidence(record: record, observedOutcomes: observedOutcomes)
-        if let runOrchestrator {
-            guard await runOrchestrator.resolveRecovery(
+        try await withRecoveryMutation(id: id) {
+            guard try await selectRecoveryRecord(id: id, activeRunID: activeRunID) == record else {
+                throw AppDependencyServiceError.recoveryUnavailable
+            }
+            try await repairFinalizationEvidence(record: record, observedOutcomes: observedOutcomes)
+            if let runOrchestrator {
+                guard await runOrchestrator.resolveRecovery(
+                    id: id,
+                    runID: record.runID,
+                    at: finishedAt,
+                    observedOutcomes: observedOutcomes
+                ) == .resolved else {
+                    throw AppDependencyServiceError.recoveryVerificationFailed
+                }
+            }
+            _ = try await closeRecoveryRun(
                 id: id,
-                runID: record.runID,
+                activeRunID: activeRunID,
+                allowsUnbound: activeHoldID != nil,
                 at: finishedAt,
                 observedOutcomes: observedOutcomes
-            ) == .resolved else {
-                throw AppDependencyServiceError.recoveryVerificationFailed
+            )
+            if runOrchestrator == nil, await processor.recoveryHoldID() == id {
+                try await processor.clearRecovery(batchID: id)
             }
-        }
-        _ = try await closeRecoveryRun(
-            id: id,
-            activeRunID: activeRunID,
-            allowsUnbound: activeHoldID != nil,
-            at: finishedAt,
-            observedOutcomes: observedOutcomes
-        )
-        if runOrchestrator == nil, await processor.recoveryHoldID() == id {
-            try await processor.clearRecovery(batchID: id)
         }
     }
 
@@ -369,7 +384,12 @@ extension AppDependencies {
             do {
                 try await store.upsert(record.recordingRecoveryObservationBlocker(blocker))
             } catch {
-                recoveryLog.error("Recovery blocker could not be persisted for the affected work item")
+                recoveryLog.error("""
+                Recovery blocker for run \(record.runID.rawValue.uuidString, privacy: .public), item \
+                \(blocker.itemID.uuidString, privacy: .public) could not be persisted: \
+                \(String(describing: type(of: error)), privacy: .public): \
+                \(error.localizedDescription, privacy: .private)
+                """)
                 throw AppDependencyServiceError.recoveryUnavailable
             }
             throw AppDependencyServiceError.recoveryItemNeedsAttention(blocker)
@@ -386,6 +406,21 @@ extension AppDependencies {
         }
         let page = try await runRecordStore.recoveryRecords()
         return page.records.first { $0.recoveryID == id && $0.runID != activeRunID }
+    }
+
+    private func withRecoveryMutation(
+        id: UUID,
+        operation: @MainActor () async throws -> Void
+    ) async throws {
+        await recoveryMutationGate.acquire(id)
+        do {
+            try Task.checkCancellation()
+            try await operation()
+            await recoveryMutationGate.release(id)
+        } catch {
+            await recoveryMutationGate.release(id)
+            throw error
+        }
     }
 
     /// Observes the physical Music.app state for the run's open work before

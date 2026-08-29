@@ -183,6 +183,8 @@ extension RunRecordDataStore {
                       item.target == expected.target,
                       item.change == expected.change,
                       item.detail == expected.detail,
+                      item.dismissedAt == expected.dismissedAt,
+                      item.recoveryObservationIssue == expected.recoveryObservationIssue,
                       item.canReconcileWriteChange(from: expected),
                       item.state.canFollow(expected.state)
                 else {
