@@ -244,6 +244,8 @@ final class AppDependencies {
         guard await bootstrapProjectionsForLaunch() else { return }
         appState = .loading
 
+        guard AppProcessMode.current.shouldStartLiveServices else { return }
+
         do {
             // Step 1: Create script installer
             let installer = try ScriptInstaller()

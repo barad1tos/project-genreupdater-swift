@@ -44,4 +44,20 @@ struct AppProcessModeTests {
             Issue.record("Expected MusicLibraryError.musicAppNotAvailable, got \(error)")
         }
     }
+
+    @MainActor
+    @Test("Direct unit-test initialization never starts live services")
+    func directInitializationIsInert() async {
+        let dependencies = AppDependencies(configurationLoader: { AppConfiguration() })
+
+        await dependencies.initialize()
+
+        guard case .loading = dependencies.appState else {
+            Issue.record("Unit-test initialization changed app state to \(dependencies.appState)")
+            return
+        }
+        #expect(dependencies.scriptInstaller == nil)
+        #expect(dependencies.applescriptBridge == nil)
+        #expect(dependencies.subscriptionService == nil)
+    }
 }

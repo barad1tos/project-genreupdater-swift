@@ -32,9 +32,7 @@ struct GenreUpdaterApp: App {
                     applyAppKitAppearance(newMode)
                 }
                 .task {
-                    if AppProcessMode.current.shouldStartLiveServices {
-                        await dependencies.initialize()
-                    }
+                    await dependencies.initialize()
                     applyAppKitAppearance(appearanceMode)
                 }
                 .onOpenURL { url in
