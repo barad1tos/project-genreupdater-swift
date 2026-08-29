@@ -221,12 +221,15 @@ final class AppDependencies {
             return false
         }
 
-        migrateDefaultUpdateBehaviorIfNeeded()
+        if AppProcessMode.current.shouldUsePersistentStorage {
+            migrateDefaultUpdateBehaviorIfNeeded()
+        }
         // Bootstrap the settings projection so the store never serves the
-        // `.empty` default state once the app is running. A migration
-        // persist failure is not fatal (the key is kept for a retry next
-        // launch), but its message must survive into the projection —
-        // appState is about to become .loading.
+        // `.empty` default state once the app is running. In production, a
+        // migration persist failure is not fatal (the key is kept for a retry
+        // next launch), but its message must survive into the projection —
+        // appState is about to become .loading. Test hosts publish without
+        // migrating user-owned preferences.
         await publishSettingsProjection(saveErrorMessage: configurationSaveErrorMessage)
         await refreshChromeProjection()
         return true

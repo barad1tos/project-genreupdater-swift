@@ -48,7 +48,21 @@ struct AppProcessModeTests {
     @MainActor
     @Test("Direct unit-test initialization never starts live services")
     func directInitializationIsInert() async {
-        let dependencies = AppDependencies(configurationLoader: { AppConfiguration() })
+        let defaults = UserDefaults.standard
+        let originalBehavior = defaults.string(forKey: AppStorageKey.defaultUpdateBehavior)
+        defaults.set("genre_only", forKey: AppStorageKey.defaultUpdateBehavior)
+        defer {
+            if let originalBehavior {
+                defaults.set(originalBehavior, forKey: AppStorageKey.defaultUpdateBehavior)
+            } else {
+                defaults.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
+            }
+        }
+        var savedConfigurations: [AppConfiguration] = []
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { savedConfigurations.append($0) }
+        )
 
         await dependencies.initialize()
 
@@ -59,5 +73,7 @@ struct AppProcessModeTests {
         #expect(dependencies.scriptInstaller == nil)
         #expect(dependencies.applescriptBridge == nil)
         #expect(dependencies.subscriptionService == nil)
+        #expect(savedConfigurations.isEmpty)
+        #expect(defaults.string(forKey: AppStorageKey.defaultUpdateBehavior) == "genre_only")
     }
 }
