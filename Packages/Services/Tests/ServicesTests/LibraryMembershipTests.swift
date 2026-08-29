@@ -106,7 +106,7 @@ struct LibraryMembershipTests {
         )
 
         #expect(revision == MirrorRevision(value: 2))
-        #expect(try await fixture.store.loadAllTracks().map(\.id) == ["A"])
+        #expect(try await fixture.store.loadMirrorSnapshot().presentTracks.map(\.id) == ["A"])
         #expect(try await fixture.store.getTrack(byID: "B") == nil)
         #expect(try await fixture.store.getHistoricalTrack(byID: "B")?.name == "Track B")
         #expect(try await history.loadAll().map(\.trackID) == ["B"])
@@ -127,7 +127,7 @@ struct LibraryMembershipTests {
         let revision = try await replaceMembership(in: fixture.store, ids: ids)
 
         #expect(revision == MirrorRevision(value: 3))
-        #expect(try await fixture.store.loadAllTracks().map(\.id).sorted() == ["A", "B"])
+        #expect(try await fixture.store.loadMirrorSnapshot().presentTracks.map(\.id).sorted() == ["A", "B"])
         let resurrected = try #require(loadMembers(from: fixture.container).first { $0.databaseID == "B" })
         #expect(resurrected.isPresent)
         #expect(resurrected.firstSeenRevisionValue == 1)
@@ -275,7 +275,7 @@ struct LibraryMembershipTests {
 
         _ = try await replaceMembership(in: fixture.store, ids: [])
 
-        #expect(try await fixture.store.loadAllTracks().isEmpty)
+        #expect(try await fixture.store.loadMirrorSnapshot().presentTracks.isEmpty)
         #expect(try presentIDs(in: fixture.container).isEmpty)
         #expect(try loadMembers(from: fixture.container).allSatisfy { !$0.isPresent })
     }

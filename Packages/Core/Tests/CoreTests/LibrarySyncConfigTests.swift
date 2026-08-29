@@ -10,16 +10,20 @@ struct LibrarySyncConfigTests {
 
         #expect(configuration.librarySync.conflictRetries == 3)
         #expect(configuration.librarySync.conflictDelaySeconds == 0.1)
+        #expect(configuration.librarySync.syncRecordLimit == 500)
     }
 
     @Test("Persisted library-sync retry policy overrides defaults")
     func decodesPersistedPolicy() throws {
-        let data = Data(#"{"librarySync":{"conflictRetries":2,"conflictDelaySeconds":0.25}}"#.utf8)
+        let data = Data(
+            #"{"librarySync":{"conflictRetries":2,"conflictDelaySeconds":0.25,"syncRecordLimit":40}}"#.utf8
+        )
 
         let configuration = try JSONDecoder().decode(AppConfiguration.self, from: data)
 
         #expect(configuration.librarySync.conflictRetries == 2)
         #expect(configuration.librarySync.conflictDelaySeconds == 0.25)
+        #expect(configuration.librarySync.syncRecordLimit == 40)
     }
 
     @Test("Missing library-sync keys retain their defaults")
@@ -32,8 +36,10 @@ struct LibrarySyncConfigTests {
 
         #expect(retriesConfiguration.librarySync.conflictRetries == 2)
         #expect(retriesConfiguration.librarySync.conflictDelaySeconds == 0.1)
+        #expect(retriesConfiguration.librarySync.syncRecordLimit == 500)
         #expect(delayConfiguration.librarySync.conflictRetries == 3)
         #expect(delayConfiguration.librarySync.conflictDelaySeconds == 0.25)
+        #expect(delayConfiguration.librarySync.syncRecordLimit == 500)
     }
 
     @Test("Negative library-sync retry policy is rejected")
@@ -41,6 +47,7 @@ struct LibrarySyncConfigTests {
         var configuration = AppConfiguration()
         configuration.librarySync.conflictRetries = -1
         configuration.librarySync.conflictDelaySeconds = -0.1
+        configuration.librarySync.syncRecordLimit = 0
 
         do {
             try configuration.validate()
@@ -49,6 +56,7 @@ struct LibrarySyncConfigTests {
             #expect(error.issues.map(\.fieldPath) == [
                 "librarySync.conflictDelaySeconds",
                 "librarySync.conflictRetries",
+                "librarySync.syncRecordLimit",
             ])
         }
     }

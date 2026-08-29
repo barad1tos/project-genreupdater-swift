@@ -219,7 +219,7 @@ struct ProjectionRuntimeTests {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         fixture.dependencies.installTrackCountSource { 1 }
         await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { _ in
                 // Persistence is outside this observer pin.
             },
@@ -283,7 +283,7 @@ struct ProjectionRuntimeTests {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         fixture.dependencies.installTrackCountSource { 1 }
         await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { _ in
                 // Persistence is outside this probe pin.
             },
@@ -411,7 +411,7 @@ struct ProjectionRuntimeTests {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         fixture.dependencies.installTrackCountSource { 1 }
         await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { _ in
                 // Persistence is outside this wiring pin.
             },
@@ -593,7 +593,7 @@ struct ProjectionRuntimeTests {
 
         fixture.dependencies.installTrackCountSource { 1 }
         await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { _ in
                 // Persistence is outside this wiring pin.
             },
@@ -610,7 +610,7 @@ struct ProjectionRuntimeTests {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
         fixture.dependencies.installTrackCountSource { 1 }
         await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { _ in
                 // Persistence is outside this wiring pin.
             },
@@ -623,7 +623,7 @@ struct ProjectionRuntimeTests {
         // A runtime-apply rebuild replaces the orchestrator; the SAME
         // subscription must keep delivering (it used to die silently).
         await fixture.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { _ in
                 // Persistence is outside this wiring pin.
             },

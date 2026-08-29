@@ -5,7 +5,15 @@ import Foundation
 public struct ProcessingAdmission: Codable, Equatable, Sendable {
     public let scopeID: UUID
     public let certificate: ScopeCertificate
+    public let mirrorRevision: MirrorRevision
     public let maximumMetadataAge: TimeInterval?
+
+    private enum CodingKeys: String, CodingKey {
+        case scopeID
+        case certificate
+        case mirrorRevision
+        case maximumMetadataAge
+    }
 
     public var requirement: MirrorRequirement {
         MirrorRequirement(
@@ -18,16 +26,31 @@ public struct ProcessingAdmission: Codable, Equatable, Sendable {
     public init(
         scopeID: UUID,
         certificate: ScopeCertificate,
+        mirrorRevision: MirrorRevision? = nil,
         maximumMetadataAge: TimeInterval?
     ) {
         self.scopeID = scopeID
         self.certificate = certificate
+        self.mirrorRevision = mirrorRevision ?? certificate.revision
         self.maximumMetadataAge = maximumMetadataAge
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        scopeID = try container.decode(UUID.self, forKey: .scopeID)
+        certificate = try container.decode(ScopeCertificate.self, forKey: .certificate)
+        mirrorRevision = try container.decodeIfPresent(MirrorRevision.self, forKey: .mirrorRevision)
+            ?? certificate.revision
+        maximumMetadataAge = try container.decodeIfPresent(TimeInterval.self, forKey: .maximumMetadataAge)
     }
 
     /// Whether this admission certifies the exact captured processing scope.
     public func certifies(scope: ProcessingScopeSnapshot) -> Bool {
-        guard scopeID == scope.id else { return false }
+        guard scopeID == scope.id,
+              scope.hasValidStructure,
+              scope.mirrorRevision == mirrorRevision,
+              scope.certificateID == certificate.id
+        else { return false }
 
         let requiredArtists = requirement.normalizedTestArtists
         let expectedSource: ProcessingScopeSource = requiredArtists.isEmpty ? .fullLibrary : .testArtists
@@ -143,9 +166,17 @@ extension TrackStateStore {
         let snapshot = try await loadMirrorSnapshot()
         switch snapshot.admission(for: requirement, at: date) {
         case let .admitted(mirror):
+            let isUnboundRequest = scope.mirrorRevision == nil && scope.certificateID == nil
+            guard isUnboundRequest || (
+                scope.mirrorRevision == snapshot.revision
+                    && scope.certificateID == mirror.certificate.id
+            ) else {
+                return .rejected(.certificateChanged)
+            }
             let admission = ProcessingAdmission(
                 scopeID: scope.id,
                 certificate: mirror.certificate,
+                mirrorRevision: snapshot.revision,
                 maximumMetadataAge: requirement.maximumMetadataAge
             )
             return .admitted(admission, tracks: mirror.tracks)
@@ -170,7 +201,9 @@ extension TrackStateStore {
             return .rejected(.mirror(readiness))
         }
 
-        guard mirror.certificate.id == admission.certificate.id else {
+        guard snapshot.revision == admission.mirrorRevision,
+              mirror.certificate.id == admission.certificate.id
+        else {
             return .rejected(.certificateChanged)
         }
 
@@ -202,6 +235,7 @@ extension TrackStateStore {
 
 extension ProcessingScopeSnapshot {
     fileprivate func matches(_ requirement: MirrorRequirement) -> Bool {
+        guard hasValidStructure else { return false }
         let expectedSource: ProcessingScopeSource = requirement.normalizedTestArtists.isEmpty
             ? .fullLibrary
             : .testArtists

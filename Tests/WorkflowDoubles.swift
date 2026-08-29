@@ -2,6 +2,20 @@ import Core
 import Foundation
 import Services
 
+extension SyncResult {
+    func committed(to scope: ProcessingScopeSnapshot) -> Self {
+        let admission = workflowProcessingAdmission(scope: scope)
+        return Self(
+            newTracks: newTracks,
+            modifiedTracks: modifiedTracks,
+            identityChangedTracks: identityChangedTracks,
+            refreshedTracks: refreshedTracks,
+            removedTrackIDs: removedTrackIDs,
+            scope: scope.certified(by: admission)
+        )
+    }
+}
+
 extension TrackStateStore {
     func seedMirror(_ tracks: [Track]) async throws {
         let revision = try await loadMirrorSnapshot().revision
@@ -72,6 +86,38 @@ func testIdentityIndex(
 
 func testMembershipStamp(for ids: [MusicDatabaseTrackID]) throws -> MembershipStamp {
     try MembershipFingerprint.make(ids: ids)
+}
+
+func testMirrorSnapshot(
+    revision: MirrorRevision,
+    tracks: [Track],
+    certificates: [ScopeCertificate] = []
+) throws -> TrackMirrorSnapshot {
+    let ids = tracks.compactMap(\.databaseID)
+    return try TrackMirrorSnapshot(
+        revision: revision,
+        membershipStamp: testMembershipStamp(for: ids),
+        presentIDs: Set(ids),
+        memberIdentities: testIdentityIndex(for: tracks, observedAt: .distantPast),
+        presentTracks: tracks,
+        repairCandidates: [],
+        certificates: certificates
+    )
+}
+
+func testMirrorSnapshot(
+    revision: MirrorRevision,
+    copying snapshot: TrackMirrorSnapshot
+) -> TrackMirrorSnapshot {
+    TrackMirrorSnapshot(
+        revision: revision,
+        membershipStamp: snapshot.membershipStamp,
+        presentIDs: snapshot.presentIDs,
+        memberIdentities: snapshot.memberIdentities,
+        presentTracks: snapshot.presentTracks,
+        repairCandidates: snapshot.repairCandidates,
+        certificates: snapshot.certificates
+    )
 }
 
 func testMusicDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {
@@ -273,10 +319,6 @@ actor DashboardStateTrackStore: TrackStateStore {
         // Test double has no external resources to initialize.
     }
 
-    func loadAllTracks() async throws -> [Track] {
-        []
-    }
-
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try TrackMirrorSnapshot(
             revision: .initial,
@@ -291,7 +333,11 @@ actor DashboardStateTrackStore: TrackStateStore {
     @discardableResult
     func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
         // These tests do not assert persisted track state.
-        try MirrorCommitResult(revision: commit.baseRevision.advanced())
+        let revision = try commit.baseRevision.advanced()
+        return try MirrorCommitResult(
+            revision: revision,
+            snapshot: testMirrorSnapshot(revision: revision, tracks: [])
+        )
     }
 
     func getTrack(byID _: String) async throws -> Track? {

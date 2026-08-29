@@ -116,6 +116,11 @@ extension AppConfiguration {
             minimum: 0,
             path: "librarySync.conflictDelaySeconds"
         )
+        validation.requireAtLeast(
+            librarySync.syncRecordLimit,
+            minimum: 1,
+            path: "librarySync.syncRecordLimit"
+        )
         validation.requireMillisecondCapacity(
             librarySync.conflictDelaySeconds,
             path: "librarySync.conflictDelaySeconds"

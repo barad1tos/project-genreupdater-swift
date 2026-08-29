@@ -24,7 +24,6 @@ struct PreviewPlanTests {
             }
         )
         let probe = PreviewProducerProbe()
-        let producer = makeProducer(dependencies: dependencies, probe: probe)
         let planConfiguration = FixPlanConfig.capture(
             configuration: configuration,
             options: PreviewRunOptions.make(
@@ -35,12 +34,15 @@ struct PreviewPlanTests {
             capturedAt: Date(timeIntervalSince1970: 50)
         )
         let runID = RunID()
-        let scope = ProcessingScopeSnapshot.capture(
+        let requestedScope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: ["Probe Artist"],
             knownTrackCount: 1,
             createdAt: probe.producedAt,
             reason: "previewProducerTest"
         )
+        let admission = workflowProcessingAdmission(scope: requestedScope)
+        let scope = requestedScope.certified(by: admission)
+        let producer = makeProducer(dependencies: dependencies, probe: probe, admission: admission)
 
         let production = try await producer(runID, scope, planConfiguration)
         let snapshot = await probe.snapshot()
@@ -68,12 +70,13 @@ struct PreviewPlanTests {
 
     private func makeProducer(
         dependencies: AppDependencies,
-        probe: PreviewProducerProbe
+        probe: PreviewProducerProbe,
+        admission: ProcessingAdmission
     ) -> Producer {
         dependencies.makePreviewProducer(dependencies: FixPlanProducer.Dependencies(
-            loadAdmission: { scope, _ in
+            loadAdmission: { _, _ in
                 await .admitted(
-                    workflowProcessingAdmission(scope: scope),
+                    admission,
                     tracks: probe.loadTracks()
                 )
             },

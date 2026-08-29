@@ -33,7 +33,7 @@ extension RunOrchestrator {
     }
 
     public struct Dependencies: Sendable {
-        public let synchronizeLibrary: @Sendable () async throws -> SyncResult
+        public let synchronizeLibrary: @Sendable (ProcessingScopeSnapshot) async throws -> SyncResult
         public let synchronizePreview: (@Sendable (
             ProcessingScopeSnapshot,
             FixPlanConfig
@@ -66,7 +66,7 @@ extension RunOrchestrator {
         public let now: @Sendable () -> Date
 
         public init(
-            synchronizeLibrary: @escaping @Sendable () async throws -> SyncResult,
+            synchronizeLibrary: @escaping @Sendable (ProcessingScopeSnapshot) async throws -> SyncResult,
             synchronizePreview: (@Sendable (
                 ProcessingScopeSnapshot,
                 FixPlanConfig

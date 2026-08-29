@@ -237,9 +237,6 @@ private actor LoaderTrackStore: TrackStateStore {
     func initialize() async throws {
         // This in-memory loader store has no setup work.
     }
-    func loadAllTracks() async throws -> [Track] {
-        tracks
-    }
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         let ids = presentIDs.sorted { $0.rawValue < $1.rawValue }
         let membership = try testMembershipStamp(for: ids)
@@ -275,7 +272,12 @@ private actor LoaderTrackStore: TrackStateStore {
     @discardableResult
     func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
         // Loader tests exercise reads only, so mirror writes are intentionally inert.
-        try MirrorCommitResult(revision: commit.baseRevision.advanced())
+        let revision = try commit.baseRevision.advanced()
+        let current = try await loadMirrorSnapshot()
+        return MirrorCommitResult(
+            revision: revision,
+            snapshot: testMirrorSnapshot(revision: revision, copying: current)
+        )
     }
     func getTrack(byID _: String) async throws -> Track? {
         nil

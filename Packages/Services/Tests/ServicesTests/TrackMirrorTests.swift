@@ -281,7 +281,7 @@ struct TrackMirrorTests {
             certificates: .invalidate(.membershipChanged)
         ))
 
-        let loadedTracks = try await store.loadAllTracks()
+        let loadedTracks = try await store.loadMirrorSnapshot().presentTracks
         #expect(loadedTracks.map(\.id).sorted() == ["T001", "T003"])
         let refreshed = try #require(loadedTracks.first { $0.id == "T001" })
         #expect(refreshed.name == "Refreshed Song")
@@ -303,7 +303,7 @@ struct TrackMirrorTests {
     func commitMirrorRejectsDuplicateUpserts() async throws {
         let store = try makeStore()
         try await store.seedMirror([sampleTrack(id: "T001"), sampleTrack(id: "T002")])
-        let before = try await store.loadAllTracks()
+        let before = try await store.loadMirrorSnapshot().presentTracks
         let duplicateID = testDatabaseID("T001")
         let revision = try await store.loadMirrorSnapshot().revision
 
@@ -320,14 +320,14 @@ struct TrackMirrorTests {
             #expect(error == .duplicateUpserts(ids: [duplicateID]))
         }
 
-        #expect(try await store.loadAllTracks() == before)
+        #expect(try await store.loadMirrorSnapshot().presentTracks == before)
     }
 
     @Test("Mirror apply rejects duplicate membership IDs without changing stored state")
     func rejectsDuplicateMembership() async throws {
         let store = try makeStore()
         try await store.seedMirror([sampleTrack(id: "T001"), sampleTrack(id: "T002")])
-        let before = try await store.loadAllTracks()
+        let before = try await store.loadMirrorSnapshot().presentTracks
         let duplicateID = testDatabaseID("T002")
         let stamp = try MembershipFingerprint.make(ids: [duplicateID])
         let revision = try await store.loadMirrorSnapshot().revision
@@ -349,14 +349,14 @@ struct TrackMirrorTests {
             #expect(error == .duplicateMembershipIDs(ids: [duplicateID]))
         }
 
-        #expect(try await store.loadAllTracks() == before)
+        #expect(try await store.loadMirrorSnapshot().presentTracks == before)
     }
 
     @Test("Mirror apply rejects an upsert outside current membership")
     func rejectsNonmemberUpsert() async throws {
         let store = try makeStore()
         try await store.seedMirror([sampleTrack(id: "T001"), sampleTrack(id: "T002")])
-        let before = try await store.loadAllTracks()
+        let before = try await store.loadMirrorSnapshot().presentTracks
         let targetID = testDatabaseID("T001")
         let revision = try await store.loadMirrorSnapshot().revision
 
@@ -373,14 +373,14 @@ struct TrackMirrorTests {
             #expect(error == .operationsOutsideMembership(ids: [targetID]))
         }
 
-        #expect(try await store.loadAllTracks() == before)
+        #expect(try await store.loadMirrorSnapshot().presentTracks == before)
     }
 
     @Test("Mirror apply rejects an upsert without canonical database identity")
     func commitMirrorRejectsMissingDatabaseID() async throws {
         let store = try makeStore()
         try await store.seedMirror([sampleTrack(id: "T001")])
-        let before = try await store.loadAllTracks()
+        let before = try await store.loadMirrorSnapshot().presentTracks
         let revision = try await store.loadMirrorSnapshot().revision
 
         do {
@@ -396,14 +396,14 @@ struct TrackMirrorTests {
             #expect(error == .missingDatabaseID(trackID: "T001"))
         }
 
-        #expect(try await store.loadAllTracks() == before)
+        #expect(try await store.loadMirrorSnapshot().presentTracks == before)
     }
 
     @Test("Mirror apply rejects different presentation and database identities")
     func commitMirrorRejectsIdentityMismatch() async throws {
         let store = try makeStore()
         try await store.seedMirror([sampleTrack(id: "T001")])
-        let before = try await store.loadAllTracks()
+        let before = try await store.loadMirrorSnapshot().presentTracks
         var mismatchedTrack = sampleTrack(id: "MUSIC-KIT-ID")
         mismatchedTrack.appleScriptID = "T001"
         let databaseID = testDatabaseID("T001")
@@ -425,13 +425,13 @@ struct TrackMirrorTests {
             ))
         }
 
-        #expect(try await store.loadAllTracks() == before)
+        #expect(try await store.loadMirrorSnapshot().presentTracks == before)
     }
 
     @Test("Mirror apply rejects a canonical upsert colliding with a noncanonical row")
     func commitMirrorRejectsIdentityCollision() async throws {
         let store = try makeNoncanonicalFixture(id: "catalog").store
-        let before = try await store.loadAllTracks()
+        let before = try await store.loadMirrorSnapshot().presentTracks
         let databaseID = testDatabaseID("catalog")
         let revision = try await store.loadMirrorSnapshot().revision
 
@@ -448,7 +448,7 @@ struct TrackMirrorTests {
             #expect(error == .identityCollisions(ids: [databaseID]))
         }
 
-        #expect(try await store.loadAllTracks() == before)
+        #expect(try await store.loadMirrorSnapshot().presentTracks == before)
     }
 
     @Test("Mirror membership may classify an ID without processing metadata")
@@ -467,7 +467,7 @@ struct TrackMirrorTests {
         ))
 
         #expect(try presentIDs(in: fixture.container) == [databaseID])
-        #expect(try await store.loadAllTracks().isEmpty)
+        #expect(try await store.loadMirrorSnapshot().presentTracks.isEmpty)
         #expect(try await store.getUnprocessedTracks().isEmpty)
     }
 
@@ -644,7 +644,7 @@ struct TrackMirrorTests {
         context.insert(PersistedTrack(trackID: "occupied", name: "Occupied", artist: "Artist", album: "Album"))
         try context.save()
         let store = TrackDataStore(modelContainer: container)
-        let before = try await store.loadAllTracks()
+        let before = try await store.loadMirrorSnapshot().presentTracks
         let target = mirrorTrack(id: "target")
         let occupied = mirrorTrack(id: "occupied")
         let revision = try await store.loadMirrorSnapshot().revision
@@ -660,7 +660,7 @@ struct TrackMirrorTests {
             await #expect(throws: expectedError) {
                 try await store.commitMirror(update)
             }
-            #expect(try await store.loadAllTracks() == before)
+            #expect(try await store.loadMirrorSnapshot().presentTracks == before)
         }
     }
 
@@ -687,7 +687,7 @@ struct TrackMirrorTests {
 
         try await store.commitMirror(update)
 
-        let tracks = try await store.loadAllTracks()
+        let tracks = try await store.loadMirrorSnapshot().presentTracks
         #expect(tracks.map(\.id).sorted() == ["inserted", "rekeyed", "updated"])
         #expect(tracks.first { $0.id == "updated" }?.name == "New")
     }

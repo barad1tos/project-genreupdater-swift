@@ -18,7 +18,7 @@ struct AutomationRuntimeTests {
         dependencies.config.runtime.automationStrategy = .scheduled
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -38,7 +38,7 @@ struct AutomationRuntimeTests {
         let gate = AutomationSyncGate()
         let records = AutomationRecordCollector()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { await gate.sync() },
+            synchronizeLibrary: { scope in await (gate.sync()).committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         ))
@@ -133,7 +133,7 @@ struct AutomationRuntimeTests {
         dependencies.config.runtime.automationStrategy = .scheduled
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -244,7 +244,7 @@ struct AutomationRuntimeTests {
         dependencies.libraryChangeSource = source
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -279,7 +279,7 @@ struct AutomationRuntimeTests {
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -381,7 +381,7 @@ struct AutomationRuntimeTests {
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -400,7 +400,7 @@ struct AutomationRuntimeTests {
         dependencies.installTestFeatureGate(FeatureGate(fixedTier: .pro))
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -465,7 +465,7 @@ struct AutomationRuntimeTests {
         dependencies.libraryChangeSource = source
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -525,10 +525,10 @@ struct AutomationRuntimeTests {
         dependencies.installTestIncrementalRunTracker(tracker)
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: {
+            synchronizeLibrary: { scope in
                 SyncResult(newTracks: [
                     Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
-                ])
+                ]).committed(to: scope)
             },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
@@ -553,7 +553,7 @@ struct AutomationRuntimeTests {
         dependencies.config.runtime.automationStrategy = .libraryChange
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -572,7 +572,7 @@ struct AutomationRuntimeTests {
         dependencies.config.runtime.automationStrategy = .manualOnly
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -589,7 +589,7 @@ struct AutomationRuntimeTests {
         dependencies.config.runtime.automationStrategy = .hybrid
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -606,7 +606,7 @@ struct AutomationRuntimeTests {
         dependencies.config.runtime.automationStrategy = .hybrid
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -637,7 +637,7 @@ struct AutomationRuntimeTests {
         dependencies.installTestAgentRegistrar(StubAgentRegistrar())
         dependencies.libraryChangeSource = StubLibraryChangeSource(isAvailable: false)
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -665,7 +665,7 @@ struct AutomationRuntimeTests {
         setup.dependencies.libraryChangeSource = StubLibraryChangeSource(isAvailable: false)
         setup.dependencies.pendingAutomationWakeURL = automationWakeURL()
         await setup.dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await store.upsert($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))
@@ -693,7 +693,7 @@ struct AutomationRuntimeTests {
         dependencies.libraryChangeSource = StubLibraryChangeSource(isAvailable: true)
         let records = AutomationRecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await records.append($0) },
             produceFixPlan: { _, _, _ in .empty }
         )))

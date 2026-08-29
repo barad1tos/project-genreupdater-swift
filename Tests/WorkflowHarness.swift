@@ -51,6 +51,23 @@ func workflowProcessingAdmission(scope: ProcessingScopeSnapshot) -> ProcessingAd
     )
 }
 
+extension ProcessingScopeSnapshot {
+    func certified(by admission: ProcessingAdmission) -> Self {
+        Self(
+            id: id,
+            createdAt: createdAt,
+            source: source,
+            normalizedTestArtists: normalizedTestArtists,
+            matchingRule: matchingRule,
+            knownTrackCount: knownTrackCount,
+            fingerprint: fingerprint,
+            reason: reason,
+            mirrorRevision: admission.certificate.revision,
+            certificateID: admission.certificate.id
+        )
+    }
+}
+
 struct WorkflowFixtureOptions {
     var apiServices: APIOrchestratorServices?
     var tier: Tier = .pro
@@ -195,7 +212,7 @@ private func makeFixtureOrchestrator(
     let failPersistence = input.options.failRunRecordPersistence
     let failTerminalPersistence = input.options.failTerminalRunRecordPersistence
     return RunOrchestrator(dependencies: .init(
-        synchronizeLibrary: { await observationGate.sync() },
+        synchronizeLibrary: { _ in await observationGate.sync() },
         persistRunRecord: { record in
             if failPersistence || (failTerminalPersistence && record.finishedAt != nil) {
                 throw FixtureRecordWriteError()

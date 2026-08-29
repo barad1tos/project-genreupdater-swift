@@ -158,10 +158,6 @@ actor SyncMockTrackStore: TrackStateStore {
 
     func initialize() async throws {}
 
-    func loadAllTracks() async throws -> [Track] {
-        storedTracks
-    }
-
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try mirrorSnapshot(
             revision: revision,
@@ -203,7 +199,15 @@ actor SyncMockTrackStore: TrackStateStore {
             }
         }
         revision = nextRevision
-        return MirrorCommitResult(revision: revision)
+        return try MirrorCommitResult(
+            revision: revision,
+            snapshot: mirrorSnapshot(
+                revision: revision,
+                tracks: storedTracks,
+                presentIDs: presentIDs,
+                certificates: certificates
+            )
+        )
     }
 
     func getTrack(byID id: String) async throws -> Track? {
@@ -297,6 +301,7 @@ actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
     var isEnabled = true
     private var didClearSnapshot = false
     private var metadata: LibraryCacheMetadata?
+    private var shouldFailMetadataUpdates = false
 
     func loadSnapshot() async throws -> [Track]? {
         nil
@@ -314,6 +319,9 @@ actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
         metadata
     }
     func updateSnapshotMetadata(_ metadata: LibraryCacheMetadata) async throws {
+        if shouldFailMetadataUpdates {
+            throw SyncSnapshotError.metadataUpdateFailed
+        }
         self.metadata = metadata
     }
     func getLibraryModificationDate() async throws -> Date {
@@ -327,6 +335,14 @@ actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
     func setMetadata(_ metadata: LibraryCacheMetadata) {
         self.metadata = metadata
     }
+
+    func failMetadataUpdates() {
+        shouldFailMetadataUpdates = true
+    }
+}
+
+private enum SyncSnapshotError: Error {
+    case metadataUpdateFailed
 }
 
 final class SyncDateProvider: @unchecked Sendable {

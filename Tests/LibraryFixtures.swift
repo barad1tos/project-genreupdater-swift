@@ -206,6 +206,7 @@ actor MirrorTrackStoreStub: TrackStateStore {
     private var tracks: [Track]
     private var certificates: [ScopeCertificate]?
     private let certifiedArtists: [String]?
+    private let generatedCertificateID = UUID()
     private let certificateObservedAt: Date
     private var revision = MirrorRevision.initial
     private let beforeLoad: (@Sendable () async throws -> Void)?
@@ -227,13 +228,12 @@ actor MirrorTrackStoreStub: TrackStateStore {
         // This in-memory mirror stub requires no setup.
     }
 
-    func loadAllTracks() async throws -> [Track] {
-        try await beforeLoad?()
-        return tracks
-    }
-
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try await beforeLoad?()
+        return try makeMirrorSnapshot()
+    }
+
+    private func makeMirrorSnapshot() throws -> TrackMirrorSnapshot {
         let membership = try MembershipFingerprint.make(ids: tracks.compactMap(\.databaseID))
         let generatedCertificates: [ScopeCertificate]
         if let certifiedArtists {
@@ -242,7 +242,7 @@ actor MirrorTrackStoreStub: TrackStateStore {
                 .compactMap(\.databaseID)
             let fingerprint = try MembershipFingerprint.make(ids: scopedIDs).fingerprint
             generatedCertificates = [ScopeCertificate(
-                id: UUID(),
+                id: generatedCertificateID,
                 revision: revision,
                 membership: membership,
                 testArtists: certifiedArtists,
@@ -285,7 +285,10 @@ actor MirrorTrackStoreStub: TrackStateStore {
             certificates = []
         }
         revision = nextRevision
-        return MirrorCommitResult(revision: revision)
+        return try MirrorCommitResult(
+            revision: revision,
+            snapshot: makeMirrorSnapshot()
+        )
     }
 
     func getTrack(byID id: String) async throws -> Track? {

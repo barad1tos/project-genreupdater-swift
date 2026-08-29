@@ -161,7 +161,7 @@ struct TrackDataTests {
         let tracks = [sampleTrack(id: "1"), sampleTrack(id: "2", name: "Another Song")]
         try await store.seedMirror(tracks)
 
-        let loaded = try await store.loadAllTracks()
+        let loaded = try await store.loadMirrorSnapshot().presentTracks
         #expect(loaded.count == 2)
     }
 
@@ -220,7 +220,7 @@ struct TrackDataTests {
             upserts: [],
             certificates: .invalidate(.membershipChanged)
         ))
-        let remainingTracks = try await store.loadAllTracks()
+        let remainingTracks = try await store.loadMirrorSnapshot().presentTracks
         let loadedIDs = remainingTracks.map(\.id).sorted()
 
         #expect(loadedIDs == ["1", "3"])

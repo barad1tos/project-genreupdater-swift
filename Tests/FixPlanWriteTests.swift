@@ -357,12 +357,14 @@ private func appleScriptTrack(from track: Track) -> Track {
 
 private func fixPlan(items: [FixPlanItem], isLegacy: Bool = false) -> FixPlan {
     let capturedAt = Date(timeIntervalSince1970: 100)
-    let scope = ProcessingScopeSnapshot.capture(
+    let requestedScope = ProcessingScopeSnapshot.capture(
         requestedTestArtists: [],
         knownTrackCount: items.count,
         createdAt: capturedAt,
         reason: "unit-test"
     )
+    let admission = workflowProcessingAdmission(scope: requestedScope)
+    let scope = isLegacy ? requestedScope : requestedScope.certified(by: admission)
     return FixPlan(restoring: .init(
         id: FixPlanID(),
         revision: .initial,
@@ -376,14 +378,14 @@ private func fixPlan(items: [FixPlanItem], isLegacy: Bool = false) -> FixPlan {
         scope: scope,
         admission: isLegacy
             ? .legacyUncertified
-            : .certified(workflowProcessingAdmission(scope: scope)),
+            : .certified(admission),
         items: items
     ))
 }
 
 private func certifiedFixPlan(items: [FixPlanItem]) throws -> FixPlan {
     let capturedAt = Date(timeIntervalSince1970: 100)
-    let scope = ProcessingScopeSnapshot.capture(
+    let requestedScope = ProcessingScopeSnapshot.capture(
         requestedTestArtists: [],
         knownTrackCount: items.count,
         createdAt: capturedAt,
@@ -394,7 +396,7 @@ private func certifiedFixPlan(items: [FixPlanItem]) throws -> FixPlan {
     }
     let membership = try MembershipFingerprint.make(ids: databaseIDs)
     let admission = ProcessingAdmission(
-        scopeID: scope.id,
+        scopeID: requestedScope.id,
         certificate: ScopeCertificate(
             id: UUID(),
             revision: .initial,
@@ -410,6 +412,7 @@ private func certifiedFixPlan(items: [FixPlanItem]) throws -> FixPlan {
         ),
         maximumMetadataAge: nil
     )
+    let scope = requestedScope.certified(by: admission)
     return try FixPlan(
         id: FixPlanID(),
         revision: .initial,

@@ -1,7 +1,7 @@
 import Core
 import Foundation
-import Services
 import Testing
+@testable import Services
 
 // MARK: - Helpers
 
@@ -9,12 +9,12 @@ private func makeStalenessTestScope(
     requestedTestArtists: [String] = [],
     knownTrackCount: Int? = 10
 ) -> ProcessingScopeSnapshot {
-    ProcessingScopeSnapshot.capture(
+    certifiedScope(ProcessingScopeSnapshot.capture(
         requestedTestArtists: requestedTestArtists,
         knownTrackCount: knownTrackCount,
         createdAt: Date(timeIntervalSince1970: 100),
         reason: "unit-test"
-    )
+    ))
 }
 
 private func makeStalenessTestConfiguration(minConfidence: Int = 60) -> FixPlanConfig {
@@ -29,16 +29,16 @@ private func makeStalenessTestPlan(
     scope: ProcessingScopeSnapshot,
     configuration: FixPlanConfig
 ) throws -> FixPlan {
-    try FixPlan(
+    FixPlan(restoring: .init(
         id: FixPlanID(),
         revision: .initial,
         sourceRunID: RunID(),
         createdAt: Date(timeIntervalSince1970: 100),
         configuration: configuration,
         scope: scope,
-        admission: processingAdmission(scope: scope),
+        admission: .certified(processingAdmission(scope: scope)),
         items: []
-    )
+    ))
 }
 
 // MARK: - Tests

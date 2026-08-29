@@ -38,7 +38,10 @@ struct RunRuntimeFactory {
                 cache: cache,
                 configuration: cacheConfiguration
             ),
-            runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: appConfiguration),
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                configuration: appConfiguration,
+                capturedScope: scope
+            ),
             observer: runServices.observer
         )
     }

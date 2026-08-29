@@ -369,7 +369,9 @@ struct QueuedWriteTests {
     }
 
     private func makeOrchestrator(
-        synchronizeLibrary: @escaping @Sendable () async throws -> SyncResult = { SyncResult() },
+        synchronizeLibrary: @escaping @Sendable (ProcessingScopeSnapshot) async throws -> SyncResult = { _ in
+            SyncResult()
+        },
         persistRunRecord: @escaping @Sendable (RunRecord) async throws -> Void = { _ in },
         currentDecisionTarget: (@Sendable (FixPlanID) async -> FixPlanWriteTarget?)? = nil
     ) -> RunOrchestrator {
@@ -405,7 +407,7 @@ struct QueuedWriteTests {
     @Test("a write parked behind an active run stays in the in-flight plans")
     func inFlightPlansCoverParkedWrites() async {
         let gate = ConsentGate()
-        let orchestrator = makeOrchestrator(synchronizeLibrary: {
+        let orchestrator = makeOrchestrator(synchronizeLibrary: { _ in
             await gate.enter()
             return SyncResult()
         })

@@ -12,7 +12,7 @@ struct RecoveryAdmissionTests {
         let recoveryID = UUID()
         let recovery = recoveryRecord(recoveryID: recoveryID)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: skipPersistence,
             write: .init(
                 writeFixPlan: { input, _, checkpoint in
@@ -54,7 +54,7 @@ struct RecoveryAdmissionTests {
         let recoveryID = UUID()
         let recovery = recoveryRecord(recoveryID: recoveryID)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: skipPersistence,
             write: .init(
                 writeFixPlan: { input, _, checkpoint in
@@ -88,7 +88,7 @@ struct RecoveryAdmissionTests {
         let recoveryID = UUID()
         let recovery = recoveryRecord(recoveryID: recoveryID)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: skipPersistence,
             write: .init(
                 writeFixPlan: { input, _, checkpoint in
@@ -138,7 +138,7 @@ struct RecoveryAdmissionTests {
         let holds = HoldProbe()
         let recoveryID = UUID()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: skipPersistence,
             write: .init(
                 writeFixPlan: { input, _, checkpoint in
@@ -340,7 +340,7 @@ extension RecoveryAdmissionTests {
     func keepsHoldWhenClearThrows() async {
         let recovery = recoveryRecord()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: skipPersistence,
             write: .init(
                 restoreRecoveryHold: { $0 },
@@ -369,7 +369,7 @@ private let skipPersistence: @Sendable (RunRecord) async throws -> Void = { _ in
 
 private func makeHoldOrchestrator(_ holds: HoldProbe) -> RunOrchestrator {
     RunOrchestrator(dependencies: .init(
-        synchronizeLibrary: { SyncResult() },
+        synchronizeLibrary: { _ in SyncResult() },
         persistRunRecord: skipPersistence,
         write: .init(
             restoreRecoveryHold: { await holds.restore($0) },

@@ -18,10 +18,10 @@ struct PreviewSubmissionTests {
         dependencies.config.runtime.automationStrategy = .hybrid
         dependencies.installTrackCountSource { 1 }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             synchronizePreview: { scope, configuration in
                 await probe.recordSync(scope: scope, configuration: configuration)
-                return SyncResult()
+                return SyncResult().committed(to: scope)
             },
             persistRunRecord: { record in _ = record },
             produceFixPlan: { _, scope, configuration in
@@ -58,10 +58,10 @@ struct PreviewSubmissionTests {
             return 1
         }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             synchronizePreview: { scope, configuration in
                 await probe.recordSync(scope: scope, configuration: configuration)
-                return SyncResult()
+                return SyncResult().committed(to: scope)
             },
             persistRunRecord: { _ in
                 // Persistence is outside the submission contract under test.
@@ -113,10 +113,10 @@ struct PreviewSubmissionTests {
         )
         dependencies.installTrackCountSource { 1 }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             synchronizePreview: { scope, configuration in
                 await probe.recordSync(scope: scope, configuration: configuration)
-                return SyncResult()
+                return SyncResult().committed(to: scope)
             },
             persistRunRecord: { _ in
                 // Persistence is outside the submission contract under test.

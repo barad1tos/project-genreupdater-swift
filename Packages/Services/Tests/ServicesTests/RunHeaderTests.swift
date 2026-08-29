@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import Testing
 @testable import Services
@@ -53,6 +54,76 @@ struct RunHeaderTests {
             reason: initial.scope.reason
         )
         let replacement = replacing(initial, scope: changedScope, configuration: nil)
+        try await store.upsert(initial)
+
+        await #expect(throws: RunRecordPersistenceError.self) {
+            try await store.upsert(replacement)
+        }
+        #expect(try await store.record(for: initial.runID) == initial)
+    }
+
+    @Test("upsert binds committed evidence without rewriting the captured scope")
+    func bindsCommittedEvidence() async throws {
+        let store = try makeRunStore()
+        let initial = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil
+        )
+        let boundScope = initial.scope.binding(
+            revision: MirrorRevision(value: 7),
+            certificateID: UUID(uuidString: "00000000-0000-0000-0000-000000000007")
+        )
+        let replacement = replacing(initial, scope: boundScope, configuration: initial.configuration)
+        try await store.upsert(initial)
+
+        try await store.upsert(replacement)
+
+        #expect(try await store.record(for: initial.runID) == replacement)
+    }
+
+    @Test("upsert rejects rebinding committed scope evidence")
+    func rejectsCommittedEvidenceRebind() async throws {
+        let store = try makeRunStore()
+        let initial = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .syncingLibrary,
+            syncSummary: nil
+        )
+        let firstScope = initial.scope.binding(
+            revision: MirrorRevision(value: 7),
+            certificateID: UUID(uuidString: "00000000-0000-0000-0000-000000000007")
+        )
+        let stored = replacing(initial, scope: firstScope, configuration: initial.configuration)
+        let reboundScope = initial.scope.binding(
+            revision: MirrorRevision(value: 8),
+            certificateID: UUID(uuidString: "00000000-0000-0000-0000-000000000008")
+        )
+        let replacement = replacing(stored, scope: reboundScope, configuration: stored.configuration)
+        try await store.upsert(stored)
+
+        await #expect(throws: RunRecordPersistenceError.self) {
+            try await store.upsert(replacement)
+        }
+        #expect(try await store.record(for: stored.runID) == stored)
+    }
+
+    @Test("upsert cannot bind evidence after a run is terminal")
+    func rejectsTerminalEvidenceBinding() async throws {
+        let store = try makeRunStore()
+        let initial = makeRunRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: Date(timeIntervalSince1970: 101),
+            state: .completedNoOp,
+            syncSummary: nil
+        )
+        let boundScope = initial.scope.binding(
+            revision: MirrorRevision(value: 7),
+            certificateID: nil
+        )
+        let replacement = replacing(initial, scope: boundScope, configuration: initial.configuration)
         try await store.upsert(initial)
 
         await #expect(throws: RunRecordPersistenceError.self) {

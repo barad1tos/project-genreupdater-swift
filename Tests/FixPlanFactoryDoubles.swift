@@ -116,10 +116,6 @@ actor FactoryTrackStore: TrackStateStore {
         // This in-memory store requires no setup.
     }
 
-    func loadAllTracks() async throws -> [Track] {
-        []
-    }
-
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try TrackMirrorSnapshot(
             revision: .initial,
@@ -134,7 +130,11 @@ actor FactoryTrackStore: TrackStateStore {
     @discardableResult
     func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
         // Factory tests do not persist track state.
-        try MirrorCommitResult(revision: commit.baseRevision.advanced())
+        let revision = try commit.baseRevision.advanced()
+        return try MirrorCommitResult(
+            revision: revision,
+            snapshot: testMirrorSnapshot(revision: revision, tracks: [])
+        )
     }
 
     func getTrack(byID _: String) async throws -> Track? {

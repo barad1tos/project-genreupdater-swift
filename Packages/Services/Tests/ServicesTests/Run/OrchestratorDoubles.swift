@@ -2,6 +2,10 @@ import Core
 import Foundation
 @testable import Services
 
+func ignoreRunRecord(_ record: RunRecord) async throws {
+    _ = record
+}
+
 extension RunRequest {
     static func manualObservation(
         requestedTestArtists: [String],
@@ -28,6 +32,19 @@ extension RunRequest {
     }
 }
 
+extension SyncResult {
+    func committed(to scope: ProcessingScopeSnapshot, revision: UInt64 = 1) -> Self {
+        Self(
+            newTracks: newTracks,
+            modifiedTracks: modifiedTracks,
+            identityChangedTracks: identityChangedTracks,
+            refreshedTracks: refreshedTracks,
+            removedTrackIDs: removedTrackIDs,
+            scope: certifiedScope(scope, revision: MirrorRevision(value: revision))
+        )
+    }
+}
+
 actor FixPlanProducerProbe {
     private(set) var callCount = 0
     private let production: FixPlanProduction
@@ -42,21 +59,29 @@ actor FixPlanProducerProbe {
     }
 }
 
+actor ScopeProbe {
+    private(set) var scope: ProcessingScopeSnapshot?
+
+    func record(_ scope: ProcessingScopeSnapshot) {
+        self.scope = scope
+    }
+}
+
 func automaticInput(
     planID: FixPlanID,
     planning: RunConfig,
     capturedAt: Date
 ) -> FixPlanWriteInput {
-    let scope = ProcessingScopeSnapshot(
+    let scope = certifiedScope(ProcessingScopeSnapshot(
         id: planning.scopeID,
         createdAt: capturedAt,
         source: .fullLibrary,
         normalizedTestArtists: [],
-        matchingRule: "test",
+        matchingRule: ArtistAllowList.scopeRuleIdentifier,
         knownTrackCount: 75,
         fingerprint: "fullLibrary::tracks=75",
         reason: "automatic-write-test"
-    )
+    ))
     return FixPlanWriteInput(
         target: FixPlanWriteTarget(
             planID: planID,
@@ -80,19 +105,11 @@ func automaticInput(
 
 actor RunRecordProbe {
     private(set) var records: [RunRecord] = []
-    private var persistError: Error?
     private var finishedWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
 
     func append(_ record: RunRecord) throws {
-        if let persistError {
-            throw persistError
-        }
         records.append(record)
         resumeFinishedWaiters()
-    }
-
-    func setPersistError(_ error: Error) {
-        persistError = error
     }
 
     func waitUntilFinished(count: Int) async {

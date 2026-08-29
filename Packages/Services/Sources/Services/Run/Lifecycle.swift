@@ -322,6 +322,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
 
     private init(
         copying snapshot: Self,
+        scope: ProcessingScopeSnapshot? = nil,
         workLedger: WorkLedger? = nil,
         phase: RunPhase? = nil
     ) {
@@ -329,7 +330,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         requestID = snapshot.requestID
         trigger = snapshot.trigger
         intent = snapshot.intent
-        scope = snapshot.scope
+        self.scope = scope ?? snapshot.scope
         previewConfiguration = snapshot.previewConfiguration
         writeTarget = snapshot.writeTarget
         processingAdmission = snapshot.processingAdmission
@@ -345,6 +346,16 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
             reportIllegalTransition("beginningSync()", expected: ".active(.created)")
         }
         return withPhase(.active(.syncingLibrary))
+    }
+
+    func usingCommittedScope(_ scope: ProcessingScopeSnapshot?) throws -> Self {
+        guard let scope,
+              scope.hasValidStructure,
+              scope.isEvidenceBinding(of: self.scope)
+        else {
+            throw ProcessingScopeBindingError.invalidCommittedEvidence
+        }
+        return Self(copying: self, scope: scope)
     }
 
     public func beginningFixPlanning() -> Self {
@@ -516,6 +527,38 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
 
     private func withWorkLedger(_ workLedger: WorkLedger) -> Self {
         Self(copying: self, workLedger: workLedger)
+    }
+}
+
+extension RunLifecycleSnapshot {
+    static func created(
+        for request: RunRequest,
+        at startedAt: Date,
+        hasRecoveryHold: Bool
+    ) -> Self {
+        let scope = request.writeInput?.scope ?? ProcessingScopeSnapshot.capture(
+            requestedTestArtists: request.requestedTestArtists,
+            knownTrackCount: request.knownTrackCount,
+            createdAt: startedAt,
+            reason: request.trigger.rawValue
+        )
+        return Self(
+            runID: RunID(),
+            request: request,
+            scope: scope,
+            startedAt: startedAt,
+            phase: .active(.created),
+            hadRecoveryHold: hasRecoveryHold
+        )
+    }
+
+    func beginning(for intent: RunIntent) -> Self {
+        switch intent {
+        case .observeLibrary, .previewFixes:
+            beginningSync()
+        case .writeFixes, .batchUpdate:
+            beginningWriting()
+        }
     }
 }
 

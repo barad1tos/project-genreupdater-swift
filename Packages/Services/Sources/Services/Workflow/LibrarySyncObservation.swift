@@ -29,7 +29,7 @@ enum LibrarySyncObservationError: Error, Equatable, LocalizedError, Sendable {
 
 struct SyncDetection {
     let baseRevision: MirrorRevision
-    let observation: ObservationID
+    let observationID: ObservationID
     let result: SyncResult
     let certificateChange: CertificateChange
     let inventoryChange: InventoryChange
@@ -37,9 +37,13 @@ struct SyncDetection {
     let upserts: [Track]
     let previousTracks: [String: Track]
     let didCompleteForceRefresh: Bool
+    let scope: ProcessingScopeSnapshot
+    let syncEvidence: MirrorSyncEvidence
+    let syncMode: MirrorSyncMode
+    let syncCoverage: MirrorSyncCoverage
 }
 
-private struct DetectionContext {
+struct DetectionContext {
     let snapshot: TrackMirrorSnapshot
     let repairCandidates: [Track]
     let canonicalStored: [MusicDatabaseTrackID: Track]
@@ -47,31 +51,106 @@ private struct DetectionContext {
     let request: LibraryObservationRequest
     let readiness: MirrorReadiness
     let refresh: MetadataRefreshPolicy
+    let configuration: LibrarySyncRuntimeConfiguration
+}
+
+/// One attempt has a single forward-only path. The outer retry loop creates a new `captured` attempt after revision,
+/// census, or source-generation conflicts; no `SyncAttemptState` value transitions backward.
+///
+/// ```mermaid
+/// stateDiagram-v2
+///     captured --> loaded: base loaded
+///     loaded --> observed: fenced source observation
+///     observed --> validated: coverage validated
+///     validated --> prepared: commit projected
+///     prepared --> committed: compare-and-swap accepted
+/// ```
+enum SyncAttemptState {
+    case captured(SyncAttemptInput)
+    case loaded(DetectionContext)
+    case observed(DetectionContext, LibraryObservation)
+    case validated(DetectionContext, LibraryObservation)
+    case prepared(SyncDetection)
+    case committed(SyncDetection, MirrorCommitResult, TrackMirrorSnapshot)
+
+    enum Event {
+        case loaded(DetectionContext)
+        case observed(LibraryObservation)
+        case validated
+        case prepared(SyncDetection)
+        case committed(MirrorCommitResult, TrackMirrorSnapshot)
+    }
+
+    func transitioned(by event: Event) throws -> Self {
+        switch (self, event) {
+        case let (.captured, .loaded(context)):
+            .loaded(context)
+        case let (.loaded(context), .observed(observation)):
+            .observed(context, observation)
+        case let (.observed(context, observation), .validated):
+            .validated(context, observation)
+        case let (.validated, .prepared(detection)):
+            .prepared(detection)
+        case let (.prepared(detection), .committed(result, snapshot)):
+            .committed(detection, result, snapshot)
+        default:
+            throw LibrarySyncObservationError.invalidObservation(detail: "illegal synchronization transition")
+        }
+    }
 }
 
 extension LibrarySyncService {
-    func detectObservation(forceMetadataRefresh: Bool = false) async throws -> SyncDetection {
+    func captureAttemptInput(
+        forceMetadataRefresh: Bool = false,
+        capturedScope: ProcessingScopeSnapshot? = nil
+    ) -> SyncAttemptInput {
+        SyncAttemptInput(
+            configuration: runtimeConfiguration,
+            capturedScope: capturedScope ?? runtimeConfiguration.capturedScope,
+            startedAt: currentDate(),
+            isForced: forceMetadataRefresh
+        )
+    }
+
+    func prepareAttempt(_ input: SyncAttemptInput) async throws -> SyncAttemptState {
+        var state = SyncAttemptState.captured(input)
         let snapshot = try await trackStore.loadMirrorSnapshot()
         let context = try await detectionContext(
             snapshot: snapshot,
-            forceMetadataRefresh: forceMetadataRefresh
+            input: input
         )
+        state = try state.transitioned(by: .loaded(context))
+        try Task.checkCancellation()
         let observation = try await observer.observe(context.request)
+        state = try state.transitioned(by: .observed(observation))
+        try Task.checkCancellation()
         try validate(observation, request: context.request)
-        return try projectDetection(observation, context: context)
+        state = try state.transitioned(by: .validated)
+        let detection = try projectDetection(observation, context: context)
+        return try state.transitioned(by: .prepared(detection))
     }
 
     private func detectionContext(
         snapshot: TrackMirrorSnapshot,
-        forceMetadataRefresh: Bool
+        input: SyncAttemptInput
     ) async throws -> DetectionContext {
+        let configuration = input.configuration
         let presentTracks = snapshot.presentTracks
-        let scopedPresent = tracksInConfiguredScope(presentTracks)
-        let repairCandidates = tracksInConfiguredScope(snapshot.repairCandidates)
+        let scopedPresent = tracksInConfiguredScope(presentTracks, configuration: configuration)
+        let repairCandidates = tracksInConfiguredScope(snapshot.repairCandidates, configuration: configuration)
         let canonicalStored = try canonicalMirror(presentTracks)
         let scopedByID = try canonicalMirror(scopedPresent)
-        let scope = processingScope(trackCount: scopedPresent.count)
-        let shouldForceRefresh = try await shouldRefreshMetadata(force: forceMetadataRefresh)
+        let scope = try processingScope(
+            trackCount: scopedPresent.count,
+            configuration: configuration,
+            capturedScope: input.capturedScope,
+            createdAt: input.startedAt
+        )
+        let shouldForceRefresh = try await shouldRefreshMetadata(
+            force: input.isForced,
+            configuration: configuration,
+            now: input.startedAt
+        )
         let refresh: MetadataRefreshPolicy = shouldForceRefresh || !repairCandidates.isEmpty ? .force : .fast
         guard let mirror = LibraryMirrorIndex(tracksByID: scopedByID) else {
             throw LibrarySyncObservationError.invalidObservation(detail: "stored mirror index is inconsistent")
@@ -79,8 +158,8 @@ extension LibrarySyncService {
         guard let inventory = LibraryInventoryIndex(identitiesByID: snapshot.memberIdentities) else {
             throw LibrarySyncObservationError.invalidObservation(detail: "stored inventory index is inconsistent")
         }
-        let requirement = runtimeConfiguration.processingRequirement
-        let readiness = snapshot.readiness(for: requirement, at: currentDate())
+        let requirement = configuration.processingRequirement
+        let readiness = snapshot.readiness(for: requirement, at: input.startedAt)
         let previous: LibraryMirrorReference = readiness.isReady ? .verified(mirror) : .initial
         return DetectionContext(
             snapshot: snapshot,
@@ -94,7 +173,8 @@ extension LibrarySyncService {
                 inventory: inventory
             ),
             readiness: readiness,
-            refresh: refresh
+            refresh: refresh,
+            configuration: configuration
         )
     }
 
@@ -108,7 +188,8 @@ extension LibrarySyncService {
         let classification = try reconcile(
             observation,
             storedByID: mirrorBaseline,
-            scopedStoredIDs: Set(context.scopedByID.keys).union(repair.baseline.keys)
+            scopedStoredIDs: Set(context.scopedByID.keys).union(repair.baseline.keys),
+            configuration: context.configuration
         )
         let ordinaryUpserts = upsertsExcludingRepairs(
             classification.upserts,
@@ -126,20 +207,26 @@ extension LibrarySyncService {
             censusIDs: observation.censusIDs
         )
         let isMetadataComplete = hasCompleteMetadata(observation) && observation.identity.isComplete
-        let certificateTransition = try certificateChange(
-            for: observation,
+        let certificateTransition = try certificateChange(for: observation, input: CertificateInput(
             baseRevision: context.snapshot.revision,
             previousReadiness: context.readiness,
             certifiedIDs: certifiedIDs,
-            hasTrackMutations: !repair.repairs.isEmpty || !ordinaryUpserts.isEmpty
-        )
+            hasTrackMutations: !repair.repairs.isEmpty || !ordinaryUpserts.isEmpty,
+            configuration: context.configuration
+        ))
         let inventoryTransition = try inventoryChange(
             for: observation,
             certificateChange: certificateTransition
         )
+        let syncRecord = try syncRecordParts(
+            observation: observation,
+            certificateChange: certificateTransition,
+            context: context,
+            isMetadataComplete: isMetadataComplete
+        )
         return SyncDetection(
             baseRevision: context.snapshot.revision,
-            observation: ObservationID(),
+            observationID: ObservationID(),
             result: result,
             certificateChange: certificateTransition,
             inventoryChange: inventoryTransition,
@@ -148,15 +235,80 @@ extension LibrarySyncService {
             previousTracks: Dictionary(uniqueKeysWithValues: mirrorBaseline.map {
                 ($0.key.rawValue, $0.value)
             }),
-            didCompleteForceRefresh: context.refresh == .force && isMetadataComplete
+            didCompleteForceRefresh: context.refresh == .force && isMetadataComplete,
+            scope: observation.scope,
+            syncEvidence: syncRecord.evidence,
+            syncMode: context.refresh == .force ? .force : .fast,
+            syncCoverage: syncRecord.coverage
         )
     }
 
-    private func processingScope(trackCount: Int) -> ProcessingScopeSnapshot {
-        ProcessingScopeSnapshot.capture(
-            requestedTestArtists: runtimeConfiguration.testArtists,
+    private func syncRecordParts(
+        observation: LibraryObservation,
+        certificateChange: CertificateChange,
+        context: DetectionContext,
+        isMetadataComplete: Bool
+    ) throws -> SyncRecordParts {
+        let membership = try MembershipFingerprint.make(ids: Array(observation.censusIDs))
+        return SyncRecordParts(
+            evidence: MirrorSyncEvidence(
+                membership: membership,
+                scopeID: observation.scope.id,
+                certificateID: certificateID(
+                    for: certificateChange,
+                    previousReadiness: context.readiness
+                )
+            ),
+            coverage: MirrorSyncCoverage(
+                identityRequestedCount: observation.identity.requestedIDs.count,
+                identityObservedCount: observation.identity.observedIDs.count,
+                metadataRequestedCount: observation.metadata.requestedIDs.count,
+                metadataObservedCount: observation.metadata.observedIDs.count,
+                isMembershipComplete: hasCompleteMembership(observation),
+                isIdentityComplete: observation.identity.isComplete,
+                isMetadataComplete: isMetadataComplete
+            )
+        )
+    }
+
+    private func certificateID(
+        for change: CertificateChange,
+        previousReadiness: MirrorReadiness
+    ) -> UUID? {
+        switch change {
+        case let .replace(certificate), let .rebase(certificate):
+            certificate.id
+        case .preserve:
+            if case let .ready(certificate) = previousReadiness {
+                certificate.id
+            } else {
+                nil
+            }
+        case .invalidate:
+            nil
+        }
+    }
+
+    private func processingScope(
+        trackCount: Int,
+        configuration: LibrarySyncRuntimeConfiguration,
+        capturedScope: ProcessingScopeSnapshot?,
+        createdAt: Date
+    ) throws -> ProcessingScopeSnapshot {
+        if let capturedScope {
+            guard capturedScope.hasValidStructure,
+                  capturedScope.normalizedTestArtists == configuration.testArtists
+            else {
+                throw LibrarySyncObservationError.invalidObservation(
+                    detail: "captured processing scope does not match synchronization configuration"
+                )
+            }
+            return capturedScope
+        }
+        return ProcessingScopeSnapshot.capture(
+            requestedTestArtists: configuration.testArtists,
             knownTrackCount: trackCount,
-            createdAt: currentDate(),
+            createdAt: createdAt,
             reason: "library sync"
         )
     }
@@ -164,6 +316,17 @@ extension LibrarySyncService {
     private func hasCompleteMetadata(_ observation: LibraryObservation) -> Bool {
         observation.metadata.isComplete
             && observation.tracks.allSatisfy { $0.hasCompleteMetadata(for: .processingV1) }
+    }
+
+    func hasCompleteMembership(_ observation: LibraryObservation) -> Bool {
+        switch (observation.scope.source, observation.membership) {
+        case (.fullLibrary, .full):
+            true
+        case let (.testArtists, .scoped(unobservedIDs)):
+            unobservedIDs.isEmpty
+        default:
+            false
+        }
     }
 
     private func upsertsExcludingRepairs(
@@ -234,45 +397,34 @@ extension LibrarySyncService {
 
     private func certificateChange(
         for observation: LibraryObservation,
-        baseRevision: MirrorRevision,
-        previousReadiness: MirrorReadiness,
-        certifiedIDs: Set<MusicDatabaseTrackID>,
-        hasTrackMutations: Bool
+        input: CertificateInput
     ) throws -> CertificateChange {
-        guard runtimeConfiguration.albumTargetIdentity == nil else {
+        guard input.configuration.albumTargetIdentity == nil else {
             return .invalidate(.narrowedObservation)
         }
         guard hasCompleteMetadata(observation), observation.identity.isComplete else {
             return .invalidate(.incompleteObservation)
         }
-        let hasCompleteMembership = switch (observation.scope.source, observation.membership) {
-        case (.fullLibrary, .full):
-            true
-        case let (.testArtists, .scoped(unobservedIDs)):
-            unobservedIDs.isEmpty
-        default:
-            false
-        }
-        guard hasCompleteMembership else {
+        guard hasCompleteMembership(observation) else {
             return .invalidate(.incompleteObservation)
         }
 
         let membership = try MembershipFingerprint.make(ids: Array(observation.censusIDs))
-        if case let .ready(previousCertificate) = previousReadiness,
+        if case let .ready(previousCertificate) = input.previousReadiness,
            previousCertificate.membership == membership,
            observation.identity.requestedIDs.isEmpty,
            observation.metadata.requestedIDs.isEmpty,
-           !hasTrackMutations {
+           !input.hasTrackMutations {
             return .preserve
         }
 
-        guard certifiedIDs == observation.currentIDs else {
+        guard input.certifiedIDs == observation.currentIDs else {
             return .invalidate(.membershipChanged)
         }
         let scopeFingerprint = try MembershipFingerprint.make(ids: Array(observation.currentIDs)).fingerprint
         return try .replace(ScopeCertificate(
             id: UUID(),
-            revision: baseRevision.advanced(),
+            revision: input.baseRevision.advanced(),
             membership: membership,
             testArtists: observation.scope.normalizedTestArtists,
             fieldSet: .processingV1,
@@ -514,7 +666,8 @@ extension LibrarySyncService {
     private func reconcile(
         _ observation: LibraryObservation,
         storedByID: [MusicDatabaseTrackID: Track],
-        scopedStoredIDs: Set<MusicDatabaseTrackID>
+        scopedStoredIDs: Set<MusicDatabaseTrackID>,
+        configuration: LibrarySyncRuntimeConfiguration
     ) throws -> (result: SyncResult, upserts: [Track], removedIDs: [MusicDatabaseTrackID]) {
         var newTracks: [Track] = []
         var modifiedTracks: [Track] = []
@@ -524,7 +677,7 @@ extension LibrarySyncService {
         for row in observation.tracks.sorted(by: { $0.databaseID.rawValue < $1.databaseID.rawValue }) {
             let stored = storedByID[row.databaseID]
             let current = try track(from: row, preserving: stored)
-            guard !tracksAdmittedByRequest([current]).isEmpty else { continue }
+            guard !tracksAdmittedByRequest([current], configuration: configuration).isEmpty else { continue }
             if let stored {
                 if TrackFingerprint.hasProcessingMetadataChanged(current: current, stored: stored) {
                     modifiedTracks.append(current)
@@ -614,21 +767,25 @@ extension LibrarySyncService {
             || current.appleScriptID != stored.appleScriptID
     }
 
-    private func shouldRefreshMetadata(force: Bool) async throws -> Bool {
+    private func shouldRefreshMetadata(
+        force: Bool,
+        configuration: LibrarySyncRuntimeConfiguration,
+        now: Date
+    ) async throws -> Bool {
         if force {
             return true
         }
-        guard let interval = runtimeConfiguration.processingRequirement.maximumMetadataAge,
+        guard let interval = configuration.processingRequirement.maximumMetadataAge,
               let metadata = await librarySnapshotService?.getSnapshotMetadata(),
               let lastForceScanDate = metadata.lastForceScanDate
         else { return false }
 
-        return currentDate().timeIntervalSince(lastForceScanDate) >= interval
+        return now.timeIntervalSince(lastForceScanDate) >= interval
     }
 
-    func updateForceScanDate() async throws {
+    func updateForceScanDate(at date: Date? = nil) async throws {
         guard var metadata = await librarySnapshotService?.getSnapshotMetadata() else { return }
-        metadata.lastForceScanDate = currentDate()
+        metadata.lastForceScanDate = date ?? currentDate()
         try await librarySnapshotService?.updateSnapshotMetadata(metadata)
     }
 }

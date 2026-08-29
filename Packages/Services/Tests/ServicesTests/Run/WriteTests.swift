@@ -22,7 +22,7 @@ struct WriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { await sync.run() },
+            synchronizeLibrary: { _ in await sync.run() },
             persistRunRecord: { try await probe.append($0) },
             write: .init(writeFixPlan: { submittedInput, _, checkpoint in
                 try await checkpoint(.beforeAttempt([itemID]))
@@ -79,7 +79,7 @@ struct WriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await probe.append($0) },
             write: .init(writeFixPlan: { submittedInput, runID, checkpoint in
                 await receivedRunIDs.append(runID)
@@ -117,7 +117,7 @@ struct WriteTests {
             errorDescriptions: ["Failed to write genre for track track-2"]
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await probe.append($0) },
             write: .init(writeFixPlan: { input, _, checkpoint in
                 try await checkpointWrite(input, using: checkpoint)
@@ -162,7 +162,7 @@ struct WriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { record in _ = record },
             write: .init(writeFixPlan: { input, _, checkpoint in
                 try await checkpointWrite(input, using: checkpoint)
@@ -191,7 +191,7 @@ struct WriteTests {
     func writeWithoutRunnerFails() async throws {
         let probe = WriteRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await probe.append($0) },
             now: { Date(timeIntervalSince1970: 100) }
         ))
@@ -222,7 +222,7 @@ struct WriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { await syncGate.sync() },
+            synchronizeLibrary: { _ in await syncGate.sync() },
             persistRunRecord: { _ in },
             write: .init(writeFixPlan: { input, _, checkpoint in
                 try await checkpointWrite(input, using: checkpoint)

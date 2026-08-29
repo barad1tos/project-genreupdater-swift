@@ -7,7 +7,7 @@ import Testing
 @Suite("Preview producer runtime")
 @MainActor
 struct PreviewProducerTests {
-    @Test("production preview admits post-sync mirror rows without loading all tracks")
+    @Test("production preview admits rows from the committed mirror snapshot")
     func usesMirrorAdmission() async throws {
         let observedAt = Date()
         let admittedTrack = Track(
@@ -29,7 +29,8 @@ struct PreviewProducerTests {
             options: UpdateOptions(updateGenre: false, updateYear: false),
             capturedAt: observedAt
         )
-        let runScope = scope(artist: "Probe Artist")
+        let requestedScope = scope(artist: "Probe Artist")
+        let runScope = try await store.committedScope(for: requestedScope)
         let services = RunServiceFactory(
             makeMusicAccess: { _ in previewAccess(PreviewScriptClient(tracks: [admittedTrack])) },
             makePendingVerification: { _ in nil }
@@ -50,7 +51,6 @@ struct PreviewProducerTests {
 
         #expect(production == .empty)
         #expect(await store.mirrorLoadCount() == 1)
-        #expect(await store.allTrackLoadTotal() == 0)
     }
 
     @Test("album-targeted sync certifies the submitted scope for production preview")
@@ -60,9 +60,10 @@ struct PreviewProducerTests {
             configuration: fixture.configuration,
             scope: fixture.scope
         )
-        _ = try await sync.synchronizeNow(forceMetadataRefresh: true)
+        let syncResult = try await sync.synchronizeNow(forceMetadataRefresh: true)
+        let committedScope = try #require(syncResult.scope)
         let producer = try #require(fixture.dependencies.makePreviewProducer(runtime: fixture.runtime))
-        let production = try await producer(RunID(), fixture.scope, fixture.configuration)
+        let production = try await producer(RunID(), committedScope, fixture.configuration)
         let snapshot = try await fixture.store.loadMirrorSnapshot()
         let requirement = try LibrarySyncRuntimeConfiguration(
             configuration: fixture.appConfiguration
@@ -375,9 +376,11 @@ struct PreviewProducerTests {
             capturedAt: Date(timeIntervalSince1970: 100),
             albumTarget: FixPlanAlbumTarget(artist: "Artist", album: "Later Album")
         )
-        _ = try await runtime.makeSync(configuration: configuration, scope: scope)
-        let previewRuntime = try await runtime.makePreview(configuration: configuration, scope: scope)
-        let admission = try unitAdmission(scope: scope, tracks: rawTracks)
+        let sync = try await runtime.makeSync(configuration: configuration, scope: scope)
+        let syncResult = try await sync.synchronizeNow(forceMetadataRefresh: true)
+        let committedScope = try #require(syncResult.scope)
+        let previewRuntime = try await runtime.makePreview(configuration: configuration, scope: committedScope)
+        let admission = try unitAdmission(scope: committedScope, tracks: rawTracks)
         let producer = FixPlanProducer(dependencies: FixPlanProducer.Dependencies(
             loadAdmission: { _, _ in .admitted(admission, tracks: rawTracks) },
             makeRuntime: { _, _ in
@@ -407,7 +410,7 @@ struct PreviewProducerTests {
 
         let production = try await producer.producePlan(
             sourceRunID: RunID(),
-            scope: scope,
+            scope: committedScope,
             configuration: configuration
         )
 
@@ -460,6 +463,8 @@ struct PreviewProducerTests {
         scope: ProcessingScopeSnapshot,
         tracks: [Track]
     ) throws -> ProcessingAdmission {
+        let certificateID = try #require(scope.certificateID)
+        let mirrorRevision = try #require(scope.mirrorRevision)
         let trackIDs = try tracks.map { track in
             try #require(MusicDatabaseTrackID(rawValue: track.id))
         }
@@ -467,8 +472,8 @@ struct PreviewProducerTests {
         return ProcessingAdmission(
             scopeID: scope.id,
             certificate: ScopeCertificate(
-                id: UUID(),
-                revision: .initial,
+                id: certificateID,
+                revision: mirrorRevision,
                 membership: membership,
                 testArtists: scope.normalizedTestArtists,
                 fieldSet: .processingV1,
@@ -479,6 +484,7 @@ struct PreviewProducerTests {
                 ),
                 observedAt: Date(timeIntervalSince1970: 100)
             ),
+            mirrorRevision: mirrorRevision,
             maximumMetadataAge: nil
         )
     }

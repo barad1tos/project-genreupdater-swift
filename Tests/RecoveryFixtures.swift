@@ -381,7 +381,7 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) async throws -> Recov
         runRecordStore: store
     ))
     let orchestrator = RunOrchestrator(dependencies: .init(
-        synchronizeLibrary: { SyncResult() },
+        synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
         persistRunRecord: { try await store.upsert($0) },
         write: fixture.dependencies.writeDependencies(
             store: store,

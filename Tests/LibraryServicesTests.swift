@@ -23,6 +23,19 @@ private let expectedOpenRunStates: Set<RunLifecycleState> = [
 @Suite("AppDependencies library services")
 @MainActor
 struct LibraryServicesTests {
+    @Test("Production workflow admission binds a fresh request to current mirror evidence")
+    func workflowAdmissionBindsFreshRequest() async throws {
+        let track = canonicalMirrorTrack(sampleTrack())
+        let store = MirrorTrackStoreStub(tracks: [track], certifiedArtists: ["Clutch"])
+        let dependencies = makeLibraryDependencies(trackStore: store)
+        dependencies.config.development.testArtists = ["Clutch"]
+
+        let admission = try await dependencies.makeWorkflowAdmission()([track], .exactScope)
+
+        #expect(admission.certificate.normalizedTestArtists == ["Clutch"])
+        #expect(admission.mirrorRevision == admission.certificate.revision)
+    }
+
     @Test("Real observation persistence drives scoped App readiness across relaunch")
     func persistsScopedReadiness() async throws {
         let fixture = try ScopedReadinessFixture()
@@ -51,7 +64,7 @@ struct LibraryServicesTests {
 
         await fixture.dependencies.cacheLibraryLoad(tracks)
 
-        let storedTracks = try await fixture.trackStore.loadAllTracks()
+        let storedTracks = try await fixture.trackStore.loadMirrorSnapshot().presentTracks
         #expect(await fixture.snapshotService.savedSnapshotCount() == 1)
         #expect(storedTracks.isEmpty)
     }
@@ -198,7 +211,7 @@ struct LibraryServicesTests {
         )
         #expect(visibleTrack.genre == "Alternative")
         #expect(fixture.dependencies.previousIncrementalScopeTracks.first?.genre == "Metal")
-        #expect(try await fixture.trackStore.loadAllTracks().map(\.genre) == ["Alternative"])
+        #expect(try await fixture.trackStore.loadMirrorSnapshot().presentTracks.map(\.genre) == ["Alternative"])
         #expect(incrementalTracks.map(\.id) == ["live"])
     }
 
@@ -668,10 +681,6 @@ private actor FailingMirrorReadStore: TrackStateStore {
         // The failure double has no backing store to initialize.
     }
 
-    func loadAllTracks() async throws -> [Core.Track] {
-        throw MirrorReadError()
-    }
-
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         throw MirrorReadError()
     }
@@ -680,7 +689,10 @@ private actor FailingMirrorReadStore: TrackStateStore {
     func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
         let nextRevision = try commit.baseRevision.advanced()
         savedTracks.append(contentsOf: commit.upserts)
-        return MirrorCommitResult(revision: nextRevision)
+        return try MirrorCommitResult(
+            revision: nextRevision,
+            snapshot: testMirrorSnapshot(revision: nextRevision, tracks: savedTracks)
+        )
     }
 
     func getTrack(byID _: String) async throws -> Core.Track? {

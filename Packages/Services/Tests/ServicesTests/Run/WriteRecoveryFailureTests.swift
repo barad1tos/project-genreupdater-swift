@@ -14,7 +14,7 @@ struct WriteRecoveryFailureTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { _ in throw RecordWriteError() },
             write: .init(
                 writeFixPlan: { input, _, _ in try await writer.apply(input: input) },
@@ -47,7 +47,7 @@ struct WriteRecoveryFailureTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in
@@ -85,7 +85,7 @@ struct WriteRecoveryFailureTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in
@@ -120,7 +120,7 @@ struct WriteRecoveryFailureTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { input, _, _ in try await writer.apply(input: input) },
@@ -146,7 +146,7 @@ struct WriteRecoveryFailureTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in
@@ -182,7 +182,7 @@ struct WriteRecoveryFailureTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in
@@ -218,7 +218,7 @@ struct WriteRecoveryFailureTests {
         let recoveryID = UUID()
         let input = writeInput()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { input, _, checkpoint in
@@ -246,7 +246,7 @@ struct WriteRecoveryFailureTests {
         let recoveryID = UUID()
         let input = writeInput()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { input, _, checkpoint in

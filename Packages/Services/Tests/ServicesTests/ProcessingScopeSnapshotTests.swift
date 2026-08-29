@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import Services
 import Testing
@@ -34,5 +35,50 @@ struct ProcessingScopeSnapshotTests {
         #expect(snapshot.matchingRule == "artist-or-album-artist-v1")
         #expect(snapshot.fingerprint ==
             "testArtists:aphex twin|boards of canada:rule=artist-or-album-artist-v1:tracks=75")
+    }
+
+    @Test("legacy payloads decode without mirror evidence")
+    func decodesLegacyEvidence() throws {
+        let data = Data(#"""
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "createdAt": -978307100,
+          "source": "fullLibrary",
+          "normalizedTestArtists": [],
+          "matchingRule": "artist-or-album-artist-v1",
+          "knownTrackCount": 1,
+          "fingerprint": "legacy",
+          "reason": "test"
+        }
+        """#.utf8)
+
+        let snapshot = try JSONDecoder().decode(ProcessingScopeSnapshot.self, from: data)
+
+        #expect(snapshot.mirrorRevision == nil)
+        #expect(snapshot.certificateID == nil)
+    }
+
+    @Test("current payloads preserve mirror evidence")
+    func decodesMirrorEvidence() throws {
+        let certificateID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")
+        let data = Data(#"""
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "createdAt": -978307100,
+          "source": "fullLibrary",
+          "normalizedTestArtists": [],
+          "matchingRule": "artist-or-album-artist-v1",
+          "knownTrackCount": 1,
+          "fingerprint": "current",
+          "reason": "test",
+          "mirrorRevision": {"value": 7},
+          "certificateID": "00000000-0000-0000-0000-000000000002"
+        }
+        """#.utf8)
+
+        let snapshot = try JSONDecoder().decode(ProcessingScopeSnapshot.self, from: data)
+
+        #expect(snapshot.mirrorRevision == MirrorRevision(value: 7))
+        #expect(snapshot.certificateID == certificateID)
     }
 }

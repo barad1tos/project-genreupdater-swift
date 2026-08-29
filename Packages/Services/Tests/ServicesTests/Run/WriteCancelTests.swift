@@ -12,7 +12,7 @@ struct WriteCancelTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in
@@ -42,7 +42,7 @@ struct WriteCancelTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in
@@ -70,7 +70,7 @@ struct WriteCancelTests {
         let records = WriteRecordProbe()
         let input = writeInput()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, _ in throw CancellationError() },
@@ -97,7 +97,7 @@ struct WriteCancelTests {
         let records = FailingRecordProbe(failingCall: 2)
         let input = writeInput()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, _ in throw CancellationError() },
@@ -126,7 +126,7 @@ struct WriteCancelTests {
         let recoveryID = UUID()
         let input = writeInput()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, _ in throw CancellationError() },
@@ -157,7 +157,7 @@ struct WriteCancelTests {
         let second = makeWorkItem(state: .prepared)
         let input = writeInput(workItems: [first, second])
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in
@@ -188,7 +188,7 @@ struct WriteCancelTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in
@@ -221,7 +221,7 @@ struct WriteCancelTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in
@@ -251,7 +251,7 @@ struct WriteCancelTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in

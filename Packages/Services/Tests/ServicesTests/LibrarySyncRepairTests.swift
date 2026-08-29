@@ -451,6 +451,7 @@ private actor RepairMirrorStore: TrackStateStore {
     private(set) var stored: [Track]
     private(set) var updates: [MirrorCommit] = []
     private var revision = MirrorRevision.initial
+    private var certificates: [ScopeCertificate] = []
 
     init(stored: [Track]) {
         self.stored = stored
@@ -460,12 +461,8 @@ private actor RepairMirrorStore: TrackStateStore {
         // The test provides initialized mirror state and does not exercise initialization persistence.
     }
 
-    func loadAllTracks() async throws -> [Track] {
-        stored
-    }
-
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        try mirrorSnapshot(revision: revision, tracks: stored, certificates: [])
+        try mirrorSnapshot(revision: revision, tracks: stored, certificates: certificates)
     }
 
     @discardableResult
@@ -488,9 +485,20 @@ private actor RepairMirrorStore: TrackStateStore {
             stored.removeAll { $0.id == track.id }
             stored.append(track)
         }
+        switch update.certificates {
+        case .preserve:
+            break
+        case let .replace(certificate), let .rebase(certificate):
+            certificates = [certificate]
+        case .invalidate:
+            certificates = []
+        }
         stored.sort { $0.id < $1.id }
         revision = nextRevision
-        return MirrorCommitResult(revision: revision)
+        return try MirrorCommitResult(
+            revision: revision,
+            snapshot: mirrorSnapshot(revision: revision, tracks: stored, certificates: certificates)
+        )
     }
 
     func getTrack(byID id: String) async throws -> Track? {

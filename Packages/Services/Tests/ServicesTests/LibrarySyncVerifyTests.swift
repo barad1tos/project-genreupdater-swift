@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Core
 @testable import Services
@@ -39,13 +40,73 @@ struct LibrarySyncVerifyTests {
         )
 
         let result = try await service.verifyAndCleanDatabase(force: true)
-        let remainingTracks = try await store.loadAllTracks()
+        let remainingTracks = try await store.loadMirrorSnapshot().presentTracks
         let remainingIDs = remainingTracks.map(\.id).sorted()
 
         #expect(result.verifiedTrackCount == 3)
         #expect(result.removedTrackIDs == ["T2"])
         #expect(result.removedCount == 1)
         #expect(remainingIDs == ["T1", "T3"])
+    }
+
+    @Test("A timestamp write failure does not deny an already committed verification")
+    func timestampFailureKeepsCommit() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncTimestampFailure-\(UUID().uuidString)", isDirectory: true)
+        let blockedDirectory = directory.appendingPathComponent("not-a-directory")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("occupied".utf8).write(to: blockedDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        await bridge.setLibrary(ids: ["T1"], tracks: [:])
+        await store.setStored([
+            Track(id: "T1", name: "One", artist: "Artist", album: "Album"),
+            Track(id: "T2", name: "Two", artist: "Artist", album: "Album"),
+        ])
+        let baseRevision = try await store.loadMirrorSnapshot().revision
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: blockedDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            ),
+            observer: bridge
+        )
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+
+        #expect(result.removedTrackIDs == ["T2"])
+        let snapshot = try await store.loadMirrorSnapshot()
+        let expectedRevision = try baseRevision.advanced()
+        #expect(snapshot.revision == expectedRevision)
+        #expect(snapshot.presentTracks.map(\.id) == ["T1"])
+    }
+
+    @Test("Cancellation after verification observation prevents its mirror commit")
+    func cancellationStopsVerificationCommit() async throws {
+        let delegate = SyncMockScriptClient()
+        let gate = VerificationObservationGate()
+        let reader = GatedVerificationReader(delegate: delegate, gate: gate)
+        let store = SyncMockTrackStore()
+        await delegate.setLibrary(ids: ["T1"], tracks: [:])
+        await store.setStored([
+            Track(id: "T1", name: "One", artist: "Artist", album: "Album"),
+            Track(id: "T2", name: "Two", artist: "Artist", album: "Album"),
+        ])
+        let before = try await store.loadMirrorSnapshot()
+        let service = LibrarySyncService(trackStore: store, observer: reader)
+
+        let verification = Task { try await service.verifyAndCleanDatabase(force: true) }
+        await gate.waitUntilEntered()
+        verification.cancel()
+        await gate.release()
+
+        await #expect(throws: CancellationError.self) {
+            try await verification.value
+        }
+        #expect(try await store.loadMirrorSnapshot() == before)
     }
 
     @Test("Database verification re-observes after a mirror revision conflict")
@@ -75,7 +136,47 @@ struct LibrarySyncVerifyTests {
 
         #expect(result.removedTrackIDs == ["T2"])
         #expect(await bridge.recordedObservationRequests().count == 2)
-        #expect(try await store.loadAllTracks().map(\.id) == ["T1"])
+        #expect(try await store.loadMirrorSnapshot().presentTracks.map(\.id) == ["T1"])
+    }
+
+    @Test("Database verification retries with its captured configuration")
+    func verificationRetryKeepsConfiguration() async throws {
+        let delegate = SyncMockScriptClient()
+        let gate = VerificationObservationGate()
+        let reader = GatedVerificationReader(delegate: delegate, gate: gate)
+        let store = SyncMockTrackStore()
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncPinnedVerification-\(UUID().uuidString)")
+        await delegate.setLibrary(ids: ["T1"], tracks: [:])
+        await store.setStored([
+            Track(id: "T1", name: "One", artist: "Original", album: "Album"),
+        ])
+        await store.rejectNextMirrorCommits()
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log",
+                testArtists: ["Original"],
+                mirrorRetryPolicy: MirrorRetryPolicy(retryLimit: 1, delay: .zero)
+            ),
+            observer: reader
+        )
+
+        let verification = Task { try await service.verifyAndCleanDatabase(force: true) }
+        await gate.waitUntilEntered()
+        await service.updateRuntimeConfiguration(LibrarySyncRuntimeConfiguration(
+            logsBaseDirectory: logDirectory.path,
+            lastDatabaseVerifyLog: "last.log",
+            testArtists: ["Replacement"],
+            mirrorRetryPolicy: MirrorRetryPolicy(retryLimit: 1, delay: .zero)
+        ))
+        await gate.release()
+        _ = try await verification.value
+
+        let requests = await delegate.recordedObservationRequests()
+        #expect(requests.count == 2)
+        #expect(requests.allSatisfy { $0.scope.normalizedTestArtists == ["Original"] })
     }
 
     @Test("No-op database verification preserves scoped processing readiness")
@@ -111,6 +212,40 @@ struct LibrarySyncVerifyTests {
         let snapshot = try await store.loadMirrorSnapshot()
         #expect(snapshot.revision == MirrorRevision(value: 1))
         #expect(try await store.readiness(testArtists: ["Target"]).isReady)
+    }
+
+    @Test("Maintenance records its commit without promoting a certificate")
+    func maintenanceKeepsCertificate() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = TrackDataStore(modelContainer: container)
+        try await store.initialize()
+        let bridge = SyncMockScriptClient()
+        let track = Track(id: "T1", name: "One", artist: "Target", album: "Album")
+        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": track])
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncMaintenance-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logDirectory) }
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            ),
+            observer: bridge
+        )
+        _ = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let before = try await store.loadMirrorSnapshot()
+        let certificate = try #require(before.certificates.first)
+
+        _ = try await service.verifyAndCleanDatabase(force: true)
+
+        let after = try await store.loadMirrorSnapshot()
+        let context = ModelContext(container)
+        let records = try context.fetch(FetchDescriptor<PersistedSyncRecord>())
+        #expect(after.certificates.map(\.id) == [certificate.id])
+        #expect(after.revision == MirrorRevision(value: 2))
+        #expect(records.count == 2)
+        #expect(records.contains { $0.modeRaw == "membershipOnly" && $0.certificateID == nil })
     }
 
     @Test("Database verification persists identity facts without a membership delta")
@@ -207,7 +342,7 @@ struct LibrarySyncVerifyTests {
         }
 
         #expect(await bridge.recordedObservationRequests().count == 2)
-        #expect(try await store.loadAllTracks().map(\.id).sorted() == ["T1", "T2"])
+        #expect(try await store.loadMirrorSnapshot().presentTracks.map(\.id).sorted() == ["T1", "T2"])
         #expect(await (pending.removedAlbums).isEmpty)
         #expect(await !(snapshotService.wasCleared()))
         await expectSyncCachesPreserved(cache, artist: "Gone Artist", album: "Gone Album")
@@ -329,14 +464,14 @@ struct LibrarySyncVerifyTests {
         ])
 
         let skipped = try await service.verifyAndCleanDatabase()
-        let afterSkipTracks = try await store.loadAllTracks()
+        let afterSkipTracks = try await store.loadMirrorSnapshot().presentTracks
         let afterSkipIDs = afterSkipTracks.map(\.id).sorted()
 
         #expect(skipped.skippedDueToRecentVerification)
         #expect(afterSkipIDs == ["T1", "T3"])
 
         let forced = try await service.verifyAndCleanDatabase(force: true)
-        let afterForceTracks = try await store.loadAllTracks()
+        let afterForceTracks = try await store.loadMirrorSnapshot().presentTracks
         let afterForceIDs = afterForceTracks.map(\.id).sorted()
 
         #expect(!forced.skippedDueToRecentVerification)
@@ -376,5 +511,50 @@ struct LibrarySyncVerifyTests {
         let requests = await bridge.recordedObservationRequests()
         #expect(requests.count == 1)
         #expect(requests.first?.refresh == .membershipOnly)
+    }
+}
+
+private actor VerificationObservationGate {
+    private var hasEntered = false
+    private var isReleased = false
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitUntilEntered() async {
+        guard !hasEntered else { return }
+        await withCheckedContinuation { entryWaiters.append($0) }
+    }
+
+    func waitUntilReleased() async {
+        hasEntered = true
+        entryWaiters.forEach { $0.resume() }
+        entryWaiters.removeAll()
+        guard !isReleased else { return }
+        await withCheckedContinuation { releaseWaiters.append($0) }
+    }
+
+    func release() {
+        isReleased = true
+        releaseWaiters.forEach { $0.resume() }
+        releaseWaiters.removeAll()
+    }
+}
+
+private actor GatedVerificationReader: MusicAppReading {
+    private let delegate: SyncMockScriptClient
+    private let gate: VerificationObservationGate
+    private var callCount = 0
+
+    init(delegate: SyncMockScriptClient, gate: VerificationObservationGate) {
+        self.delegate = delegate
+        self.gate = gate
+    }
+
+    func observe(_ request: LibraryObservationRequest) async throws -> LibraryObservation {
+        callCount += 1
+        if callCount == 1 {
+            await gate.waitUntilReleased()
+        }
+        return try await delegate.observe(request)
     }
 }

@@ -40,7 +40,7 @@ struct LifecycleBufferTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: {
+            synchronizeLibrary: { _ in
                 await gate.waitUntilReleased()
                 return SyncResult()
             },

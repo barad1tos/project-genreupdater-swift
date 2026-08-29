@@ -40,6 +40,22 @@ struct SyncForceScanTests {
         #expect(metadata?.lastForceScanDate == scanDate)
     }
 
+    @Test("Force-scan cache failure does not hide a committed mirror result")
+    func cacheFailurePreservesCommittedResult() async throws {
+        let scanDate = Self.baseDate
+        let fixture = await Self.makeFixture(
+            now: scanDate,
+            metadata: Self.metadata(timestamp: scanDate.addingTimeInterval(-3600))
+        )
+        await fixture.snapshotService.failMetadataUpdates()
+
+        let result = try await fixture.service.synchronizeNow(forceMetadataRefresh: true)
+        let snapshot = try await fixture.store.loadMirrorSnapshot()
+
+        #expect(result.scope?.mirrorRevision == snapshot.revision)
+        #expect(snapshot.revision == MirrorRevision(value: 1))
+    }
+
     @Test("Stale timestamp triggers a committed metadata refresh")
     func refreshesStaleMetadata() async throws {
         let now = Self.baseDate
