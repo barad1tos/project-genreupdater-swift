@@ -163,7 +163,7 @@ extension AppDependencies {
     /// never be reverted by a stale key).
     func migrateDefaultUpdateBehaviorIfNeeded() {
         guard configurationLoadIssue == nil,
-              let raw = UserDefaults.standard.string(forKey: AppStorageKey.defaultUpdateBehavior)
+              let raw = legacyPreferenceStore.string(forKey: AppStorageKey.defaultUpdateBehavior)
         else { return }
         config.processing.defaultUpdateBehavior = UpdateBehavior.resolved(from: raw)
         persistConfiguration()

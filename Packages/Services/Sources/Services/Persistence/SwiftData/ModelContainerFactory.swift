@@ -28,16 +28,6 @@ public enum ModelContainerFactory {
         return try create(schema: schema, configuration: config)
     }
 
-    /// Create an in-memory container (for testing).
-    public static func createInMemory() throws -> ModelContainer {
-        let schema = makeSchema()
-        let config = ModelConfiguration(
-            schema: schema,
-            isStoredInMemoryOnly: true
-        )
-        return try create(schema: schema, configuration: config)
-    }
-
     static func makeSchema() -> Schema {
         Schema(versionedSchema: StoreSchemaV6.self)
     }

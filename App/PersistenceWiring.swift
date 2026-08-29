@@ -3,13 +3,9 @@ import Foundation
 import Services
 import SwiftData
 
-private var isTestProcess: Bool {
-    ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-}
-
-func makeProcessContainer() throws -> ModelContainer {
-    if isTestProcess {
-        return try ModelContainerFactory.createInMemory()
+func makeProcessContainer() throws -> ModelContainer? {
+    guard AppProcessMode.current.shouldUsePersistentStorage else {
+        return nil
     }
     return try ModelContainerFactory.create()
 }
@@ -21,7 +17,7 @@ func makeProcessCache(
     let genericTTL = GRDBCacheService.resolvedGenericTTL(configuration: configuration)
     let maxEntries = configuration.runtime.maxGenericEntries
     let cleanupInterval = TimeInterval(configuration.caching.cleanupIntervalSeconds)
-    if isTestProcess {
+    if !AppProcessMode.current.shouldUsePersistentStorage {
         return try GRDBCacheService.createInMemory(
             defaultGenericTTL: genericTTL,
             apiResultTTL: apiResultTTL,

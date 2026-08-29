@@ -112,7 +112,8 @@ final class AppDependencies {
     private(set) var configurationLoadIssue: String?
     @ObservationIgnored private let configurationLoader: () throws -> AppConfiguration
     @ObservationIgnored private let configurationSaver: (AppConfiguration) throws -> Void
-    @ObservationIgnored private let modelContainerFactory: () throws -> ModelContainer
+    @ObservationIgnored private let modelContainerFactory: () throws -> ModelContainer?
+    @ObservationIgnored let legacyPreferenceStore: UserDefaults
     @ObservationIgnored private var configurationSaveRecoveryState: AppState?
 
     // MARK: - Services (lazy, initialized in initialize())
@@ -171,15 +172,17 @@ final class AppDependencies {
     // MARK: - Init
 
     init(
-        configurationLoader: @escaping () throws -> AppConfiguration = AppConfiguration.load,
+        configurationLoader: @escaping () throws -> AppConfiguration = { try loadProcessConfiguration() },
         configurationSaver: @escaping (AppConfiguration) throws -> Void = { try $0.save() },
-        modelContainerFactory: @escaping () throws -> ModelContainer = makeProcessContainer,
-        musicCatalog: any MusicCatalogReading = MusicLibraryReader()
+        modelContainerFactory: @escaping () throws -> ModelContainer? = makeProcessContainer,
+        musicCatalog: any MusicCatalogReading = makeProcessMusicCatalog(),
+        legacyPreferenceStore: UserDefaults = .standard
     ) {
         self.configurationLoader = configurationLoader
         self.configurationSaver = configurationSaver
         self.modelContainerFactory = modelContainerFactory
         self.musicCatalog = MeasuredMusicCatalog(base: musicCatalog)
+        self.legacyPreferenceStore = legacyPreferenceStore
 
         do {
             config = try configurationLoader()
@@ -191,8 +194,8 @@ final class AppDependencies {
             log.error("Configuration load failed: \(message, privacy: .private)")
         }
 
-        // Create ModelContainer eagerly so SwiftUI can attach .modelContainer() immediately.
-        // ModelContainerFactory.create() is synchronous.
+        // Production creates the container eagerly so SwiftUI can attach it immediately.
+        // Injected unit-test hosts intentionally leave it absent until a test provides one.
         do {
             modelContainer = try modelContainerFactory()
         } catch {
@@ -221,12 +224,15 @@ final class AppDependencies {
             return false
         }
 
-        migrateDefaultUpdateBehaviorIfNeeded()
+        if AppProcessMode.current.shouldUsePersistentStorage {
+            migrateDefaultUpdateBehaviorIfNeeded()
+        }
         // Bootstrap the settings projection so the store never serves the
-        // `.empty` default state once the app is running. A migration
-        // persist failure is not fatal (the key is kept for a retry next
-        // launch), but its message must survive into the projection —
-        // appState is about to become .loading.
+        // `.empty` default state once the app is running. In production, a
+        // migration persist failure is not fatal (the key is kept for a retry
+        // next launch), but its message must survive into the projection —
+        // appState is about to become .loading. Test hosts publish without
+        // migrating user-owned preferences.
         await publishSettingsProjection(saveErrorMessage: configurationSaveErrorMessage)
         await refreshChromeProjection()
         return true
@@ -243,6 +249,8 @@ final class AppDependencies {
 
         guard await bootstrapProjectionsForLaunch() else { return }
         appState = .loading
+
+        guard AppProcessMode.current.shouldStartLiveServices else { return }
 
         do {
             // Step 1: Create script installer
@@ -350,7 +358,7 @@ final class AppDependencies {
             // The persisted config carries the current defaultUpdateBehavior,
             // so any pending legacy-key migration is superseded: a stale key
             // must not overwrite a newer explicit choice on the next launch.
-            UserDefaults.standard.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
+            legacyPreferenceStore.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
             return .saved
         } catch {
             let message = "\(configurationSaveErrorPrefix) \(error.localizedDescription)"
@@ -402,7 +410,10 @@ final class AppDependencies {
         if let existing = modelContainer {
             container = existing
         } else {
-            container = try modelContainerFactory()
+            guard let createdContainer = try modelContainerFactory() else {
+                throw DependencySetupError.missingModelContainer
+            }
+            container = createdContainer
             modelContainer = container
         }
 
