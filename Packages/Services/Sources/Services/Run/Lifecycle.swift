@@ -147,6 +147,10 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         workLedger.hasUncertainty
     }
 
+    var requiresRecoveryObservation: Bool {
+        workLedger.requiresRecoveryObservation
+    }
+
     /// True after a write crosses the pre-dispatch checkpoint or produces a written outcome.
     /// An `.attempting` item counts because a missing later checkpoint cannot prove Music.app was not reached.
     var hasWriteProgress: Bool {

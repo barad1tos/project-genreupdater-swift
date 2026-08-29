@@ -416,6 +416,29 @@ struct WorkItemTests {
         #expect(item.detail == "Dismissed by user: not wanted")
     }
 
+    @Test("individual dismissal acknowledges an evidence-less legacy no-op without rewriting its outcome")
+    func individualDismissalAcknowledgesLegacyNoOp() async throws {
+        let store = try makeRunStore()
+        let legacyNoOp = makeWorkItem(state: .outcome(.noFixNeeded))
+        let record = makeOpenRecoveryRecord(workItems: [legacyNoOp])
+        try await store.upsert(record)
+        let acknowledgedAt = Date(timeIntervalSince1970: 500)
+
+        let updated = try record.dismissingUncertainWork(
+            id: legacyNoOp.id,
+            reason: "track is no longer available",
+            at: acknowledgedAt
+        )
+        try await store.upsert(updated)
+
+        let reloaded = try #require(await store.record(for: record.runID))
+        let item = try #require(reloaded.workItems.first)
+        #expect(item.state == .outcome(.noFixNeeded))
+        #expect(item.detail == "Acknowledged by user; mirror left unchanged: track is no longer available")
+        #expect(item.dismissedAt == acknowledgedAt)
+        #expect(!reloaded.requiresRecoveryObservation)
+    }
+
     @Test("dismissed subsets survive the store roundtrip on open records")
     func dismissalPersistsOnOpenRecord() async throws {
         let store = try makeRunStore()

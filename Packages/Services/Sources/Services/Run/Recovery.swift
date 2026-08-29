@@ -103,6 +103,41 @@ extension RunOrchestrator {
         await admitRecovery(.hold(id))
     }
 
+    /// Replaces the in-memory recovery snapshot with the authoritative durable
+    /// record after a user decision changes its work audit. The physical hold
+    /// stays untouched; only an already-matching current candidate can refresh.
+    public func synchronizeRecovery(_ record: RunRecord) -> Bool {
+        guard record.intent.isMutating,
+              record.finishedAt == nil,
+              record.state.needsWriteRecovery
+        else { return false }
+        let holdID = record.recoveryID ?? record.runID.rawValue
+        guard let current = recoveryState.current,
+              current.holdID == holdID,
+              current.run?.snapshot.runID == nil || current.run?.snapshot.runID == record.runID
+        else { return false }
+
+        let snapshot = RunLifecycleSnapshot(recovering: record)
+        let replacement = RecoveryCandidate.run(RecoveryRun(
+            snapshot: snapshot,
+            reason: record.failureMessage ?? "Interrupted write requires Music.app verification.",
+            holdID: holdID
+        ))
+        switch recoveryState {
+        case .current:
+            recoveryState = .current(replacement)
+        case let .currentThenPending(_, pending):
+            recoveryState = .currentThenPending(replacement, pending)
+        case .clear, .pending:
+            return false
+        }
+        if activeRun == nil {
+            latestRun = snapshot
+            broadcast(snapshot)
+        }
+        return true
+    }
+
     /// Resolves only recoverable holds; blocked records require a separate repair path.
     public func resolveRecovery(
         runID: RunID,
@@ -190,10 +225,10 @@ extension RunOrchestrator {
             let closed: RunLifecycleSnapshot
             if let observedOutcomes {
                 closed = try recovering.applyingObservedOutcomes(observedOutcomes)
-            } else if recovering.hasWriteUncertainty {
-                // ADR 0006: write-uncertain items may only close from observed
-                // Music.app state, never through a blind grouped dismissal.
-                log.error("Recovery closure rejected: uncertain work requires observed outcomes")
+            } else if recovering.requiresRecoveryObservation {
+                // ADR 0006: observation-dependent items may only close from
+                // observed Music.app state, never through a blind dismissal.
+                log.error("Recovery closure rejected: work requires observed outcomes")
                 return nil
             } else {
                 closed = try recovering.dismissingOpenWork()

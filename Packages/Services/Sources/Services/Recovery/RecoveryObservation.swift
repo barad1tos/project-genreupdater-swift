@@ -14,11 +14,20 @@ public enum RecoveryObservationIssue: Error, Equatable, Sendable {
         case .observationUnavailable:
             "Music.app metadata could not be observed; try recovery again"
         case .trackMissing:
-            "The track is no longer available in Music.app"
+            """
+            The track is no longer available in Music.app; open Reports and acknowledge the item to \
+            keep the mirror unchanged
+            """
         case .trackIdentityChanged:
-            "Music.app now associates this database ID with a different track"
+            """
+            Music.app now associates this database ID with a different track; open Reports and acknowledge the item to \
+            keep the mirror unchanged
+            """
         case .writeIdentityMissing:
-            "The recovery record has no valid Music.app track identity"
+            """
+            The recovery record has no valid Music.app track identity; open Reports and acknowledge the item to \
+            keep the mirror unchanged
+            """
         }
     }
 }

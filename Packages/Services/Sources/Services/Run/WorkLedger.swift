@@ -76,6 +76,13 @@ struct WorkLedger: Equatable, Sendable {
         counts.uncertain > 0
     }
 
+    /// Recovery must observe both interrupted writes and legacy no-op outcomes
+    /// that predate persisted write effects. A user-acknowledged legacy item is
+    /// retained for audit but no longer blocks recovery clearance.
+    var requiresRecoveryObservation: Bool {
+        hasUncertainty || items.contains(where: \.isLegacyNoOpAwaitingAcknowledgement)
+    }
+
     var hasProgress: Bool {
         hasUncertainty || counts.written > 0
     }
@@ -246,6 +253,26 @@ struct WorkLedger: Equatable, Sendable {
             ledger.itemsByID[id] = current.recordingDismissal(detail: detail, at: timestamp)
         }
         return ledger
+    }
+
+    func acknowledgingLegacyNoOp(id: UUID, detail: String, at timestamp: Date) throws -> Self {
+        guard let item = itemsByID[id] else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: true,
+                reason: "unknown work item \(id.uuidString)"
+            )
+        }
+        guard item.isLegacyNoOpAwaitingAcknowledgement else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: false,
+                reason: "work item \(id.uuidString) does not need legacy no-op acknowledgement"
+            )
+        }
+        var updated = self
+        updated.itemsByID[id] = item.recordingLegacyNoOpAcknowledgement(detail: detail, at: timestamp)
+        return updated
     }
 }
 

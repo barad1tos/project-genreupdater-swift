@@ -85,7 +85,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     }
 
     /// True while any item may have physically reached Music.app
-    /// (`.attempting`/`.attempted`) — the only work live observation gates on.
+    /// (`.attempting`/`.attempted`).
     public var hasWriteUncertainty: Bool {
         workLedger.hasUncertainty
     }
@@ -95,9 +95,7 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     /// effects, so their physical value is just as observation-dependent as
     /// an interrupted write.
     public var requiresRecoveryObservation: Bool {
-        hasWriteUncertainty || workItems.contains {
-            $0.state == .outcome(.noFixNeeded) && $0.writeChange == nil
-        }
+        workLedger.requiresRecoveryObservation
     }
 
     /// Work a linked continuation run may re-apply: items whose write
@@ -282,6 +280,20 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     /// The record stays open.
     public func dismissingUncertainWork(id: UUID, reason: String, at timestamp: Date) throws -> Self {
         try requireRecoveryResolution()
+        if workItems.contains(where: { $0.id == id && $0.isLegacyNoOpAwaitingAcknowledgement }) {
+            return try Self(
+                copying: self,
+                recoveryID: recoveryID,
+                transitions: transitions,
+                workLedger: workLedger.acknowledgingLegacyNoOp(
+                    id: id,
+                    detail: "Acknowledged by user; mirror left unchanged: \(reason)",
+                    at: timestamp
+                ),
+                failureMessage: failureMessage,
+                finishedAt: finishedAt
+            )
+        }
         let isUncertain = workItems.contains { $0.id == id && $0.state.isWriteUncertain }
         let detail = isUncertain
             ? "Dismissed without verification by user decision: \(reason)"

@@ -37,11 +37,11 @@ public enum RunReportDetailBuilder {
             // Strictly narrower than requireRecoveryResolution: the domain
             // gate alone admits states a dismissal command still rejects
             // downstream (closed records, the active run), so the card also
-            // requires an open, non-active run with open items.
+            // requires an open, non-active run with an actionable item.
             canDismissItems: record.finishedAt == nil
                 && record.state.isResolvingRecovery
                 && record.runID != activeRunID
-                && record.workItems.contains(where: isOpenItem),
+                && record.workItems.contains(where: canDismissItem),
             lineageLines: makeLineageLines(from: record, continuedBy: continuedBy)
         )
     }
@@ -76,7 +76,8 @@ public enum RunReportDetailBuilder {
             stateLabel: makeItemStateLabel(for: item.state),
             isOpen: isOpenItem(item),
             isWriteUncertain: item.state.isWriteUncertain,
-            dismissedLabel: item.state == .outcome(.dismissed) ? item.detail : nil
+            canDismiss: canDismissItem(item),
+            dismissedLabel: item.dismissedAt == nil ? nil : item.detail
         )
     }
 
@@ -85,6 +86,10 @@ public enum RunReportDetailBuilder {
             return false
         }
         return true
+    }
+
+    private static func canDismissItem(_ item: RunWorkItem) -> Bool {
+        isOpenItem(item) || item.isLegacyNoOpAwaitingAcknowledgement
     }
 
     private static func makeChangeLabel(from item: RunWorkItem) -> String {

@@ -61,9 +61,12 @@ public enum RecoveryEvidenceRepair {
     }
 
     /// Terminal no-op items whose observed Music.app values still need a
-    /// durable mirror finalization, but must never create undo history.
+    /// durable mirror finalization, but must never create undo history. A user
+    /// acknowledgement deliberately leaves the existing mirror untouched.
     public static func noOpItems(in items: [RunWorkItem]) -> [RunWorkItem] {
-        items.filter { $0.state == .outcome(.noFixNeeded) }
+        items.filter {
+            $0.state == .outcome(.noFixNeeded) && $0.dismissedAt == nil
+        }
     }
 
     /// Returns one canonical durable event for every landed work item.

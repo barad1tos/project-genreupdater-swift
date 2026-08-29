@@ -188,6 +188,10 @@ extension AppDependencies {
         let activeRunID = await runOrchestrator?.activeLifecycle()?.runID
         let finishedAt = Date()
         let targetRecord = try await selectRecoveryRecord(id: id, activeRunID: activeRunID)
+        if let targetRecord, let runOrchestrator,
+           await runOrchestrator.synchronizeRecovery(targetRecord) == false {
+            throw AppDependencyServiceError.recoveryUnavailable
+        }
 
         do {
             if let targetRecord {
@@ -360,9 +364,8 @@ extension AppDependencies {
 
     /// Observes the physical Music.app state for the run's open work before
     /// clearance. Observation failures propagate so the hold is retained
-    /// (ADR 0006: uncertainty cannot be cleared unchecked). A missing bridge
-    /// is logged and degrades to the orchestrator gate, which rejects
-    /// uncertain work without outcomes; PR B owns the blocked-recovery state.
+    /// (ADR 0006: uncertainty cannot be cleared unchecked). Missing or failing
+    /// observation infrastructure is surfaced as an actionable blocker.
     private func observeOutcomes(for record: RunRecord?) async throws -> [UUID: ObservedWorkOutcome]? {
         guard let record else { return nil }
         let hasOpenWork = record.workItems.contains { item in

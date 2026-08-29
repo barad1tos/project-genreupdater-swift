@@ -44,6 +44,11 @@ struct ReportsView: View {
     /// without a default makes that omission a compile error.
     let reportNotice: ReportNotice?
     private static let dismissalReasons = ["Duplicate", "Handled manually", "Not wanted"]
+    private static let legacyNoOpAcknowledgementReasons = [
+        "Track removed",
+        "Identity changed",
+        "Keep mirror unchanged",
+    ]
     private let cols = [GridItem(.adaptive(minimum: 260), spacing: 14)]
 
     var body: some View {
@@ -396,7 +401,7 @@ struct ReportsView: View {
                     }
                     Spacer()
                     TagPill(text: item.stateLabel, tone: workItemTone(item))
-                    if detail.canDismissItems, item.isOpen {
+                    if detail.canDismissItems, item.canDismiss {
                         dismissItemMenu(runID: detail.runID, item: item)
                     }
                 }
@@ -412,20 +417,26 @@ struct ReportsView: View {
     }
 
     private func workItemTone(_ item: RunReportWorkItemRow) -> Tone {
-        if item.isWriteUncertain {
+        if item.isWriteUncertain || (item.canDismiss && !item.isOpen) {
             return .warning
         }
         return item.isOpen ? .info : .neutral
     }
 
     private func dismissItemMenu(runID: String, item: RunReportWorkItemRow) -> some View {
-        Menu {
+        let acknowledgesLegacyNoOp = item.canDismiss && !item.isOpen
+        return Menu {
             Section(
-                item.isWriteUncertain
+                acknowledgesLegacyNoOp
+                    ? "Keep the mirror unchanged"
+                    : item.isWriteUncertain
                     ? "Write status is uncertain — dismissing records your explicit decision"
                     : "Dismiss item"
             ) {
-                ForEach(Self.dismissalReasons, id: \.self) { reason in
+                ForEach(
+                    acknowledgesLegacyNoOp ? Self.legacyNoOpAcknowledgementReasons : Self.dismissalReasons,
+                    id: \.self
+                ) { reason in
                     Button(reason) {
                         recoveryActions?.dismissItem(runID, item.id, reason)
                     }
@@ -438,7 +449,7 @@ struct ReportsView: View {
         }
         .menuIndicator(.hidden)
         .fixedSize()
-        .accessibilityLabel("Dismiss work item")
+        .accessibilityLabel(acknowledgesLegacyNoOp ? "Acknowledge recovery item" : "Dismiss work item")
     }
 
     @ViewBuilder

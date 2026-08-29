@@ -388,6 +388,20 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         )
     }
 
+    /// Records the user's decision to leave the mirror unchanged for a legacy
+    /// no-op whose physical Music.app state can no longer be observed.
+    func recordingLegacyNoOpAcknowledgement(detail: String, at timestamp: Date) -> Self {
+        Self(
+            id: id,
+            target: target,
+            change: change,
+            state: state,
+            detail: detail,
+            dismissedAt: timestamp,
+            writeChange: writeChange
+        )
+    }
+
     func transition(
         to nextState: WorkState,
         detail: String?,
@@ -420,6 +434,10 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
 
     var effectiveChange: WorkChange {
         writeChange ?? change
+    }
+
+    var isLegacyNoOpAwaitingAcknowledgement: Bool {
+        state == .outcome(.noFixNeeded) && writeChange == nil && dismissedAt == nil
     }
 
     var isWriteEvidenceComplete: Bool {

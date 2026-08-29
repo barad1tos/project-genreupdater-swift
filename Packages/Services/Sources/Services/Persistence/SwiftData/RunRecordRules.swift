@@ -386,6 +386,13 @@ extension RunRecordDataStore {
             if item == next {
                 continue
             }
+            if item.isLegacyNoOpAwaitingAcknowledgement,
+               next.state == item.state,
+               let detail = next.detail,
+               let stamp = next.dismissedAt,
+               item.recordingLegacyNoOpAcknowledgement(detail: detail, at: stamp) == next {
+                continue
+            }
             guard item.state != next.state,
                   let advanced = try? item.transition(
                       to: next.state,

@@ -134,6 +134,59 @@ struct RecoveryNoOpTests {
         }
     }
 
+    @Test("Legacy no-op keeps every recovery surface unchanged when Music.app observation throws")
+    func failsClosedWhenObservationThrows() async throws {
+        var temporaryDirectories: [URL] = []
+        defer {
+            for temporaryDirectory in temporaryDirectories.reversed() {
+                try? FileManager.default.removeItem(at: temporaryDirectory)
+            }
+        }
+        let recoveryID = UUID()
+        let (record, _) = uncertainRunRecord(
+            recoveryID: recoveryID,
+            itemState: .outcome(.noFixNeeded),
+            oldValue: nil,
+            newValue: "1970",
+            changeType: .yearUpdate
+        )
+        do {
+            let relaunch = try await makeRelaunchedStore(seeding: record)
+            temporaryDirectories.append(relaunch.directory)
+            let setup = try await makeRecoverySetup(store: relaunch.store)
+            temporaryDirectories.append(setup.directory)
+            _ = await setup.processor.beginRecoveryHold(id: recoveryID)
+            try await setup.trackStore.seedMirror([Track(
+                id: "persistent-1",
+                name: "Track",
+                artist: "Artist",
+                album: "Album",
+                year: 2001,
+                appleScriptID: "persistent-1"
+            )])
+            setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
+                isMusicAppRunning: { true },
+                areScriptsInstalled: { true }
+            )))
+            setup.dependencies.recoveryVerifier = ThrowingRecoveryVerifier()
+            let reopened = try #require(await relaunch.store.record(for: record.runID))
+            await setup.dependencies.runOrchestrator?.restoreRecovery(reopened)
+
+            await #expect(throws: AppDependencyServiceError
+                .recoveryObservationNeedsAttention(.observationUnavailable)) {
+                try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+            }
+
+            let retained = try #require(await relaunch.store.record(for: record.runID))
+            #expect(retained.finishedAt == nil)
+            #expect(retained.recoveryID == recoveryID)
+            #expect(try await setup.trackStore.getTrack(byID: "persistent-1")?.year == 2001)
+            #expect(try await setup.changeLog.loadAll().isEmpty)
+            #expect(await setup.undo.getHistory().isEmpty)
+            #expect(await setup.processor.recoveryHoldID() == recoveryID)
+        }
+    }
+
     @Test("Legacy no-op reports a reused Music database identity")
     func reportsChangedTrackIdentity() async throws {
         var temporaryDirectories: [URL] = []
@@ -186,9 +239,75 @@ struct RecoveryNoOpTests {
                 try await setup.dependencies.clearRecoveryHold(id: recoveryID)
             }
 
-            #expect(expected.errorDescription == "Music.app now associates this database ID with a different track")
+            #expect(expected.errorDescription == """
+            Music.app now associates this database ID with a different track; open Reports and acknowledge the item to \
+            keep the mirror unchanged
+            """)
             #expect(try await setup.trackStore.getTrack(byID: "persistent-1")?.year == 2001)
             #expect(await setup.processor.recoveryHoldID() == recoveryID)
+        }
+    }
+
+    @Test("Acknowledging an unobservable legacy no-op clears recovery without changing the mirror")
+    func acknowledgesUnobservableLegacyNoOp() async throws {
+        var temporaryDirectories: [URL] = []
+        defer {
+            for temporaryDirectory in temporaryDirectories.reversed() {
+                try? FileManager.default.removeItem(at: temporaryDirectory)
+            }
+        }
+        let recoveryID = UUID()
+        let (record, item) = uncertainRunRecord(
+            recoveryID: recoveryID,
+            itemState: .outcome(.noFixNeeded),
+            oldValue: nil,
+            newValue: "1970",
+            changeType: .yearUpdate
+        )
+        do {
+            let relaunch = try await makeRelaunchedStore(seeding: record)
+            temporaryDirectories.append(relaunch.directory)
+            let setup = try await makeRecoverySetup(store: relaunch.store)
+            temporaryDirectories.append(setup.directory)
+            _ = await setup.processor.beginRecoveryHold(id: recoveryID)
+            try await setup.trackStore.seedMirror([Track(
+                id: "persistent-1",
+                name: "Track",
+                artist: "Artist",
+                album: "Album",
+                year: 2001,
+                appleScriptID: "persistent-1"
+            )])
+            setup.dependencies.installTestAvailability(RecoveryAvailability(checks: RecoveryAvailability.Checks(
+                isMusicAppRunning: { true },
+                areScriptsInstalled: { true }
+            )))
+            setup.dependencies.recoveryVerifier = RecoveryScriptStub(tracks: [])
+            let reopened = try #require(await relaunch.store.record(for: record.runID))
+            await setup.dependencies.runOrchestrator?.restoreRecovery(reopened)
+
+            await #expect(throws: AppDependencyServiceError.recoveryObservationNeedsAttention(.trackMissing)) {
+                try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+            }
+            try await setup.dependencies.dismissRecoveryWork(
+                id: record.runID.rawValue,
+                itemIDs: [item.id],
+                reason: "track removed",
+                isIndividual: true
+            )
+
+            try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+
+            let closed = try #require(await relaunch.store.record(for: record.runID))
+            let acknowledged = try #require(closed.workItems.first)
+            #expect(closed.finishedAt != nil)
+            #expect(acknowledged.state == .outcome(.noFixNeeded))
+            #expect(acknowledged.dismissedAt != nil)
+            #expect(acknowledged.detail == "Acknowledged by user; mirror left unchanged: track removed")
+            #expect(try await setup.trackStore.getTrack(byID: "persistent-1")?.year == 2001)
+            #expect(try await setup.changeLog.loadAll().isEmpty)
+            #expect(await setup.undo.getHistory().isEmpty)
+            #expect(await setup.processor.recoveryHoldID() == nil)
         }
     }
 
@@ -281,4 +400,14 @@ struct RecoveryNoOpTests {
 
         #expect(outcome == .blocked(runID: record.runID, reason: expectedBlocker))
     }
+}
+
+private actor ThrowingRecoveryVerifier: MusicAppVerifying {
+    func fetchMetadata(for _: [MusicDatabaseTrackID]) async throws -> [Track] {
+        throw RecoveryVerifierError.unavailable
+    }
+}
+
+private enum RecoveryVerifierError: Error {
+    case unavailable
 }

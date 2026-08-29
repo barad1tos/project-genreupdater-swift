@@ -534,6 +534,25 @@ struct ReportDetailBuilderTests {
         #expect(!detail.canDismissItems)
     }
 
+    @Test("an evidence-less legacy no-op offers one acknowledgement without pretending to be open")
+    func legacyNoOpOffersAcknowledgement() throws {
+        let legacyNoOp = makeWorkItem(state: .outcome(.noFixNeeded))
+        let record = makeRunRecord(
+            startedAt: startDate,
+            finishedAt: nil,
+            state: .recoverable,
+            syncSummary: nil,
+            input: RecordInput(intent: .writeFixes, workItems: [legacyNoOp])
+        )
+
+        let detail = RunReportDetailBuilder.makeDetail(from: record, now: now)
+
+        let item = try #require(detail.workItems.first)
+        #expect(detail.canDismissItems)
+        #expect(item.canDismiss)
+        #expect(!item.isOpen)
+    }
+
     @Test("a closed non-write run with failures offers no continuation")
     func closedObservationRunOffersNoContinuation() {
         let record = makeRunRecord(
