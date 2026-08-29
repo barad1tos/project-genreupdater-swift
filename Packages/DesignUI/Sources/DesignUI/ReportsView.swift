@@ -425,14 +425,15 @@ struct ReportsView: View {
 
     private func dismissItemMenu(runID: String, item: RunReportWorkItemRow) -> some View {
         let acknowledgesLegacyNoOp = item.canDismiss && !item.isOpen
+        let sectionTitle = if acknowledgesLegacyNoOp {
+            "Keep the mirror unchanged"
+        } else if item.isWriteUncertain {
+            "Write status is uncertain — dismissing records your explicit decision"
+        } else {
+            "Dismiss item"
+        }
         return Menu {
-            Section(
-                acknowledgesLegacyNoOp
-                    ? "Keep the mirror unchanged"
-                    : item.isWriteUncertain
-                    ? "Write status is uncertain — dismissing records your explicit decision"
-                    : "Dismiss item"
-            ) {
+            Section(sectionTitle) {
                 ForEach(
                     acknowledgesLegacyNoOp ? Self.legacyNoOpAcknowledgementReasons : Self.dismissalReasons,
                     id: \.self
