@@ -323,9 +323,9 @@ extension AppDependencies {
             existing: existing,
             runID: record.runID.rawValue
         )
-        let noOpEntries = RecoveryEvidenceRepair.finalizationEntries(
+        let noOpEntries = RecoveryEvidenceRepair.noOpFinalizationEntries(
             for: noOpItems,
-            existing: [],
+            observed: observedOutcomes,
             runID: record.runID.rawValue
         )
         guard writtenEntries.count == writtenItems.count,
@@ -366,10 +366,13 @@ extension AppDependencies {
             }
             return true
         }
-        guard hasOpenWork else { return nil }
-        // Only write-uncertain work needs live observation; prepared-only
-        // records close locally and must not block on Music.app availability.
-        if record.hasWriteUncertainty,
+        let hasLegacyNoOp = record.workItems.contains {
+            $0.state == .outcome(.noFixNeeded) && $0.writeChange == nil
+        }
+        guard hasOpenWork || hasLegacyNoOp else { return nil }
+        // Prepared-only records close locally. Write-uncertain work and legacy
+        // no-ops without an authoritative effect must observe Music.app first.
+        if record.hasWriteUncertainty || hasLegacyNoOp,
            let recoveryAvailability,
            case let .blocked(blocker) = await recoveryAvailability.status() {
             throw AppDependencyServiceError.recoveryObservationBlocked(blocker)

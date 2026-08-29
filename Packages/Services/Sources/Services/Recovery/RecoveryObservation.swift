@@ -8,23 +8,41 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
     public let outcome: WorkOutcome
     public let observedValue: String?
     private let detailOverride: String?
+    let observedNoOpEffect: ObservedNoOpEffect?
 
     public init(outcome: WorkOutcome, observedValue: String?) {
         self.outcome = outcome
         self.observedValue = observedValue
         detailOverride = nil
+        observedNoOpEffect = nil
     }
 
     static let identityMismatch = Self(
         outcome: .needsReview,
         observedValue: nil,
-        detailOverride: "Music.app track identity changed since the write was planned"
+        detailOverride: "Music.app track identity changed since the write was planned",
+        observedNoOpEffect: nil
     )
 
-    private init(outcome: WorkOutcome, observedValue: String?, detailOverride: String?) {
+    private init(
+        outcome: WorkOutcome,
+        observedValue: String?,
+        detailOverride: String?,
+        observedNoOpEffect: ObservedNoOpEffect?
+    ) {
         self.outcome = outcome
         self.observedValue = observedValue
         self.detailOverride = detailOverride
+        self.observedNoOpEffect = observedNoOpEffect
+    }
+
+    static func observedNoOp(_ effect: ObservedNoOpEffect, displayedValue: String?) -> Self {
+        Self(
+            outcome: .noFixNeeded,
+            observedValue: displayedValue,
+            detailOverride: nil,
+            observedNoOpEffect: effect
+        )
     }
 
     /// Audit note recorded on the closed work item, phrased per outcome so a
@@ -45,6 +63,11 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
             nil
         }
     }
+}
+
+struct ObservedNoOpEffect: Equatable, Sendable {
+    let value: String
+    let albumArtistValue: String?
 }
 
 /// Classifies the physical Music.app state of one uncertain work item against
@@ -77,6 +100,24 @@ enum RecoveryObservation {
             return ObservedWorkOutcome(outcome: .failed, observedValue: combinedValue)
         }
         return ObservedWorkOutcome(outcome: .needsReview, observedValue: combinedValue)
+    }
+
+    static func noOpOutcome(for item: RunWorkItem, observedTrack: Track) -> ObservedWorkOutcome {
+        let change = item.change
+        let property = MusicTrackProperty(changeType: change.changeType)
+        let observedValue = property.currentValue(in: observedTrack) ?? ""
+        let persistedValue = change.changeType == .yearUpdate || change.changeType == .yearRevert
+            ? String(observedTrack.year ?? MusicAppYear.missingValue)
+            : observedValue
+        let albumArtistValue = change.albumArtistChange == nil
+            ? nil
+            : observedTrack.albumArtist ?? ""
+        let displayedValue = albumArtistValue.map { "\(observedValue) (album artist: \($0))" }
+            ?? observedValue
+        return .observedNoOp(
+            ObservedNoOpEffect(value: persistedValue, albumArtistValue: albumArtistValue),
+            displayedValue: displayedValue
+        )
     }
 
     private static func classify(

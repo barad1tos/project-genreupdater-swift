@@ -94,6 +94,26 @@ public enum RecoveryEvidenceRepair {
         }
     }
 
+    /// Returns one mirror-only finalization entry for every checkpointed no-op.
+    /// Current payloads use their persisted write effect; legacy payloads must
+    /// instead carry a fresh physical observation so a stale proposal can never
+    /// overwrite the mirror during recovery.
+    public static func noOpFinalizationEntries(
+        for items: [RunWorkItem],
+        observed: [UUID: ObservedWorkOutcome]?,
+        runID: UUID
+    ) -> [ChangeLogEntry] {
+        items.compactMap { item in
+            if item.writeChange != nil {
+                return changeLogEntry(for: item, runID: runID)
+            }
+            guard observed?[item.id]?.outcome == .noFixNeeded,
+                  let effect = observed?[item.id]?.observedNoOpEffect
+            else { return nil }
+            return observedNoOpEntry(for: item, effect: effect, runID: runID)
+        }
+    }
+
     private static func matches(_ recorded: ChangeLogEntry, _ candidate: ChangeLogEntry) -> Bool {
         recorded.trackID == candidate.trackID
             && matchesChange(recorded, candidate)
@@ -148,5 +168,50 @@ public enum RecoveryEvidenceRepair {
         )
         canonical.runID = legacy.runID
         return canonical
+    }
+
+    private static func observedNoOpEntry(
+        for item: RunWorkItem,
+        effect: ObservedNoOpEffect,
+        runID: UUID
+    ) -> ChangeLogEntry? {
+        guard case let .track(identity) = item.target,
+              let rawDatabaseID = identity.appleScriptID,
+              let databaseID = MusicDatabaseTrackID(rawValue: rawDatabaseID)
+        else { return nil }
+        var entry = ChangeLogEntry(
+            id: RunChangeID.make(runID: runID, itemID: item.id),
+            timestamp: .now,
+            changeType: item.change.changeType,
+            trackID: databaseID.rawValue,
+            artist: identity.artist,
+            trackName: identity.trackName,
+            albumName: identity.album
+        )
+        switch item.change.changeType {
+        case .genreUpdate:
+            entry.oldGenre = effect.value
+            entry.newGenre = effect.value
+        case .yearUpdate, .yearRevert:
+            entry.oldYear = Int(effect.value)
+            entry.newYear = Int(effect.value)
+        case .trackCleaning:
+            entry.oldTrackName = effect.value
+            entry.newTrackName = effect.value
+        case .albumCleaning:
+            entry.oldAlbumName = effect.value
+            entry.newAlbumName = effect.value
+        case .artistRename:
+            entry.oldArtist = effect.value
+            entry.newArtist = effect.value
+            if let albumArtistValue = effect.albumArtistValue {
+                entry.albumArtistChange = AlbumArtistChange(
+                    oldValue: albumArtistValue,
+                    newValue: albumArtistValue
+                )
+            }
+        }
+        entry.runID = runID
+        return entry
     }
 }

@@ -9,9 +9,17 @@ import Foundation
 /// AppleScript write identity; absent tracks — including a whole deleted
 /// selection — classify as `.needsReview` with a durable missing-track note,
 /// so clearance stays possible while the evidence survives in the audit
-/// trail. Fetch failures propagate so recovery clearance stays blocked while
-/// the physical state cannot be checked (fail closed).
+/// trail. Evidence-less terminal no-ops from legacy payloads are also re-read
+/// so the physical value, never the stale plan, repairs the mirror. Fetch
+/// failures propagate so recovery clearance stays blocked while the physical
+/// state cannot be checked (fail closed).
 public struct RecoveryObservationService: Sendable {
+    private enum ObservationAdmission {
+        case ignore
+        case resolved(ObservedWorkOutcome)
+        case observe(MusicDatabaseTrackID)
+    }
+
     private let verifier: any MusicAppVerifying
 
     public init(verifier: any MusicAppVerifying) {
@@ -22,18 +30,13 @@ public struct RecoveryObservationService: Sendable {
         var outcomes: [UUID: ObservedWorkOutcome] = [:]
         var observationIDs: [UUID: MusicDatabaseTrackID] = [:]
         for item in items {
-            switch item.state {
-            case .outcome:
-                continue
-            case .prepared:
-                outcomes[item.id] = ObservedWorkOutcome(outcome: .skipped, observedValue: nil)
-            case .attempting, .attempted:
-                if case let .track(identity) = item.target,
-                   let databaseID = identity.appleScriptID.flatMap(MusicDatabaseTrackID.init(rawValue:)) {
-                    observationIDs[item.id] = databaseID
-                } else {
-                    outcomes[item.id] = ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
-                }
+            switch Self.admission(for: item) {
+            case .ignore:
+                break
+            case let .resolved(outcome):
+                outcomes[item.id] = outcome
+            case let .observe(databaseID):
+                observationIDs[item.id] = databaseID
             }
         }
         guard !observationIDs.isEmpty else {
@@ -49,18 +52,45 @@ public struct RecoveryObservationService: Sendable {
         let itemsByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for (itemID, databaseID) in observationIDs {
             guard let item = itemsByID[itemID] else { continue }
-            guard let track = tracksByID[databaseID] else {
-                outcomes[itemID] = ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
-                continue
-            }
-            guard case let .track(identity) = item.target,
-                  identity.matchesCurrentTrack(track, allowing: item.effectiveChange)
-            else {
-                outcomes[itemID] = .identityMismatch
-                continue
-            }
-            outcomes[itemID] = RecoveryObservation.outcome(for: item, observedTrack: track)
+            outcomes[itemID] = Self.observedOutcome(for: item, track: tracksByID[databaseID])
         }
         return outcomes
+    }
+
+    private static func admission(for item: RunWorkItem) -> ObservationAdmission {
+        switch item.state {
+        case .outcome(.noFixNeeded) where item.writeChange == nil:
+            observationAdmission(for: item)
+        case .outcome:
+            .ignore
+        case .prepared:
+            .resolved(ObservedWorkOutcome(outcome: .skipped, observedValue: nil))
+        case .attempting, .attempted:
+            observationAdmission(for: item)
+        }
+    }
+
+    private static func observationAdmission(for item: RunWorkItem) -> ObservationAdmission {
+        guard case let .track(identity) = item.target,
+              let databaseID = identity.appleScriptID.flatMap(MusicDatabaseTrackID.init(rawValue:))
+        else {
+            return .resolved(ObservedWorkOutcome(outcome: .needsReview, observedValue: nil))
+        }
+        return .observe(databaseID)
+    }
+
+    private static func observedOutcome(for item: RunWorkItem, track: Track?) -> ObservedWorkOutcome {
+        guard let track else {
+            return ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
+        }
+        guard case let .track(identity) = item.target,
+              identity.matchesCurrentTrack(track, allowing: item.effectiveChange)
+        else {
+            return .identityMismatch
+        }
+        if item.state == .outcome(.noFixNeeded), item.writeChange == nil {
+            return RecoveryObservation.noOpOutcome(for: item, observedTrack: track)
+        }
+        return RecoveryObservation.outcome(for: item, observedTrack: track)
     }
 }
