@@ -1,4 +1,5 @@
 import Core
+import Foundation
 
 extension UpdateCoordinator {
     static func changeToLogEntry(
@@ -7,6 +8,8 @@ extension UpdateCoordinator {
         recoveryOrigin: String? = nil
     ) -> ChangeLogEntry {
         var entry = ChangeLogEntry(
+            id: change.id,
+            timestamp: .now,
             changeType: change.changeType,
             trackID: databaseID.rawValue,
             artist: change.track.artist,
@@ -49,10 +52,15 @@ extension UpdateCoordinator {
         return entry
     }
 
-    static func noOpLogEntry(_ change: ProposedChange) -> ChangeLogEntry {
+    static func noOpLogEntry(
+        _ change: ProposedChange,
+        databaseID: MusicDatabaseTrackID
+    ) -> ChangeLogEntry {
         var entry = ChangeLogEntry(
+            id: change.id,
+            timestamp: .now,
             changeType: change.changeType,
-            trackID: change.track.id,
+            trackID: databaseID.rawValue,
             artist: change.track.artist,
             trackName: change.track.name,
             albumName: change.track.album
@@ -83,5 +91,32 @@ extension UpdateCoordinator {
         }
 
         return entry
+    }
+}
+
+extension ChangeLogEntry {
+    func scoped(to runID: UUID) -> Self {
+        var scoped = ChangeLogEntry(
+            id: RunChangeID.make(runID: runID, itemID: id),
+            timestamp: timestamp,
+            changeType: changeType,
+            trackID: trackID,
+            artist: artist,
+            trackName: trackName,
+            albumName: albumName,
+            oldGenre: oldGenre,
+            newGenre: newGenre,
+            oldYear: oldYear,
+            newYear: newYear,
+            oldTrackName: oldTrackName,
+            newTrackName: newTrackName,
+            oldAlbumName: oldAlbumName,
+            newAlbumName: newAlbumName,
+            oldArtist: oldArtist,
+            newArtist: newArtist,
+            albumArtistChange: albumArtistChange
+        )
+        scoped.runID = runID
+        return scoped
     }
 }

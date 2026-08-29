@@ -140,10 +140,11 @@ struct YearUndoRecoveryTests {
 
         await fixture.bridge.setCustomWriteError(nil)
         await fixture.observe(year: nil)
-        try await fixture.coordinator().revertChange(fixture.entry)
+        let resumed = fixture.coordinator()
+        try await resumed.revertChange(fixture.entry)
 
         #expect(await fixture.bridge.writtenProperties.isEmpty)
-        #expect(await fixture.historyStore.entries.isEmpty)
+        #expect(await resumed.getHistory().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
         let mirrored = try await fixture.trackStore.getTrack(byID: "T1")
         #expect(mirrored?.year == nil)
@@ -174,12 +175,13 @@ struct YearUndoRecoveryTests {
         #expect(await fixture.historyStore.entries == [fixture.entry])
         #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
 
-        try await fixture.coordinator().revertChange(fixture.entry)
+        let retried = fixture.coordinator()
+        try await retried.revertChange(fixture.entry)
 
         #expect(await fixture.bridge.writtenProperties == [
             musicUpdate(databaseID: testDatabaseID("T1"), property: .year, value: "0"),
         ])
-        #expect(await fixture.historyStore.entries.isEmpty)
+        #expect(await retried.getHistory().isEmpty)
     }
 
     @Test("Unknown write observed at a third value remains blocked")
@@ -222,10 +224,11 @@ struct YearUndoRecoveryTests {
         #expect(FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
 
         await fixture.trackStore.resumeAppliedUpdates()
-        try await fixture.coordinator().revertChange(fixture.entry)
+        let resumed = fixture.coordinator()
+        try await resumed.revertChange(fixture.entry)
 
         #expect(await fixture.bridge.writtenProperties.count == 1)
-        #expect(await fixture.historyStore.entries.isEmpty)
+        #expect(await resumed.getHistory().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
         let mirrored = try await fixture.trackStore.getTrack(byID: "T1")
         #expect(mirrored?.year == nil)
@@ -265,45 +268,69 @@ struct YearUndoRecoveryTests {
         #expect(await fixture.bridge.writtenProperties.count == 1)
     }
 
-    @Test("History deletion failure retains completed recovery evidence")
-    func keepsCheckpointUntilHistoryDeletion() async throws {
-        let fixture = YearUndoFixture()
-        try await fixture.prepare()
-        let coordinator = fixture.coordinator()
-        await fixture.historyStore.failDeletes()
-
-        await expectRecoveryFailure(effects: ["change history"]) {
-            try await coordinator.revertChange(fixture.entry)
-        }
-
-        #expect(FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
-        #expect(await fixture.historyStore.entries == [fixture.entry])
-        #expect(await coordinator.getHistory() == [fixture.entry])
-        #expect(await fixture.bridge.writtenProperties.count == 1)
-        let mirrored = try await fixture.trackStore.getTrack(byID: "T1")
-        #expect(mirrored?.year == nil)
-
-        await fixture.bridge.setFetchedTracks([Track(
+    @Test("Legacy completed checkpoint removes durable history atomically")
+    func repairsLegacyCompletedCheckpoint() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let trackStore = TrackDataStore(modelContainer: container)
+        let historyStore = ChangeLogDataStore(modelContainer: container)
+        try await trackStore.initialize()
+        let track = Track(
             id: "T1",
             name: "Angel",
             artist: "Massive Attack",
             album: "Mezzanine",
-            year: 2021
-        )])
-        await fixture.bridge.setFetchThrowMode(true)
-        await fixture.historyStore.resumeDeletes()
-        let relaunched = fixture.coordinator()
+            year: nil,
+            appleScriptID: "T1"
+        )
+        try await trackStore.seedMirror([track])
+        var historyEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "T1",
+            artist: track.artist,
+            trackName: track.name,
+            albumName: track.album
+        )
+        historyEntry.oldYear = nil
+        historyEntry.newYear = 2019
+        try await historyStore.saveEntry(historyEntry)
+        var checkpointEntry = ChangeLogEntry(
+            changeType: .yearRevert,
+            trackID: "T1",
+            artist: track.artist,
+            trackName: track.name,
+            albumName: track.album
+        )
+        checkpointEntry.oldYear = 2019
+        checkpointEntry.newYear = MusicAppYear.missingValue
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LegacyCompletedUndo-\(UUID().uuidString)")
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            stores: .init(changeLog: historyStore, tracks: trackStore),
+            directory: directory
+        )
+        _ = try await coordinator.backupCheckpoint(
+            for: checkpointEntry.trackID,
+            writing: (checkpointEntry, (.completed, historyEntry.id, nil)),
+            purpose: .historyUndo,
+            effect: "undo recovery checkpoint"
+        )
+        await coordinator.initialize()
+
+        try await coordinator.revertChange(historyEntry)
+
+        #expect(try await historyStore.loadAll().isEmpty)
+        #expect(await bridge.writtenProperties.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: directory
+                .appendingPathComponent("pending-year-revert.json").path))
+        let relaunched = UndoCoordinator(
+            musicApp: bridge,
+            stores: .init(changeLog: historyStore, tracks: trackStore),
+            directory: directory
+        )
         await relaunched.initialize()
-
-        #expect(await relaunched.getHistory() == [fixture.entry])
-        #expect(FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
-        try await relaunched.revertChange(fixture.entry)
-
         #expect(await relaunched.getHistory().isEmpty)
-        #expect(await fixture.historyStore.entries.isEmpty)
-        #expect(await fixture.bridge.writtenProperties.count == 1)
-        #expect(await fixture.bridge.fetchMetadataCalls() == [[testDatabaseID("T1")]])
-        #expect(!FileManager.default.fileExists(atPath: fixture.checkpointURL.path))
     }
 
     @Test("Relaunch removes a completed checkpoint after history deletion")

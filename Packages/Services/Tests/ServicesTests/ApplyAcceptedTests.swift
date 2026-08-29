@@ -32,6 +32,38 @@ struct ApplyAcceptedTests {
         #expect(history.first?.runID == runID.rawValue)
     }
 
+    @Test("Run attribution scopes event identity to the run")
+    func runAttributionScopesEventIdentity() async {
+        let fixture = await makeCoordinator()
+        let proposalID = UUID()
+        let proposal = ProposedChange(
+            id: proposalID,
+            track: makeEditableTrack(id: "MK1", genre: "Rock", year: 1969),
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Electronic",
+            confidence: 80,
+            source: "Library",
+            isAccepted: true
+        )
+        let baseEntry = UpdateCoordinator.changeToLogEntry(
+            proposal,
+            databaseID: testDatabaseID("AS1")
+        )
+        let firstRun = RunID()
+        await fixture.coordinator.setRunAttribution(firstRun)
+        let first = await fixture.coordinator.attributed(baseEntry)
+        let retry = await fixture.coordinator.attributed(baseEntry)
+        let secondRun = RunID()
+        await fixture.coordinator.setRunAttribution(secondRun)
+        let continuation = await fixture.coordinator.attributed(baseEntry)
+
+        #expect(first.id == retry.id)
+        #expect(first.id != continuation.id)
+        #expect(first.runID == firstRun.rawValue)
+        #expect(continuation.runID == secondRun.rawValue)
+    }
+
     @Test("Entries recorded without attribution stay unattributed")
     func entriesWithoutAttributionStayUnattributed() async throws {
         let fixture = await makeCoordinator()

@@ -241,10 +241,10 @@ struct TrackMirrorTests {
             mirrorTrack(id: "T001"),
             mirrorTrack(id: "T002", name: "Removed Song"),
         ])
-        try await store.persistAppliedChange(appliedChange(type: .genreUpdate))
-        try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
-        try await store.persistAppliedChange(appliedChange(type: .artistRename))
-        try await store.persistAppliedChange(appliedChange(type: .albumCleaning))
+        try await store.commitAppliedChange(appliedChange(type: .genreUpdate))
+        try await store.commitAppliedChange(appliedChange(type: .yearUpdate))
+        try await store.commitAppliedChange(appliedChange(type: .artistRename))
+        try await store.commitAppliedChange(appliedChange(type: .albumCleaning))
 
         let refreshedTrack = Track(
             id: "T001",

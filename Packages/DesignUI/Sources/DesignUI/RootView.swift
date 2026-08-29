@@ -44,7 +44,7 @@ public struct RootView<UpdateContent: View>: View {
         browseAlbumPreviewAction: ((Album.ID) -> Void)? = nil,
         browseNotice: String? = nil,
         reportRunSelectionAction: ((String?) -> Void)? = nil,
-        recoveryDetailActions: RecoveryDetailActions? = nil,
+        recoveryDetailActions: RecoveryDetailActions?,
         reportAnalyticsAccess: ContentAccess = .available,
         selectAnalyticsWindow: ((DesignAnalyticsWindow) -> Void)? = nil,
         retryAnalytics: (() -> Void)? = nil,
@@ -256,7 +256,7 @@ private struct SyncStatusPill: View {
 }
 
 #Preview {
-    RootView(reportNotice: nil) {
+    RootView(recoveryDetailActions: nil, reportNotice: nil) {
         UpdateView(model: AppModel(data: .preview))
     }
 }

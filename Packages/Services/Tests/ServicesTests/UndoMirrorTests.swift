@@ -102,10 +102,20 @@ struct UndoMirrorTests {
     func artistUndoInvalidatesBothIdentities() async throws {
         let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
+        let trackStore = MockTrackStore()
+        try await trackStore.seedMirror([
+            Track(
+                id: "T2",
+                name: "Dog Days Are Over",
+                artist: "Florence + the Machine",
+                album: "Lungs",
+                appleScriptID: "T2"
+            ),
+        ])
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
-            stores: .init(cache: cache),
+            stores: .init(tracks: trackStore, cache: cache),
             directory: makeDirectory()
         )
         let entry = artistEntry()

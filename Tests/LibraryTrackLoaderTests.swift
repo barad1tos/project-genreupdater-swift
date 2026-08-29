@@ -282,8 +282,18 @@ private actor LoaderTrackStore: TrackStateStore {
     func getTrack(byID _: String) async throws -> Track? {
         nil
     }
-    func persistAppliedChange(_: ChangeLogEntry) async throws {
+    func commitAppliedChange(_: ChangeLogEntry) async throws -> MirrorRevision {
         // Loader tests exercise reads only, so applied changes are intentionally inert.
+        .initial
+    }
+    func commitObservedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
+    }
+    func commitRevertedChange(
+        _ change: ChangeLogEntry,
+        removingHistoryEntryID _: UUID
+    ) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
     }
     func getUnprocessedTracks() async throws -> [Track] {
         []

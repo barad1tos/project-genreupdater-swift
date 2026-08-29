@@ -21,6 +21,44 @@ extension TrackDataStore {
     }
 }
 
+extension ChangeLogStore {
+    func saveEntry(_ entry: ChangeLogEntry) async throws {
+        try await saveEntries([entry])
+    }
+}
+
+extension ChangeLogEntry {
+    init(
+        changeType: ChangeType,
+        trackID: String,
+        artist: String,
+        trackName: String = "",
+        albumName: String = ""
+    ) {
+        self.init(
+            id: UUID(),
+            timestamp: .now,
+            changeType: changeType,
+            trackID: trackID,
+            artist: artist,
+            trackName: trackName,
+            albumName: albumName
+        )
+    }
+}
+
+extension UndoCoordinator {
+    func recordChange(_ entry: ChangeLogEntry) async throws {
+        try await recordChanges([entry])
+    }
+
+    func recordChanges(_ entries: [ChangeLogEntry]) async throws {
+        _ = await getHistory()
+        history.append(contentsOf: entries)
+        try await changeLogStore?.saveEntries(entries)
+    }
+}
+
 func testDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {
     guard let databaseID = MusicDatabaseTrackID(rawValue: rawValue) else {
         preconditionFailure("Invalid test database ID: \(rawValue)")
@@ -224,126 +262,13 @@ actor PendingRecorder: PendingVerificationService {
     }
 }
 
-struct AppliedTrackUpdate {
-    let id: String
-    let genreUpdated: Bool?
-    let yearUpdated: Bool?
-}
-
-actor MockTrackStore: TrackStateStore {
-    var tracks: [Track] = []
-    private var certificates: [ScopeCertificate] = []
-    private var revision: MirrorRevision
-    private(set) var appliedUpdates: [AppliedTrackUpdate] = []
-    private var shouldCancelReads = false
-    private var shouldFailMirror = false
-    private var appliedUpdateHook: (@Sendable () throws -> Void)?
-
-    init(revision: MirrorRevision = .initial) {
-        self.revision = revision
-    }
-
-    func failAppliedUpdates() {
-        shouldFailMirror = true
-    }
-
-    func resumeAppliedUpdates() {
-        shouldFailMirror = false
-    }
-
-    func setReadCancellation(_ isEnabled: Bool) {
-        shouldCancelReads = isEnabled
-    }
-
-    func setAppliedUpdateHook(_ hook: (@Sendable () throws -> Void)?) {
-        appliedUpdateHook = hook
-    }
-
-    func initialize() async throws {}
-
-    func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
-        try mirrorSnapshot(revision: revision, tracks: tracks, certificates: certificates)
-    }
-
-    @discardableResult
-    func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
-        guard commit.baseRevision == revision else {
-            throw MirrorRevisionConflict(expected: commit.baseRevision, actual: revision)
-        }
-        let nextRevision = try revision.advanced()
-        switch commit.certificates {
-        case .preserve:
-            break
-        case .invalidate:
-            certificates = []
-        case let .replace(certificate), let .rebase(certificate):
-            certificates = [certificate]
-        }
-        if case let .replace(_, ids, _, _) = commit.inventoryChange {
-            let presentIDs = Set(ids.map(\.rawValue))
-            tracks.removeAll { !presentIDs.contains($0.id) }
-        }
-        for track in commit.upserts {
-            if let index = tracks.firstIndex(where: { $0.id == track.id }) {
-                tracks[index] = track
-            } else {
-                tracks.append(track)
-            }
-        }
-        revision = nextRevision
-        return try MirrorCommitResult(
-            revision: revision,
-            snapshot: mirrorSnapshot(revision: revision, tracks: tracks, certificates: certificates)
-        )
-    }
-
-    func getTrack(byID id: String) async throws -> Track? {
-        if shouldCancelReads {
-            throw CancellationError()
-        }
-        return tracks.first { $0.id == id }
-    }
-
-    func persistAppliedChange(_ change: ChangeLogEntry) async throws {
-        if shouldFailMirror {
-            throw MockScriptError.intentional
-        }
-        if let index = tracks.firstIndex(where: { $0.id == change.trackID }) {
-            tracks[index] = try tracks[index].applying(change)
-        }
-        appliedUpdates.append(AppliedTrackUpdate(
-            id: change.trackID,
-            genreUpdated: change.changeType == .genreUpdate ? true : nil,
-            yearUpdated: change.changeType == .yearUpdate || change.changeType == .yearRevert ? true : nil
-        ))
-        try appliedUpdateHook?()
-    }
-
-    func getUnprocessedTracks() async throws -> [Track] {
-        tracks
-    }
-
-    func trackCount() async throws -> Int {
-        tracks.count
-    }
-}
-
 // MARK: - MockChangeLogStore
 
 actor MockChangeLogStore: ChangeLogStore {
     private(set) var entries: [ChangeLogEntry] = []
     private var shouldCancelNextLoad = false
-    private var shouldFailDeletes = false
     private var shouldFailLoads = false
     private var shouldFailSaves = false
-
-    func failDeletes() {
-        shouldFailDeletes = true
-    }
-
-    func resumeDeletes() {
-        shouldFailDeletes = false
-    }
 
     func failLoads() {
         shouldFailLoads = true
@@ -355,10 +280,6 @@ actor MockChangeLogStore: ChangeLogStore {
 
     func failSaves() {
         shouldFailSaves = true
-    }
-
-    func resumeSaves() {
-        shouldFailSaves = false
     }
 
     func loadRecent(limit: Int) async throws -> [ChangeLogEntry] {
@@ -394,9 +315,6 @@ actor MockChangeLogStore: ChangeLogStore {
     }
 
     func delete(entryID: UUID) async throws {
-        if shouldFailDeletes {
-            throw MockScriptError.intentional
-        }
         entries.removeAll { $0.id == entryID }
     }
 

@@ -245,8 +245,18 @@ actor ObservationMirrorStore: TrackStateStore {
         stored.first { $0.id == id }
     }
 
-    func persistAppliedChange(_: ChangeLogEntry) async throws {
+    func commitAppliedChange(_: ChangeLogEntry) async throws -> MirrorRevision {
         // The test exercises mirror reconciliation, not change-log persistence.
+        revision
+    }
+    func commitObservedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
+    }
+    func commitRevertedChange(
+        _ change: ChangeLogEntry,
+        removingHistoryEntryID _: UUID
+    ) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
     }
 
     func getUnprocessedTracks() async throws -> [Track] {

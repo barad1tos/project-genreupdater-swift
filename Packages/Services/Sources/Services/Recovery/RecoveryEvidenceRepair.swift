@@ -8,13 +8,15 @@ import Foundation
 public enum RecoveryEvidenceRepair {
     /// The change-history entry a work item's landed write should have
     /// recorded, or nil when the item carries no write identity.
-    public static func changeLogEntry(for item: RunWorkItem) -> ChangeLogEntry? {
+    public static func changeLogEntry(for item: RunWorkItem, runID: UUID) -> ChangeLogEntry? {
         guard case let .track(identity) = item.target,
               let rawDatabaseID = identity.appleScriptID,
               let databaseID = MusicDatabaseTrackID(rawValue: rawDatabaseID)
         else { return nil }
         let change = item.effectiveChange
         var entry = ChangeLogEntry(
+            id: RunChangeID.make(runID: runID, itemID: item.id),
+            timestamp: .now,
             changeType: change.changeType,
             trackID: databaseID.rawValue,
             artist: identity.artist,
@@ -39,6 +41,7 @@ public enum RecoveryEvidenceRepair {
             entry.newArtist = change.newValue
             entry.albumArtistChange = change.albumArtistChange
         }
+        entry.runID = runID
         return entry
     }
 
@@ -57,18 +60,31 @@ public enum RecoveryEvidenceRepair {
         }
     }
 
-    /// Returns missing canonical entries for written items. A same-run legacy
-    /// read-ID entry is rewritten to the Music.app database ID while preserving its
-    /// event identity; entries owned by another run are never rewritten.
-    public static func missingEntries(
+    /// Terminal no-op items whose observed Music.app values still need a
+    /// durable mirror finalization, but must never create undo history. A user
+    /// acknowledgement deliberately leaves the existing mirror untouched.
+    public static func noOpItems(in items: [RunWorkItem]) -> [RunWorkItem] {
+        items.filter {
+            $0.state == .outcome(.noFixNeeded) && $0.dismissedAt == nil
+        }
+    }
+
+    /// Returns one canonical durable event for every landed work item.
+    /// Existing history keeps its event identity; missing history uses the
+    /// deterministic run-scoped identity so retries and relaunches converge
+    /// without colliding with a continuation of the same plan item.
+    public static func finalizationEntries(
         for items: [RunWorkItem],
         existing: [ChangeLogEntry],
         runID: UUID
     ) -> [ChangeLogEntry] {
-        items.compactMap { item -> ChangeLogEntry? in
-            guard let candidate = changeLogEntry(for: item),
-                  !existing.contains(where: { matches($0, candidate) })
-            else { return nil }
+        items.compactMap { item in
+            guard let candidate = changeLogEntry(for: item, runID: runID) else { return nil }
+            if let recorded = existing.first(where: {
+                matchesStoredEvent($0, candidate: candidate, runID: runID)
+            }) {
+                return recorded
+            }
             guard case let .track(identity) = item.target,
                   identity.readID != candidate.trackID,
                   let legacy = existing.first(where: {
@@ -81,17 +97,68 @@ public enum RecoveryEvidenceRepair {
         }
     }
 
+    /// Returns one mirror-only finalization entry for every checkpointed no-op.
+    /// Current payloads use their persisted write effect; legacy payloads must
+    /// instead carry a fresh physical observation so a stale proposal can never
+    /// overwrite the mirror during recovery. Throws an actionable observation
+    /// issue instead of silently omitting an item that still needs attention.
+    public static func noOpFinalizationEntries(
+        for items: [RunWorkItem],
+        observed: [UUID: ObservedWorkOutcome]?,
+        runID: UUID
+    ) throws -> [ChangeLogEntry] {
+        try items.map { item in
+            if item.writeChange != nil {
+                guard let entry = changeLogEntry(for: item, runID: runID) else {
+                    throw RecoveryObservationBlocker(itemID: item.id, issue: .writeIdentityMissing)
+                }
+                return entry
+            }
+            guard let outcome = observed?[item.id] else {
+                throw RecoveryObservationIssue.observationUnavailable
+            }
+            if let issue = outcome.issue {
+                if issue.allowsMirrorUnchangedAcknowledgement {
+                    throw RecoveryObservationBlocker(itemID: item.id, issue: issue)
+                }
+                throw issue
+            }
+            guard outcome.outcome == .noFixNeeded,
+                  let effect = outcome.observedNoOpEffect
+            else {
+                throw RecoveryObservationIssue.observationUnavailable
+            }
+            guard let entry = observedNoOpEntry(for: item, effect: effect, runID: runID) else {
+                throw RecoveryObservationBlocker(itemID: item.id, issue: .writeIdentityMissing)
+            }
+            return entry
+        }
+    }
+
     private static func matches(_ recorded: ChangeLogEntry, _ candidate: ChangeLogEntry) -> Bool {
         recorded.trackID == candidate.trackID
             && matchesChange(recorded, candidate)
     }
 
+    private static func matchesStoredEvent(
+        _ recorded: ChangeLogEntry,
+        candidate: ChangeLogEntry,
+        runID: UUID
+    ) -> Bool {
+        recorded.runID == runID && matches(recorded, candidate)
+    }
+
     private static func matchesChange(_ recorded: ChangeLogEntry, _ candidate: ChangeLogEntry) -> Bool {
         recorded.changeType == candidate.changeType
+            && recorded.oldGenre == candidate.oldGenre
             && recorded.newGenre == candidate.newGenre
+            && recorded.oldYear == candidate.oldYear
             && recorded.newYear == candidate.newYear
+            && recorded.oldTrackName == candidate.oldTrackName
             && recorded.newTrackName == candidate.newTrackName
+            && recorded.oldAlbumName == candidate.oldAlbumName
             && recorded.newAlbumName == candidate.newAlbumName
+            && recorded.oldArtist == candidate.oldArtist
             && recorded.newArtist == candidate.newArtist
             && recorded.albumArtistChange == candidate.albumArtistChange
     }
@@ -122,5 +189,50 @@ public enum RecoveryEvidenceRepair {
         )
         canonical.runID = legacy.runID
         return canonical
+    }
+
+    private static func observedNoOpEntry(
+        for item: RunWorkItem,
+        effect: ObservedNoOpEffect,
+        runID: UUID
+    ) -> ChangeLogEntry? {
+        guard case let .track(identity) = item.target,
+              let rawDatabaseID = identity.appleScriptID,
+              let databaseID = MusicDatabaseTrackID(rawValue: rawDatabaseID)
+        else { return nil }
+        var entry = ChangeLogEntry(
+            id: RunChangeID.make(runID: runID, itemID: item.id),
+            timestamp: .now,
+            changeType: item.change.changeType,
+            trackID: databaseID.rawValue,
+            artist: identity.artist,
+            trackName: identity.trackName,
+            albumName: identity.album
+        )
+        switch item.change.changeType {
+        case .genreUpdate:
+            entry.oldGenre = effect.value
+            entry.newGenre = effect.value
+        case .yearUpdate, .yearRevert:
+            entry.oldYear = Int(effect.value)
+            entry.newYear = Int(effect.value)
+        case .trackCleaning:
+            entry.oldTrackName = effect.value
+            entry.newTrackName = effect.value
+        case .albumCleaning:
+            entry.oldAlbumName = effect.value
+            entry.newAlbumName = effect.value
+        case .artistRename:
+            entry.oldArtist = effect.value
+            entry.newArtist = effect.value
+            if let albumArtistValue = effect.albumArtistValue {
+                entry.albumArtistChange = AlbumArtistChange(
+                    oldValue: albumArtistValue,
+                    newValue: albumArtistValue
+                )
+            }
+        }
+        entry.runID = runID
+        return entry
     }
 }

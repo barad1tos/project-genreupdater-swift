@@ -70,7 +70,38 @@ struct ReportDetailTests {
         #expect(snapshot.preparedItemIDs == [itemID.uuidString])
         #expect(snapshot.canApplyRemainingFixes)
         #expect(!snapshot.canDismissItems)
-        #expect(snapshot.unavailableReason == nil)
+    }
+
+    @Test("maps the per-item dismissal capability")
+    func mapsItemDismissalCapability() throws {
+        let projection = RunReportDetailProjection(
+            runID: "run-1",
+            state: .recoveryNeeded,
+            stateLabel: "Recovery",
+            triggerLabel: "Manual check",
+            startedLabel: "now",
+            durationLabel: nil,
+            scopeLines: [],
+            transitions: [],
+            summaryItems: [],
+            detailMessage: nil,
+            workItems: [RunReportWorkItem(
+                id: UUID(),
+                changeLabel: "Year",
+                stateLabel: "No fix needed",
+                isOpen: false,
+                isWriteUncertain: false,
+                canDismiss: true,
+                attentionLabel: "Track missing",
+                dismissedLabel: nil
+            )],
+            canDismissItems: true
+        )
+
+        let item = try #require(ReportDetailAdapter.makeSnapshot(from: projection).workItems.first)
+
+        #expect(item.canDismiss)
+        #expect(item.attentionLabel == "Track missing")
     }
 
     @Test("failed detail maps to error tone")

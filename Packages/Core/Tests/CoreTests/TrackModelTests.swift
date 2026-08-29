@@ -2,6 +2,26 @@ import Foundation
 import Testing
 @testable import Core
 
+extension ChangeLogEntry {
+    init(
+        changeType: ChangeType,
+        trackID: String,
+        artist: String,
+        trackName: String = "",
+        albumName: String = ""
+    ) {
+        self.init(
+            id: UUID(),
+            timestamp: .now,
+            changeType: changeType,
+            trackID: trackID,
+            artist: artist,
+            trackName: trackName,
+            albumName: albumName
+        )
+    }
+}
+
 @Suite("Track — computed properties, Codable round-trip, and extensions")
 struct TrackModelTests {
     // MARK: - effectiveArtist

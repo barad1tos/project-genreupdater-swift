@@ -14,6 +14,7 @@ public enum RunReportDetailBuilder {
         continuedBy: [RunID] = []
     ) -> RunReportDetailProjection {
         let state = ReportsRunLabels.runState(from: record, activeRunID: activeRunID)
+        let visibleWorkItems = makeVisibleWorkItems(from: record.workItems)
         return RunReportDetailProjection(
             runID: record.runID.rawValue.uuidString,
             state: state,
@@ -25,8 +26,8 @@ public enum RunReportDetailBuilder {
             transitions: makeTransitions(from: record.transitions, now: now),
             summaryItems: makeSummaryItems(from: record.syncSummary, intent: record.intent),
             detailMessage: ReportsRunLabels.detailMessage(state: state, failureMessage: record.failureMessage),
-            workItems: record.workItems.prefix(shownWorkItemLimit).map(makeWorkItem),
-            hiddenWorkItemCount: max(0, record.workItems.count - shownWorkItemLimit),
+            workItems: visibleWorkItems.map(makeWorkItem),
+            hiddenWorkItemCount: max(0, record.workItems.count - visibleWorkItems.count),
             preparedItemIDs: record.workItems.filter { $0.state == .prepared }.map(\.id),
             // writeTarget != nil: RunRequest.continuation fails closed on an
             // unverifiable source plan, so the affordance must hide with it.
@@ -37,11 +38,11 @@ public enum RunReportDetailBuilder {
             // Strictly narrower than requireRecoveryResolution: the domain
             // gate alone admits states a dismissal command still rejects
             // downstream (closed records, the active run), so the card also
-            // requires an open, non-active run with open items.
+            // requires an open, non-active run with an actionable item.
             canDismissItems: record.finishedAt == nil
                 && record.state.isResolvingRecovery
                 && record.runID != activeRunID
-                && record.workItems.contains(where: isOpenItem),
+                && record.workItems.contains(where: canDismissItem),
             lineageLines: makeLineageLines(from: record, continuedBy: continuedBy)
         )
     }
@@ -76,8 +77,19 @@ public enum RunReportDetailBuilder {
             stateLabel: makeItemStateLabel(for: item.state),
             isOpen: isOpenItem(item),
             isWriteUncertain: item.state.isWriteUncertain,
-            dismissedLabel: item.state == .outcome(.dismissed) ? item.detail : nil
+            canDismiss: canDismissItem(item),
+            attentionLabel: item.recoveryObservationIssue?.userGuidance,
+            dismissedLabel: item.dismissedAt == nil ? nil : item.detail
         )
+    }
+
+    private static func makeVisibleWorkItems(from items: [RunWorkItem]) -> [RunWorkItem] {
+        let boundedItems = Array(items.prefix(shownWorkItemLimit))
+        let boundedIDs = Set(boundedItems.map(\.id))
+        let additionalBlockers = items.filter {
+            !boundedIDs.contains($0.id) && $0.isRecoveryAcknowledgementRequired
+        }
+        return boundedItems + additionalBlockers
     }
 
     private static func isOpenItem(_ item: RunWorkItem) -> Bool {
@@ -85,6 +97,10 @@ public enum RunReportDetailBuilder {
             return false
         }
         return true
+    }
+
+    private static func canDismissItem(_ item: RunWorkItem) -> Bool {
+        isOpenItem(item) || item.isRecoveryAcknowledgementRequired
     }
 
     private static func makeChangeLabel(from item: RunWorkItem) -> String {

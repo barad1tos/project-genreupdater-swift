@@ -307,6 +307,60 @@ extension RecoveryAdmissionTests {
         #expect(snapshot.runID == recovery.runID)
     }
 
+    @Test("legacy no-op work rejects every blind recovery clearance API")
+    func rejectsBlindLegacyNoOpClearance() async {
+        let legacyNoOp = makeWorkItem(state: .outcome(.noFixNeeded))
+        let recoveryID = UUID()
+        let recovery = recoveryRecord(workItems: [legacyNoOp], recoveryID: recoveryID)
+        let holds = HoldProbe()
+        let orchestrator = makeHoldOrchestrator(holds)
+        await orchestrator.restoreRecovery(recovery)
+
+        #expect(
+            await orchestrator.resolveRecovery(
+                runID: recovery.runID,
+                at: Date(timeIntervalSince1970: 200)
+            ) == .rejected
+        )
+        #expect(
+            await orchestrator.resolveRecovery(
+                id: recoveryID,
+                runID: recovery.runID,
+                at: Date(timeIntervalSince1970: 201)
+            ) == .rejected
+        )
+        #expect(await holds.clearedIDs.isEmpty)
+        #expect(await orchestrator.currentWriteRecoveryHold().hasWriteBlock)
+        #expect(await orchestrator.currentLifecycle()?.runID == recovery.runID)
+    }
+
+    @Test("durable legacy no-op acknowledgement refreshes the current recovery before clearance")
+    func refreshesAcknowledgedLegacyNoOp() async throws {
+        let legacyNoOp = makeWorkItem(state: .outcome(.noFixNeeded))
+        let recovery = recoveryRecord(workItems: [legacyNoOp])
+        let holds = HoldProbe()
+        let orchestrator = makeHoldOrchestrator(holds)
+        await orchestrator.restoreRecovery(recovery)
+        let blocked = try recovery.recordingRecoveryObservationBlocker(
+            RecoveryObservationBlocker(itemID: legacyNoOp.id, issue: .trackMissing)
+        )
+        let acknowledged = try blocked.dismissingUncertainWork(
+            id: legacyNoOp.id,
+            reason: "track removed",
+            at: Date(timeIntervalSince1970: 150)
+        )
+
+        #expect(await orchestrator.synchronizeRecovery(acknowledged))
+        #expect(
+            await orchestrator.resolveRecovery(
+                runID: recovery.runID,
+                at: Date(timeIntervalSince1970: 200)
+            ) == .resolved
+        )
+        #expect(await holds.clearedIDs.count == 1)
+        #expect(await orchestrator.currentWriteRecoveryHold().hasWriteBlock == false)
+    }
+
     @Test("certain work still clears without observation")
     func clearsCertainWorkWithoutObservation() async {
         let recovery = recoveryRecord(workItems: [])

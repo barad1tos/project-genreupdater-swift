@@ -4,6 +4,7 @@ import Foundation
 private struct ReviewedBatchPreflight {
     let writeIndexes: Set<Int>
     let noOpIndexes: Set<Int>
+    let skippedIndexes: Set<Int>
     let failures: [Int: UpdateCoordinatorError]
 }
 
@@ -125,6 +126,7 @@ extension UpdateCoordinator {
                 currentTracksByID: currentTracksByID,
                 appliedIndexes: [],
                 noOpIndexes: preflight.noOpIndexes,
+                skippedIndexes: preflight.skippedIndexes,
                 preflightFailures: preflight.failures
             ))
         }
@@ -170,6 +172,7 @@ extension UpdateCoordinator {
             currentTracksByID: currentTracksByID,
             appliedIndexes: preflight.writeIndexes,
             noOpIndexes: preflight.noOpIndexes,
+            skippedIndexes: preflight.skippedIndexes,
             preflightFailures: preflight.failures
         )
     }
@@ -253,28 +256,33 @@ extension UpdateCoordinator {
             return ReviewedBatchPreflight(
                 writeIndexes: Set(preparedWrites.indices),
                 noOpIndexes: [],
+                skippedIndexes: [],
                 failures: [:]
             )
         }
 
         var writeIndexes = Set<Int>()
         var noOpIndexes = Set<Int>()
+        var skippedIndexes = Set<Int>()
         var failures: [Int: UpdateCoordinatorError] = [:]
         for (index, preparedWrite) in preparedWrites.enumerated() {
             guard let currentTrack = currentTracksByID[preparedWrite.databaseID] else {
                 continue
             }
             do {
-                let shouldWrite = try shouldWrite(
+                let decision = try preflightDecision(
                     preparedWrite.change,
-                    to: currentTrack,
+                    for: currentTrack,
                     property: preparedWrite.property,
                     staleTrackID: preparedWrite.change.track.id
                 )
-                if shouldWrite {
+                switch decision {
+                case .write:
                     writeIndexes.insert(index)
-                } else {
+                case .noOp:
                     noOpIndexes.insert(index)
+                case .skip:
+                    skippedIndexes.insert(index)
                 }
             } catch let error as UpdateCoordinatorError {
                 guard case .reviewedChangeStale = error else { throw error }
@@ -284,6 +292,7 @@ extension UpdateCoordinator {
         return ReviewedBatchPreflight(
             writeIndexes: writeIndexes,
             noOpIndexes: noOpIndexes,
+            skippedIndexes: skippedIndexes,
             failures: failures
         )
     }
@@ -311,6 +320,7 @@ extension UpdateCoordinator {
                     currentTracksByID: currentTracksByID,
                     appliedIndexes: appliedIndexes,
                     noOpIndexes: preflight.noOpIndexes,
+                    skippedIndexes: preflight.skippedIndexes,
                     preflightFailures: preflight.failures
                 )
                 let outcome = try await partialBatchFailure(
@@ -326,6 +336,7 @@ extension UpdateCoordinator {
                 currentTracksByID: currentTracksByID,
                 appliedIndexes: appliedIndexes,
                 noOpIndexes: preflight.noOpIndexes,
+                skippedIndexes: preflight.skippedIndexes,
                 preflightFailures: preflight.failures
             )
         } catch is CancellationError {

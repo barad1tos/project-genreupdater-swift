@@ -81,7 +81,7 @@ public struct WorkCheckpoint: Equatable, Sendable {
         self.writeChanges = writeChanges
     }
 
-    /// Carries the authoritative metadata effect into the durable pre-dispatch checkpoint.
+    /// Carries the authoritative metadata effect into a durable write or no-op finalization checkpoint.
     public static func beforeAttempt(_ writeChanges: [UUID: WorkChange]) -> Self {
         Self(
             boundary: .beforeAttempt,
@@ -97,10 +97,14 @@ public struct WorkCheckpoint: Equatable, Sendable {
         )
     }
 
-    public static func afterVerification(_ outcomes: [UUID: WorkOutcome]) -> Self {
+    public static func afterVerification(
+        _ outcomes: [UUID: WorkOutcome],
+        writeChanges: [UUID: WorkChange] = [:]
+    ) -> Self {
         Self(
             boundary: .afterVerification,
-            states: outcomes.mapValues(WorkState.outcome)
+            states: outcomes.mapValues(WorkState.outcome),
+            writeChanges: writeChanges
         )
     }
 }
@@ -233,19 +237,24 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         case state
         case detail
         case dismissedAt
+        case recoveryObservationIssue
     }
 
     public let id: UUID
     public let target: WorkTarget
     public let change: WorkChange
-    /// Authoritative metadata effect persisted immediately before dispatch.
-    /// Nil means the item has not crossed that boundary, or predates this evidence.
+    /// Authoritative metadata effect persisted before dispatch or when a no-op
+    /// is verified. Nil means the item has not crossed either boundary, or
+    /// predates this evidence.
     public let writeChange: WorkChange?
     public let state: WorkState
     public let detail: String?
     /// When the user explicitly dismissed this item (ADR 0006); nil for
     /// every other closure. Optional so legacy payloads decode unchanged.
     public let dismissedAt: Date?
+    /// The last permanent Music.app observation problem for this item. Stored
+    /// on the work audit so Reports can identify the exact safe acknowledgement.
+    public let recoveryObservationIssue: RecoveryObservationIssue?
 
     public init(
         id: UUID,
@@ -279,7 +288,8 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         state: WorkState,
         detail: String? = nil,
         dismissedAt: Date? = nil,
-        writeChange: WorkChange?
+        writeChange: WorkChange?,
+        recoveryObservationIssue: RecoveryObservationIssue? = nil
     ) {
         precondition(Self.hasValidWriteChange(writeChange, planned: change, state: state))
         self.id = id
@@ -289,6 +299,7 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         self.state = state
         self.detail = detail
         self.dismissedAt = dismissedAt
+        self.recoveryObservationIssue = recoveryObservationIssue
     }
 
     public init(from decoder: any Decoder) throws {
@@ -325,6 +336,10 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         self.state = state
         detail = try values.decodeIfPresent(String.self, forKey: .detail)
         dismissedAt = try values.decodeIfPresent(Date.self, forKey: .dismissedAt)
+        recoveryObservationIssue = try values.decodeIfPresent(
+            RecoveryObservationIssue.self,
+            forKey: .recoveryObservationIssue
+        )
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -338,6 +353,7 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
         try values.encode(state, forKey: .state)
         try values.encodeIfPresent(detail, forKey: .detail)
         try values.encodeIfPresent(dismissedAt, forKey: .dismissedAt)
+        try values.encodeIfPresent(recoveryObservationIssue, forKey: .recoveryObservationIssue)
     }
 
     public init(item: FixPlanItem) {
@@ -365,7 +381,8 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             state: state,
             detail: detail,
             dismissedAt: dismissedAt,
-            writeChange: writeChange
+            writeChange: writeChange,
+            recoveryObservationIssue: recoveryObservationIssue
         )
     }
 
@@ -379,7 +396,36 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             state: state,
             detail: detail,
             dismissedAt: timestamp,
-            writeChange: writeChange
+            writeChange: writeChange,
+            recoveryObservationIssue: recoveryObservationIssue
+        )
+    }
+
+    /// Records the user's decision to leave the mirror unchanged when the
+    /// physical Music.app state can no longer be observed.
+    func recordingRecoveryAcknowledgement(detail: String, at timestamp: Date) -> Self {
+        Self(
+            id: id,
+            target: target,
+            change: change,
+            state: state,
+            detail: detail,
+            dismissedAt: timestamp,
+            writeChange: writeChange,
+            recoveryObservationIssue: nil
+        )
+    }
+
+    func recordingRecoveryObservationIssue(_ issue: RecoveryObservationIssue?) -> Self {
+        Self(
+            id: id,
+            target: target,
+            change: change,
+            state: state,
+            detail: detail,
+            dismissedAt: dismissedAt,
+            writeChange: writeChange,
+            recoveryObservationIssue: issue
         )
     }
 
@@ -392,8 +438,9 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             throw WorkStateError.invalid(current: state, next: nextState)
         }
         if let suppliedWriteChange {
+            let capturesNoOp = nextState == .outcome(.noFixNeeded)
             guard suppliedWriteChange.isValidReconciliation(of: change),
-                  writeChange != nil || nextState == .attempting
+                  writeChange != nil || nextState == .attempting || capturesNoOp
             else {
                 throw WorkStateError.invalid(current: state, next: nextState)
             }
@@ -408,12 +455,23 @@ public struct RunWorkItem: Codable, Equatable, Sendable, Identifiable {
             state: nextState,
             detail: detail,
             dismissedAt: dismissedAt,
-            writeChange: writeChange ?? suppliedWriteChange ?? (nextState == .attempting ? change : nil)
+            writeChange: writeChange ?? suppliedWriteChange ?? (nextState == .attempting ? change : nil),
+            recoveryObservationIssue: recoveryObservationIssue
         )
     }
 
     var effectiveChange: WorkChange {
         writeChange ?? change
+    }
+
+    var isLegacyNoOpMissingWriteEvidence: Bool {
+        state == .outcome(.noFixNeeded) && writeChange == nil && dismissedAt == nil
+    }
+
+    var isRecoveryAcknowledgementRequired: Bool {
+        state == .outcome(.noFixNeeded)
+            && dismissedAt == nil
+            && recoveryObservationIssue?.allowsMirrorUnchangedAcknowledgement == true
     }
 
     var isWriteEvidenceComplete: Bool {

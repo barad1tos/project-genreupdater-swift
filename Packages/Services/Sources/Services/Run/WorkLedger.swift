@@ -76,6 +76,15 @@ struct WorkLedger: Equatable, Sendable {
         counts.uncertain > 0
     }
 
+    /// Recovery must observe both interrupted writes and legacy no-op outcomes
+    /// that predate persisted write effects. A user-acknowledged legacy item is
+    /// retained for audit but no longer blocks recovery clearance.
+    var requiresRecoveryObservation: Bool {
+        hasUncertainty || items.contains {
+            $0.isLegacyNoOpMissingWriteEvidence || $0.isRecoveryAcknowledgementRequired
+        }
+    }
+
     var hasProgress: Bool {
         hasUncertainty || counts.written > 0
     }
@@ -246,6 +255,50 @@ struct WorkLedger: Equatable, Sendable {
             ledger.itemsByID[id] = current.recordingDismissal(detail: detail, at: timestamp)
         }
         return ledger
+    }
+
+    func acknowledgingRecoveryNoOp(id: UUID, detail: String, at timestamp: Date) throws -> Self {
+        guard let item = itemsByID[id] else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: true,
+                reason: "unknown work item \(id.uuidString)"
+            )
+        }
+        guard item.isRecoveryAcknowledgementRequired else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: false,
+                reason: "work item \(id.uuidString) does not need recovery acknowledgement"
+            )
+        }
+        var updated = self
+        updated.itemsByID[id] = item.recordingRecoveryAcknowledgement(detail: detail, at: timestamp)
+        return updated
+    }
+
+    func recordingRecoveryObservationBlocker(_ blocker: RecoveryObservationBlocker) throws -> Self {
+        guard let item = itemsByID[blocker.itemID],
+              item.state == .outcome(.noFixNeeded),
+              item.dismissedAt == nil
+        else {
+            throw WorkCheckpointError.invalid(
+                .afterVerification,
+                writeAdjacent: true,
+                reason: "recovery observation blocker does not match an unresolved no-op item"
+            )
+        }
+        var updated = self
+        updated.itemsByID[blocker.itemID] = item.recordingRecoveryObservationIssue(blocker.issue)
+        return updated
+    }
+
+    func clearingRecoveryObservationIssues() -> Self {
+        var updated = self
+        for item in items where item.recoveryObservationIssue != nil {
+            updated.itemsByID[item.id] = item.recordingRecoveryObservationIssue(nil)
+        }
+        return updated
     }
 }
 

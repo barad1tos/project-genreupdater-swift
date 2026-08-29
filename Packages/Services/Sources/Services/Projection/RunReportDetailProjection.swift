@@ -32,6 +32,8 @@ public struct RunReportWorkItem: Identifiable, Equatable, Sendable {
     public let stateLabel: String
     public let isOpen: Bool
     public let isWriteUncertain: Bool
+    public let canDismiss: Bool
+    public let attentionLabel: String?
     public let dismissedLabel: String?
 
     public init(
@@ -40,6 +42,8 @@ public struct RunReportWorkItem: Identifiable, Equatable, Sendable {
         stateLabel: String,
         isOpen: Bool,
         isWriteUncertain: Bool,
+        canDismiss: Bool = false,
+        attentionLabel: String? = nil,
         dismissedLabel: String?
     ) {
         self.id = id
@@ -47,6 +51,8 @@ public struct RunReportWorkItem: Identifiable, Equatable, Sendable {
         self.stateLabel = stateLabel
         self.isOpen = isOpen
         self.isWriteUncertain = isWriteUncertain
+        self.canDismiss = canDismiss
+        self.attentionLabel = attentionLabel
         self.dismissedLabel = dismissedLabel
     }
 }
@@ -71,7 +77,7 @@ public struct RunReportDetailProjection: Equatable, Sendable {
     /// Closed write run with continuable work: "Apply remaining fixes".
     public let canApplyRemainingFixes: Bool
     /// Suspended recovery run (recoverable/recovering/blocked, not the
-    /// active run) with open items: dismissal affordances.
+    /// active run) with open items or legacy no-ops awaiting acknowledgement.
     public let canDismissItems: Bool
     /// Lineage and write evidence ("Continues run …", "Continued by …",
     /// plan reference, write summary); empty for unlinked observation runs.

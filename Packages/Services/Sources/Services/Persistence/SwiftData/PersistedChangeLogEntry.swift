@@ -154,4 +154,26 @@ extension PersistedChangeLogEntry {
         entry.runID = runID
         return entry
     }
+
+    func update(from entry: Core.ChangeLogEntry) {
+        timestamp = entry.timestamp
+        changeTypeRaw = entry.changeType.rawValue
+        trackID = entry.trackID
+        artist = entry.artist
+        trackName = entry.trackName
+        albumName = entry.albumName
+        oldGenre = entry.oldGenre
+        newGenre = entry.newGenre
+        oldYear = entry.oldYear
+        newYear = entry.newYear
+        oldTrackName = entry.oldTrackName
+        newTrackName = entry.newTrackName
+        oldAlbumName = entry.oldAlbumName
+        newAlbumName = entry.newAlbumName
+        oldArtist = entry.oldArtist
+        newArtist = entry.newArtist
+        oldAlbumArtist = entry.albumArtistChange?.oldValue
+        newAlbumArtist = entry.albumArtistChange?.newValue
+        runID = entry.runID
+    }
 }

@@ -336,6 +336,27 @@ struct RecoveryObservationServiceTests {
         #expect(outcomes.isEmpty)
     }
 
+    @Test("Evidence-less terminal no-op observes the current physical value")
+    func observesLegacyNoOp() async throws {
+        let terminal = makeWorkItem(
+            state: .outcome(.noFixNeeded),
+            changeType: .yearUpdate,
+            oldValue: nil,
+            newValue: "1970"
+        )
+        let client = MusicAppTestAccess()
+        await client.setFetchedTracks([
+            observedTrack(id: "persistent-1", year: 1969),
+        ])
+        let service = RecoveryObservationService(verifier: client)
+
+        let outcome = try #require(try await service.observeOutcomes(for: [terminal])[terminal.id])
+
+        #expect(outcome.outcome == .noFixNeeded)
+        #expect(outcome.observedValue == "1969")
+        #expect(try await client.fetchMetadataCalls() == [[#require(MusicDatabaseTrackID(rawValue: "persistent-1"))]])
+    }
+
     @Test("fetch failure propagates and blocks clearance")
     func propagatesFetchFailure() async {
         let attempted = makeWorkItem(state: .attempted)

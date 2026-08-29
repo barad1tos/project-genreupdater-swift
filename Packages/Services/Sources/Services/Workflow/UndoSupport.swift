@@ -14,6 +14,7 @@ extension UndoCoordinator {
         property: MusicTrackProperty,
         value: String,
         recoveryOrigin: String? = nil,
+        revertingHistoryEntryID: UUID? = nil,
         attemptHooks: (
             prepareWrite: ((PreparedWrite) async throws -> Void)?,
             prepareDispatch: ((PreparedWrite) async throws -> Void)?,
@@ -22,6 +23,7 @@ extension UndoCoordinator {
         prepareMirror: ((PreparedWrite, MusicWriteResult) async throws -> Void)? = nil
     ) async throws -> (result: MusicWriteResult, entry: ChangeLogEntry) {
         let preparedWrite = try await prepareRevert(change, property: property, value: value)
+        let trackStore = try requiredTrackStore(for: preparedWrite.databaseID.rawValue)
 
         do {
             try await attemptHooks.prepareWrite?(preparedWrite)
@@ -40,13 +42,21 @@ extension UndoCoordinator {
                 throw error
             }
             let entry = UpdateCoordinator.changeToLogEntry(
-                preparedWrite.change,
-                databaseID: preparedWrite.databaseID,
-                recoveryOrigin: recoveryOrigin
+                preparedWrite.change, databaseID: preparedWrite.databaseID, recoveryOrigin: recoveryOrigin
             )
             do {
                 try await prepareMirror?(preparedWrite, result)
-                try await trackStore?.persistAppliedChange(entry)
+                if let revertingHistoryEntryID {
+                    _ = try await trackStore.commitRevertedChange(
+                        entry,
+                        removingHistoryEntryID: revertingHistoryEntryID
+                    )
+                } else if result == .changed {
+                    _ = try await trackStore.commitAppliedChange(entry)
+                    await recordCommittedChange(entry)
+                } else {
+                    _ = try await trackStore.commitObservedChange(entry)
+                }
             } catch {
                 await invalidateCaches(for: preparedWrite.change)
                 if let error = error as? UpdateCoordinatorError {
@@ -73,6 +83,16 @@ extension UndoCoordinator {
                 )
             }
         }
+    }
+
+    func requiredTrackStore(for trackID: String) throws -> any TrackStateStore {
+        guard let trackStore else {
+            throw UpdateCoordinatorError.writeFinalizationFailed(
+                trackID: trackID,
+                effects: ["track mirror", "change history"]
+            )
+        }
+        return trackStore
     }
 
     private func prepareRevert(

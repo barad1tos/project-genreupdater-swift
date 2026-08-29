@@ -530,8 +530,17 @@ private actor AdmissionTrackStore: TrackStateStore {
         snapshot.presentTracks.first { $0.id == id }
     }
 
-    func persistAppliedChange(_: ChangeLogEntry) async throws {
+    func commitAppliedChange(_: ChangeLogEntry) async throws -> MirrorRevision {
         throw AdmissionStoreError.unusedOperation
+    }
+    func commitObservedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
+    }
+    func commitRevertedChange(
+        _ change: ChangeLogEntry,
+        removingHistoryEntryID _: UUID
+    ) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
     }
 
     func getUnprocessedTracks() async throws -> [Track] {

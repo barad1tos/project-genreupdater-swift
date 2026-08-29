@@ -1,6 +1,48 @@
 import Core
 import Foundation
 
+/// An actionable reason why physical Music.app evidence cannot safely
+/// finalize a recovery item.
+public enum RecoveryObservationIssue: String, Codable, Error, Equatable, Sendable {
+    case observationUnavailable
+    case trackMissing
+    case trackIdentityChanged
+    case writeIdentityMissing
+
+    public var userGuidance: String {
+        switch self {
+        case .observationUnavailable:
+            "Music.app metadata could not be observed; try recovery again"
+        case .trackMissing:
+            "The track is no longer available in Music.app"
+        case .trackIdentityChanged:
+            "Music.app now associates this database ID with a different track"
+        case .writeIdentityMissing:
+            "The recovery record has no valid Music.app track identity"
+        }
+    }
+
+    var allowsMirrorUnchangedAcknowledgement: Bool {
+        self != .observationUnavailable
+    }
+}
+
+/// A permanent observation problem bound to the exact durable work item that
+/// the user can acknowledge in Reports.
+public struct RecoveryObservationBlocker: Error, Equatable, Sendable {
+    public let itemID: UUID
+    public let issue: RecoveryObservationIssue
+
+    public init(itemID: UUID, issue: RecoveryObservationIssue) {
+        self.itemID = itemID
+        self.issue = issue
+    }
+
+    public var userGuidance: String {
+        "\(issue.userGuidance); open Reports and acknowledge the highlighted item to keep the mirror unchanged"
+    }
+}
+
 /// One observed physical outcome for a work item: the classification plus the
 /// value actually seen in Music.app, preserved for the durable audit trail
 /// (ADR 0006 "changed externally" evidence cannot be reconstructed later).
@@ -8,23 +50,63 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
     public let outcome: WorkOutcome
     public let observedValue: String?
     private let detailOverride: String?
+    let issue: RecoveryObservationIssue?
+    let observedNoOpEffect: ObservedNoOpEffect?
 
     public init(outcome: WorkOutcome, observedValue: String?) {
         self.outcome = outcome
         self.observedValue = observedValue
         detailOverride = nil
+        issue = nil
+        observedNoOpEffect = nil
     }
 
     static let identityMismatch = Self(
         outcome: .needsReview,
         observedValue: nil,
-        detailOverride: "Music.app track identity changed since the write was planned"
+        detailOverride: "Music.app track identity changed since the write was planned",
+        issue: .trackIdentityChanged,
+        observedNoOpEffect: nil
     )
 
-    private init(outcome: WorkOutcome, observedValue: String?, detailOverride: String?) {
+    static let missingTrack = Self(
+        outcome: .needsReview,
+        observedValue: nil,
+        detailOverride: "Track not found in Music.app",
+        issue: .trackMissing,
+        observedNoOpEffect: nil
+    )
+
+    static let missingWriteIdentity = Self(
+        outcome: .needsReview,
+        observedValue: nil,
+        detailOverride: "Recovery item has no valid Music.app track identity",
+        issue: .writeIdentityMissing,
+        observedNoOpEffect: nil
+    )
+
+    private init(
+        outcome: WorkOutcome,
+        observedValue: String?,
+        detailOverride: String?,
+        issue: RecoveryObservationIssue?,
+        observedNoOpEffect: ObservedNoOpEffect?
+    ) {
         self.outcome = outcome
         self.observedValue = observedValue
         self.detailOverride = detailOverride
+        self.issue = issue
+        self.observedNoOpEffect = observedNoOpEffect
+    }
+
+    static func observedNoOp(_ effect: ObservedNoOpEffect, displayedValue: String?) -> Self {
+        Self(
+            outcome: .noFixNeeded,
+            observedValue: displayedValue,
+            detailOverride: nil,
+            issue: nil,
+            observedNoOpEffect: effect
+        )
     }
 
     /// Audit note recorded on the closed work item, phrased per outcome so a
@@ -45,6 +127,11 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
             nil
         }
     }
+}
+
+struct ObservedNoOpEffect: Equatable, Sendable {
+    let value: String
+    let albumArtistValue: String?
 }
 
 /// Classifies the physical Music.app state of one uncertain work item against
@@ -77,6 +164,24 @@ enum RecoveryObservation {
             return ObservedWorkOutcome(outcome: .failed, observedValue: combinedValue)
         }
         return ObservedWorkOutcome(outcome: .needsReview, observedValue: combinedValue)
+    }
+
+    static func noOpOutcome(for item: RunWorkItem, observedTrack: Track) -> ObservedWorkOutcome {
+        let change = item.change
+        let property = MusicTrackProperty(changeType: change.changeType)
+        let observedValue = property.currentValue(in: observedTrack) ?? ""
+        let persistedValue = change.changeType == .yearUpdate || change.changeType == .yearRevert
+            ? String(observedTrack.year ?? MusicAppYear.missingValue)
+            : observedValue
+        let albumArtistValue = change.albumArtistChange == nil
+            ? nil
+            : observedTrack.albumArtist ?? ""
+        let displayedValue = albumArtistValue.map { "\(observedValue) (album artist: \($0))" }
+            ?? observedValue
+        return .observedNoOp(
+            ObservedNoOpEffect(value: persistedValue, albumArtistValue: albumArtistValue),
+            displayedValue: displayedValue
+        )
     }
 
     private static func classify(

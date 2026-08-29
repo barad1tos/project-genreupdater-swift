@@ -117,10 +117,12 @@ struct RecoveryClearTests {
             oldValue: "Artist",
             newValue: "Renamed Artist",
             changeType: .artistRename,
-            capturedAlbumArtist: "Various Artists",
-            albumArtistChange: AlbumArtistChange(
-                oldValue: "Artist",
-                newValue: "Renamed Artist"
+            albumArtist: RecoveryAlbumArtistFixture(
+                capturedValue: "Various Artists",
+                change: AlbumArtistChange(
+                    oldValue: "Artist",
+                    newValue: "Renamed Artist"
+                )
             ),
             writeChange: writeChange
         )
@@ -223,6 +225,50 @@ struct RecoveryClearTests {
         #expect(persisted.map(\.trackID) == ["persistent-1"])
         #expect(persisted.map(\.genre) == ["Stoner Rock"])
         #expect(persisted.map(\.genreUpdated) == [true])
+        #expect(await setup.processor.recoveryHoldID() == nil)
+    }
+
+    @Test("Checkpointed no-op repairs the mirror without creating undo history")
+    func terminalNoOpRepairsMirror() async throws {
+        let recoveryID = UUID()
+        let writeChange = WorkChange(
+            changeType: .artistRename,
+            oldValue: "Artist",
+            newValue: "Renamed Artist",
+            confidence: 90,
+            source: "Library"
+        )
+        let (record, _) = uncertainRunRecord(
+            recoveryID: recoveryID,
+            itemState: .outcome(.noFixNeeded),
+            oldValue: "Artist",
+            newValue: "Renamed Artist",
+            changeType: .artistRename,
+            albumArtist: RecoveryAlbumArtistFixture(
+                capturedValue: "Various Artists",
+                change: AlbumArtistChange(
+                    oldValue: "Artist",
+                    newValue: "Renamed Artist"
+                )
+            ),
+            writeChange: writeChange
+        )
+        let relaunch = try await makeRelaunchedStore(seeding: record)
+        defer { try? FileManager.default.removeItem(at: relaunch.directory) }
+        let setup = try await makeArtistRecovery(store: relaunch.store, recoveryID: recoveryID)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        let reopened = try #require(await relaunch.store.record(for: record.runID))
+        #expect(reopened.workItems.first?.writeChange == writeChange)
+        await setup.dependencies.runOrchestrator?.restoreRecovery(reopened)
+
+        try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+
+        let mirrored = try #require(try await setup.trackStore.getTrack(byID: "persistent-1"))
+        #expect(mirrored.artist == "Renamed Artist")
+        #expect(mirrored.albumArtist == "Various Artists")
+        #expect(mirrored.appleScriptID == "persistent-1")
+        #expect(try await setup.changeLog.loadAll().isEmpty)
+        #expect(await setup.undo.getHistory().isEmpty)
         #expect(await setup.processor.recoveryHoldID() == nil)
     }
 
@@ -467,8 +513,8 @@ struct RecoveryClearTests {
         }
     }
 
-    @Test("Clearance without observation keeps the uncertain record open")
-    func blindClearanceKeepsUncertainRecordOpen() async throws {
+    @Test("Clearance without an observation client reports the unavailable observation")
+    func unavailableObservationKeepsUncertainRecordOpen() async throws {
         let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
@@ -477,7 +523,7 @@ struct RecoveryClearTests {
         let stored = try #require(await setup.store.record(for: record.runID))
         await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
 
-        await #expect(throws: AppDependencyServiceError.recoveryVerificationFailed) {
+        await #expect(throws: AppDependencyServiceError.recoveryObservationNeedsAttention(.observationUnavailable)) {
             try await setup.dependencies.clearRecoveryHold(id: recoveryID)
         }
 

@@ -123,25 +123,35 @@ extension AppDependencies {
             throw AppDependencyServiceError.runRecordStoreUnavailable
         }
         let activeRunID = await runOrchestrator?.activeLifecycle()?.runID
-        // The command surface carries run IDs (navigation currency) while
-        // holds mint their own UUIDs, so match both keys like preflight does.
-        let page = try await runRecordStore.recoveryRecords()
-        guard let record = page.records.first(where: {
+        let initialPage = try await runRecordStore.recoveryRecords()
+        guard let initialRecord = initialPage.records.first(where: {
             ($0.runID.rawValue == id || $0.recoveryID == id) && $0.runID != activeRunID
         }) else {
             throw AppDependencyServiceError.recoveryUnavailable
         }
-        let dismissedAt = Date()
-        let updated: RunRecord
-        if isIndividual {
-            guard itemIDs.count == 1, let itemID = itemIDs.first else {
+        let mutationID = initialRecord.recoveryID ?? initialRecord.runID.rawValue
+        try await withRecoveryMutation(id: mutationID) {
+            let activeRunID = await runOrchestrator?.activeLifecycle()?.runID
+            // The command surface carries run IDs (navigation currency) while
+            // holds mint their own UUIDs, so match both keys like preflight does.
+            let page = try await runRecordStore.recoveryRecords()
+            guard let record = page.records.first(where: {
+                ($0.runID.rawValue == id || $0.recoveryID == id) && $0.runID != activeRunID
+            }) else {
                 throw AppDependencyServiceError.recoveryUnavailable
             }
-            updated = try record.dismissingUncertainWork(id: itemID, reason: reason, at: dismissedAt)
-        } else {
-            updated = try record.dismissingWork(ids: Set(itemIDs), reason: reason, at: dismissedAt)
+            let dismissedAt = Date()
+            let updated: RunRecord
+            if isIndividual {
+                guard itemIDs.count == 1, let itemID = itemIDs.first else {
+                    throw AppDependencyServiceError.recoveryUnavailable
+                }
+                updated = try record.dismissingUncertainWork(id: itemID, reason: reason, at: dismissedAt)
+            } else {
+                updated = try record.dismissingWork(ids: Set(itemIDs), reason: reason, at: dismissedAt)
+            }
+            try await runRecordStore.upsert(updated)
         }
-        try await runRecordStore.upsert(updated)
     }
 
     func runRecoveryPreflight(runID: RunID) async -> RecoveryPreflightOutcome {
@@ -154,7 +164,7 @@ extension AppDependencies {
             if let record = page.records.first(where: {
                 $0.runID == runID || $0.recoveryID == runID.rawValue
             }) {
-                if record.hasWriteUncertainty,
+                if record.requiresRecoveryObservation,
                    let recoveryAvailability,
                    case let .blocked(blocker) = await recoveryAvailability.status() {
                     return .blocked(runID: runID, reason: blocker)
@@ -188,6 +198,10 @@ extension AppDependencies {
         let activeRunID = await runOrchestrator?.activeLifecycle()?.runID
         let finishedAt = Date()
         let targetRecord = try await selectRecoveryRecord(id: id, activeRunID: activeRunID)
+        if let targetRecord, let runOrchestrator,
+           await runOrchestrator.synchronizeRecovery(targetRecord) == false {
+            throw AppDependencyServiceError.recoveryUnavailable
+        }
 
         do {
             if let targetRecord {
@@ -233,26 +247,31 @@ extension AppDependencies {
             throw AppDependencyServiceError.recoveryBlocked
         }
         let observedOutcomes = try await observeOutcomes(for: record)
-        try await repairFinalizationEvidence(record: record, observedOutcomes: observedOutcomes)
-        if let runOrchestrator {
-            guard await runOrchestrator.resolveRecovery(
+        try await withRecoveryMutation(id: id) {
+            guard try await selectRecoveryRecord(id: id, activeRunID: activeRunID) == record else {
+                throw AppDependencyServiceError.recoveryUnavailable
+            }
+            try await repairFinalizationEvidence(record: record, observedOutcomes: observedOutcomes)
+            if let runOrchestrator {
+                guard await runOrchestrator.resolveRecovery(
+                    id: id,
+                    runID: record.runID,
+                    at: finishedAt,
+                    observedOutcomes: observedOutcomes
+                ) == .resolved else {
+                    throw AppDependencyServiceError.recoveryVerificationFailed
+                }
+            }
+            _ = try await closeRecoveryRun(
                 id: id,
-                runID: record.runID,
+                activeRunID: activeRunID,
+                allowsUnbound: activeHoldID != nil,
                 at: finishedAt,
                 observedOutcomes: observedOutcomes
-            ) == .resolved else {
-                throw AppDependencyServiceError.recoveryVerificationFailed
+            )
+            if runOrchestrator == nil, await processor.recoveryHoldID() == id {
+                try await processor.clearRecovery(batchID: id)
             }
-        }
-        _ = try await closeRecoveryRun(
-            id: id,
-            activeRunID: activeRunID,
-            allowsUnbound: activeHoldID != nil,
-            at: finishedAt,
-            observedOutcomes: observedOutcomes
-        )
-        if runOrchestrator == nil, await processor.recoveryHoldID() == id {
-            try await processor.clearRecovery(batchID: id)
         }
     }
 
@@ -288,49 +307,94 @@ extension AppDependencies {
     }
 
     /// Rebuilds missing finalization evidence — durable change history, track
-    /// metadata mirror, and processing state — for written items, whether the write was
-    /// checkpointed terminal before the loss or confirmed by observation.
+    /// metadata mirror, and processing state — for writes and verified no-ops.
     /// A repair failure aborts clearance and the hold is retained.
     private func repairFinalizationEvidence(
         record: RunRecord,
         observedOutcomes: [UUID: ObservedWorkOutcome]?
     ) async throws {
-        guard let undoCoordinator else {
+        guard let trackStore, let runRecordStore else {
             // Returning here reported a verified close over evidence that was
             // never rebuilt: the caller reads a normal return as repaired and
             // goes on to clear the hold. Fail closed so the hold is retained,
             // which is what this function's contract promises.
-            recoveryLog.error("Recovery evidence repair blocked: undo coordinator unavailable")
+            recoveryLog.error("Recovery evidence repair blocked: track store unavailable")
             throw AppDependencyServiceError.recoveryUnavailable
         }
         let writtenItems = RecoveryEvidenceRepair.writtenItems(
             in: record.workItems,
             observed: observedOutcomes
         )
-        guard !writtenItems.isEmpty else { return }
-        let existing = try await undoCoordinator.loadDurableHistory()
-        let entries = RecoveryEvidenceRepair.missingEntries(
+        let noOpItems = RecoveryEvidenceRepair.noOpItems(in: record.workItems)
+        guard !writtenItems.isEmpty || !noOpItems.isEmpty else { return }
+        let existing = try await loadRecoveryHistory(for: writtenItems)
+        let writtenEntries = RecoveryEvidenceRepair.finalizationEntries(
             for: writtenItems,
             existing: existing,
             runID: record.runID.rawValue
-        ).map { entry in
-            var attributed = entry
-            attributed.runID = record.runID.rawValue
-            return attributed
-        }
-        if !entries.isEmpty {
-            try await undoCoordinator.recordRepairedChanges(entries)
-        }
-        try await repairTrackMirror(for: writtenItems)
-    }
-
-    private func repairTrackMirror(for items: [RunWorkItem]) async throws {
-        guard let trackStore else {
+        )
+        let noOpEntries = try await makeNoOpFinalizationEntries(
+            for: noOpItems,
+            observedOutcomes: observedOutcomes,
+            record: record,
+            store: runRecordStore
+        )
+        guard writtenEntries.count == writtenItems.count,
+              noOpEntries.count == noOpItems.count
+        else {
+            recoveryLog.error("Recovery evidence repair blocked: canonical write identity unavailable")
             throw AppDependencyServiceError.recoveryUnavailable
         }
-        for item in items {
-            guard let change = RecoveryEvidenceRepair.changeLogEntry(for: item) else { continue }
-            try await trackStore.persistAppliedChange(change)
+        for entry in writtenEntries {
+            _ = try await trackStore.commitAppliedChange(entry)
+            await undoCoordinator?.recordCommittedChange(entry)
+        }
+        for entry in noOpEntries {
+            _ = try await trackStore.commitObservedChange(entry)
+        }
+        let clearedRecord = try record.clearingRecoveryObservationIssues()
+        if clearedRecord != record {
+            try await runRecordStore.upsert(clearedRecord)
+        }
+    }
+
+    private func loadRecoveryHistory(for writtenItems: [RunWorkItem]) async throws
+        -> [ChangeLogEntry] {
+        guard !writtenItems.isEmpty else { return [] }
+        guard let undoCoordinator else {
+            recoveryLog.error("Recovery evidence repair blocked: undo coordinator unavailable")
+            throw AppDependencyServiceError.recoveryUnavailable
+        }
+        return try await undoCoordinator.loadDurableHistory()
+    }
+
+    private func makeNoOpFinalizationEntries(
+        for items: [RunWorkItem],
+        observedOutcomes: [UUID: ObservedWorkOutcome]?,
+        record: RunRecord,
+        store: any RunRecordStore
+    ) async throws -> [ChangeLogEntry] {
+        do {
+            return try RecoveryEvidenceRepair.noOpFinalizationEntries(
+                for: items,
+                observed: observedOutcomes,
+                runID: record.runID.rawValue
+            )
+        } catch let blocker as RecoveryObservationBlocker {
+            do {
+                try await store.upsert(record.recordingRecoveryObservationBlocker(blocker))
+            } catch {
+                recoveryLog.error("""
+                Recovery blocker for run \(record.runID.rawValue.uuidString, privacy: .public), item \
+                \(blocker.itemID.uuidString, privacy: .public) could not be persisted: \
+                \(String(describing: type(of: error)), privacy: .public): \
+                \(error.localizedDescription, privacy: .private)
+                """)
+                throw AppDependencyServiceError.recoveryUnavailable
+            }
+            throw AppDependencyServiceError.recoveryItemNeedsAttention(blocker)
+        } catch let issue as RecoveryObservationIssue {
+            throw AppDependencyServiceError.recoveryObservationNeedsAttention(issue)
         }
     }
 
@@ -344,11 +408,25 @@ extension AppDependencies {
         return page.records.first { $0.recoveryID == id && $0.runID != activeRunID }
     }
 
+    private func withRecoveryMutation(
+        id: UUID,
+        operation: @MainActor () async throws -> Void
+    ) async throws {
+        await recoveryMutationGate.acquire(id)
+        do {
+            try Task.checkCancellation()
+            try await operation()
+            await recoveryMutationGate.release(id)
+        } catch {
+            await recoveryMutationGate.release(id)
+            throw error
+        }
+    }
+
     /// Observes the physical Music.app state for the run's open work before
     /// clearance. Observation failures propagate so the hold is retained
-    /// (ADR 0006: uncertainty cannot be cleared unchecked). A missing bridge
-    /// is logged and degrades to the orchestrator gate, which rejects
-    /// uncertain work without outcomes; PR B owns the blocked-recovery state.
+    /// (ADR 0006: uncertainty cannot be cleared unchecked). Missing or failing
+    /// observation infrastructure is surfaced as an actionable blocker.
     private func observeOutcomes(for record: RunRecord?) async throws -> [UUID: ObservedWorkOutcome]? {
         guard let record else { return nil }
         let hasOpenWork = record.workItems.contains { item in
@@ -357,20 +435,28 @@ extension AppDependencies {
             }
             return true
         }
-        guard hasOpenWork else { return nil }
-        // Only write-uncertain work needs live observation; prepared-only
-        // records close locally and must not block on Music.app availability.
-        if record.hasWriteUncertainty,
+        guard hasOpenWork || record.requiresRecoveryObservation else { return nil }
+        // Prepared-only records close locally. Write-uncertain work and legacy
+        // no-ops without an authoritative effect must observe Music.app first.
+        if record.requiresRecoveryObservation,
            let recoveryAvailability,
            case let .blocked(blocker) = await recoveryAvailability.status() {
             throw AppDependencyServiceError.recoveryObservationBlocked(blocker)
         }
         guard let recoveryVerifier else {
             recoveryLog.error("Recovery observation skipped: no observation client available")
-            return nil
+            throw AppDependencyServiceError.recoveryObservationNeedsAttention(.observationUnavailable)
         }
-        return try await RecoveryObservationService(verifier: recoveryVerifier)
-            .observeOutcomes(for: record.workItems)
+        do {
+            return try await RecoveryObservationService(verifier: recoveryVerifier)
+                .observeOutcomes(for: record.workItems)
+        } catch {
+            recoveryLog.error("""
+            Recovery observation failed for run \(record.runID.rawValue.uuidString, privacy: .public): \
+            \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)
+            """)
+            throw AppDependencyServiceError.recoveryObservationNeedsAttention(.observationUnavailable)
+        }
     }
 
     private func closeRecoveryRun(

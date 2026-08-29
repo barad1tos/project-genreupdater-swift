@@ -141,8 +141,18 @@ actor FactoryTrackStore: TrackStateStore {
         nil
     }
 
-    func persistAppliedChange(_: ChangeLogEntry) async throws {
+    func commitAppliedChange(_: ChangeLogEntry) async throws -> MirrorRevision {
         // Factory tests do not persist applied track changes.
+        .initial
+    }
+    func commitObservedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
+    }
+    func commitRevertedChange(
+        _ change: ChangeLogEntry,
+        removingHistoryEntryID _: UUID
+    ) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
     }
 
     func getUnprocessedTracks() async throws -> [Track] {

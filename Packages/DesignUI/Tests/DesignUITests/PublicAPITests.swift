@@ -85,11 +85,12 @@ struct PublicAPITests {
     func snapshotCanBeConstructedOutsideDesignUIModule() {
         let data = makeSnapshot(totalTracks: 10, syncStatusText: "No sync yet", deltaCount: 2)
         let model = AppModel(data: data)
-        let root = RootView(data: data, reportNotice: nil) {
+        let root = RootView(data: data, recoveryDetailActions: nil, reportNotice: nil) {
             EmptyView()
         }
         let availableReportsRoot = RootView(
             data: data,
+            recoveryDetailActions: nil,
             reportAnalyticsAccess: .available,
             reportNotice: nil
         ) {
@@ -97,6 +98,7 @@ struct PublicAPITests {
         }
         let lockedReportsRoot = RootView(
             data: data,
+            recoveryDetailActions: nil,
             reportAnalyticsAccess: .locked(message: "Week Pass or Pro required"),
             reportNotice: nil
         ) {
@@ -113,6 +115,7 @@ struct PublicAPITests {
             setUpdateBehaviorAction: { $0 == .both },
             setMinimumConfidenceAction: { $0 >= 0 },
             setReleaseYearRestoreThresholdAction: { $0 >= 0 },
+            recoveryDetailActions: nil,
             reportNotice: ReportNotice(message: "Dismissed 2 items", tone: .success),
             updateContent: {
                 EmptyView()

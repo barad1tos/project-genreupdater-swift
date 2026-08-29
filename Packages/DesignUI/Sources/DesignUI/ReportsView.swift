@@ -382,22 +382,23 @@ struct ReportsView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Ayu.fg2)
             ForEach(detail.workItems) { item in
+                let action = RecoveryItemActionDescriptor.make(detail: detail, item: item)
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(item.changeLabel)
                             .font(.system(size: 13))
                             .foregroundStyle(Ayu.fg)
                             .lineLimit(1)
-                        if let dismissedLabel = item.dismissedLabel {
-                            Text(dismissedLabel)
+                        if let detailLabel = action?.attentionLabel ?? item.dismissedLabel {
+                            Text(detailLabel)
                                 .font(.system(size: 11.5))
-                                .foregroundStyle(Ayu.fgMuted)
+                                .foregroundStyle(action?.attentionLabel == nil ? Ayu.fgMuted : Ayu.warning)
                         }
                     }
                     Spacer()
-                    TagPill(text: item.stateLabel, tone: workItemTone(item))
-                    if detail.canDismissItems, item.isOpen {
-                        dismissItemMenu(runID: detail.runID, item: item)
+                    TagPill(text: item.stateLabel, tone: action?.tone ?? workItemTone(item))
+                    if let action {
+                        recoveryItemMenu(action)
                     }
                 }
             }
@@ -418,16 +419,12 @@ struct ReportsView: View {
         return item.isOpen ? .info : .neutral
     }
 
-    private func dismissItemMenu(runID: String, item: RunReportWorkItemRow) -> some View {
+    private func recoveryItemMenu(_ descriptor: RecoveryItemActionDescriptor) -> some View {
         Menu {
-            Section(
-                item.isWriteUncertain
-                    ? "Write status is uncertain — dismissing records your explicit decision"
-                    : "Dismiss item"
-            ) {
-                ForEach(Self.dismissalReasons, id: \.self) { reason in
+            Section(descriptor.sectionTitle) {
+                ForEach(descriptor.reasons, id: \.self) { reason in
                     Button(reason) {
-                        recoveryActions?.dismissItem(runID, item.id, reason)
+                        descriptor.perform(reason: reason, using: recoveryActions)
                     }
                 }
             }
@@ -438,7 +435,7 @@ struct ReportsView: View {
         }
         .menuIndicator(.hidden)
         .fixedSize()
-        .accessibilityLabel("Dismiss work item")
+        .accessibilityLabel(descriptor.accessibilityLabel)
     }
 
     @ViewBuilder

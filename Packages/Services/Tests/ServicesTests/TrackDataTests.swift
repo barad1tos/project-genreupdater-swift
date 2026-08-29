@@ -31,7 +31,7 @@ struct TrackDataTests {
         return try ModelContainer(for: schema, configurations: [configuration])
     }
 
-    private func sampleTrack(id: String = "T001", name: String = "Test Song") -> Track {
+    func sampleTrack(id: String = "T001", name: String = "Test Song") -> Track {
         Track(
             id: id,
             name: name,
@@ -47,7 +47,7 @@ struct TrackDataTests {
         try #require(MusicDatabaseTrackID(rawValue: rawValue))
     }
 
-    private func appliedChange(
+    func appliedChange(
         trackID: String = "T001",
         type: ChangeType
     ) -> ChangeLogEntry {
@@ -296,7 +296,7 @@ struct TrackDataTests {
             try await store.initialize()
             try await store.seedMirror([sampleTrack()])
 
-            try await store.persistAppliedChange(appliedChange(type: expectation.type))
+            try await store.commitAppliedChange(appliedChange(type: expectation.type))
 
             let stored = try #require(try await store.getTrack(byID: "T001"))
             #expect(stored.name == expectation.name)
@@ -333,11 +333,58 @@ struct TrackDataTests {
             newValue: "Massive Attack"
         )
 
-        try await store.persistAppliedChange(change)
+        try await store.commitAppliedChange(change)
 
         let stored = try #require(try await store.getTrack(byID: "T001"))
         #expect(stored.artist == "Massive Attack")
         #expect(stored.albumArtist == "Massive Attack")
+    }
+
+    @Test("Applied change commits mirror, membership, history, and revision once")
+    func commitsAppliedChangeOnce() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = TrackDataStore(modelContainer: container)
+        try await store.initialize()
+        try await store.seedMirror([
+            Track(
+                id: "T001",
+                name: "Teardrop",
+                artist: "Massive",
+                album: "Mezzanine",
+                albumArtist: "Massive"
+            ),
+        ])
+        let changeID = UUID()
+        let timestamp = Date(timeIntervalSince1970: 1_800_000_000)
+        let change = ChangeLogEntry(
+            id: changeID,
+            timestamp: timestamp,
+            changeType: .artistRename,
+            trackID: "T001",
+            artist: "Massive",
+            trackName: "Teardrop",
+            albumName: "Mezzanine",
+            oldArtist: "Massive",
+            newArtist: "Massive Attack",
+            albumArtistChange: AlbumArtistChange(oldValue: "Massive", newValue: "Massive Attack")
+        )
+
+        try await store.commitAppliedChange(change)
+        try await store.commitAppliedChange(change)
+
+        let snapshot = try await store.loadMirrorSnapshot()
+        let context = ModelContext(container)
+        let history = try context.fetch(FetchDescriptor<PersistedChangeLogEntry>())
+        let member = try #require(context.fetch(FetchDescriptor<PersistedLibraryMember>()).first)
+
+        #expect(snapshot.revision == MirrorRevision(value: 2))
+        #expect(snapshot.presentTracks.first?.artist == "Massive Attack")
+        #expect(snapshot.presentTracks.first?.albumArtist == "Massive Attack")
+        #expect(history.map(\.entryID) == [changeID])
+        #expect(member.artist == "Massive Attack")
+        #expect(member.albumArtist == "Massive Attack")
+        #expect(member.identityObservedAt == timestamp)
+        #expect(member.identityRevisionValue == 2)
     }
 
     @Test("Genre and year writes complete processing state")
@@ -346,8 +393,8 @@ struct TrackDataTests {
         try await store.initialize()
         try await store.seedMirror([sampleTrack()])
 
-        try await store.persistAppliedChange(appliedChange(type: .genreUpdate))
-        try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
+        try await store.commitAppliedChange(appliedChange(type: .genreUpdate))
+        try await store.commitAppliedChange(appliedChange(type: .yearUpdate))
 
         #expect(try await store.getUnprocessedTracks().isEmpty)
     }
@@ -357,9 +404,9 @@ struct TrackDataTests {
         let store = try makeStore()
         try await store.seedMirror([sampleTrack()])
 
-        try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
-        try await store.persistAppliedChange(appliedChange(type: .artistRename))
-        try await store.persistAppliedChange(appliedChange(type: .albumCleaning))
+        try await store.commitAppliedChange(appliedChange(type: .yearUpdate))
+        try await store.commitAppliedChange(appliedChange(type: .artistRename))
+        try await store.commitAppliedChange(appliedChange(type: .albumCleaning))
 
         let stored = try #require(try await store.getTrack(byID: "T001"))
         #expect(stored.yearBeforeMGU == 2020)
@@ -374,23 +421,23 @@ struct TrackDataTests {
         let store = try makeStore()
         try await store.seedMirror([sampleTrack()])
 
-        try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
+        try await store.commitAppliedChange(appliedChange(type: .yearUpdate))
         var secondYear = appliedChange(type: .yearUpdate)
         secondYear.oldYear = 2024
         secondYear.newYear = 2025
-        try await store.persistAppliedChange(secondYear)
+        try await store.commitAppliedChange(secondYear)
 
-        try await store.persistAppliedChange(appliedChange(type: .artistRename))
+        try await store.commitAppliedChange(appliedChange(type: .artistRename))
         var secondArtist = appliedChange(type: .artistRename)
         secondArtist.oldArtist = "Canonical Artist"
         secondArtist.newArtist = "Final Artist"
-        try await store.persistAppliedChange(secondArtist)
+        try await store.commitAppliedChange(secondArtist)
 
-        try await store.persistAppliedChange(appliedChange(type: .albumCleaning))
+        try await store.commitAppliedChange(appliedChange(type: .albumCleaning))
         var secondAlbum = appliedChange(type: .albumCleaning)
         secondAlbum.oldAlbumName = "Clean Album"
         secondAlbum.newAlbumName = "Final Album"
-        try await store.persistAppliedChange(secondAlbum)
+        try await store.commitAppliedChange(secondAlbum)
 
         let stored = try #require(try await store.getTrack(byID: "T001"))
         #expect(stored.yearBeforeMGU == 2020)
@@ -403,9 +450,9 @@ struct TrackDataTests {
     func sparseRefreshPreservesState() async throws {
         let store = try makeStore()
         try await store.seedMirror([sampleTrack()])
-        try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
-        try await store.persistAppliedChange(appliedChange(type: .artistRename))
-        try await store.persistAppliedChange(appliedChange(type: .albumCleaning))
+        try await store.commitAppliedChange(appliedChange(type: .yearUpdate))
+        try await store.commitAppliedChange(appliedChange(type: .artistRename))
+        try await store.commitAppliedChange(appliedChange(type: .albumCleaning))
 
         let sparseRefresh = Track(
             id: "T001",
@@ -440,9 +487,9 @@ struct TrackDataTests {
         do {
             let store = try makeStore(at: storeURL)
             try await store.seedMirror([sampleTrack()])
-            try await store.persistAppliedChange(appliedChange(type: .yearUpdate))
-            try await store.persistAppliedChange(appliedChange(type: .artistRename))
-            try await store.persistAppliedChange(appliedChange(type: .albumCleaning))
+            try await store.commitAppliedChange(appliedChange(type: .yearUpdate))
+            try await store.commitAppliedChange(appliedChange(type: .artistRename))
+            try await store.commitAppliedChange(appliedChange(type: .albumCleaning))
         }
 
         let relaunchedStore = try makeStore(at: storeURL)
@@ -545,7 +592,7 @@ struct TrackDataTests {
         try await store.initialize()
 
         await #expect(throws: TrackStoreError.self) {
-            try await store.persistAppliedChange(appliedChange(trackID: "MISSING", type: .genreUpdate))
+            try await store.commitAppliedChange(appliedChange(trackID: "MISSING", type: .genreUpdate))
         }
     }
 
@@ -561,7 +608,7 @@ struct TrackDataTests {
         )
 
         await #expect(throws: TrackChangeError.self) {
-            try await store.persistAppliedChange(change)
+            try await store.commitAppliedChange(change)
         }
     }
 
@@ -576,8 +623,8 @@ struct TrackDataTests {
             sampleTrack(id: "P3"),
         ])
 
-        try await store.persistAppliedChange(appliedChange(trackID: "P1", type: .genreUpdate))
-        try await store.persistAppliedChange(appliedChange(trackID: "P1", type: .yearUpdate))
+        try await store.commitAppliedChange(appliedChange(trackID: "P1", type: .genreUpdate))
+        try await store.commitAppliedChange(appliedChange(trackID: "P1", type: .yearUpdate))
 
         let unprocessed = try await store.getUnprocessedTracks()
         #expect(unprocessed.count == 2)

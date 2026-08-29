@@ -479,6 +479,8 @@ public struct RunReportWorkItemRow: Identifiable, Equatable, Sendable {
     public let stateLabel: String
     public let isOpen: Bool
     public let isWriteUncertain: Bool
+    public let canDismiss: Bool
+    public let attentionLabel: String?
     public let dismissedLabel: String?
 
     public init(
@@ -487,6 +489,8 @@ public struct RunReportWorkItemRow: Identifiable, Equatable, Sendable {
         stateLabel: String,
         isOpen: Bool,
         isWriteUncertain: Bool,
+        canDismiss: Bool = false,
+        attentionLabel: String? = nil,
         dismissedLabel: String? = nil
     ) {
         self.id = id
@@ -494,6 +498,8 @@ public struct RunReportWorkItemRow: Identifiable, Equatable, Sendable {
         self.stateLabel = stateLabel
         self.isOpen = isOpen
         self.isWriteUncertain = isWriteUncertain
+        self.canDismiss = canDismiss
+        self.attentionLabel = attentionLabel
         self.dismissedLabel = dismissedLabel
     }
 }

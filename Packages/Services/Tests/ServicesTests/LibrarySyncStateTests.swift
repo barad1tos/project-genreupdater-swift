@@ -200,6 +200,53 @@ struct LibrarySyncStateTests {
         #expect(await store.commitCount == 1)
         #expect(result.newTracks.map(\.id) == ["1"])
     }
+
+    @Test("A verified write fences an in-flight synchronization")
+    func appliedWriteFencesSynchronization() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = TrackDataStore(modelContainer: container)
+        try await store.initialize()
+        let original = Track(id: "1", name: "Track", artist: "Artist", album: "Album", year: 2001)
+        try await store.seedMirror([original])
+
+        let gate = SyncStateGate()
+        let delegate = SyncMockScriptClient()
+        await delegate.setLibrary(ids: ["1"], tracks: ["1": original])
+        let reader = WriteRaceReader(gate: gate, delegate: delegate)
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                mirrorRetryPolicy: MirrorRetryPolicy(retryLimit: 1, delay: .zero)
+            ),
+            observer: reader
+        )
+
+        let synchronization = Task { try await service.synchronizeNow(forceMetadataRefresh: true) }
+        await gate.waitUntilEntered()
+
+        var change = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "1",
+            artist: "Artist",
+            trackName: "Track",
+            albumName: "Album"
+        )
+        change.oldYear = 2001
+        change.newYear = 2002
+        try await store.commitAppliedChange(change)
+        let writeSnapshot = try await store.loadMirrorSnapshot()
+
+        var written = original
+        written.year = 2002
+        await delegate.setLibrary(ids: ["1"], tracks: ["1": written])
+        await gate.open()
+        _ = try await synchronization.value
+
+        let finalSnapshot = try await store.loadMirrorSnapshot()
+        #expect(writeSnapshot.revision == MirrorRevision(value: 2))
+        #expect(await reader.attemptCount == 2)
+        #expect(finalSnapshot.presentTracks.first?.year == 2002)
+    }
 }
 
 private actor SyncStateGate {
@@ -296,6 +343,25 @@ private actor TransientConflictReader: MusicAppReading {
         attemptCount += 1
         if attemptCount == 1 {
             throw MusicAppObservationError.censusChanged
+        }
+        return try await delegate.observe(request)
+    }
+}
+
+private actor WriteRaceReader: MusicAppReading {
+    private let gate: SyncStateGate
+    private let delegate: SyncMockScriptClient
+    private(set) var attemptCount = 0
+
+    init(gate: SyncStateGate, delegate: SyncMockScriptClient) {
+        self.gate = gate
+        self.delegate = delegate
+    }
+
+    func observe(_ request: LibraryObservationRequest) async throws -> LibraryObservation {
+        attemptCount += 1
+        if attemptCount == 1 {
+            await gate.wait()
         }
         return try await delegate.observe(request)
     }
@@ -414,8 +480,18 @@ private actor SyncStateStore: TrackStateStore {
         storedTracks.first { $0.id == id }
     }
 
-    func persistAppliedChange(_: ChangeLogEntry) async throws {
+    func commitAppliedChange(_: ChangeLogEntry) async throws -> MirrorRevision {
         // Synchronization tests do not exercise the independent change-log store.
+        revision
+    }
+    func commitObservedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
+    }
+    func commitRevertedChange(
+        _ change: ChangeLogEntry,
+        removingHistoryEntryID _: UUID
+    ) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
     }
 
     func getUnprocessedTracks() async throws -> [Track] {

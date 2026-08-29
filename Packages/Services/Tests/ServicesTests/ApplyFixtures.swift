@@ -44,8 +44,12 @@ func makeCoordinator(
         .appendingPathComponent("ApplyAcceptedTests-\(UUID().uuidString)")
     let cache = MockCacheService()
     let snapshot = MockLibrarySnapshotService()
-    let undo = UndoCoordinator(musicApp: bridge, directory: undoDir)
     let trackStore = MockTrackStore()
+    let undo = UndoCoordinator(
+        musicApp: bridge,
+        stores: .init(tracks: trackStore),
+        directory: undoDir
+    )
     let coordinator = UpdateCoordinator(
         dependencies: UpdateDependencies(
             apiOrchestrator: orchestrator,

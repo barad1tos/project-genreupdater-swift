@@ -453,6 +453,7 @@ struct BatchWriteTests {
 
         #expect(result.entries.map(\.changeType) == [.genreUpdate])
         #expect(result.noOpEntries.map(\.changeType) == [.yearRevert])
+        #expect(await fixture.trackStore.observedUpdateIDs == ["Y1"])
         #expect(failedTrackIDs.isEmpty)
         #expect(errorDescriptions.isEmpty)
     }
@@ -464,6 +465,7 @@ struct BatchWriteTests {
         let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let snapshot = MockLibrarySnapshotService()
+        let trackStore = MockTrackStore()
         let undoDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("BatchWriteTests-\(UUID().uuidString)")
         let undo = UndoCoordinator(musicApp: bridge, directory: undoDir)
@@ -480,7 +482,7 @@ struct BatchWriteTests {
                     appleMusic: apiService
                 ),
                 writer: bridge,
-                stores: .init(trackStore: MockTrackStore(), cache: cache),
+                stores: .init(trackStore: trackStore, cache: cache),
                 undoCoordinator: undo,
                 idMapper: idMapper,
                 librarySnapshotService: snapshot
@@ -496,6 +498,7 @@ struct BatchWriteTests {
             bridge: bridge,
             cache: cache,
             snapshot: snapshot,
+            trackStore: trackStore,
             undo: undo
         )
     }
@@ -623,6 +626,7 @@ private struct BatchWriteFixture {
     let bridge: MusicAppTestAccess
     let cache: MockCacheService
     let snapshot: MockLibrarySnapshotService
+    let trackStore: MockTrackStore
     let undo: UndoCoordinator
 }
 

@@ -5,6 +5,7 @@ struct BatchFinalization {
     let currentTracksByID: [MusicDatabaseTrackID: Track]
     let appliedIndexes: Set<Int>
     let noOpIndexes: Set<Int>
+    let skippedIndexes: Set<Int>
     let preflightFailures: [Int: UpdateCoordinatorError]
 }
 
@@ -41,7 +42,9 @@ extension UpdateCoordinator {
         error: MusicBatchVerificationError,
         checkpoint: WorkCheckpointSink?
     ) async throws -> any Error {
-        let confirmedIndexes = batch.appliedIndexes.union(batch.noOpIndexes)
+        let confirmedIndexes = batch.appliedIndexes
+            .union(batch.noOpIndexes)
+            .union(batch.skippedIndexes)
         let outcome = Self.partialBatchOutcome(
             applied: batch.appliedIndexes.count,
             attempted: attemptedIndexes.count,
@@ -105,14 +108,19 @@ extension UpdateCoordinator {
     ) async throws {
         guard let sink else { return }
         var outcomes: [UUID: WorkOutcome] = [:]
+        var noOpChanges: [UUID: WorkChange] = [:]
         for (index, write) in preparedWrites.enumerated() {
             if let indexes, !indexes.contains(index) {
                 continue
             }
-            outcomes[write.change.id] = Self.batchWorkOutcome(at: index, write: write, batch: batch)
+            let outcome = Self.batchWorkOutcome(at: index, write: write, batch: batch)
+            outcomes[write.change.id] = outcome
+            if outcome == .noFixNeeded {
+                noOpChanges[write.change.id] = write.writeChange
+            }
         }
         if !outcomes.isEmpty {
-            try await sink(.afterVerification(outcomes))
+            try await sink(.afterVerification(outcomes, writeChanges: noOpChanges))
         }
     }
 
@@ -142,25 +150,25 @@ extension UpdateCoordinator {
         for (writeIndex, preparedWrite) in preparedWrites.enumerated() {
             switch Self.batchWorkOutcome(at: writeIndex, write: preparedWrite, batch: batch) {
             case .noFixNeeded:
-                await invalidateCaches(for: preparedWrite.change)
-                noOpEntries.append(Self.noOpLogEntry(preparedWrite.change))
+                do {
+                    let entry = try await recordObservedChange(
+                        preparedWrite.change,
+                        databaseID: preparedWrite.databaseID
+                    )
+                    noOpEntries.append(entry)
+                } catch {
+                    firstFinalizationError = firstFinalizationError ?? error
+                }
                 continue
             case .failed:
-                if let error = batch.preflightFailures[writeIndex] {
-                    try recordWorkflowWriteFailure(
-                        error,
-                        isReviewedChange: true,
-                        trackID: preparedWrite.change.track.id,
-                        failedTrackIDs: &failedTrackIDs,
-                        errorDescriptions: &errorDescriptions
-                    )
-                } else {
-                    await recordUnverifiedBatchWrite(
-                        preparedWrite,
-                        failedTrackIDs: &failedTrackIDs,
-                        errorDescriptions: &errorDescriptions
-                    )
-                }
+                try await recordBatchFailure(
+                    preparedWrite,
+                    preflightError: batch.preflightFailures[writeIndex],
+                    failedTrackIDs: &failedTrackIDs,
+                    errorDescriptions: &errorDescriptions
+                )
+                continue
+            case .skipped:
                 continue
             case .written:
                 do {
@@ -172,7 +180,7 @@ extension UpdateCoordinator {
                 } catch {
                     firstFinalizationError = firstFinalizationError ?? error
                 }
-            case .fixProposed, .needsReview, .skipped, .deferred, .dismissed:
+            case .fixProposed, .needsReview, .deferred, .dismissed:
                 assertionFailure("Unexpected terminal batch work outcome")
             }
         }
@@ -186,11 +194,37 @@ extension UpdateCoordinator {
         return (entries, noOpEntries)
     }
 
+    private func recordBatchFailure(
+        _ preparedWrite: PreparedWrite,
+        preflightError: UpdateCoordinatorError?,
+        failedTrackIDs: inout [String],
+        errorDescriptions: inout [String]
+    ) async throws {
+        if let preflightError {
+            try recordWorkflowWriteFailure(
+                preflightError,
+                isReviewedChange: true,
+                trackID: preparedWrite.change.track.id,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            )
+        } else {
+            await recordUnverifiedBatchWrite(
+                preparedWrite,
+                failedTrackIDs: &failedTrackIDs,
+                errorDescriptions: &errorDescriptions
+            )
+        }
+    }
+
     private static func batchWorkOutcome(
         at index: Int,
         write: PreparedWrite,
         batch: BatchFinalization
     ) -> WorkOutcome {
+        if batch.skippedIndexes.contains(index) {
+            return .skipped
+        }
         if batch.noOpIndexes.contains(index) {
             return .noFixNeeded
         }
@@ -256,8 +290,14 @@ extension UpdateCoordinator {
                     firstFinalizationError = firstFinalizationError ?? error
                 }
             case .noFixNeeded:
-                await invalidateCaches(for: write.change)
-            case .failed, .fixProposed, .needsReview, .skipped, .deferred, .dismissed:
+                do {
+                    _ = try await recordObservedChange(write.change, databaseID: write.databaseID)
+                } catch {
+                    firstFinalizationError = firstFinalizationError ?? error
+                }
+            case .skipped:
+                continue
+            case .failed, .fixProposed, .needsReview, .deferred, .dismissed:
                 assertionFailure("Unexpected unconfirmed batch work outcome")
             }
         }
