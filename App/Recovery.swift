@@ -295,7 +295,7 @@ extension AppDependencies {
         record: RunRecord,
         observedOutcomes: [UUID: ObservedWorkOutcome]?
     ) async throws {
-        guard let undoCoordinator else {
+        guard let undoCoordinator, let trackStore else {
             // Returning here reported a verified close over evidence that was
             // never rebuilt: the caller reads a normal return as repaired and
             // goes on to clear the hold. Fail closed so the hold is retained,
@@ -309,7 +309,7 @@ extension AppDependencies {
         )
         guard !writtenItems.isEmpty else { return }
         let existing = try await undoCoordinator.loadDurableHistory()
-        let entries = RecoveryEvidenceRepair.missingEntries(
+        let entries = RecoveryEvidenceRepair.finalizationEntries(
             for: writtenItems,
             existing: existing,
             runID: record.runID.rawValue
@@ -318,19 +318,13 @@ extension AppDependencies {
             attributed.runID = record.runID.rawValue
             return attributed
         }
-        if !entries.isEmpty {
-            try await undoCoordinator.recordRepairedChanges(entries)
-        }
-        try await repairTrackMirror(for: writtenItems)
-    }
-
-    private func repairTrackMirror(for items: [RunWorkItem]) async throws {
-        guard let trackStore else {
+        guard entries.count == writtenItems.count else {
+            recoveryLog.error("Recovery evidence repair blocked: canonical write identity unavailable")
             throw AppDependencyServiceError.recoveryUnavailable
         }
-        for item in items {
-            guard let change = RecoveryEvidenceRepair.changeLogEntry(for: item) else { continue }
-            try await trackStore.persistAppliedChange(change)
+        for entry in entries {
+            _ = try await trackStore.commitAppliedChange(entry)
+            await undoCoordinator.recordCommittedChange(entry)
         }
     }
 

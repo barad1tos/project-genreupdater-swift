@@ -8,11 +8,13 @@ struct UndoArtistTests {
     @Test("Revert restores both artist fields together")
     func revertCoupledArtistRename() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         let entry = makeEntry()
         await bridge.setUndoEntries([entry])
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
+            stores: .init(tracks: trackStore),
             directory: makeDirectory()
         )
         try await coordinator.recordChange(entry)
@@ -47,12 +49,14 @@ struct UndoArtistTests {
             appleScriptID: "AS1"
         )
         await bridge.setFetchedTracks([observedTrack])
+        let trackStore = MockTrackStore()
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: MetadataUndoTrackIDMapper(
                 mapping: ["T1": "AS1"],
                 metadata: ["T1": currentTrack]
             ),
+            stores: .init(tracks: trackStore),
             directory: makeDirectory()
         )
         let entry = makeEntry()

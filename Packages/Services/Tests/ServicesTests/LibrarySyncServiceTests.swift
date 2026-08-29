@@ -214,9 +214,20 @@ actor SyncMockTrackStore: TrackStateStore {
         storedTracks.first { $0.id == id }
     }
 
-    func persistAppliedChange(_ change: ChangeLogEntry) async throws {
-        guard let index = storedTracks.firstIndex(where: { $0.id == change.trackID }) else { return }
+    func commitAppliedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision {
+        guard let index = storedTracks.firstIndex(where: { $0.id == change.trackID }) else { return revision }
         storedTracks[index] = try storedTracks[index].applying(change)
+        revision = try revision.advanced()
+        return revision
+    }
+    func commitObservedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
+    }
+    func commitRevertedChange(
+        _ change: ChangeLogEntry,
+        removingHistoryEntryID _: UUID
+    ) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
     }
 
     func getUnprocessedTracks() async throws -> [Track] {

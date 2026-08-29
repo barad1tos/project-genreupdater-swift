@@ -139,7 +139,7 @@ struct LibraryServicesTests {
         )
         yearChange.oldYear = 2003
         yearChange.newYear = 2004
-        try await fixture.trackStore.persistAppliedChange(yearChange)
+        try await fixture.trackStore.commitAppliedChange(yearChange)
 
         var artistChange = ChangeLogEntry(
             changeType: .artistRename,
@@ -150,7 +150,7 @@ struct LibraryServicesTests {
         )
         artistChange.oldArtist = "Clutch (Original Credit)"
         artistChange.newArtist = "Clutch"
-        try await fixture.trackStore.persistAppliedChange(artistChange)
+        try await fixture.trackStore.commitAppliedChange(artistChange)
 
         var albumChange = ChangeLogEntry(
             changeType: .albumCleaning,
@@ -161,7 +161,7 @@ struct LibraryServicesTests {
         )
         albumChange.oldAlbumName = "Blast Tyrant (Original Title)"
         albumChange.newAlbumName = "Blast Tyrant"
-        try await fixture.trackStore.persistAppliedChange(albumChange)
+        try await fixture.trackStore.commitAppliedChange(albumChange)
         await fixture.dependencies.loadLibrary(forceRefresh: true)
 
         let visibleTrack = try #require(fixture.dependencies.libraryTracks.first)
@@ -698,8 +698,18 @@ private actor FailingMirrorReadStore: TrackStateStore {
     func getTrack(byID _: String) async throws -> Core.Track? {
         nil
     }
-    func persistAppliedChange(_: ChangeLogEntry) async throws {
+    func commitAppliedChange(_: ChangeLogEntry) async throws -> MirrorRevision {
         // Library loading never persists change-log entries.
+        .initial
+    }
+    func commitObservedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
+    }
+    func commitRevertedChange(
+        _ change: ChangeLogEntry,
+        removingHistoryEntryID _: UUID
+    ) async throws -> MirrorRevision {
+        try await commitAppliedChange(change)
     }
     func getUnprocessedTracks() async throws -> [Core.Track] {
         []

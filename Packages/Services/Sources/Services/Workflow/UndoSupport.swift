@@ -14,6 +14,7 @@ extension UndoCoordinator {
         property: MusicTrackProperty,
         value: String,
         recoveryOrigin: String? = nil,
+        revertingHistoryEntryID: UUID? = nil,
         attemptHooks: (
             prepareWrite: ((PreparedWrite) async throws -> Void)?,
             prepareDispatch: ((PreparedWrite) async throws -> Void)?,
@@ -22,6 +23,7 @@ extension UndoCoordinator {
         prepareMirror: ((PreparedWrite, MusicWriteResult) async throws -> Void)? = nil
     ) async throws -> (result: MusicWriteResult, entry: ChangeLogEntry) {
         let preparedWrite = try await prepareRevert(change, property: property, value: value)
+        let trackStore = try requiredTrackStore(for: preparedWrite.databaseID.rawValue)
 
         do {
             try await attemptHooks.prepareWrite?(preparedWrite)
@@ -46,7 +48,12 @@ extension UndoCoordinator {
             )
             do {
                 try await prepareMirror?(preparedWrite, result)
-                try await trackStore?.persistAppliedChange(entry)
+                try await commitRevert(
+                    entry,
+                    result: result,
+                    trackStore: trackStore,
+                    historyEntryID: revertingHistoryEntryID
+                )
             } catch {
                 await invalidateCaches(for: preparedWrite.change)
                 if let error = error as? UpdateCoordinatorError {
@@ -73,6 +80,35 @@ extension UndoCoordinator {
                 )
             }
         }
+    }
+
+    private func commitRevert(
+        _ entry: ChangeLogEntry,
+        result: MusicWriteResult,
+        trackStore: any TrackStateStore,
+        historyEntryID: UUID?
+    ) async throws {
+        if let historyEntryID {
+            _ = try await trackStore.commitRevertedChange(
+                entry,
+                removingHistoryEntryID: historyEntryID
+            )
+        } else if result == .changed {
+            _ = try await trackStore.commitAppliedChange(entry)
+            await recordCommittedChange(entry)
+        } else {
+            _ = try await trackStore.commitObservedChange(entry)
+        }
+    }
+
+    func requiredTrackStore(for trackID: String) throws -> any TrackStateStore {
+        guard let trackStore else {
+            throw UpdateCoordinatorError.writeFinalizationFailed(
+                trackID: trackID,
+                effects: ["track mirror", "change history"]
+            )
+        }
+        return trackStore
     }
 
     private func prepareRevert(

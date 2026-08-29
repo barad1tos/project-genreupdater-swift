@@ -351,32 +351,20 @@ extension UpdateCoordinator {
         databaseID: MusicDatabaseTrackID
     ) async throws -> ChangeLogEntry {
         let entry = attributed(Self.changeToLogEntry(change, databaseID: databaseID))
-        var failedEffects: [String] = []
         do {
-            try await undoCoordinator.recordChange(entry)
+            _ = try await trackStore.commitAppliedChange(entry)
+            await undoCoordinator.recordCommittedChange(entry)
         } catch {
-            failedEffects.append("change history")
             log.error("""
-            Failed to persist change history for track \(databaseID.rawValue, privacy: .private): \
+            Failed to finalize applied change for track \(databaseID.rawValue, privacy: .private): \
             \(error.localizedDescription, privacy: .private)
             """)
-        }
-        do {
-            try await trackStore.persistAppliedChange(entry)
-        } catch {
-            failedEffects.append("track mirror")
-            log.error("""
-            Failed to persist applied metadata for track \(databaseID.rawValue, privacy: .private): \
-            \(error.localizedDescription, privacy: .private)
-            """)
-        }
-        await invalidateCaches(for: change)
-        guard failedEffects.isEmpty else {
             throw UpdateCoordinatorError.writeFinalizationFailed(
                 trackID: databaseID.rawValue,
-                effects: failedEffects
+                effects: ["track mirror", "change history"]
             )
         }
+        await invalidateCaches(for: change)
         log.info(
             "Applied \(change.changeType.rawValue, privacy: .public) to track \(databaseID.rawValue, privacy: .private)"
         )

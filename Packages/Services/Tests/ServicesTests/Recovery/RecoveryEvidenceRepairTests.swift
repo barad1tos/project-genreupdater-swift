@@ -11,6 +11,7 @@ struct RecoveryEvidenceRepairTests {
 
         let entry = try #require(RecoveryEvidenceRepair.changeLogEntry(for: item))
 
+        #expect(entry.id == item.id)
         #expect(entry.trackID == "persistent-1")
         #expect(entry.changeType == .genreUpdate)
         #expect(entry.oldGenre == "Rock")
@@ -170,6 +171,33 @@ struct RecoveryEvidenceRepairTests {
 
         #expect(first.count == 1)
         #expect(second.isEmpty)
+    }
+
+    @Test("finalization reuses matching durable history identity")
+    func reusesDurableHistoryIdentity() throws {
+        let runID = UUID()
+        let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
+        let candidate = try #require(RecoveryEvidenceRepair.changeLogEntry(for: landed))
+        var existing = ChangeLogEntry(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            changeType: candidate.changeType,
+            trackID: candidate.trackID,
+            artist: candidate.artist,
+            trackName: candidate.trackName,
+            albumName: candidate.albumName,
+            oldGenre: candidate.oldGenre,
+            newGenre: candidate.newGenre
+        )
+        existing.runID = runID
+
+        let entries = RecoveryEvidenceRepair.finalizationEntries(
+            for: [landed],
+            existing: [existing],
+            runID: runID
+        )
+
+        #expect(entries.map(\.id) == [existing.id])
     }
 
     @Test("same-run read identity is rewritten to the Music.app database ID")

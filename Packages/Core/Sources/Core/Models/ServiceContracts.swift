@@ -48,6 +48,7 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
     case unsafeCertificatePreserve
     case unprovenCertificateRebase
     case invalidSyncRecord
+    case appliedChangeIdentityConflict(id: UUID)
 
     public var errorDescription: String? {
         switch self {
@@ -97,6 +98,8 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
             "Scope certificate rebase lacks disjoint membership proof"
         case .invalidSyncRecord:
             "Mirror synchronization record does not match its atomic commit"
+        case let .appliedChangeIdentityConflict(id):
+            "Applied change ID \(id) already belongs to different durable evidence"
         }
     }
 }
@@ -152,10 +155,22 @@ public protocol TrackStateStore: Actor {
     func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult
     func getTrack(byID id: String) async throws -> Track?
     func getHistoricalTrack(byID id: String) async throws -> Track?
-    /// Atomically persists metadata and processing flags for a change keyed by
-    /// the canonical Music.app database ID. Legacy read IDs are migration input,
-    /// not valid identities for newly applied changes.
-    func persistAppliedChange(_ change: ChangeLogEntry) async throws
+    /// Atomically persists metadata, member classification, history, and a new
+    /// mirror revision for a verified Music.app change. Repeating the same
+    /// change ID returns the already committed revision without duplicating it.
+    @discardableResult
+    func commitAppliedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision
+    /// Advances the mirror to a value already observed in Music.app without
+    /// creating undo history for a write that made no physical change.
+    @discardableResult
+    func commitObservedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision
+    /// Atomically applies a verified undo, removes the reverted history event,
+    /// and advances the mirror revision when metadata changed.
+    @discardableResult
+    func commitRevertedChange(
+        _ change: ChangeLogEntry,
+        removingHistoryEntryID entryID: UUID
+    ) async throws -> MirrorRevision
     func getUnprocessedTracks() async throws -> [Track]
     func trackCount() async throws -> Int
 }

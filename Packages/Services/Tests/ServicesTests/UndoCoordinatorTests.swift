@@ -75,9 +75,11 @@ struct UndoCoordinatorTests {
     @Test("Revert single genre change writes old value")
     func revertSingleGenre() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
+            stores: .init(tracks: trackStore),
             directory: makeTempDirectory()
         )
 
@@ -99,9 +101,11 @@ struct UndoCoordinatorTests {
     @Test("Revert single year change writes old value")
     func revertSingleYear() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
+            stores: .init(tracks: trackStore),
             directory: makeTempDirectory()
         )
 
@@ -121,10 +125,11 @@ struct UndoCoordinatorTests {
         let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let snapshotService = MockUndoLibrarySnapshotService()
+        let trackStore = MockTrackStore()
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
-            cache: cache,
+            stores: .init(tracks: trackStore, cache: cache),
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
         )
@@ -153,6 +158,7 @@ struct UndoCoordinatorTests {
         let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let snapshotService = MockUndoLibrarySnapshotService()
+        let trackStore = MockTrackStore()
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: MetadataUndoTrackIDMapper(
@@ -169,7 +175,7 @@ struct UndoCoordinatorTests {
                     ),
                 ]
             ),
-            stores: .init(cache: cache),
+            stores: .init(tracks: trackStore, cache: cache),
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
         )
@@ -212,10 +218,11 @@ struct UndoCoordinatorTests {
     func revertInvalidatesCleanedAlbumCacheAliases() async throws {
         let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
+        let trackStore = MockTrackStore()
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
-            stores: .init(cache: cache),
+            stores: .init(tracks: trackStore, cache: cache),
             cleaning: CleaningConfig(),
             directory: makeTempDirectory()
         )
@@ -249,10 +256,11 @@ struct UndoCoordinatorTests {
         let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let snapshotService = MockUndoLibrarySnapshotService()
+        let trackStore = MockTrackStore()
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
-            stores: .init(cache: cache),
+            stores: .init(tracks: trackStore, cache: cache),
             librarySnapshotService: snapshotService,
             directory: makeTempDirectory()
         )
@@ -366,10 +374,12 @@ struct UndoCoordinatorTests {
     @Test("Batch revert write failure description is public-safe")
     func batchRevertWriteFailureDescriptionIsPublicSafe() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         await bridge.setCustomWriteError(RawTrackIDWriteError(trackID: "MK1"))
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
+            stores: .init(tracks: trackStore),
             directory: makeTempDirectory()
         )
         let entry = yearUndoEntry(trackID: "MK1", oldYear: 1984)
@@ -396,10 +406,12 @@ struct UndoCoordinatorTests {
     @Test("Batch revert domain failure description is public-safe")
     func batchRevertDomainFailureDescriptionIsPublicSafe() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         await bridge.setCustomWriteError(UndoCoordinatorError.revertFailed(trackID: "MK1", reason: "boom"))
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
+            stores: .init(tracks: trackStore),
             directory: makeTempDirectory()
         )
         let entry = yearUndoEntry(trackID: "MK1", oldYear: 1984)
@@ -426,6 +438,7 @@ struct UndoCoordinatorTests {
     @Test("Batch revert preserves safe AppleScript setup failure description")
     func batchRevertPreservesSafeAppleScriptSetupFailureDescription() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         await bridge.setCustomWriteError(
             AppleScriptBridgeError.scriptNotFound(
                 name: "update_property",
@@ -435,6 +448,7 @@ struct UndoCoordinatorTests {
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
+            stores: .init(tracks: trackStore),
             directory: makeTempDirectory()
         )
         let entry = yearUndoEntry(trackID: "MK1", oldYear: 1984)
@@ -461,9 +475,11 @@ struct UndoCoordinatorTests {
     @Test("Revert single artist rename writes old artist")
     func revertSingleArtistRename() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
+            stores: .init(tracks: trackStore),
             directory: makeTempDirectory()
         )
 
@@ -482,9 +498,11 @@ struct UndoCoordinatorTests {
     @Test("Batch revert processes all entries")
     func batchRevert() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
+            stores: .init(tracks: trackStore),
             directory: makeTempDirectory()
         )
 
@@ -517,9 +535,11 @@ struct UndoCoordinatorTests {
     @Test("Partial revert failure reports failed counts")
     func partialRevertFailure() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
+            stores: .init(tracks: trackStore),
             directory: makeTempDirectory()
         )
 
@@ -560,9 +580,11 @@ struct UndoCoordinatorTests {
     @Test("Selective revert only reverts specified entries")
     func selectiveRevert() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
+            stores: .init(tracks: trackStore),
             directory: makeTempDirectory()
         )
 

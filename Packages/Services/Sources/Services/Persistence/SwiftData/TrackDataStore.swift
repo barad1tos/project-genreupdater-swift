@@ -245,34 +245,6 @@ public actor TrackDataStore: TrackStateStore {
         }
     }
 
-    public func persistAppliedChange(_ change: ChangeLogEntry) async throws {
-        do {
-            let descriptor = FetchDescriptor<PersistedTrack>(
-                predicate: #Predicate { $0.trackID == change.trackID }
-            )
-            guard let persisted = try modelContext.fetch(descriptor).first else {
-                throw TrackStoreError.missingTrack(id: change.trackID)
-            }
-
-            let updated = try persisted.toTrack().applying(change)
-            persisted.update(from: updated)
-            switch change.changeType {
-            case .genreUpdate:
-                persisted.genreUpdated = true
-            case .yearUpdate, .yearRevert:
-                persisted.yearUpdated = true
-            case .trackCleaning, .albumCleaning, .artistRename:
-                break
-            }
-            persisted.processedDate = .now
-
-            try modelContext.save()
-        } catch {
-            modelContext.rollback()
-            throw error
-        }
-    }
-
     private func normalizeStoredYears() throws -> Int {
         let missingValue = MusicAppYear.missingValue
         let descriptor = FetchDescriptor<PersistedTrack>(
@@ -306,7 +278,7 @@ public actor TrackDataStore: TrackStateStore {
         return 0
     }
 
-    private func fetchMirrorState() throws -> PersistedMirrorState? {
+    func fetchMirrorState() throws -> PersistedMirrorState? {
         let key = PersistedMirrorState.primaryKey
         let descriptor = FetchDescriptor<PersistedMirrorState>(
             predicate: #Predicate { $0.key == key }

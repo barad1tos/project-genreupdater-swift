@@ -15,6 +15,8 @@ public enum RecoveryEvidenceRepair {
         else { return nil }
         let change = item.effectiveChange
         var entry = ChangeLogEntry(
+            id: item.id,
+            timestamp: .now,
             changeType: change.changeType,
             trackID: databaseID.rawValue,
             artist: identity.artist,
@@ -69,6 +71,31 @@ public enum RecoveryEvidenceRepair {
             guard let candidate = changeLogEntry(for: item),
                   !existing.contains(where: { matches($0, candidate) })
             else { return nil }
+            guard case let .track(identity) = item.target,
+                  identity.readID != candidate.trackID,
+                  let legacy = existing.first(where: {
+                      $0.trackID == identity.readID
+                          && $0.runID == runID
+                          && matchesChange($0, candidate)
+                  })
+            else { return candidate }
+            return canonicalEntry(candidate, preserving: legacy)
+        }
+    }
+
+    /// Returns one canonical durable event for every landed work item.
+    /// Existing history keeps its event identity; missing history uses the
+    /// stable work-item identity so retries and relaunches converge.
+    public static func finalizationEntries(
+        for items: [RunWorkItem],
+        existing: [ChangeLogEntry],
+        runID: UUID
+    ) -> [ChangeLogEntry] {
+        items.compactMap { item in
+            guard let candidate = changeLogEntry(for: item) else { return nil }
+            if let recorded = existing.first(where: { matches($0, candidate) }) {
+                return recorded
+            }
             guard case let .track(identity) = item.target,
                   identity.readID != candidate.trackID,
                   let legacy = existing.first(where: {

@@ -25,10 +25,12 @@ struct UndoIdentityTests {
     @Test("Revert writes the resolved database ID when mapper evidence is present")
     func revertUsesMappedDatabaseID() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         await bridge.setFetchedTracks([identityTrack()])
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: FixedUndoTrackIDMapper(mapping: ["MK1": "AS1"]),
+            stores: .init(tracks: trackStore),
             directory: identityUndoDirectory()
         )
         let entry = identityYearEntry(trackID: "MK1")

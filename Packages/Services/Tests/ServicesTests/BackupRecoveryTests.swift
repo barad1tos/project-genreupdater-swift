@@ -63,7 +63,8 @@ struct BackupRecoveryTests {
         }
 
         await fixture.trackStore.resumeAppliedUpdates()
-        let retry = try await Self.restore(using: fixture.coordinator(), fixture: fixture)
+        let coordinator = fixture.coordinator()
+        let retry = try await Self.restore(using: coordinator, fixture: fixture)
 
         #expect(retry.skippedCount == 1)
         #expect(await fixture.historyStore.entries.isEmpty)
@@ -135,12 +136,13 @@ struct BackupRecoveryTests {
         }
 
         await fixture.bridge.setWriteCancellationMode(false)
-        let retry = try await Self.restore(using: fixture.coordinator(), fixture: fixture)
+        let coordinator = fixture.coordinator()
+        let retry = try await Self.restore(using: coordinator, fixture: fixture)
 
         #expect(retry.updatedCount == 1)
         #expect(retry.skippedCount == 0)
         #expect(await fixture.bridge.writtenProperties.count == 1)
-        let history = await fixture.historyStore.entries
+        let history = await coordinator.getHistory()
         #expect(history.count == 1)
         #expect(history.first?.oldYear == 2019)
         #expect(history.first?.newYear == 1998)
@@ -206,17 +208,20 @@ struct BackupRecoveryTests {
     }
 
     @Test("A write error with recovery evidence stops later targets")
-    func writeErrorStopsBackupBatch() async {
+    func writeErrorStopsBackupBatch() async throws {
         let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
         await bridge.setWriteError(MockScriptError.intentional, for: "T1")
         let tracks = [
             Track(id: "T1", name: "Angel", artist: "Massive Attack", album: "Mezzanine", year: 2019),
             Track(id: "T2", name: "Teardrop", artist: "Massive Attack", album: "Mezzanine", year: 2020),
         ]
+        try await trackStore.seedMirror(tracks)
         await bridge.setMutationTracks(tracks)
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
+            stores: .init(tracks: trackStore),
             directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("BackupRecoveryTests-\(UUID().uuidString)")
         )

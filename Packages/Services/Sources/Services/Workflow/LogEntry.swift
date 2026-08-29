@@ -7,6 +7,8 @@ extension UpdateCoordinator {
         recoveryOrigin: String? = nil
     ) -> ChangeLogEntry {
         var entry = ChangeLogEntry(
+            id: change.id,
+            timestamp: .now,
             changeType: change.changeType,
             trackID: databaseID.rawValue,
             artist: change.track.artist,
@@ -51,6 +53,8 @@ extension UpdateCoordinator {
 
     static func noOpLogEntry(_ change: ProposedChange) -> ChangeLogEntry {
         var entry = ChangeLogEntry(
+            id: change.id,
+            timestamp: .now,
             changeType: change.changeType,
             trackID: change.track.id,
             artist: change.track.artist,

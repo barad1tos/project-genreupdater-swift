@@ -188,9 +188,9 @@ struct WriteOutcomeTests {
         ]
         let client = MusicAppTestAccess()
         await client.setFetchedTracks(tracks)
-        let store = MockChangeLogStore()
-        await store.failSaves()
-        let coordinator = makeCoordinator(client, changeLogStore: store)
+        let trackStore = MockTrackStore()
+        await trackStore.failAppliedUpdates()
+        let coordinator = makeCoordinator(client, trackStore: trackStore)
         var failedTrackIDs: [String] = []
         var errorDescriptions: [String] = []
 
@@ -212,15 +212,15 @@ struct WriteOutcomeTests {
         ]
         let client = MusicAppTestAccess()
         await client.setFetchedTracks(tracks)
-        let store = MockChangeLogStore()
-        await store.failSaves()
+        let trackStore = MockTrackStore()
+        await trackStore.failAppliedUpdates()
         let coordinator = makeCoordinator(
             client,
             runtimeConfiguration: UpdateRuntimeConfiguration(
                 areBatchUpdatesEnabled: true,
                 maxBatchUpdateSize: 5
             ),
-            changeLogStore: store
+            trackStore: trackStore
         )
         let checkpoints = CheckpointProbe()
         var failedTrackIDs: [String] = []
@@ -389,11 +389,11 @@ func makeCoordinator(
     cache: any CacheService = MockCacheService(),
     snapshot: (any LibrarySnapshotService)? = nil,
     runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
-    changeLogStore: (any ChangeLogStore)? = nil
+    trackStore: MockTrackStore = MockTrackStore()
 ) -> UpdateCoordinator {
     let scores = year.map { [$0: 90] } ?? [:]
     let api = MockAPIService(yearResult: YearResult(year: year, confidence: 90, yearScores: scores))
-    let undo = makeUndoCoordinator(client, cache: cache, snapshot: snapshot, changeLogStore: changeLogStore)
+    let undo = makeUndoCoordinator(client, cache: cache, snapshot: snapshot, trackStore: trackStore)
     return UpdateCoordinator(
         dependencies: UpdateDependencies(
             apiOrchestrator: makeAPIOrchestrator(
@@ -402,7 +402,7 @@ func makeCoordinator(
                 appleMusic: api
             ),
             writer: client,
-            stores: .init(trackStore: MockTrackStore(), cache: cache),
+            stores: .init(trackStore: trackStore, cache: cache),
             undoCoordinator: undo,
             librarySnapshotService: snapshot
         ),
@@ -415,12 +415,12 @@ private func makeUndoCoordinator(
     _ client: any MusicAppMutating & MusicAppVerifying,
     cache: (any CacheService)? = nil,
     snapshot: (any LibrarySnapshotService)? = nil,
-    changeLogStore: (any ChangeLogStore)? = nil
+    trackStore: MockTrackStore = MockTrackStore()
 ) -> UndoCoordinator {
     UndoCoordinator(
         musicApp: client,
         idMapper: CanonicalUndoMapper(),
-        stores: .init(changeLog: changeLogStore, cache: cache),
+        stores: .init(tracks: trackStore, cache: cache),
         librarySnapshotService: snapshot,
         directory: FileManager.default.temporaryDirectory
             .appendingPathComponent("WriteOutcomeTests-\(UUID().uuidString)")
