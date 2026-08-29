@@ -256,7 +256,7 @@ struct BrowseHostPublishTests {
         let recorder = ProducedTargetRecorder()
         dependencies.installTrackCountSource { 1 }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             synchronizePreview: { _, _ in SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is outside this wiring pin.

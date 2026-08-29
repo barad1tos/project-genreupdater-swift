@@ -47,6 +47,7 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
     case invalidCertificateTrackCount(Int)
     case unsafeCertificatePreserve
     case unprovenCertificateRebase
+    case invalidSyncRecord
 
     public var errorDescription: String? {
         switch self {
@@ -94,6 +95,8 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
             "Scope certificate preservation requires a maintenance-only mirror commit"
         case .unprovenCertificateRebase:
             "Scope certificate rebase lacks disjoint membership proof"
+        case .invalidSyncRecord:
+            "Mirror synchronization record does not match its atomic commit"
         }
     }
 }

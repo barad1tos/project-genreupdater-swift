@@ -16,7 +16,7 @@ struct StoreSchemaMigrationTests {
 
     private static let preMirrorChecksum = "4gyxaR3XVbJ4CxMo9jcZdflFXNqaKxs0rO8+kkx/1v0="
     private static let mirrorScopeChecksum = "vrVyyiD+OtvleDs7wa27tSGnDMLj4Bts1NWHukp62k4="
-    private static let identityChecksum = "RjRJxmJfhLjdHHhDRUvRjn2jqm3L/8ZpduaKKgTfRns="
+    private static let syncRecordChecksum = "rlZMfluVDEVAON7i25ASHKftyiB+kOiR6nxIjVb7Cm4="
     private static let deployedMembershipChecksum = "whynwE78EfLk6nFo6Pm4ZxQSXWggha8oemCvJY0LlPw="
     private static let deployedCoverageChecksum = "lCPA7P84tguSr6BvhsyyK+8Wzw49fLJgWhUikSppAIQ="
     private static let recoveryChecksum = "i2Q0M3v/JLttbprhy5I8T0nCkA5O9AYoi9OSQRGpY2s="
@@ -81,8 +81,8 @@ struct StoreSchemaMigrationTests {
         }
     }
 
-    @Test("Current identity schema remains reopenable without a version change")
-    func pinsIdentitySchema() throws {
+    @Test("Current synchronization schema remains reopenable without a version change")
+    func pinsSyncRecordSchema() throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -91,12 +91,13 @@ struct StoreSchemaMigrationTests {
 
         _ = try migratedContainer(at: storeURL)
         let checksum = try storeChecksum(at: storeURL)
-        #expect(checksum == Self.identityChecksum)
+        #expect(checksum == Self.syncRecordChecksum)
         let reopened = try migratedContainer(at: storeURL)
         let context = ModelContext(reopened)
         #expect(reopened.migrationPlan == nil)
         #expect(try context.fetch(FetchDescriptor<PersistedLibraryMember>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<PersistedScopeCertificate>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<PersistedSyncRecord>()).isEmpty)
     }
 
     @Test("V5 members migrate with unknown identity and remain reopenable")
@@ -129,6 +130,24 @@ struct StoreSchemaMigrationTests {
             #expect(snapshot.memberIdentities.isEmpty)
             #expect(snapshot.certificates.isEmpty)
         }
+    }
+
+    @Test("V6 mirror state migrates to V7 with empty synchronization history")
+    func migratesV6SyncHistory() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+
+        _ = try fixtureProcess(mode: "v6", at: storeURL)
+        let container = try migratedContainer(at: storeURL)
+        let snapshot = try await TrackDataStore(modelContainer: container).loadMirrorSnapshot()
+        let context = ModelContext(container)
+
+        #expect(snapshot.revision == MirrorRevision(value: 13))
+        #expect(snapshot.presentIDs.map(\.rawValue) == ["v6-present"])
+        #expect(try context.fetch(FetchDescriptor<PersistedSyncRecord>()).isEmpty)
     }
 
     @Test("The exact deployed V4 coverage store migrates with no admissible certificates")
@@ -765,30 +784,5 @@ private final class RunningFixtureProcess {
         try? standardOutput.close()
         try? standardError.close()
         try? FileManager.default.removeItem(at: outputDirectory)
-    }
-}
-
-private enum FixtureProcessError: LocalizedError {
-    case executableNotFound
-    case failed(
-        reason: Process.TerminationReason,
-        status: Int32,
-        standardOutput: String,
-        standardError: String
-    )
-
-    var errorDescription: String? {
-        switch self {
-        case .executableNotFound:
-            "StoreFixtureGenerator was not found beside the Services test product."
-        case let .failed(reason, status, standardOutput, standardError):
-            """
-            StoreFixtureGenerator failed with reason \(reason == .exit ? "exit" : "uncaughtSignal"), status \(status).
-            stdout:
-            \(standardOutput)
-            stderr:
-            \(standardError)
-            """
-        }
     }
 }

@@ -15,7 +15,7 @@ struct WriteTerminalStoreTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { input, _, checkpoint in
@@ -51,7 +51,7 @@ struct WriteTerminalStoreTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in
@@ -87,7 +87,7 @@ struct WriteTerminalStoreTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in
@@ -124,7 +124,7 @@ struct WriteTerminalStoreTests {
             errorDescriptions: ["Write was rejected before dispatch"]
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { submittedInput, _, checkpoint in
@@ -168,7 +168,7 @@ struct WriteTerminalStoreTests {
             errorDescriptions: ["Write was rejected before dispatch"]
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { submittedInput, _, checkpoint in
@@ -206,7 +206,7 @@ struct WriteTerminalStoreTests {
             errorDescriptions: ["Failed to write genre for track track-2"]
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { input, _, checkpoint in

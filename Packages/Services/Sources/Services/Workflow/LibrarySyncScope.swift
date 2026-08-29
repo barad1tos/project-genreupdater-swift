@@ -19,10 +19,10 @@ struct ProcessingTrackScope: Sendable, Equatable {
 }
 
 extension LibrarySyncService {
-    var processingScope: ProcessingTrackScope {
+    func processingScope(configuration: LibrarySyncRuntimeConfiguration) -> ProcessingTrackScope {
         ProcessingTrackScope(
-            testArtists: runtimeConfiguration.testArtists,
-            albumIdentity: runtimeConfiguration.albumTargetIdentity
+            testArtists: configuration.testArtists,
+            albumIdentity: configuration.albumTargetIdentity
         )
     }
 
@@ -31,13 +31,23 @@ extension LibrarySyncService {
     /// baselines by album would convert album-tag drift into deletions
     /// and explode newIDs in the fallback path (PR #163 review).
     func tracksInConfiguredScope(_ tracks: [Track]) -> [Track] {
-        ArtistAllowList.filter(tracks, allowedArtists: runtimeConfiguration.testArtists)
+        tracksInConfiguredScope(tracks, configuration: runtimeConfiguration)
+    }
+
+    func tracksInConfiguredScope(
+        _ tracks: [Track],
+        configuration: LibrarySyncRuntimeConfiguration
+    ) -> [Track] {
+        ArtistAllowList.filter(tracks, allowedArtists: configuration.testArtists)
     }
 
     /// RESULT admission: the full predicate (allow-list + album identity),
     /// applied after the observer supplies authoritative source metadata.
-    func tracksAdmittedByRequest(_ tracks: [Track]) -> [Track] {
-        let scope = processingScope
+    func tracksAdmittedByRequest(
+        _ tracks: [Track],
+        configuration: LibrarySyncRuntimeConfiguration
+    ) -> [Track] {
+        let scope = processingScope(configuration: configuration)
         return tracks.filter { scope.admits($0) }
     }
 }

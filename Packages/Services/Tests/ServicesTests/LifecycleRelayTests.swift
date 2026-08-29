@@ -6,7 +6,7 @@ import Testing
 struct LifecycleRelayTests {
     private func makeOrchestrator() -> RunOrchestrator {
         RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is irrelevant to relay pins.
             }
@@ -119,7 +119,7 @@ struct LifecycleRelayTests {
             // Never yields: the first orchestrator's run stays active.
         }
         let hangingOrchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: {
+            synchronizeLibrary: { _ in
                 for await _ in never {
                     // Suspends forever.
                 }

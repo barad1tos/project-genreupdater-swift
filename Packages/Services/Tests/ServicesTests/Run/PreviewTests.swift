@@ -14,7 +14,7 @@ struct PreviewTests {
             UpdateOptions(updateGenre: false, updateYear: true, minConfidence: 73)
         )
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: {
+            synchronizeLibrary: { _ in
                 await syncCalls.recordCall()
                 await gate.waitUntilReleased()
                 return SyncResult()
@@ -66,7 +66,7 @@ struct PreviewTests {
             proposalCount: 2
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await probe.append($0) },
             produceFixPlan: { try await producer.produce(runID: $0, scope: $1, configuration: $2) },
             now: { clock.now() }
@@ -106,7 +106,7 @@ struct PreviewTests {
         let probe = PreviewRecordProbe()
         let producer = PreviewProducerProbe(production: .empty)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: {
+            synchronizeLibrary: { _ in
                 SyncResult(newTracks: [
                     Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
                 ])
@@ -143,7 +143,7 @@ struct PreviewTests {
     func producerFailureFailsPreview() async throws {
         let probe = PreviewRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await probe.append($0) },
             produceFixPlan: { _, _, _ in throw PreviewError(message: "Plan store unavailable") },
             now: { Date(timeIntervalSince1970: 100) }
@@ -176,7 +176,7 @@ struct PreviewTests {
     func planningCancellationCancels() async throws {
         let probe = PreviewRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await probe.append($0) },
             produceFixPlan: { _, _, _ in throw CancellationError() },
             now: { Date(timeIntervalSince1970: 100) }
@@ -211,7 +211,7 @@ struct PreviewTests {
         let release = PreviewReleaseProbe()
         let configuration = previewConfiguration()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await probe.append($0) },
             releasePreview: { await release.record($0) },
             now: { Date(timeIntervalSince1970: 100) }

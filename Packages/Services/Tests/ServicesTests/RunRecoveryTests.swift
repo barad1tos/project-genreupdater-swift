@@ -440,7 +440,7 @@ struct RunRecoveryTests {
 
         let interrupted = try #require(await store.recoveryRecords().records.first)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { _ in
                 // The test restores the record already persisted above.
             }

@@ -362,7 +362,8 @@ extension RunRecordDataStore {
         if stored.continuesRunID != replacement.continuesRunID {
             return "continuesRunID"
         }
-        if stored.scope != replacement.scope {
+        if stored.scope != replacement.scope,
+           stored.finishedAt != nil || !replacement.scope.isEvidenceBinding(of: stored.scope) {
             return "scope"
         }
         if stored.configuration != replacement.configuration {

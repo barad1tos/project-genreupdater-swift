@@ -162,8 +162,8 @@ extension AppDependencies {
         )
 
         return RunOrchestrator(dependencies: RunOrchestrator.Dependencies(
-            synchronizeLibrary: { [syncService] in
-                try await syncService.synchronizeNow()
+            synchronizeLibrary: { [syncService] scope in
+                try await syncService.synchronizeNow(capturedScope: scope)
             },
             synchronizePreview: synchronizePreview,
             persistRunRecord: RunRecordSink.make(

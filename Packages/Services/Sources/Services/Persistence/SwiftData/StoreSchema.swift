@@ -390,3 +390,11 @@ enum StoreSchemaV6: VersionedSchema {
         StoreSchemaV5.PersistedScopeCertificate.self,
     ]
 }
+
+enum StoreSchemaV7: VersionedSchema {
+    static let versionIdentifier = Schema.Version(7, 0, 0)
+
+    static let models: [any PersistentModel.Type] = StoreSchemaV6.models + [
+        PersistedSyncRecord.self,
+    ]
+}

@@ -195,7 +195,7 @@ private func makeFixtureOrchestrator(
     let failPersistence = input.options.failRunRecordPersistence
     let failTerminalPersistence = input.options.failTerminalRunRecordPersistence
     return RunOrchestrator(dependencies: .init(
-        synchronizeLibrary: { await observationGate.sync() },
+        synchronizeLibrary: { _ in await observationGate.sync() },
         persistRunRecord: { record in
             if failPersistence || (failTerminalPersistence && record.finishedAt != nil) {
                 throw FixtureRecordWriteError()

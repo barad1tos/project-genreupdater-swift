@@ -322,6 +322,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
 
     private init(
         copying snapshot: Self,
+        scope: ProcessingScopeSnapshot? = nil,
         workLedger: WorkLedger? = nil,
         phase: RunPhase? = nil
     ) {
@@ -329,7 +330,7 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
         requestID = snapshot.requestID
         trigger = snapshot.trigger
         intent = snapshot.intent
-        scope = snapshot.scope
+        self.scope = scope ?? snapshot.scope
         previewConfiguration = snapshot.previewConfiguration
         writeTarget = snapshot.writeTarget
         processingAdmission = snapshot.processingAdmission
@@ -345,6 +346,11 @@ public struct RunLifecycleSnapshot: Equatable, Sendable {
             reportIllegalTransition("beginningSync()", expected: ".active(.created)")
         }
         return withPhase(.active(.syncingLibrary))
+    }
+
+    func usingCommittedScope(_ scope: ProcessingScopeSnapshot?) -> Self {
+        guard let scope else { return self }
+        return Self(copying: self, scope: scope)
     }
 
     public func beginningFixPlanning() -> Self {

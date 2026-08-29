@@ -10,7 +10,7 @@ struct RunObservationTests {
         let records = RecordProbe()
         let plans = PlanProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: {
+            synchronizeLibrary: { _ in
                 SyncResult(newTracks: [
                     Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
                 ])

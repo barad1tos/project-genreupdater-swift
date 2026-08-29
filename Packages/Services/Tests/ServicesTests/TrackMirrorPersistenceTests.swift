@@ -119,6 +119,25 @@ struct TrackMirrorPersistenceTests {
         #expect(try await reopened.loadMirrorSnapshot() == expectedSnapshot)
     }
 
+    @Test("A mirror commit returns the exact snapshot accepted by its transaction")
+    func commitReturnsAcceptedSnapshot() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = TrackDataStore(modelContainer: container)
+        try await store.initialize()
+        let inserted = track(id: "inserted")
+
+        let result = try await store.commitMirror(MirrorCommit(
+            baseRevision: .initial,
+            inventoryChange: replacementInventory(for: [inserted]),
+            repairs: [],
+            upserts: [inserted],
+            certificates: .invalidate(.membershipChanged)
+        ))
+
+        #expect(result.snapshot?.revision == result.revision)
+        #expect(result.snapshot?.presentTracks == [inserted])
+    }
+
     @Test("Maximum persisted revision rejects a commit without mutating the mirror")
     func maximumRevisionRollsBack() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -168,5 +187,63 @@ struct TrackMirrorPersistenceTests {
         let reopened = try TrackDataStore(modelContainer: makeContainer(at: url))
         try await reopened.initialize()
         #expect(try await reopened.loadMirrorSnapshot() == expectedSnapshot)
+    }
+
+    @Test("Mismatched synchronization evidence rolls back the atomic mirror commit")
+    func invalidSyncEvidenceRollsBack() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = TrackDataStore(modelContainer: container)
+        try await store.initialize()
+        let memberID = try databaseID("A")
+        let inventory = try replacementInventory(for: [memberID])
+        let certificate = try scopeCertificate(
+            revision: MirrorRevision(value: 1),
+            inventoryChange: inventory,
+            trackIDs: [memberID]
+        )
+        let observation = ObservationID()
+        let record = MirrorSyncRecord(
+            observation: observation,
+            revisions: MirrorSyncRevisions(base: .initial, committed: MirrorRevision(value: 1)),
+            evidence: MirrorSyncEvidence(
+                membership: certificate.membership,
+                scopeID: UUID(),
+                certificateID: UUID()
+            ),
+            mode: .force,
+            window: MirrorSyncWindow(
+                startedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                completedAt: Date(timeIntervalSince1970: 1_800_000_001)
+            ),
+            delta: MirrorSyncCounts(new: 1, modified: 0, identityChanged: 0, refreshed: 0, removed: 0),
+            coverage: MirrorSyncCoverage(
+                identityRequestedCount: 1,
+                identityObservedCount: 1,
+                metadataRequestedCount: 1,
+                metadataObservedCount: 1,
+                isMembershipComplete: true,
+                isIdentityComplete: true,
+                isMetadataComplete: true
+            )
+        )
+
+        await #expect(throws: TrackStoreError.invalidSyncRecord) {
+            try await store.commitMirror(MirrorCommit(
+                baseRevision: .initial,
+                observation: observation,
+                inventoryChange: inventory,
+                repairs: [],
+                upserts: [track(id: "A")],
+                certificates: .replace(certificate),
+                syncRecord: record
+            ))
+        }
+
+        let snapshot = try await store.loadMirrorSnapshot()
+        #expect(snapshot.revision == .initial)
+        #expect(snapshot.presentIDs.isEmpty)
+        #expect(snapshot.presentTracks.isEmpty)
+        #expect(snapshot.certificates.isEmpty)
+        #expect(try ModelContext(container).fetch(FetchDescriptor<PersistedSyncRecord>()).isEmpty)
     }
 }

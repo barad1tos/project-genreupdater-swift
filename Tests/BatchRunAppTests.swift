@@ -16,7 +16,7 @@ struct BatchRunAppTests {
         let records = RecordCollector()
         let received = ReceivedRunBox()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { await records.append($0) },
             runBatchUpdate: dependencies.makeBatchRunnerBridge()
         )))
@@ -49,7 +49,7 @@ struct BatchRunAppTests {
         let dependencies = makeBatchTestDependencies()
         let records = RecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { await records.append($0) },
             runBatchUpdate: dependencies.makeBatchRunnerBridge()
         )))
@@ -376,7 +376,7 @@ struct BatchRunAppTests {
         dependencies.config.development.testArtists = ["Clutch"]
         let records = RecordCollector()
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { await records.append($0) },
             runBatchUpdate: dependencies.makeBatchRunnerBridge()
         )))

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Core
 @testable import Services
@@ -111,6 +112,40 @@ struct LibrarySyncVerifyTests {
         let snapshot = try await store.loadMirrorSnapshot()
         #expect(snapshot.revision == MirrorRevision(value: 1))
         #expect(try await store.readiness(testArtists: ["Target"]).isReady)
+    }
+
+    @Test("Maintenance records its commit without promoting a certificate")
+    func maintenanceKeepsCertificate() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let store = TrackDataStore(modelContainer: container)
+        try await store.initialize()
+        let bridge = SyncMockScriptClient()
+        let track = Track(id: "T1", name: "One", artist: "Target", album: "Album")
+        await bridge.setLibrary(ids: ["T1"], tracks: ["T1": track])
+        let logDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibrarySyncMaintenance-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logDirectory) }
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                logsBaseDirectory: logDirectory.path,
+                lastDatabaseVerifyLog: "last.log"
+            ),
+            observer: bridge
+        )
+        _ = try await service.synchronizeNow(forceMetadataRefresh: true)
+        let before = try await store.loadMirrorSnapshot()
+        let certificate = try #require(before.certificates.first)
+
+        _ = try await service.verifyAndCleanDatabase(force: true)
+
+        let after = try await store.loadMirrorSnapshot()
+        let context = ModelContext(container)
+        let records = try context.fetch(FetchDescriptor<PersistedSyncRecord>())
+        #expect(after.certificates.map(\.id) == [certificate.id])
+        #expect(after.revision == MirrorRevision(value: 2))
+        #expect(records.count == 2)
+        #expect(records.contains { $0.modeRaw == "membershipOnly" && $0.certificateID == nil })
     }
 
     @Test("Database verification persists identity facts without a membership delta")

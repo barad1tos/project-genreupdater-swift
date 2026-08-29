@@ -319,7 +319,7 @@ struct FixPlanFactoryTests {
         let request = try path.request(input: fixture.input)
         let holdID = UUID()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is outside this queued-admission boundary test.
             },
@@ -375,7 +375,7 @@ struct FixPlanFactoryTests {
         let input = StaleInputMutation.scope.applying(to: fixture.input)
         let capture = RunCapture()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { await capture.append($0) },
             write: .init(writeFixPlan: fixture.write),
             now: { Date(timeIntervalSince1970: 120) }

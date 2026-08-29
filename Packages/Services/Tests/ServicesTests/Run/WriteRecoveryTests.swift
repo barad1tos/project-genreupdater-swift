@@ -11,7 +11,7 @@ struct WriteRecoveryTests {
         let writer = RecoveryWriteProbe()
         let recoveryID = UUID()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await probe.append($0) },
             write: .init(
                 writeFixPlan: { input, _, checkpoint in
@@ -74,7 +74,7 @@ struct WriteRecoveryTests {
         let writer = RecoveryWriteProbe()
         let syncGate = WriteSyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { await syncGate.sync() },
+            synchronizeLibrary: { _ in await syncGate.sync() },
             persistRunRecord: { _ in },
             write: .init(
                 writeFixPlan: { input, _, checkpoint in
@@ -107,7 +107,7 @@ struct WriteRecoveryTests {
     func recoveryResurfacesAfterRead() async {
         let syncGate = WriteSyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { await syncGate.sync() },
+            synchronizeLibrary: { _ in await syncGate.sync() },
             persistRunRecord: { _ in }
         ))
         let active = Task {
@@ -133,7 +133,7 @@ struct WriteRecoveryTests {
         let writer = WriteProbe(result: BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: []))
         let syncGate = WriteSyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { await syncGate.sync() },
+            synchronizeLibrary: { _ in await syncGate.sync() },
             persistRunRecord: { _ in },
             write: .init(writeFixPlan: { input, _, _ in try await writer.apply(input: input) })
         ))
@@ -162,7 +162,7 @@ struct WriteRecoveryTests {
         let attempted = makeWorkItem(state: .attempted)
         let recovery = recoveryRecord(workItems: [attempted])
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { _ in
                 // Persistence is inert because this test observes only in-memory recovery closure.
             }
@@ -185,7 +185,7 @@ struct WriteRecoveryTests {
     func blockedRecoveryRemains() async {
         let writer = WriteProbe(result: BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: []))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { _ in },
             write: .init(writeFixPlan: { input, _, _ in try await writer.apply(input: input) })
         ))

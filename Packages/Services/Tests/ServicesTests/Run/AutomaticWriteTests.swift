@@ -27,7 +27,7 @@ struct AutomaticWriteTests {
             capturedAt: capturedAt
         )
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in .empty },
             now: { capturedAt }
@@ -66,7 +66,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -121,7 +121,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: ignoreRunRecord,
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -171,7 +171,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -218,7 +218,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, configuration in
                 if configuration.id == backgroundConfiguration.id {
@@ -349,7 +349,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -398,7 +398,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: ignoreRunRecord,
             produceFixPlan: { _, _, _ in
                 await planGate.waitUntilReleased()
@@ -449,7 +449,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: ignoreRunRecord,
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -502,7 +502,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -745,7 +745,7 @@ private func stalePlanFixture() -> StalePlanFixture {
         errorDescriptions: []
     ))
     let orchestrator = RunOrchestrator(dependencies: .init(
-        synchronizeLibrary: { SyncResult() },
+        synchronizeLibrary: { _ in SyncResult() },
         persistRunRecord: { try await records.append($0) },
         produceFixPlan: { _, _, configuration in
             if configuration.id == scheduledConfiguration.id {

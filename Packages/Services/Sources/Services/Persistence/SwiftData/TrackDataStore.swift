@@ -32,6 +32,10 @@ public actor TrackDataStore: TrackStateStore {
     }
 
     public func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
+        try makeMirrorSnapshot()
+    }
+
+    private func makeMirrorSnapshot() throws -> TrackMirrorSnapshot {
         let persistedTracks = try fetchPersistedTracks()
         let presentMembers = try fetchPresentMembers()
         let presentIDs = presentMembers.compactMap { MusicDatabaseTrackID(rawValue: $0.databaseID) }
@@ -128,6 +132,7 @@ public actor TrackDataStore: TrackStateStore {
     public func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
         var membershipDelta = MembershipDelta()
         var committedRevision = commit.baseRevision
+        var committedSnapshot: TrackMirrorSnapshot?
         do {
             try modelContext.transaction {
                 let mirrorState: PersistedMirrorState
@@ -147,8 +152,18 @@ public actor TrackDataStore: TrackStateStore {
                 try applyTrackChanges(transactionPlan, upserts: commit.upserts)
                 membershipDelta = try applyInventory(transactionPlan.inventory, revision: nextRevision)
                 let membership = try MembershipFingerprint.make(ids: fetchPresentIDs())
+                try validateSyncRecord(
+                    commit.syncRecord,
+                    commit: commit,
+                    nextRevision: nextRevision,
+                    membership: membership
+                )
                 try applyCertificates(commit.certificates, revision: nextRevision, membership: membership)
+                if let record = commit.syncRecord {
+                    modelContext.insert(PersistedSyncRecord(record: record))
+                }
                 committedRevision = try mirrorState.advanceRevision()
+                committedSnapshot = try makeMirrorSnapshot()
             }
         } catch {
             modelContext.rollback()
@@ -160,7 +175,41 @@ public actor TrackDataStore: TrackStateStore {
             .info(
                 "Applied mirror upserts: \(commit.upserts.count, privacy: .public); membership additions: \(membershipDelta.added, privacy: .public); tombstones: \(membershipDelta.removed, privacy: .public); resurrections: \(membershipDelta.resurrected, privacy: .public)"
             )
-        return MirrorCommitResult(revision: committedRevision)
+        return MirrorCommitResult(revision: committedRevision, snapshot: committedSnapshot)
+    }
+
+    private func validateSyncRecord(
+        _ record: MirrorSyncRecord?,
+        commit: MirrorCommit,
+        nextRevision: MirrorRevision,
+        membership: MembershipStamp
+    ) throws {
+        guard let record else { return }
+        guard record.observation == commit.observation,
+              record.revisions.base == commit.baseRevision,
+              record.revisions.committed == nextRevision,
+              record.evidence.membership == membership,
+              try isValidCertificateEvidence(record, change: commit.certificates)
+        else {
+            throw TrackStoreError.invalidSyncRecord
+        }
+    }
+
+    private func isValidCertificateEvidence(
+        _ record: MirrorSyncRecord,
+        change: CertificateChange
+    ) throws -> Bool {
+        switch change {
+        case let .replace(certificate), let .rebase(certificate):
+            return record.evidence.certificateID == certificate.id
+        case .invalidate:
+            return record.evidence.certificateID == nil
+        case .preserve where record.mode == .membershipOnly:
+            return record.evidence.certificateID == nil
+        case .preserve:
+            guard let certificateID = record.evidence.certificateID else { return false }
+            return try fetchCertificates().contains { $0.id == certificateID }
+        }
     }
 
     private func applyTrackChanges(_ plan: MirrorPlan, upserts: [Track]) throws {

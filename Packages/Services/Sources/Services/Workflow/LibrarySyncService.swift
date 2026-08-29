@@ -57,7 +57,7 @@ public actor LibrarySyncService {
     }
 
     public func verifyAndCleanDatabase(force: Bool = false) async throws -> DatabaseVerificationResult {
-        try await retryingMirrorConflicts {
+        try await retryingSynchronizationConflicts {
             try await verificationAttempt(force: force)
         }
     }
@@ -138,52 +138,135 @@ public actor LibrarySyncService {
                 ? .invalidate(.membershipChanged)
                 : .invalidate(.incompleteObservation)
         }
+        let observationID = ObservationID()
+        let membership = try MembershipFingerprint.make(ids: Array(observation.censusIDs))
+        let removedCount = snapshot.presentIDs.subtracting(observation.censusIDs).count
+        let record = try MirrorSyncRecord(
+            observation: observationID,
+            revisions: MirrorSyncRevisions(
+                base: snapshot.revision,
+                committed: snapshot.revision.advanced()
+            ),
+            evidence: MirrorSyncEvidence(
+                membership: membership,
+                scopeID: observation.scope.id,
+                certificateID: nil
+            ),
+            mode: .membershipOnly,
+            window: MirrorSyncWindow(startedAt: observation.scope.createdAt, completedAt: currentDate()),
+            delta: MirrorSyncCounts(
+                new: 0,
+                modified: 0,
+                identityChanged: 0,
+                refreshed: 0,
+                removed: removedCount
+            ),
+            coverage: MirrorSyncCoverage(
+                identityRequestedCount: observation.identity.requestedIDs.count,
+                identityObservedCount: observation.identity.observedIDs.count,
+                metadataRequestedCount: observation.metadata.requestedIDs.count,
+                metadataObservedCount: observation.metadata.observedIDs.count,
+                isMembershipComplete: hasCompleteMembership(observation),
+                isIdentityComplete: observation.identity.isComplete,
+                isMetadataComplete: observation.metadata.isComplete
+            )
+        )
         try await trackStore.commitMirror(MirrorCommit(
             baseRevision: snapshot.revision,
-            observation: ObservationID(),
+            observation: observationID,
             inventoryChange: inventoryTransition,
             repairs: [],
             upserts: [],
-            certificates: certificateTransition
+            certificates: certificateTransition,
+            syncRecord: record
         ))
     }
 
     /// Detect and persist Music.app library changes in the local store.
+    /// A captured scope preserves the initiating run's identity while synchronization binds committed evidence to it.
     @discardableResult
-    public func synchronizeNow(forceMetadataRefresh: Bool = false) async throws -> SyncResult {
-        try await retryingMirrorConflicts {
-            try await synchronizeAttempt(forceMetadataRefresh: forceMetadataRefresh)
+    public func synchronizeNow(
+        forceMetadataRefresh: Bool = false,
+        capturedScope: ProcessingScopeSnapshot? = nil
+    ) async throws -> SyncResult {
+        let input = SyncAttemptInput(
+            configuration: runtimeConfiguration,
+            capturedScope: capturedScope ?? runtimeConfiguration.capturedScope,
+            startedAt: currentDate(),
+            isForced: forceMetadataRefresh
+        )
+        return try await retryingSynchronizationConflicts(policy: input.configuration.mirrorRetryPolicy) {
+            try await synchronizeAttempt(input)
         }
     }
 
-    private func retryingMirrorConflicts<Result: Sendable>(
+    private func retryingSynchronizationConflicts<Result: Sendable>(
+        policy: MirrorRetryPolicy? = nil,
         _ operation: () async throws -> Result
     ) async throws -> Result {
+        let policy = policy ?? runtimeConfiguration.mirrorRetryPolicy
         var conflictCount = 0
         while true {
             do {
                 return try await operation()
-            } catch let conflict as MirrorRevisionConflict {
-                guard conflictCount < runtimeConfiguration.mirrorRetryPolicy.retryLimit else {
+            } catch let conflict where isRetryableSynchronizationConflict(conflict) {
+                guard conflictCount < policy.retryLimit else {
                     throw conflict
                 }
                 conflictCount += 1
-                try await Task.sleep(for: runtimeConfiguration.mirrorRetryPolicy.delay)
+                try await Task.sleep(for: policy.delay)
             }
         }
     }
 
-    private func synchronizeAttempt(forceMetadataRefresh: Bool) async throws -> SyncResult {
-        let detection = try await detectObservation(forceMetadataRefresh: forceMetadataRefresh)
-        let result = detection.result
-        try await trackStore.commitMirror(MirrorCommit(
+    private func isRetryableSynchronizationConflict(_ error: any Error) -> Bool {
+        if error is MirrorRevisionConflict {
+            return true
+        }
+        switch error as? MusicAppObservationError {
+        case .censusChanged, .generationChanged:
+            return true
+        case .duplicateMetadata, .duplicateIdentity, .unexpectedMetadata, .unexpectedIdentity,
+             .unresolvedMetadataIdentity, .none:
+            return false
+        }
+    }
+
+    private func synchronizeAttempt(_ input: SyncAttemptInput) async throws -> SyncResult {
+        let prepared = try await prepareAttempt(input)
+        guard case let .prepared(detection) = prepared else {
+            throw LibrarySyncObservationError.invalidObservation(detail: "synchronization was not prepared")
+        }
+        try Task.checkCancellation()
+        let syncRecord = try makeSyncRecord(
+            for: detection,
+            startedAt: input.startedAt,
+            completedAt: currentDate()
+        )
+        let commitResult = try await trackStore.commitMirror(MirrorCommit(
             baseRevision: detection.baseRevision,
-            observation: detection.observation,
+            observation: detection.observationID,
             inventoryChange: detection.inventoryChange,
             repairs: detection.repairs,
             upserts: detection.upserts,
-            certificates: detection.certificateChange
+            certificates: detection.certificateChange,
+            syncRecord: syncRecord
         ))
+        let snapshot = if let committedSnapshot = commitResult.snapshot {
+            committedSnapshot
+        } else {
+            try await trackStore.loadMirrorSnapshot()
+        }
+        guard snapshot.revision == commitResult.revision else {
+            throw LibrarySyncObservationError.invalidObservation(
+                detail: "committed mirror revision does not match its result"
+            )
+        }
+        let committed = try prepared.transitioned(by: .committed(commitResult, snapshot))
+        guard case let .committed(committedDetection, _, committedSnapshot) = committed else {
+            throw LibrarySyncObservationError.invalidObservation(detail: "synchronization was not committed")
+        }
+        let result = try committedResult(from: committedDetection, snapshot: committedSnapshot)
 
         await invalidateCachesForLibraryChanges(
             hasLibraryChanges: result.hasChanges,
@@ -202,10 +285,61 @@ public actor LibrarySyncService {
         try await removeResolvedPrereleasePendingEntries(
             removedTracks: result.removedTrackIDs.compactMap { detection.previousTracks[$0] }
         )
-        if detection.didCompleteForceRefresh {
-            try await updateForceScanDate()
+        if committedDetection.didCompleteForceRefresh {
+            try await updateForceScanDate(at: input.startedAt)
         }
         return result
+    }
+
+    private func committedResult(
+        from detection: SyncDetection,
+        snapshot: TrackMirrorSnapshot
+    ) throws -> SyncResult {
+        if let certificateID = detection.syncEvidence.certificateID,
+           !snapshot.certificates.contains(where: { $0.id == certificateID }) {
+            throw LibrarySyncObservationError.invalidObservation(
+                detail: "committed scope certificate is absent from its mirror snapshot"
+            )
+        }
+        let tracksByID = Dictionary(uniqueKeysWithValues: snapshot.presentTracks.map { ($0.id, $0) })
+        let projected = detection.result
+        return SyncResult(
+            newTracks: projected.newTracks.compactMap { tracksByID[$0.id] },
+            modifiedTracks: projected.modifiedTracks.compactMap { tracksByID[$0.id] },
+            identityChangedTracks: projected.identityChangedTracks.compactMap { tracksByID[$0.id] },
+            refreshedTracks: projected.refreshedTracks.compactMap { tracksByID[$0.id] },
+            removedTrackIDs: projected.removedTrackIDs.filter { tracksByID[$0] == nil },
+            scope: detection.scope.binding(
+                revision: snapshot.revision,
+                certificateID: detection.syncEvidence.certificateID
+            )
+        )
+    }
+
+    private func makeSyncRecord(
+        for detection: SyncDetection,
+        startedAt: Date,
+        completedAt: Date
+    ) throws -> MirrorSyncRecord {
+        let result = detection.result
+        return try MirrorSyncRecord(
+            observation: detection.observationID,
+            revisions: MirrorSyncRevisions(
+                base: detection.baseRevision,
+                committed: detection.baseRevision.advanced()
+            ),
+            evidence: detection.syncEvidence,
+            mode: detection.syncMode,
+            window: MirrorSyncWindow(startedAt: startedAt, completedAt: completedAt),
+            delta: MirrorSyncCounts(
+                new: result.newTracks.count,
+                modified: result.modifiedTracks.count,
+                identityChanged: result.identityChangedTracks.count,
+                refreshed: result.refreshedTracks.count,
+                removed: result.removedTrackIDs.count
+            ),
+            coverage: detection.syncCoverage
+        )
     }
 
     private func invalidateCachesForLibraryChanges(

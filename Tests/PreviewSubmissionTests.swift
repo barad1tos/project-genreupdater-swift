@@ -18,7 +18,7 @@ struct PreviewSubmissionTests {
         dependencies.config.runtime.automationStrategy = .hybrid
         dependencies.installTrackCountSource { 1 }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             synchronizePreview: { scope, configuration in
                 await probe.recordSync(scope: scope, configuration: configuration)
                 return SyncResult()
@@ -58,7 +58,7 @@ struct PreviewSubmissionTests {
             return 1
         }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             synchronizePreview: { scope, configuration in
                 await probe.recordSync(scope: scope, configuration: configuration)
                 return SyncResult()
@@ -113,7 +113,7 @@ struct PreviewSubmissionTests {
         )
         dependencies.installTrackCountSource { 1 }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             synchronizePreview: { scope, configuration in
                 await probe.recordSync(scope: scope, configuration: configuration)
                 return SyncResult()

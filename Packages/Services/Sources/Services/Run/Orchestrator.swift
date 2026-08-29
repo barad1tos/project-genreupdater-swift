@@ -290,9 +290,9 @@ public actor RunOrchestrator {
     ) async throws -> RunWork {
         switch request.kind {
         case .observeLibrary:
-            let syncResult = try await dependencies.synchronizeLibrary()
+            let syncResult = try await dependencies.synchronizeLibrary(lifecycle.scope)
             return RunWork(
-                reportingSource: lifecycle,
+                reportingSource: lifecycle.usingCommittedScope(syncResult.scope),
                 result: syncResult,
                 hasActionableWork: syncResult.hasChanges,
                 writeSummary: nil,
@@ -302,12 +302,12 @@ public actor RunOrchestrator {
             let syncResult: SyncResult = if let synchronizePreview = dependencies.synchronizePreview {
                 try await synchronizePreview(lifecycle.scope, configuration)
             } else {
-                try await dependencies.synchronizeLibrary()
+                try await dependencies.synchronizeLibrary(lifecycle.scope)
             }
             guard let produceFixPlan = dependencies.produceFixPlan else {
                 throw RunWorkError.missingFixPlanProducer
             }
-            let planning = beginFixPlanning(from: lifecycle)
+            let planning = beginFixPlanning(from: lifecycle.usingCommittedScope(syncResult.scope))
             let production = try await produceFixPlan(planning.runID, planning.scope, configuration)
             return RunWork(
                 reportingSource: planning,

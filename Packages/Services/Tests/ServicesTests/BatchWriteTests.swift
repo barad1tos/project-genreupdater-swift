@@ -239,7 +239,7 @@ struct BatchWriteTests {
         let input = writeInput(workItems: workItems(for: proposals))
         let coordinator = fixture.coordinator
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: .init(
                 writeFixPlan: { _, _, checkpoint in

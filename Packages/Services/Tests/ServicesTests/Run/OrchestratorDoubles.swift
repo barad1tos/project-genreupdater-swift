@@ -42,6 +42,14 @@ actor FixPlanProducerProbe {
     }
 }
 
+actor ScopeProbe {
+    private(set) var scope: ProcessingScopeSnapshot?
+
+    func record(_ scope: ProcessingScopeSnapshot) {
+        self.scope = scope
+    }
+}
+
 func automaticInput(
     planID: FixPlanID,
     planning: RunConfig,

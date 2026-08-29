@@ -51,7 +51,7 @@ struct BatchRunTests {
     func batchRunPersistsOpenAndTerminalRecords() async throws {
         let records = WriteRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             runBatchUpdate: { _, _ in
                 BatchUpdateResult(
@@ -82,7 +82,7 @@ struct BatchRunTests {
     func emptyBatchIsNoOp() async throws {
         let records = WriteRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             runBatchUpdate: { _, _ in
                 BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
@@ -103,7 +103,7 @@ struct BatchRunTests {
     func partialFailuresFinishFailedWithSummary() async throws {
         let records = WriteRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             runBatchUpdate: { _, _ in
                 BatchUpdateResult(
@@ -129,7 +129,7 @@ struct BatchRunTests {
     func missingRunnerFailsFast() async throws {
         let records = WriteRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) }
         ))
 
@@ -148,7 +148,7 @@ struct BatchRunTests {
         let records = WriteRecordProbe()
         let holdProbe = HoldProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             write: RunOrchestrator.WriteDependencies(
                 beginRecoveryHold: { await holdProbe.begin() }
@@ -173,7 +173,7 @@ struct BatchRunTests {
     func cancellationFinishesCancelled() async throws {
         let records = WriteRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             runBatchUpdate: { _, _ in throw CancellationError() }
         ))
@@ -192,7 +192,7 @@ struct BatchRunTests {
     func batchQueuesBehindActiveObservation() async throws {
         let gate = WriteSyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { await gate.sync() },
+            synchronizeLibrary: { _ in await gate.sync() },
             persistRunRecord: ignoreRunRecord,
             runBatchUpdate: { _, _ in
                 BatchUpdateResult(entries: [], failedTrackIDs: [], errorDescriptions: [])
@@ -220,7 +220,7 @@ struct BatchRunTests {
     func identicalBatchIsAlreadyCovered() async {
         let runnerGate = RunnerGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: ignoreRunRecord,
             runBatchUpdate: { _, _ in
                 await runnerGate.wait()
@@ -245,7 +245,7 @@ struct BatchRunTests {
     func batchAndPlanWriteQueueIndependently() async {
         let runnerGate = RunnerGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: ignoreRunRecord,
             write: RunOrchestrator.WriteDependencies(
                 writeFixPlan: { _, _, _ in
@@ -274,7 +274,7 @@ struct BatchRunTests {
     func failingStoreKeepsBatchRunnerUninvoked() async {
         let runnerProbe = RunnerInvocationProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { _ in throw RecordWriteError() },
             runBatchUpdate: { _, _ in
                 await runnerProbe.record()
@@ -295,7 +295,7 @@ struct BatchRunTests {
         let gate = WriteSyncGate()
         let runnerProbe = RunnerInvocationProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { await gate.sync() },
+            synchronizeLibrary: { _ in await gate.sync() },
             persistRunRecord: ignoreRunRecord,
             runBatchUpdate: { _, _ in
                 await runnerProbe.record()
@@ -329,7 +329,7 @@ struct BatchRunTests {
         // store's evidence gates, or every real batch dies unstored.
         let store = try makeRunStore()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await store.upsert($0) },
             runBatchUpdate: { _, _ in
                 BatchUpdateResult(entries: [writeEntry()], failedTrackIDs: [], errorDescriptions: [])
@@ -354,7 +354,7 @@ struct BatchRunTests {
         let gate = WriteSyncGate()
         let runnerProbe = RunnerInvocationProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { await gate.sync() },
+            synchronizeLibrary: { _ in await gate.sync() },
             persistRunRecord: ignoreRunRecord,
             runBatchUpdate: { _, _ in
                 await runnerProbe.record()

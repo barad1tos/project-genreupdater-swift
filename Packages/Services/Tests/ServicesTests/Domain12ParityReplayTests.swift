@@ -218,7 +218,7 @@ struct Domain12ParityReplayTests {
             capturedAt: producedAt
         )
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { SyncResult() },
+            synchronizeLibrary: { _ in SyncResult() },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
