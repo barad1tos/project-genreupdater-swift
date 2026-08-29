@@ -1,7 +1,7 @@
 import Core
-import DesignUI
 import Foundation
 import Testing
+@testable import DesignUI
 @testable import Genre_Updater
 @testable import Services
 

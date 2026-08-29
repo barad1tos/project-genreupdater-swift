@@ -1,4 +1,4 @@
-public struct RecoveryItemActionDescriptor: Equatable, Sendable {
+struct RecoveryItemActionDescriptor: Equatable, Sendable {
     private static let dismissalReasons = ["Duplicate", "Handled manually", "Not wanted"]
     private static let acknowledgementReasons = [
         "Track removed",
@@ -6,15 +6,15 @@ public struct RecoveryItemActionDescriptor: Equatable, Sendable {
         "Keep mirror unchanged",
     ]
 
-    public let attentionLabel: String?
-    public let tone: Tone
-    public let sectionTitle: String
-    public let accessibilityLabel: String
-    public let reasons: [String]
-    public let runID: String
-    public let itemID: String
+    let attentionLabel: String?
+    let tone: Tone
+    let sectionTitle: String
+    let accessibilityLabel: String
+    let reasons: [String]
+    let runID: String
+    let itemID: String
 
-    public static func make(
+    static func make(
         detail: RunReportDetailSnapshot,
         item: RunReportWorkItemRow
     ) -> Self? {
@@ -38,7 +38,7 @@ public struct RecoveryItemActionDescriptor: Equatable, Sendable {
         )
     }
 
-    public func perform(reason: String, using actions: RecoveryDetailActions?) {
+    func perform(reason: String, using actions: RecoveryDetailActions?) {
         guard reasons.contains(reason) else { return }
         actions?.dismissItem(runID, itemID, reason)
     }
