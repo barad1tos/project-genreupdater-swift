@@ -38,7 +38,9 @@ actor MockTrackStore: TrackStateStore {
         appliedUpdateHook = hook
     }
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // This in-memory double has no backing store to initialize.
+    }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try mirrorSnapshot(revision: revision, tracks: tracks, certificates: certificates)
