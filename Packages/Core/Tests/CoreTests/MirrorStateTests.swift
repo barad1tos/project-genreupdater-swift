@@ -85,4 +85,112 @@ struct MirrorStateTests {
             try JSONDecoder().decode(MembershipStamp.self, from: encoded)
         }
     }
+
+    @Test("Synchronization audit rejects negative delta counts")
+    func syncAuditRejectsNegativeDelta() throws {
+        #expect(throws: MirrorSyncRecordValidationError.negativeDeltaCount) {
+            try syncRecord(delta: MirrorSyncCounts(
+                new: -1,
+                modified: 0,
+                identityChanged: 0,
+                refreshed: 0,
+                removed: 0
+            ))
+        }
+    }
+
+    @Test("Synchronization audit rejects impossible coverage")
+    func syncAuditRejectsImpossibleCoverage() throws {
+        #expect(throws: MirrorSyncRecordValidationError.invalidCoverageCount) {
+            try syncRecord(coverage: MirrorSyncCoverage(
+                identityRequestedCount: 1,
+                identityObservedCount: 2,
+                metadataRequestedCount: 0,
+                metadataObservedCount: 0,
+                isMembershipComplete: true,
+                isIdentityComplete: false,
+                isMetadataComplete: true
+            ))
+        }
+    }
+
+    @Test("Synchronization audit rejects contradictory completeness")
+    func syncAuditRejectsContradictoryCompleteness() throws {
+        #expect(throws: MirrorSyncRecordValidationError.inconsistentCompleteness) {
+            try syncRecord(coverage: MirrorSyncCoverage(
+                identityRequestedCount: 1,
+                identityObservedCount: 0,
+                metadataRequestedCount: 1,
+                metadataObservedCount: 0,
+                isMembershipComplete: true,
+                isIdentityComplete: true,
+                isMetadataComplete: false
+            ))
+        }
+    }
+
+    @Test("Synchronization window preserves the legacy completedAt wire key")
+    func syncWindowPreservesLegacyWireKey() throws {
+        let encoded = try JSONEncoder().encode(MirrorSyncWindow(
+            startedAt: Date(timeIntervalSince1970: 100),
+            preparedAt: Date(timeIntervalSince1970: 101)
+        ))
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+        #expect(object["completedAt"] != nil)
+        #expect(object["preparedAt"] == nil)
+
+        let decoded = try JSONDecoder().decode(MirrorSyncWindow.self, from: encoded)
+        #expect(decoded.preparedAt == Date(timeIntervalSince1970: 101))
+    }
+
+    @Test("Synchronization audit decoding enforces semantic validation")
+    func syncAuditDecodingEnforcesValidation() throws {
+        let encoded = try JSONEncoder().encode(syncRecord())
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var delta = try #require(object["delta"] as? [String: Any])
+        delta["new"] = -1
+        object["delta"] = delta
+        let invalidData = try JSONSerialization.data(withJSONObject: object)
+
+        #expect(throws: MirrorSyncRecordValidationError.negativeDeltaCount) {
+            try JSONDecoder().decode(MirrorSyncRecord.self, from: invalidData)
+        }
+    }
+
+    private func syncRecord(
+        delta: MirrorSyncCounts = MirrorSyncCounts(
+            new: 0,
+            modified: 0,
+            identityChanged: 0,
+            refreshed: 0,
+            removed: 0
+        ),
+        coverage: MirrorSyncCoverage = MirrorSyncCoverage(
+            identityRequestedCount: 0,
+            identityObservedCount: 0,
+            metadataRequestedCount: 0,
+            metadataObservedCount: 0,
+            isMembershipComplete: true,
+            isIdentityComplete: true,
+            isMetadataComplete: true
+        )
+    ) throws -> MirrorSyncRecord {
+        try MirrorSyncRecord(
+            observation: ObservationID(),
+            revisions: MirrorSyncRevisions(base: .initial, committed: MirrorRevision(value: 1)),
+            evidence: MirrorSyncEvidence(
+                membership: MembershipStamp(fingerprint: membershipFingerprint),
+                scopeID: UUID(),
+                certificateID: nil
+            ),
+            mode: .fast,
+            window: MirrorSyncWindow(
+                startedAt: Date(timeIntervalSince1970: 100),
+                preparedAt: Date(timeIntervalSince1970: 101)
+            ),
+            delta: delta,
+            coverage: coverage
+        )
+    }
 }

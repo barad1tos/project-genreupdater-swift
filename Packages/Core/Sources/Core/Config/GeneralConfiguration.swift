@@ -129,14 +129,16 @@ public struct RuntimeConfig: Sendable, Codable {
 public struct LibrarySyncConfig: Sendable, Codable, Equatable {
     public var conflictRetries: Int = Defaults.conflictRetries
     public var conflictDelaySeconds: Double = Defaults.conflictDelaySeconds
+    public var syncRecordLimit: Int = Defaults.syncRecordLimit
 
     private enum Defaults {
         static let conflictRetries = 3
         static let conflictDelaySeconds = 0.1
+        static let syncRecordLimit = 500
     }
 
     private enum CodingKeys: String, CodingKey {
-        case conflictRetries, conflictDelaySeconds
+        case conflictRetries, conflictDelaySeconds, syncRecordLimit
     }
 
     public init() {
@@ -151,6 +153,8 @@ public struct LibrarySyncConfig: Sendable, Codable, Equatable {
             Double.self,
             forKey: .conflictDelaySeconds
         ) ?? Defaults.conflictDelaySeconds
+        syncRecordLimit = try container.decodeIfPresent(Int.self, forKey: .syncRecordLimit)
+            ?? Defaults.syncRecordLimit
     }
 }
 

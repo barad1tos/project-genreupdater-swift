@@ -287,12 +287,12 @@ struct FixPlanRetentionTests {
     }
 
     private func makePlan() throws -> FixPlan {
-        let scope = ProcessingScopeSnapshot.capture(
+        let scope = certifiedScope(ProcessingScopeSnapshot.capture(
             requestedTestArtists: ["Aphex Twin"],
             knownTrackCount: 75,
             createdAt: baseDate,
             reason: "manualCheck"
-        )
+        ))
         let item = FixPlanItem(
             id: UUID(),
             identity: FixPlanItemIdentity(

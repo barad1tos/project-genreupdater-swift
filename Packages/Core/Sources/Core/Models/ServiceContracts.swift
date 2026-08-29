@@ -146,7 +146,6 @@ public enum InventoryChange: Equatable, Sendable {
 /// Protocol for persisting the track metadata mirror and processing state.
 public protocol TrackStateStore: Actor {
     func initialize() async throws
-    func loadAllTracks() async throws -> [Track]
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot
     /// Atomically commits one coherent metadata-mirror mutation.
     @discardableResult

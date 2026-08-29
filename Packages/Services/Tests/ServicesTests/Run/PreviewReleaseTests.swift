@@ -87,9 +87,9 @@ struct PreviewReleaseTests {
         let firstConfiguration = makePreviewConfiguration(minConfidence: 70)
         let replacementConfiguration = makePreviewConfiguration(minConfidence: 80)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in
+            synchronizeLibrary: { scope in
                 await gate.waitUntilReleased()
-                return SyncResult()
+                return SyncResult().committed(to: scope)
             },
             persistRunRecord: ignorePreviewRecord,
             produceFixPlan: { _, _, _ in .empty },
@@ -133,7 +133,7 @@ struct PreviewReleaseTests {
         releases: PreviewReleaseProbe
     ) -> RunOrchestrator {
         RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: ignorePreviewRecord,
             produceFixPlan: { _, _, _ in
                 await gate.waitUntilReleased()

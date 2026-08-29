@@ -30,7 +30,7 @@ extension StoreSchemaV7 {
         var isMetadataComplete: Bool
         var outcomeRaw: String
 
-        init(record: MirrorSyncRecord) {
+        init(record: MirrorSyncRecord, completedAt: Date) {
             observationID = record.observation.value
             baseRevisionValue = record.revisions.base.value
             committedRevisionValue = record.revisions.committed.value
@@ -39,7 +39,7 @@ extension StoreSchemaV7 {
             certificateID = record.evidence.certificateID
             modeRaw = record.mode.rawValue
             startedAt = record.window.startedAt
-            completedAt = record.window.completedAt
+            self.completedAt = completedAt
             newCount = record.delta.new
             modifiedCount = record.delta.modified
             identityChangedCount = record.delta.identityChanged

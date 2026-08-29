@@ -33,12 +33,12 @@ struct FixPlanIdentityTests {
             coordinator: coordinator,
             capture: capture
         )
-        let scope = ProcessingScopeSnapshot.capture(
+        let scope = certifiedScope(ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
             knownTrackCount: 1,
             createdAt: Date(timeIntervalSince1970: 100),
             reason: "test"
-        )
+        ))
         let configuration = FixPlanConfig.capture(
             configuration: AppConfiguration(),
             options: UpdateOptions(updateGenre: false, updateYear: true),
@@ -72,12 +72,12 @@ struct FixPlanIdentityTests {
 
         let production = try await fixture.producer.producePlan(
             sourceRunID: RunID(),
-            scope: ProcessingScopeSnapshot.capture(
+            scope: certifiedScope(ProcessingScopeSnapshot.capture(
                 requestedTestArtists: [],
                 knownTrackCount: fixture.tracks.count,
                 createdAt: Date(timeIntervalSince1970: 100),
                 reason: "test"
-            ),
+            )),
             configuration: configuration
         )
 

@@ -228,12 +228,12 @@ struct PrereleasePreflightTests {
             pendingVerificationService: pendingVerification
         )
         let producer = makeFixPlanProducer(coordinator: coordinator, tracks: tracks)
-        let scope = ProcessingScopeSnapshot.capture(
+        let scope = certifiedScope(ProcessingScopeSnapshot.capture(
             requestedTestArtists: [],
             knownTrackCount: tracks.count,
             createdAt: Date(timeIntervalSince1970: 100),
             reason: "year-safety-test"
-        )
+        ))
         let configuration = FixPlanConfig.capture(
             configuration: AppConfiguration(),
             options: UpdateOptions(updateGenre: false, updateYear: true),

@@ -2,6 +2,16 @@ import Core
 import Foundation
 @testable import Services
 
+extension LibrarySyncService {
+    func detectObservation(forceMetadataRefresh: Bool = false) async throws -> SyncDetection {
+        let state = try await prepareAttempt(captureAttemptInput(forceMetadataRefresh: forceMetadataRefresh))
+        guard case let .prepared(detection) = state else {
+            throw LibrarySyncObservationError.invalidObservation(detail: "synchronization was not prepared")
+        }
+        return detection
+    }
+}
+
 struct ObservationTemplate: Sendable {
     let rows: [LibraryTrackRow]
     let censusIDs: Set<MusicDatabaseTrackID>
@@ -175,10 +185,6 @@ actor ObservationMirrorStore: TrackStateStore {
         // The test provides initialized mirror state and does not exercise initialization persistence.
     }
 
-    func loadAllTracks() async throws -> [Track] {
-        stored
-    }
-
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try mirrorSnapshot(
             revision: revision,
@@ -224,7 +230,15 @@ actor ObservationMirrorStore: TrackStateStore {
         }
         stored.sort { $0.id < $1.id }
         revision = nextRevision
-        return MirrorCommitResult(revision: revision)
+        return try MirrorCommitResult(
+            revision: revision,
+            snapshot: mirrorSnapshot(
+                revision: revision,
+                tracks: stored,
+                presentIDs: presentIDs,
+                certificates: certificates
+            )
+        )
     }
 
     func getTrack(byID id: String) async throws -> Track? {

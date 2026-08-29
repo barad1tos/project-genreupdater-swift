@@ -90,10 +90,12 @@ public actor RunOrchestrator {
     ) -> Task<RunSubmissionResult, Never> {
         // No suspension between the activeRun check and publish(created):
         // single-flight stays airtight without extra locking.
-        let created = makeCreatedLifecycle(for: request, startedAt: startedAt)
+        let created = RunLifecycleSnapshot.created(
+            for: request, at: startedAt, hasRecoveryHold: recoveryState.hasWriteBlock
+        )
         activeTransitions = []
         advance(created, at: startedAt)
-        let running = beginRun(created, request: request)
+        let running = created.beginning(for: request.intent)
         advance(running)
 
         // The run executes in an orchestrator-owned task: awaiting the value of
@@ -193,7 +195,7 @@ public actor RunOrchestrator {
             failureMessage: nil,
             finishedAt: completed.finishedAt
         )
-        if intent.isMutating || chainedRequest != nil, !isStored {
+        if !isStored {
             activeTransitions.removeLast()
             if reporting.hasWriteProgress || (work.writeSummary?.applied ?? 0) > 0 {
                 return await finishUnstoredWrite(
@@ -291,8 +293,9 @@ public actor RunOrchestrator {
         switch request.kind {
         case .observeLibrary:
             let syncResult = try await dependencies.synchronizeLibrary(lifecycle.scope)
+            let committed = try await persistCommittedScope(from: lifecycle, syncResult: syncResult)
             return RunWork(
-                reportingSource: lifecycle.usingCommittedScope(syncResult.scope),
+                reportingSource: committed,
                 result: syncResult,
                 hasActionableWork: syncResult.hasChanges,
                 writeSummary: nil,
@@ -304,10 +307,11 @@ public actor RunOrchestrator {
             } else {
                 try await dependencies.synchronizeLibrary(lifecycle.scope)
             }
+            let committed = try await persistCommittedScope(from: lifecycle, syncResult: syncResult)
             guard let produceFixPlan = dependencies.produceFixPlan else {
                 throw RunWorkError.missingFixPlanProducer
             }
-            let planning = beginFixPlanning(from: lifecycle.usingCommittedScope(syncResult.scope))
+            let planning = beginFixPlanning(from: committed)
             let production = try await produceFixPlan(planning.runID, planning.scope, configuration)
             return RunWork(
                 reportingSource: planning,
@@ -322,6 +326,25 @@ public actor RunOrchestrator {
         case let .batchUpdate(input):
             return try await performBatch(input, from: lifecycle)
         }
+    }
+
+    private func persistCommittedScope(
+        from lifecycle: RunLifecycleSnapshot,
+        syncResult: SyncResult
+    ) async throws -> RunLifecycleSnapshot {
+        let committed = try lifecycle.usingCommittedScope(syncResult.scope)
+        let isStored = await persistRecord(
+            for: committed,
+            syncResult: nil,
+            writeSummary: nil,
+            failureMessage: nil,
+            finishedAt: nil
+        )
+        guard isStored else {
+            throw RunWorkError.committedScopePersistence
+        }
+        publish(committed)
+        return committed
     }
 
     private func performWrite(
@@ -616,18 +639,6 @@ public actor RunOrchestrator {
         pendingTriggers.removeAll { $0.request.intent == .batchUpdate }
     }
 
-    private func beginRun(
-        _ lifecycle: RunLifecycleSnapshot,
-        request: RunRequest
-    ) -> RunLifecycleSnapshot {
-        switch request.kind {
-        case .observeLibrary, .previewFixes:
-            lifecycle.beginningSync()
-        case .writeFixes, .batchUpdate:
-            lifecycle.beginningWriting()
-        }
-    }
-
     private func beginFixPlanning(from lifecycle: RunLifecycleSnapshot) -> RunLifecycleSnapshot {
         let planning = lifecycle.beginningFixPlanning()
         advance(planning)
@@ -747,27 +758,6 @@ public actor RunOrchestrator {
             """)
             return error.localizedDescription
         }
-    }
-
-    private func makeCreatedLifecycle(
-        for request: RunRequest,
-        startedAt: Date
-    ) -> RunLifecycleSnapshot {
-        let scope = request.writeInput?.scope ?? ProcessingScopeSnapshot.capture(
-            requestedTestArtists: request.requestedTestArtists,
-            knownTrackCount: request.knownTrackCount,
-            createdAt: startedAt,
-            reason: request.trigger.rawValue
-        )
-
-        return RunLifecycleSnapshot(
-            runID: RunID(),
-            request: request,
-            scope: scope,
-            startedAt: startedAt,
-            phase: .active(.created),
-            hadRecoveryHold: recoveryState.hasWriteBlock
-        )
     }
 
     private func publish(_ lifecycle: RunLifecycleSnapshot) {

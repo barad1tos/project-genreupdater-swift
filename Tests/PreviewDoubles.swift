@@ -91,7 +91,6 @@ actor MusicAppTestObserver: MusicAppReading {
 actor PreviewAdmissionStore: TrackStateStore {
     private let snapshot: TrackMirrorSnapshot
     private var mirrorLoads = 0
-    private var allTrackLoads = 0
 
     init(track: Track, testArtists: [String], observedAt: Date) throws {
         guard let databaseID = track.databaseID else { throw PreviewStoreError.nonCanonicalTrack }
@@ -124,18 +123,30 @@ actor PreviewAdmissionStore: TrackStateStore {
         throw PreviewStoreError.unexpectedInitialize
     }
 
-    func loadAllTracks() async throws -> [Track] {
-        allTrackLoads += 1
-        throw PreviewStoreError.unexpectedLoadAll
-    }
-
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         mirrorLoads += 1
         return snapshot
     }
 
+    func committedScope(for scope: ProcessingScopeSnapshot) throws -> ProcessingScopeSnapshot {
+        guard let certificate = snapshot.certificates.first else {
+            throw PreviewStoreError.nonCanonicalTrack
+        }
+        let admission = ProcessingAdmission(
+            scopeID: scope.id,
+            certificate: certificate,
+            mirrorRevision: snapshot.revision,
+            maximumMetadataAge: nil
+        )
+        return scope.certified(by: admission)
+    }
+
     func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
-        try MirrorCommitResult(revision: commit.baseRevision.advanced())
+        let revision = try commit.baseRevision.advanced()
+        return MirrorCommitResult(
+            revision: revision,
+            snapshot: testMirrorSnapshot(revision: revision, copying: snapshot)
+        )
     }
 
     func getTrack(byID _: String) async throws -> Track? {
@@ -157,16 +168,11 @@ actor PreviewAdmissionStore: TrackStateStore {
     func mirrorLoadCount() -> Int {
         mirrorLoads
     }
-
-    func allTrackLoadTotal() -> Int {
-        allTrackLoads
-    }
 }
 
 private enum PreviewStoreError: Error {
     case nonCanonicalTrack
     case unexpectedInitialize
-    case unexpectedLoadAll
     case unexpectedPersist
 }
 

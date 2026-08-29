@@ -25,12 +25,12 @@ private func makeReviewerTestItem(id: UUID = UUID()) -> FixPlanItem {
 
 private func makeReviewerTestPlan(items: [FixPlanItem]) throws -> FixPlan {
     let capturedAt = Date(timeIntervalSince1970: 100)
-    let scope = ProcessingScopeSnapshot.capture(
+    let scope = certifiedScope(ProcessingScopeSnapshot.capture(
         requestedTestArtists: [],
         knownTrackCount: 10,
         createdAt: capturedAt,
         reason: "unit-test"
-    )
+    ))
     return try FixPlan(
         id: FixPlanID(),
         revision: .initial,

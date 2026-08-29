@@ -15,7 +15,9 @@ public struct ProcessingScopeSnapshot: Codable, Equatable, Sendable {
     public let knownTrackCount: Int?
     public let fingerprint: String
     public let reason: String
+    /// The exact committed mirror revision; `nil` means the scope is captured but not yet bound.
     public let mirrorRevision: MirrorRevision?
+    /// Processing authorization at `mirrorRevision`; `nil` never authorizes processing.
     public let certificateID: UUID?
 
     public init(
@@ -89,6 +91,22 @@ public struct ProcessingScopeSnapshot: Codable, Equatable, Sendable {
               let mirrorRevision
         else { return false }
         return self == previous.binding(revision: mirrorRevision, certificateID: certificateID)
+    }
+
+    var hasValidStructure: Bool {
+        let expectedSource: ProcessingScopeSource = normalizedTestArtists.isEmpty ? .fullLibrary : .testArtists
+        guard source == expectedSource,
+              matchingRule == ArtistAllowList.scopeRuleIdentifier,
+              certificateID == nil || mirrorRevision != nil
+        else { return false }
+
+        let expected = Self.capture(
+            requestedTestArtists: normalizedTestArtists,
+            knownTrackCount: knownTrackCount,
+            createdAt: createdAt,
+            reason: reason
+        )
+        return fingerprint == expected.fingerprint
     }
 
     private enum CodingKeys: String, CodingKey {

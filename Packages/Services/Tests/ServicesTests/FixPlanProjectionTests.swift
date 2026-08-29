@@ -311,12 +311,12 @@ private func makePlan(
     configuration: FixPlanConfig = makeConfiguration(),
     admission: FixPlanAdmission? = nil
 ) -> FixPlan {
-    let scope = ProcessingScopeSnapshot.capture(
+    let scope = certifiedScope(ProcessingScopeSnapshot.capture(
         requestedTestArtists: ["Aphex Twin"],
         knownTrackCount: 42,
         createdAt: Date(timeIntervalSince1970: 100),
         reason: "projection-test"
-    )
+    ))
     return FixPlan(restoring: .init(
         id: FixPlanID(rawValue: itemID(99)),
         revision: .initial,
@@ -336,8 +336,8 @@ private func certifiedAdmission(scope: ProcessingScopeSnapshot) -> ProcessingAdm
     return ProcessingAdmission(
         scopeID: scope.id,
         certificate: ScopeCertificate(
-            id: UUID(),
-            revision: .initial,
+            id: scope.certificateID ?? UUID(),
+            revision: scope.mirrorRevision ?? .initial,
             membership: membership,
             testArtists: scope.normalizedTestArtists,
             fieldSet: .processingV1,

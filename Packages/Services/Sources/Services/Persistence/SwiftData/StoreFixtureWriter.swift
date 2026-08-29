@@ -171,27 +171,6 @@ package enum StoreFixtureWriter {
         try context.save()
     }
 
-    package static func writeV6(to storeURL: URL) throws {
-        let schema = Schema(versionedSchema: StoreSchemaV6.self)
-        let configuration = ModelConfiguration(
-            "GenreUpdater",
-            schema: schema,
-            url: storeURL,
-            allowsSave: true,
-            cloudKitDatabase: .none
-        )
-        let container = try ModelContainer(for: schema, configurations: [configuration])
-        let context = ModelContext(container)
-        context.insert(StoreSchemaV5.PersistedMirrorState(revisionValue: 13))
-        context.insert(StoreSchemaV6.PersistedLibraryMember(
-            databaseID: "v6-present",
-            isPresent: true,
-            firstSeenRevisionValue: 3,
-            lastSeenFingerprint: "v6-membership"
-        ))
-        try context.save()
-    }
-
     package static func writeRecoveryV2(to storeURL: URL) throws {
         let schema = Schema(versionedSchema: StoreSchemaV2.self)
         let configuration = ModelConfiguration(

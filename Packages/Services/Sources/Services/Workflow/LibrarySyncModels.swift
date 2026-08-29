@@ -140,6 +140,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
     public let lastDatabaseVerifyLog: String
     public let testArtists: [String]
     public let mirrorRetryPolicy: MirrorRetryPolicy
+    public let syncRecordLimit: Int
     /// Scope already captured by the run orchestrator. Direct sync callers leave this nil and capture at attempt start.
     public let capturedScope: ProcessingScopeSnapshot?
     /// A preview's album target: every load path narrows through the
@@ -153,6 +154,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         lastDatabaseVerifyLog: String = LoggingConfig().lastDatabaseVerifyLog,
         testArtists: [String] = [],
         mirrorRetryPolicy: MirrorRetryPolicy = .defaults,
+        syncRecordLimit: Int = LibrarySyncConfig().syncRecordLimit,
         capturedScope: ProcessingScopeSnapshot? = nil,
         albumTargetIdentity: AlbumIdentity? = nil
     ) {
@@ -162,6 +164,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
         self.lastDatabaseVerifyLog = lastDatabaseVerifyLog
         self.testArtists = ArtistAllowList.normalized(testArtists)
         self.mirrorRetryPolicy = mirrorRetryPolicy
+        self.syncRecordLimit = max(1, syncRecordLimit)
         self.capturedScope = capturedScope
         self.albumTargetIdentity = albumTargetIdentity
     }
@@ -177,6 +180,7 @@ public struct LibrarySyncRuntimeConfiguration: Sendable, Equatable {
             lastDatabaseVerifyLog: configuration.logging.lastDatabaseVerifyLog,
             testArtists: configuration.development.testArtists,
             mirrorRetryPolicy: MirrorRetryPolicy(configuration: configuration.librarySync),
+            syncRecordLimit: configuration.librarySync.syncRecordLimit,
             capturedScope: capturedScope,
             albumTargetIdentity: albumTargetIdentity
         )

@@ -112,12 +112,12 @@ struct Domain12ParityReplayTests {
         let produce = {
             try await makeProducer(spy).producePlan(
                 sourceRunID: sourceRunID,
-                scope: ProcessingScopeSnapshot.capture(
+                scope: certifiedScope(ProcessingScopeSnapshot.capture(
                     requestedTestArtists: [],
                     knownTrackCount: tracks.count,
                     createdAt: Date(timeIntervalSince1970: 100),
                     reason: "domain-12-replay"
-                ),
+                )),
                 configuration: configuration
             )
         }
@@ -218,7 +218,7 @@ struct Domain12ParityReplayTests {
             capturedAt: producedAt
         )
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)

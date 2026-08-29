@@ -488,12 +488,12 @@ struct FixPlanProducerTests {
     }
 
     private func scope(requestedTestArtists: [String], knownTrackCount: Int?) -> ProcessingScopeSnapshot {
-        ProcessingScopeSnapshot.capture(
+        certifiedScope(ProcessingScopeSnapshot.capture(
             requestedTestArtists: requestedTestArtists,
             knownTrackCount: knownTrackCount,
             createdAt: Date(timeIntervalSince1970: 100),
             reason: "unit-test"
-        )
+        ))
     }
 
     private func configuration(
@@ -553,23 +553,7 @@ actor FixPlanProducerSpy {
             return .rejected(admissionRejection)
         }
         let admittedTracks = admittedTracks ?? Self.scopedTracks(tracks, scope: scope)
-        let admission = try ProcessingAdmission(
-            scopeID: scope.id,
-            certificate: ScopeCertificate(
-                id: UUID(),
-                revision: .initial,
-                membership: MembershipStamp(fingerprint: String(repeating: "a", count: 64)),
-                testArtists: scope.normalizedTestArtists,
-                fieldSet: .processingV1,
-                evidence: ScopeEvidence(
-                    requestedFingerprint: "requested",
-                    observedFingerprint: "observed",
-                    trackCount: admittedTracks.count
-                ),
-                observedAt: Date(timeIntervalSince1970: 1_700_000_000)
-            ),
-            maximumMetadataAge: nil
-        )
+        let admission = processingAdmission(scope: scope)
         admissions.append(admission)
         return .admitted(admission, tracks: admittedTracks)
     }

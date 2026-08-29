@@ -276,7 +276,7 @@ private struct CompositionFixture {
             options: PreviewRunOptions.make(configuration: configuration, updateGenre: true, updateYear: false),
             capturedAt: capturedAt
         )
-        let tracks = try await store.loadAllTracks()
+        let tracks = try await store.loadMirrorSnapshot().presentTracks
         let preview = try await runtime.makePreview(configuration: planConfiguration, scope: scope)
         try await preview.refreshIdentity(tracks, scope)
         let albums = await preview.albumContext(tracks)

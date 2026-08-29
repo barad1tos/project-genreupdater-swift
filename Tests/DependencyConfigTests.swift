@@ -700,18 +700,20 @@ func makeStoredFixPlan(configuration: FixPlanConfig) throws -> FixPlan? {
         confidence: 73,
         source: "test"
     )
-    let scope = ProcessingScopeSnapshot.capture(
+    let requestedScope = ProcessingScopeSnapshot.capture(
         requestedTestArtists: [],
         knownTrackCount: nil,
         createdAt: Date(timeIntervalSince1970: 1_800_000_100),
         reason: "stored-plan-test"
     )
+    let admission = workflowProcessingAdmission(scope: requestedScope)
+    let scope = requestedScope.certified(by: admission)
     return try FixPlanCapture.makePlan(
         from: [proposal],
         sourceRunID: RunID(),
         evidence: .init(
             scope: scope,
-            admission: workflowProcessingAdmission(scope: scope)
+            admission: admission
         ),
         configuration: configuration,
         createdAt: Date(timeIntervalSince1970: 1_800_000_100)

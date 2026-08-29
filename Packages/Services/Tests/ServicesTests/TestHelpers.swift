@@ -261,10 +261,6 @@ actor MockTrackStore: TrackStateStore {
 
     func initialize() async throws {}
 
-    func loadAllTracks() async throws -> [Track] {
-        tracks
-    }
-
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try mirrorSnapshot(revision: revision, tracks: tracks, certificates: certificates)
     }
@@ -295,7 +291,10 @@ actor MockTrackStore: TrackStateStore {
             }
         }
         revision = nextRevision
-        return MirrorCommitResult(revision: revision)
+        return try MirrorCommitResult(
+            revision: revision,
+            snapshot: mirrorSnapshot(revision: revision, tracks: tracks, certificates: certificates)
+        )
     }
 
     func getTrack(byID id: String) async throws -> Track? {

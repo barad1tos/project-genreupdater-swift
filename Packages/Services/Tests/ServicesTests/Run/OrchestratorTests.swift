@@ -10,7 +10,7 @@ struct OrchestratorTests {
         let clock = ReversingClockProbe()
         let records = RunRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await records.append($0) },
             now: { clock.now() }
         ))
@@ -30,7 +30,7 @@ struct OrchestratorTests {
     func manualObservationCapturesScope() async {
         let clock = ClockProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: ignoreRunRecord,
             now: { clock.now() }
         ))
@@ -46,78 +46,13 @@ struct OrchestratorTests {
         #expect(result.lifecycle?.scope.knownTrackCount == 75)
     }
 
-    @Test("Manual observation publishes the scope committed by synchronization")
-    func observationUsesCommittedScope() async throws {
-        let scopeProbe = ScopeProbe()
-        let certificateID = UUID(uuidString: "00000000-0000-0000-0000-000000000007")
-        let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { capturedScope in
-                await scopeProbe.record(capturedScope)
-                return SyncResult(scope: capturedScope.binding(
-                    revision: MirrorRevision(value: 7),
-                    certificateID: certificateID
-                ))
-            },
-            persistRunRecord: ignoreRunRecord,
-            now: { Date(timeIntervalSince1970: 100) }
-        ))
-
-        let result = await orchestrator.submit(.manualObservation(
-            requestedTestArtists: ["Aphex Twin"],
-            knownTrackCount: 75
-        ))
-
-        let capturedScope = try #require(await scopeProbe.scope)
-        #expect(capturedScope.mirrorRevision == nil)
-        #expect(capturedScope.certificateID == nil)
-        #expect(result.lifecycle?.scope.id == capturedScope.id)
-        #expect(result.lifecycle?.scope.mirrorRevision == MirrorRevision(value: 7))
-        #expect(result.lifecycle?.scope.certificateID == certificateID)
-    }
-
-    @Test("Preview planning receives the scope committed by synchronization")
-    func previewUsesCommittedScope() async throws {
-        let scopeProbe = ScopeProbe()
-        let configuration = FixPlanConfig.capture(
-            configuration: AppConfiguration(),
-            options: UpdateOptions(),
-            capturedAt: Date(timeIntervalSince1970: 100)
-        )
-        let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
-            synchronizePreview: { scope, _ in
-                SyncResult(scope: scope.binding(
-                    revision: MirrorRevision(value: 11),
-                    certificateID: UUID(uuidString: "00000000-0000-0000-0000-000000000011")
-                ))
-            },
-            persistRunRecord: ignoreRunRecord,
-            produceFixPlan: { _, scope, _ in
-                await scopeProbe.record(scope)
-                return .empty
-            },
-            now: { Date(timeIntervalSince1970: 100) }
-        ))
-
-        let result = await orchestrator.submit(.manualPreview(
-            configuration: configuration,
-            requestedTestArtists: ["Aphex Twin"],
-            knownTrackCount: 75
-        ))
-
-        let plannedScope = try #require(await scopeProbe.scope)
-        #expect(plannedScope.mirrorRevision == MirrorRevision(value: 11))
-        #expect(plannedScope.certificateID == UUID(uuidString: "00000000-0000-0000-0000-000000000011"))
-        #expect(result.lifecycle?.scope == plannedScope)
-    }
-
     @Test("manual observation returns completed when sync detects any delta")
     func manualObservationReturnsCompletedForDelta() async {
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in
+            synchronizeLibrary: { scope in
                 SyncResult(newTracks: [
                     Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
-                ])
+                ]).committed(to: scope)
             },
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
@@ -193,9 +128,9 @@ struct OrchestratorTests {
     func manualCoversDuplicate() async {
         let gate = SyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in
+            synchronizeLibrary: { scope in
                 await gate.waitUntilReleased()
-                return SyncResult()
+                return SyncResult().committed(to: scope)
             },
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
@@ -227,10 +162,10 @@ struct OrchestratorTests {
         let gate = SyncGate()
         let syncCalls = SyncCallProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in
+            synchronizeLibrary: { scope in
                 await syncCalls.recordCall()
                 await gate.waitUntilReleased()
-                return SyncResult()
+                return SyncResult().committed(to: scope)
             },
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
@@ -264,13 +199,13 @@ struct OrchestratorTests {
         let gate = SyncGate()
         let syncCalls = SyncCallProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in
+            synchronizeLibrary: { scope in
                 let callIndex = await syncCalls.recordCall()
                 await gate.waitUntilReleased()
                 if callIndex == 1 {
                     throw ProbeError(message: "Music.app unavailable")
                 }
-                return SyncResult()
+                return SyncResult().committed(to: scope)
             },
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
@@ -309,10 +244,10 @@ struct OrchestratorTests {
         let gate = SyncGate()
         let syncCalls = SyncCallProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in
+            synchronizeLibrary: { scope in
                 await syncCalls.recordCall()
                 await gate.waitUntilReleased()
-                return SyncResult()
+                return SyncResult().committed(to: scope)
             },
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
@@ -363,9 +298,9 @@ struct OrchestratorTests {
     func keepsRecoveryHidden() async throws {
         let gate = SyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in
+            synchronizeLibrary: { scope in
                 await gate.waitUntilReleased()
-                return SyncResult()
+                return SyncResult().committed(to: scope)
             },
             persistRunRecord: ignoreRunRecord
         ))
@@ -403,7 +338,7 @@ struct OrchestratorTests {
         let input = writeInput()
         let itemID = try #require(input.workItems.first?.id)
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: ignoreRunRecord,
             write: .init(writeFixPlan: { _, _, checkpoint in
                 for _ in 0 ..< RunOrchestrator.lifecycleBufferLimit * 2 {
@@ -432,10 +367,10 @@ struct OrchestratorTests {
     func cancellingSubmitterDoesNotFailActiveRun() async {
         let gate = SyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in
+            synchronizeLibrary: { scope in
                 await gate.waitUntilReleased()
                 try Task.checkCancellation()
-                return SyncResult()
+                return SyncResult().committed(to: scope)
             },
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
@@ -459,7 +394,7 @@ struct OrchestratorTests {
     @Test("lifecycle updates unregister subscriber after cancellation")
     func lifecycleUpdatesUnregisterSubscriberAfterCancellation() async {
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
@@ -480,10 +415,10 @@ struct OrchestratorTests {
         let clock = ClockProbe()
         let probe = RunRecordProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in
+            synchronizeLibrary: { scope in
                 SyncResult(newTracks: [
                     Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
-                ])
+                ]).committed(to: scope)
             },
             persistRunRecord: { try await probe.append($0) },
             now: { clock.now() }
@@ -495,13 +430,17 @@ struct OrchestratorTests {
         ))
 
         let records = await probe.records
-        #expect(records.count == 2)
+        #expect(records.count == 3)
 
         let open = try #require(records.first)
         #expect(open.state == .syncingLibrary)
         #expect(open.finishedAt == nil)
         #expect(open.syncSummary == nil)
         #expect(open.transitions.map(\.state) == [.created, .syncingLibrary])
+
+        let bound = records[1]
+        #expect(bound.scope.mirrorRevision == MirrorRevision(value: 1))
+        #expect(bound.finishedAt == nil)
 
         let final = try #require(records.last)
         #expect(final.runID == open.runID)
@@ -521,7 +460,7 @@ struct OrchestratorTests {
             proposalCount: 1
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await probe.append($0) },
             produceFixPlan: { runID, scope, _ in
                 try await producer.produce(runID: runID, scope: scope)
@@ -563,13 +502,19 @@ struct OrchestratorTests {
         #expect(final.syncSummary == nil)
     }
 
-    @Test("persist failure does not change the run outcome")
-    func persistFailureDoesNotChangeRunOutcome() async {
+    @Test("terminal persistence failure prevents an ordinary successful outcome")
+    func terminalPersistFailureFailsRun() async {
         let probe = RunRecordProbe()
-        await probe.setPersistError(ProbeError(message: "disk full"))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
-            persistRunRecord: { try await probe.append($0) },
+            synchronizeLibrary: { scope in
+                SyncResult(scope: scope.binding(revision: MirrorRevision(value: 1), certificateID: nil))
+            },
+            persistRunRecord: { record in
+                if record.finishedAt != nil {
+                    throw ProbeError(message: "disk full")
+                }
+                try await probe.append(record)
+            },
             now: { Date(timeIntervalSince1970: 100) }
         ))
 
@@ -578,17 +523,17 @@ struct OrchestratorTests {
             knownTrackCount: nil
         ))
 
-        #expect(result.lifecycle?.state == .completedNoOp)
-        #expect(await orchestrator.currentLifecycle()?.state == .completedNoOp)
+        #expect(result.lifecycle?.state == .failed)
+        #expect(await orchestrator.currentLifecycle()?.state == .failed)
     }
 
     @Test("lifecycle stream delivers a terminal snapshot and replays it to new subscribers")
     func lifecycleStreamDeliversTerminalSnapshotAndReplaysIt() async throws {
         let gate = SyncGate()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in
+            synchronizeLibrary: { scope in
                 await gate.waitUntilReleased()
-                return SyncResult()
+                return SyncResult().committed(to: scope)
             },
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
@@ -626,7 +571,7 @@ struct OrchestratorTests {
     func submitAfterFailedRunIsAccepted() async {
         let toggle = SyncOutcomeToggle()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in try await toggle.syncOrFail() },
+            synchronizeLibrary: { scope in try await toggle.syncOrFail(scope: scope) },
             persistRunRecord: ignoreRunRecord,
             now: { Date(timeIntervalSince1970: 100) }
         ))
@@ -711,12 +656,12 @@ private func nextLifecycleSnapshot(
 private actor SyncOutcomeToggle {
     private var shouldFail = true
 
-    func syncOrFail() throws -> SyncResult {
+    func syncOrFail(scope: ProcessingScopeSnapshot) throws -> SyncResult {
         if shouldFail {
             shouldFail = false
             throw ProbeError(message: "Music.app unavailable")
         }
-        return SyncResult()
+        return SyncResult().committed(to: scope)
     }
 }
 
@@ -778,8 +723,4 @@ private struct ProbeError: LocalizedError {
     var errorDescription: String? {
         message
     }
-}
-
-private func ignoreRunRecord(_ record: RunRecord) async throws {
-    _ = record
 }

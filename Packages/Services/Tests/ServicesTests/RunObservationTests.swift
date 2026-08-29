@@ -10,10 +10,10 @@ struct RunObservationTests {
         let records = RecordProbe()
         let plans = PlanProbe()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in
+            synchronizeLibrary: { scope in
                 SyncResult(newTracks: [
                     Track(id: "NEW", name: "Track", artist: "Artist", album: "Album")
-                ])
+                ]).committed(to: scope)
             },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { runID, scope, _ in

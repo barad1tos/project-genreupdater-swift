@@ -27,10 +27,6 @@ public actor TrackDataStore: TrackStateStore {
 
     // MARK: - Read Operations
 
-    public func loadAllTracks() async throws -> [Track] {
-        try fetchPresentTracks()
-    }
-
     public func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
         try makeMirrorSnapshot()
     }
@@ -130,6 +126,7 @@ public actor TrackDataStore: TrackStateStore {
 
     @discardableResult
     public func commitMirror(_ commit: MirrorCommit) async throws -> MirrorCommitResult {
+        try Task.checkCancellation()
         var membershipDelta = MembershipDelta()
         var committedRevision = commit.baseRevision
         var committedSnapshot: TrackMirrorSnapshot?
@@ -160,7 +157,10 @@ public actor TrackDataStore: TrackStateStore {
                 )
                 try applyCertificates(commit.certificates, revision: nextRevision, membership: membership)
                 if let record = commit.syncRecord {
-                    modelContext.insert(PersistedSyncRecord(record: record))
+                    modelContext.insert(PersistedSyncRecord(record: record, completedAt: Date()))
+                    if let limit = commit.syncRecordLimit {
+                        try pruneSyncRecords(keeping: limit)
+                    }
                 }
                 committedRevision = try mirrorState.advanceRevision()
                 committedSnapshot = try makeMirrorSnapshot()
@@ -175,6 +175,9 @@ public actor TrackDataStore: TrackStateStore {
             .info(
                 "Applied mirror upserts: \(commit.upserts.count, privacy: .public); membership additions: \(membershipDelta.added, privacy: .public); tombstones: \(membershipDelta.removed, privacy: .public); resurrections: \(membershipDelta.resurrected, privacy: .public)"
             )
+        guard let committedSnapshot else {
+            throw TrackStoreError.invalidSyncRecord
+        }
         return MirrorCommitResult(revision: committedRevision, snapshot: committedSnapshot)
     }
 
@@ -192,6 +195,16 @@ public actor TrackDataStore: TrackStateStore {
               try isValidCertificateEvidence(record, change: commit.certificates)
         else {
             throw TrackStoreError.invalidSyncRecord
+        }
+    }
+
+    private func pruneSyncRecords(keeping limit: Int) throws {
+        let descriptor = FetchDescriptor<PersistedSyncRecord>(
+            sortBy: [SortDescriptor(\.committedRevisionValue, order: .reverse)]
+        )
+        let records = try modelContext.fetch(descriptor)
+        for record in records.dropFirst(max(1, limit)) {
+            modelContext.delete(record)
         }
     }
 

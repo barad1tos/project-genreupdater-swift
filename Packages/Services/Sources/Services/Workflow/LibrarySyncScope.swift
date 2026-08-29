@@ -30,10 +30,6 @@ extension LibrarySyncService {
     /// stays OUT of ID-set arithmetic — filtering the stored/library
     /// baselines by album would convert album-tag drift into deletions
     /// and explode newIDs in the fallback path (PR #163 review).
-    func tracksInConfiguredScope(_ tracks: [Track]) -> [Track] {
-        tracksInConfiguredScope(tracks, configuration: runtimeConfiguration)
-    }
-
     func tracksInConfiguredScope(
         _ tracks: [Track],
         configuration: LibrarySyncRuntimeConfiguration

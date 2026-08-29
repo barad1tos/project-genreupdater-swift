@@ -24,6 +24,108 @@ struct ProcessingAdmissionTests {
         #expect(await fixture.store.snapshotLoadCount == 1)
     }
 
+    @Test("Admission binds an unbound request to the current mirror evidence")
+    func admissionBindsUnboundRequest() async throws {
+        let fixture = try AdmissionFixture()
+        let scope = fixture.capturedScope
+
+        let decision = try await fixture.store.admit(
+            scope: scope,
+            requirement: fixture.requirement,
+            at: fixture.decisionDate
+        )
+
+        guard case let .admitted(admission, tracks) = decision else {
+            Issue.record("Expected the current certified mirror to admit an unbound request")
+            return
+        }
+        #expect(admission.scopeID == scope.id)
+        #expect(admission.certificate == fixture.certificate)
+        #expect(admission.mirrorRevision == fixture.certificate.revision)
+        #expect(tracks == fixture.tracks)
+    }
+
+    @Test("Admission binds a preserved certificate to the current mirror revision")
+    func admissionBindsPreservedCertificateToCurrentRevision() async throws {
+        let fixture = try AdmissionFixture()
+        let currentRevision = MirrorRevision(value: 2)
+        let currentScope = fixture.capturedScope.binding(
+            revision: currentRevision,
+            certificateID: fixture.certificate.id
+        )
+        try await fixture.store.replaceSnapshot(fixture.snapshot(
+            revision: currentRevision,
+            certificates: [fixture.certificate]
+        ))
+
+        let decision = try await fixture.store.admit(
+            scope: currentScope,
+            requirement: fixture.requirement,
+            at: fixture.decisionDate
+        )
+
+        guard case let .admitted(admission, tracks) = decision else {
+            Issue.record("Expected the preserved certificate to admit the current snapshot revision")
+            return
+        }
+        #expect(admission.mirrorRevision == currentRevision)
+        #expect(admission.certifies(scope: currentScope))
+        #expect(tracks == fixture.tracks)
+    }
+
+    @Test("Legacy admission decoding derives mirror revision from its certificate")
+    func legacyAdmissionDecodingDerivesMirrorRevision() throws {
+        let fixture = try AdmissionFixture()
+        let admission = ProcessingAdmission(
+            scopeID: fixture.scope.id,
+            certificate: fixture.certificate,
+            maximumMetadataAge: fixture.requirement.maximumMetadataAge
+        )
+        let encoded = try JSONEncoder().encode(admission)
+        var legacyObject = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        legacyObject.removeValue(forKey: "mirrorRevision")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+
+        let decoded = try JSONDecoder().decode(ProcessingAdmission.self, from: legacyData)
+
+        #expect(decoded.mirrorRevision == fixture.certificate.revision)
+        #expect(decoded.certificate == fixture.certificate)
+    }
+
+    @Test("Admission rejects a scope bound to an older mirror revision")
+    func admissionRejectsSupersededRevision() async throws {
+        let fixture = try AdmissionFixture()
+        let staleScope = fixture.capturedScope.binding(
+            revision: .initial,
+            certificateID: fixture.certificate.id
+        )
+
+        let decision = try await fixture.store.admit(
+            scope: staleScope,
+            requirement: fixture.requirement,
+            at: fixture.decisionDate
+        )
+
+        #expect(decision == .rejected(.certificateChanged))
+    }
+
+    @Test("Admission rejects a scope bound to a different certificate")
+    func admissionRejectsDifferentCertificate() async throws {
+        let fixture = try AdmissionFixture()
+        let staleScope = fixture.capturedScope.binding(
+            revision: fixture.certificate.revision,
+            certificateID: UUID()
+        )
+
+        let decision = try await fixture.store.admit(
+            scope: staleScope,
+            requirement: fixture.requirement,
+            at: fixture.decisionDate
+        )
+
+        #expect(decision == .rejected(.certificateChanged))
+    }
+
     @Test("Admission rejects a requested scope that does not match its requirement")
     func admissionRejectsScopeMismatch() async throws {
         let fixture = try AdmissionFixture()
@@ -285,6 +387,15 @@ private struct AdmissionFixture {
     let decisionDate = Date(timeIntervalSince1970: 1_700_000_100)
     let store: AdmissionTrackStore
 
+    var capturedScope: ProcessingScopeSnapshot {
+        ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Aphex Twin"],
+            knownTrackCount: tracks.count,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_050),
+            reason: "admission-test"
+        )
+    }
+
     init() throws {
         tracks = [
             canonicalTrack(id: "track-a", artist: "Aphex Twin"),
@@ -295,13 +406,13 @@ private struct AdmissionFixture {
             fieldSet: .processingV1,
             maximumMetadataAge: 1000
         )
+        certificate = try Self.makeCertificate(tracks: tracks)
         scope = ProcessingScopeSnapshot.capture(
             requestedTestArtists: ["Aphex Twin"],
             knownTrackCount: tracks.count,
             createdAt: Date(timeIntervalSince1970: 1_700_000_050),
             reason: "admission-test"
-        )
-        certificate = try Self.makeCertificate(tracks: tracks)
+        ).binding(revision: certificate.revision, certificateID: certificate.id)
         store = try AdmissionTrackStore(snapshot: Self.makeSnapshot(
             tracks: tracks,
             certificates: [certificate]
@@ -325,8 +436,11 @@ private struct AdmissionFixture {
         try snapshot(certificates: [certificate])
     }
 
-    func snapshot(certificates: [ScopeCertificate]) throws -> TrackMirrorSnapshot {
-        try Self.makeSnapshot(tracks: tracks, certificates: certificates)
+    func snapshot(
+        revision: MirrorRevision = MirrorRevision(value: 1),
+        certificates: [ScopeCertificate]
+    ) throws -> TrackMirrorSnapshot {
+        try Self.makeSnapshot(tracks: tracks, revision: revision, certificates: certificates)
     }
 
     private static func makeCertificate(
@@ -353,6 +467,7 @@ private struct AdmissionFixture {
 
     private static func makeSnapshot(
         tracks: [Track],
+        revision: MirrorRevision = MirrorRevision(value: 1),
         certificates: [ScopeCertificate]
     ) throws -> TrackMirrorSnapshot {
         let trackIDs = Set(tracks.compactMap(\.databaseID))
@@ -367,7 +482,7 @@ private struct AdmissionFixture {
             }
         })
         return try TrackMirrorSnapshot(
-            revision: MirrorRevision(value: 1),
+            revision: revision,
             membershipStamp: MembershipFingerprint.make(ids: Array(trackIDs)),
             presentIDs: trackIDs,
             memberIdentities: identities,
@@ -397,10 +512,6 @@ private actor AdmissionTrackStore: TrackStateStore {
 
     func initialize() async throws {
         // The fixture receives its complete in-memory snapshot at construction.
-    }
-
-    func loadAllTracks() async throws -> [Track] {
-        snapshot.presentTracks
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {

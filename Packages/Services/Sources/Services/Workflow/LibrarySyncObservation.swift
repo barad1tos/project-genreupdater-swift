@@ -54,8 +54,8 @@ struct DetectionContext {
     let configuration: LibrarySyncRuntimeConfiguration
 }
 
-/// One attempt has a single forward-only path. A revision conflict discards the whole value and starts again at
-/// `captured`; every other pre-commit failure terminates without advancing the mirror.
+/// One attempt has a single forward-only path. The outer retry loop creates a new `captured` attempt after revision,
+/// census, or source-generation conflicts; no `SyncAttemptState` value transitions backward.
 ///
 /// ```mermaid
 /// stateDiagram-v2
@@ -64,7 +64,6 @@ struct DetectionContext {
 ///     observed --> validated: coverage validated
 ///     validated --> prepared: commit projected
 ///     prepared --> committed: compare-and-swap accepted
-///     prepared --> captured: revision conflict
 /// ```
 enum SyncAttemptState {
     case captured(SyncAttemptInput)
@@ -101,18 +100,16 @@ enum SyncAttemptState {
 }
 
 extension LibrarySyncService {
-    func detectObservation(forceMetadataRefresh: Bool = false) async throws -> SyncDetection {
-        let input = SyncAttemptInput(
+    func captureAttemptInput(
+        forceMetadataRefresh: Bool = false,
+        capturedScope: ProcessingScopeSnapshot? = nil
+    ) -> SyncAttemptInput {
+        SyncAttemptInput(
             configuration: runtimeConfiguration,
-            capturedScope: runtimeConfiguration.capturedScope,
+            capturedScope: capturedScope ?? runtimeConfiguration.capturedScope,
             startedAt: currentDate(),
             isForced: forceMetadataRefresh
         )
-        let state = try await prepareAttempt(input)
-        guard case let .prepared(detection) = state else {
-            throw LibrarySyncObservationError.invalidObservation(detail: "synchronization was not prepared")
-        }
-        return detection
     }
 
     func prepareAttempt(_ input: SyncAttemptInput) async throws -> SyncAttemptState {
@@ -299,7 +296,9 @@ extension LibrarySyncService {
         createdAt: Date
     ) throws -> ProcessingScopeSnapshot {
         if let capturedScope {
-            guard capturedScope.normalizedTestArtists == configuration.testArtists else {
+            guard capturedScope.hasValidStructure,
+                  capturedScope.normalizedTestArtists == configuration.testArtists
+            else {
                 throw LibrarySyncObservationError.invalidObservation(
                     detail: "captured processing scope does not match synchronization configuration"
                 )

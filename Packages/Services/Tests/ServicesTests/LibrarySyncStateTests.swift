@@ -66,6 +66,85 @@ struct LibrarySyncStateTests {
         #expect(await store.storedTracks.map(\.name) == ["Normalized"])
     }
 
+    @Test("The public result rejects accepted IDs missing from the committed snapshot")
+    func rejectsMissingCommittedRows() async throws {
+        let store = SyncStateStore(committedSnapshotFault: .omitsAcceptedTrack)
+        let reader = SyncMockScriptClient()
+        let track = Track(id: "1", name: "Observed", artist: "Artist", album: "Album")
+        await reader.setLibrary(ids: ["1"], tracks: ["1": track])
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let service = LibrarySyncService(
+            trackStore: store,
+            librarySnapshotService: snapshotService,
+            observer: reader
+        )
+
+        await #expect(throws: LibrarySyncObservationError.self) {
+            try await service.synchronizeNow(forceMetadataRefresh: true)
+        }
+        #expect(await !snapshotService.wasCleared())
+    }
+
+    @Test("The public result rejects removed IDs retained by the committed snapshot")
+    func rejectsRetainedRemovedRows() async throws {
+        let removed = Track(id: "2", name: "Removed", artist: "Artist", album: "Album", appleScriptID: "2")
+        let store = SyncStateStore(
+            initialTracks: [removed],
+            committedSnapshotFault: .retainsRemovedTrack
+        )
+        let reader = SyncMockScriptClient()
+        await reader.setLibrary(ids: [], tracks: [:])
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let service = LibrarySyncService(
+            trackStore: store,
+            librarySnapshotService: snapshotService,
+            observer: reader
+        )
+
+        await #expect(throws: LibrarySyncObservationError.self) {
+            try await service.synchronizeNow(forceMetadataRefresh: true)
+        }
+        #expect(await !snapshotService.wasCleared())
+    }
+
+    @Test("The public result rejects a committed snapshot with another revision")
+    func rejectsRevisionMismatch() async throws {
+        let store = SyncStateStore(committedSnapshotFault: .mismatchedRevision)
+        let reader = SyncMockScriptClient()
+        let track = Track(id: "1", name: "Observed", artist: "Artist", album: "Album")
+        await reader.setLibrary(ids: ["1"], tracks: ["1": track])
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let service = LibrarySyncService(
+            trackStore: store,
+            librarySnapshotService: snapshotService,
+            observer: reader
+        )
+
+        await #expect(throws: LibrarySyncObservationError.self) {
+            try await service.synchronizeNow(forceMetadataRefresh: true)
+        }
+        #expect(await !snapshotService.wasCleared())
+    }
+
+    @Test("The public result rejects missing committed certificate evidence")
+    func rejectsMissingCertificate() async throws {
+        let store = SyncStateStore(committedSnapshotFault: .omitsCertificate)
+        let reader = SyncMockScriptClient()
+        let track = Track(id: "1", name: "Observed", artist: "Artist", album: "Album")
+        await reader.setLibrary(ids: ["1"], tracks: ["1": track])
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let service = LibrarySyncService(
+            trackStore: store,
+            librarySnapshotService: snapshotService,
+            observer: reader
+        )
+
+        await #expect(throws: LibrarySyncObservationError.self) {
+            try await service.synchronizeNow(forceMetadataRefresh: true)
+        }
+        #expect(await !snapshotService.wasCleared())
+    }
+
     @Test("A successful commit binds scope evidence and one audit record")
     func storesCommittedEvidence() async throws {
         let container = try ModelContainerFactory.createInMemory()
@@ -223,23 +302,38 @@ private actor TransientConflictReader: MusicAppReading {
 }
 
 private actor SyncStateStore: TrackStateStore {
-    private let loadGate: SyncStateGate?
-    private let normalizedName: String?
-    private var revision = MirrorRevision.initial
-    private var presentIDs: Set<MusicDatabaseTrackID> = []
-    private var certificates: [ScopeCertificate] = []
-    private(set) var storedTracks: [Track] = []
-    private(set) var commitCount = 0
-
-    init(loadGate: SyncStateGate? = nil, normalizedName: String? = nil) {
-        self.loadGate = loadGate
-        self.normalizedName = normalizedName
+    enum CommittedSnapshotFault: Equatable {
+        case none
+        case omitsAcceptedTrack
+        case retainsRemovedTrack
+        case mismatchedRevision
+        case omitsCertificate
     }
 
-    func initialize() async throws {}
+    private let loadGate: SyncStateGate?
+    private let normalizedName: String?
+    private let committedSnapshotFault: CommittedSnapshotFault
+    private var revision = MirrorRevision.initial
+    private var presentIDs: Set<MusicDatabaseTrackID>
+    private var certificates: [ScopeCertificate] = []
+    private(set) var storedTracks: [Track]
+    private(set) var commitCount = 0
 
-    func loadAllTracks() async throws -> [Track] {
-        storedTracks
+    init(
+        loadGate: SyncStateGate? = nil,
+        normalizedName: String? = nil,
+        initialTracks: [Track] = [],
+        committedSnapshotFault: CommittedSnapshotFault = .none
+    ) {
+        self.loadGate = loadGate
+        self.normalizedName = normalizedName
+        self.committedSnapshotFault = committedSnapshotFault
+        storedTracks = initialTracks
+        presentIDs = Set(initialTracks.compactMap(\.databaseID))
+    }
+
+    func initialize() async throws {
+        // This in-memory test store has no external resources to initialize.
     }
 
     func loadMirrorSnapshot() async throws -> TrackMirrorSnapshot {
@@ -258,6 +352,7 @@ private actor SyncStateStore: TrackStateStore {
         guard commit.baseRevision == revision else {
             throw MirrorRevisionConflict(expected: commit.baseRevision, actual: revision)
         }
+        let tracksBeforeCommit = storedTracks
         commitCount += 1
         if let ids = inventoryIDs(commit.inventoryChange) {
             presentIDs = Set(ids)
@@ -282,14 +377,46 @@ private actor SyncStateStore: TrackStateStore {
             certificates = []
         }
         revision = try revision.advanced()
-        return MirrorCommitResult(revision: revision)
+        let snapshot = try makeCommittedSnapshot(
+            baseRevision: commit.baseRevision,
+            tracksBeforeCommit: tracksBeforeCommit
+        )
+        return MirrorCommitResult(revision: revision, snapshot: snapshot)
+    }
+
+    private func makeCommittedSnapshot(
+        baseRevision: MirrorRevision,
+        tracksBeforeCommit: [Track]
+    ) throws -> TrackMirrorSnapshot {
+        let snapshotRevision = committedSnapshotFault == .mismatchedRevision
+            ? baseRevision
+            : revision
+        let snapshotTracks: [Track] = switch committedSnapshotFault {
+        case .omitsAcceptedTrack:
+            []
+        case .retainsRemovedTrack:
+            storedTracks + tracksBeforeCommit.filter { previous in
+                !storedTracks.contains(where: { $0.id == previous.id })
+            }
+        case .none, .mismatchedRevision, .omitsCertificate:
+            storedTracks
+        }
+        let snapshotCertificates = committedSnapshotFault == .omitsCertificate ? [] : certificates
+        return try mirrorSnapshot(
+            revision: snapshotRevision,
+            tracks: snapshotTracks,
+            presentIDs: presentIDs,
+            certificates: snapshotCertificates
+        )
     }
 
     func getTrack(byID id: String) async throws -> Track? {
         storedTracks.first { $0.id == id }
     }
 
-    func persistAppliedChange(_: ChangeLogEntry) async throws {}
+    func persistAppliedChange(_: ChangeLogEntry) async throws {
+        // Synchronization tests do not exercise the independent change-log store.
+    }
 
     func getUnprocessedTracks() async throws -> [Track] {
         storedTracks

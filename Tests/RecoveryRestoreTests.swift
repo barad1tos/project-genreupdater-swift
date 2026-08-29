@@ -45,7 +45,7 @@ struct RecoveryRestoreTests {
         let store = setup.store
         let processor = setup.processor
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await store.upsert($0) },
             write: setup.dependencies.writeDependencies(
                 store: store,
@@ -99,7 +99,7 @@ struct RecoveryRestoreTests {
         let store = setup.store
         let processor = setup.processor
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await store.upsert($0) },
             write: .init(
                 writeFixPlan: { _, _, _ in await gate.run() },

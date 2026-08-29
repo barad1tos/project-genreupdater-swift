@@ -338,12 +338,14 @@ func makeCommandPlan(
 ) -> FixPlan {
     var configuration = AppConfiguration()
     configuration.runtime.automationStrategy = automationStrategy
-    let scope = ProcessingScopeSnapshot.capture(
+    let requestedScope = ProcessingScopeSnapshot.capture(
         requestedTestArtists: ["Björk"],
         knownTrackCount: 12,
         createdAt: Date(timeIntervalSince1970: 1_800_000_091),
         reason: "fixPlanCommandTest"
     )
+    let admission = workflowProcessingAdmission(scope: requestedScope)
+    let scope = requestedScope.certified(by: admission)
     return FixPlan(restoring: .init(
         id: FixPlanID(rawValue: commandUUID("00000000-0000-0000-0000-000000000101")),
         revision: .initial,
@@ -364,7 +366,7 @@ func makeCommandPlan(
             capturedAt: Date(timeIntervalSince1970: 1_800_000_090)
         ),
         scope: scope,
-        admission: .certified(workflowProcessingAdmission(scope: scope)),
+        admission: .certified(admission),
         items: [
             makeCommandItem(
                 id: "00000000-0000-0000-0000-000000000201",

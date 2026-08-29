@@ -75,6 +75,7 @@ extension RunOrchestrator {
         case missingWriteRunner
         case missingBatchRunner
         case recoveryPending
+        case committedScopePersistence
         case writeFailure(
             failedOperationCount: Int,
             failedTrackCount: Int,
@@ -96,6 +97,8 @@ extension RunOrchestrator {
                 "Batch update runner is unavailable"
             case .recoveryPending:
                 "A restored recovery hold blocks the next write attempt"
+            case .committedScopePersistence:
+                "Committed library evidence could not be persisted before processing"
             case let .writeFailure(failedOperationCount, failedTrackCount, reasons, isPartial):
                 Self.writeFailureDescription(
                     failedOperationCount: failedOperationCount,
@@ -118,6 +121,14 @@ extension RunOrchestrator {
             let details = reasons.filter { !$0.isEmpty }.joined(separator: "; ")
             return details.isEmpty ? summary : "\(summary). Errors: \(details)"
         }
+    }
+}
+
+enum ProcessingScopeBindingError: LocalizedError {
+    case invalidCommittedEvidence
+
+    var errorDescription: String? {
+        "Synchronization returned invalid committed library evidence"
     }
 }
 

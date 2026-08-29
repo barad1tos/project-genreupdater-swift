@@ -319,7 +319,7 @@ struct FixPlanFactoryTests {
         let request = try path.request(input: fixture.input)
         let holdID = UUID()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { _ in
                 // Persistence is outside this queued-admission boundary test.
             },
@@ -375,7 +375,7 @@ struct FixPlanFactoryTests {
         let input = StaleInputMutation.scope.applying(to: fixture.input)
         let capture = RunCapture()
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { await capture.append($0) },
             write: .init(writeFixPlan: fixture.write),
             now: { Date(timeIntervalSince1970: 120) }
@@ -684,7 +684,7 @@ private func makePlan(_ item: FixPlanItem) -> FixPlan {
     var configuration = AppConfiguration()
     configuration.applescript.batchProcessing.idsBatchSize = 7
     configuration.applescript.timeouts.idsBatchFetch = .seconds(45)
-    let scope = ProcessingScopeSnapshot.capture(
+    let requestedScope = ProcessingScopeSnapshot.capture(
         requestedTestArtists: [],
         knownTrackCount: 1,
         createdAt: capturedAt,
@@ -694,7 +694,7 @@ private func makePlan(_ item: FixPlanItem) -> FixPlan {
         preconditionFailure("Factory admission membership must be valid")
     }
     let admission = ProcessingAdmission(
-        scopeID: scope.id,
+        scopeID: requestedScope.id,
         certificate: ScopeCertificate(
             id: UUID(),
             revision: .initial,
@@ -710,6 +710,7 @@ private func makePlan(_ item: FixPlanItem) -> FixPlan {
         ),
         maximumMetadataAge: nil
     )
+    let scope = requestedScope.certified(by: admission)
     return FixPlan(restoring: .init(
         id: FixPlanID(),
         revision: .initial,

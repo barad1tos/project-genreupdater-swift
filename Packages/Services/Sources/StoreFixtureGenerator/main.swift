@@ -29,7 +29,7 @@ struct StoreFixtureGenerator {
         case "verify-v3":
             let evidence = try StoreFixtureVerifier.verifyV3Migration(at: storeURL)
             try FileHandle.standardOutput.write(JSONEncoder().encode(evidence))
-        case "v4", "v4-interrupted", "verify-v4", "v5", "v6":
+        case "v4", "v4-interrupted", "verify-v4", "v5":
             try await runStoreMode(mode, storeURL: storeURL)
         case "v2-recovery":
             try StoreFixtureWriter.writeRecoveryV2(to: storeURL)
@@ -78,8 +78,6 @@ struct StoreFixtureGenerator {
             try FileHandle.standardOutput.write(JSONEncoder().encode(evidence))
         case "v5":
             try StoreFixtureWriter.writeV5(to: storeURL)
-        case "v6":
-            try StoreFixtureWriter.writeV6(to: storeURL)
         default:
             throw GeneratorError.invalidArguments
         }
@@ -104,7 +102,7 @@ struct StoreFixtureGenerator {
                 "Usage: StoreFixtureGenerator "
                     + "[migrate|seed-certificate|verify-concurrent-open|v0|v2-membership|"
                     + "verify-v2-membership|v2-recovery|v3|verify-v3|"
-                    + "v4|v4-interrupted|verify-v4|v5|v6] "
+                    + "v4|v4-interrupted|verify-v4|v5] "
                     + "<store-path>"
             case .diagnosticFailure:
                 "Requested diagnostic failure"

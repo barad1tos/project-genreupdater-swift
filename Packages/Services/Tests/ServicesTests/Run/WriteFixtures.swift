@@ -231,6 +231,14 @@ func writeTarget() -> FixPlanWriteTarget {
     )
 }
 
+func certifiedScope(
+    _ captured: ProcessingScopeSnapshot,
+    revision: MirrorRevision = .initial,
+    certificateID: UUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 69))
+) -> ProcessingScopeSnapshot {
+    captured.binding(revision: revision, certificateID: certificateID)
+}
+
 func processingAdmission(
     scope: ProcessingScopeSnapshot,
     certificateID: UUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 69))
@@ -242,8 +250,8 @@ func processingAdmission(
     return ProcessingAdmission(
         scopeID: scope.id,
         certificate: ScopeCertificate(
-            id: certificateID,
-            revision: .initial,
+            id: scope.certificateID ?? certificateID,
+            revision: scope.mirrorRevision ?? .initial,
             membership: membership,
             testArtists: scope.normalizedTestArtists,
             fieldSet: .processingV1,
@@ -265,12 +273,12 @@ func writeInput(
     workItems: [RunWorkItem]? = nil
 ) -> FixPlanWriteInput {
     let capturedAt = Date(timeIntervalSince1970: 90)
-    let scope = ProcessingScopeSnapshot.capture(
+    let scope = certifiedScope(ProcessingScopeSnapshot.capture(
         requestedTestArtists: artists,
         knownTrackCount: knownTrackCount,
         createdAt: capturedAt,
         reason: "write-test"
-    )
+    ))
     return FixPlanWriteInput(
         target: target,
         scope: scope,

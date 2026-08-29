@@ -439,10 +439,6 @@ struct BatchRunTests {
 
 private struct BatchWaitTimeout: Error {}
 
-private func ignoreRunRecord(_: RunRecord) async throws {
-    // Record persistence is irrelevant to these arbiter pins.
-}
-
 private actor HoldProbe {
     private(set) var callCount = 0
 

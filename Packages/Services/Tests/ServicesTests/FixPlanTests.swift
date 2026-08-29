@@ -461,7 +461,7 @@ struct FixPlanTests {
 
         #expect(plan.revision == .initial)
         #expect(plan.sourceRunID == sourceRunID)
-        #expect(plan.scope == scope)
+        #expect(plan.scope == certifiedScope(scope))
         #expect(plan.configuration == configuration)
         #expect(plan.createdAt == Date(timeIntervalSince1970: 200))
         #expect(plan.items.count == 1)
@@ -685,8 +685,8 @@ private func makeAdmission(scope: ProcessingScopeSnapshot) throws -> ProcessingA
     return ProcessingAdmission(
         scopeID: scope.id,
         certificate: ScopeCertificate(
-            id: UUID(),
-            revision: .initial,
+            id: scope.certificateID ?? UUID(),
+            revision: scope.mirrorRevision ?? .initial,
             membership: membership,
             testArtists: scope.normalizedTestArtists,
             fieldSet: .processingV1,
@@ -702,8 +702,9 @@ private func makeAdmission(scope: ProcessingScopeSnapshot) throws -> ProcessingA
 }
 
 private func makeEvidence(scope: ProcessingScopeSnapshot) throws -> FixPlanCapture.Evidence {
-    try FixPlanCapture.Evidence(
-        scope: scope,
-        admission: makeAdmission(scope: scope)
+    let boundScope = certifiedScope(scope)
+    return try FixPlanCapture.Evidence(
+        scope: boundScope,
+        admission: makeAdmission(scope: boundScope)
     )
 }

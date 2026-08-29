@@ -27,7 +27,7 @@ struct AutomaticWriteTests {
             capturedAt: capturedAt
         )
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in .empty },
             now: { capturedAt }
@@ -66,7 +66,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -121,7 +121,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: ignoreRunRecord,
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -156,7 +156,7 @@ struct AutomaticWriteTests {
 
     @Test("auto-fix does not write without a durable planning result")
     func autoFixRequiresDurablePlanRecord() async {
-        let records = FailingRecordProbe(failingCall: 2)
+        let records = FailingRecordProbe(failingCall: 3)
         let processing = ProcessingSuccessProbe()
         let planID = FixPlanID()
         let capturedAt = Date(timeIntervalSince1970: 100)
@@ -171,7 +171,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -218,7 +218,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, configuration in
                 if configuration.id == backgroundConfiguration.id {
@@ -349,7 +349,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -398,7 +398,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: ignoreRunRecord,
             produceFixPlan: { _, _, _ in
                 await planGate.waitUntilReleased()
@@ -449,7 +449,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: ignoreRunRecord,
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -502,7 +502,7 @@ struct AutomaticWriteTests {
             errorDescriptions: []
         ))
         let orchestrator = RunOrchestrator(dependencies: .init(
-            synchronizeLibrary: { _ in SyncResult() },
+            synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
             persistRunRecord: { try await records.append($0) },
             produceFixPlan: { _, _, _ in
                 FixPlanProduction(planID: planID, proposalCount: 1)
@@ -713,10 +713,6 @@ private func continuationSource(for input: FixPlanWriteInput) -> RunRecord {
     )
 }
 
-private func ignoreRunRecord(_ record: RunRecord) async throws {
-    _ = record
-}
-
 private func planConfiguration(
     capturedAt: Date,
     options: UpdateOptions = UpdateOptions()
@@ -745,7 +741,7 @@ private func stalePlanFixture() -> StalePlanFixture {
         errorDescriptions: []
     ))
     let orchestrator = RunOrchestrator(dependencies: .init(
-        synchronizeLibrary: { _ in SyncResult() },
+        synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
         persistRunRecord: { try await records.append($0) },
         produceFixPlan: { _, _, configuration in
             if configuration.id == scheduledConfiguration.id {

@@ -51,6 +51,23 @@ func workflowProcessingAdmission(scope: ProcessingScopeSnapshot) -> ProcessingAd
     )
 }
 
+extension ProcessingScopeSnapshot {
+    func certified(by admission: ProcessingAdmission) -> Self {
+        Self(
+            id: id,
+            createdAt: createdAt,
+            source: source,
+            normalizedTestArtists: normalizedTestArtists,
+            matchingRule: matchingRule,
+            knownTrackCount: knownTrackCount,
+            fingerprint: fingerprint,
+            reason: reason,
+            mirrorRevision: admission.certificate.revision,
+            certificateID: admission.certificate.id
+        )
+    }
+}
+
 struct WorkflowFixtureOptions {
     var apiServices: APIOrchestratorServices?
     var tier: Tier = .pro
