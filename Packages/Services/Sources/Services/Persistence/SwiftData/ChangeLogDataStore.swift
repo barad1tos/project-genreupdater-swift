@@ -14,16 +14,6 @@ import SwiftData
 public actor ChangeLogDataStore: ChangeLogStore {
     private let log = Logger(subsystem: "com.genreupdater", category: "ChangeLogStore")
 
-    // MARK: - Save
-
-    public func saveEntry(_ entry: Core.ChangeLogEntry) async throws {
-        let persisted = PersistedChangeLogEntry(from: entry)
-        linkToTrack(persisted)
-        modelContext.insert(persisted)
-        try modelContext.save()
-        log.debug("Saved change log entry \(entry.id, privacy: .private)")
-    }
-
     public func saveEntries(_ entries: [Core.ChangeLogEntry]) async throws {
         for entry in entries {
             let persisted = PersistedChangeLogEntry(from: entry)

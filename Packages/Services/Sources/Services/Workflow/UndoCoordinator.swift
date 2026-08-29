@@ -82,42 +82,6 @@ public actor UndoCoordinator {
 
     // MARK: Record
 
-    /// Log a change after a successful write to Music.app.
-    public func recordChange(_ entry: ChangeLogEntry) async throws {
-        await loadHistoryIfNeeded()
-
-        history.append(entry)
-        try await changeLogStore?.saveEntry(entry)
-        log
-            .info(
-                "Recorded \(entry.changeType.rawValue, privacy: .public) for track \(entry.trackID, privacy: .private)"
-            )
-    }
-
-    /// Record multiple changes at once (e.g. after batch processing).
-    public func recordChanges(_ entries: [ChangeLogEntry]) async throws {
-        await loadHistoryIfNeeded()
-
-        history.append(contentsOf: entries)
-        try await changeLogStore?.saveEntries(entries)
-        log.info("Recorded \(entries.count, privacy: .public) change(s)")
-    }
-
-    /// Records repaired evidence durable-first, replacing same-ID in-memory
-    /// entries only after the store accepts them. The normal `recordChange`
-    /// and `recordChanges` paths deliberately retain in-memory undo when
-    /// persistence fails mid-run.
-    public func recordRepairedChanges(_ entries: [ChangeLogEntry]) async throws {
-        await loadHistoryIfNeeded()
-
-        try await changeLogStore?.saveEntries(entries)
-        let repairedIDs = Set(entries.map(\.id))
-        history.removeAll { repairedIDs.contains($0.id) }
-        history.append(contentsOf: entries)
-        let noun = entries.count == 1 ? "entry" : "entries"
-        log.info("Repaired \(entries.count, privacy: .public) change history \(noun, privacy: .public)")
-    }
-
     /// Publishes history that was already committed atomically by the track store.
     public func recordCommittedChange(_ entry: ChangeLogEntry) async {
         await loadHistoryIfNeeded()
@@ -238,8 +202,7 @@ public actor UndoCoordinator {
             write.entry,
             historyEntryID: historyEntry.id,
             recoveryOriginYear: recoveryOriginYear,
-            change: change,
-            repairsMirror: false
+            change: change
         )
     }
 
@@ -265,8 +228,7 @@ public actor UndoCoordinator {
             checkpoint.entry,
             historyEntryID: historyEntry.id,
             recoveryOriginYear: checkpoint.metadata.originYear,
-            change: change,
-            repairsMirror: false
+            change: change
         )
         return true
     }
@@ -300,8 +262,7 @@ public actor UndoCoordinator {
                 checkpoint.entry,
                 historyEntryID: checkpoint.metadata.historyEntryID,
                 recoveryOriginYear: checkpoint.metadata.originYear,
-                change: change,
-                repairsMirror: true
+                change: change
             )
             return true
         }
@@ -325,27 +286,24 @@ public actor UndoCoordinator {
         _ checkpointEntry: ChangeLogEntry,
         historyEntryID: UUID?,
         recoveryOriginYear: Int?,
-        change: ProposedChange,
-        repairsMirror: Bool
+        change: ProposedChange
     ) async throws {
-        if repairsMirror {
-            do {
-                var mirrorEntry = checkpointEntry
-                mirrorEntry.oldYear = recoveryOriginYear ?? mirrorEntry.newYear
-                let trackStore = try requiredTrackStore(for: change.track.id)
-                _ = try await trackStore.commitRevertedChange(
-                    mirrorEntry,
-                    removingHistoryEntryID: historyEntryID ?? checkpointEntry.id
-                )
-            } catch {
-                await invalidateCaches(for: change)
-                throw UpdateCoordinatorError.writeFinalizationFailed(
-                    trackID: change.track.id,
-                    effects: ["track mirror"]
-                )
-            }
+        do {
+            var mirrorEntry = checkpointEntry
+            mirrorEntry.oldYear = recoveryOriginYear ?? mirrorEntry.newYear
+            let trackStore = try requiredTrackStore(for: change.track.id)
+            _ = try await trackStore.commitRevertedChange(
+                mirrorEntry,
+                removingHistoryEntryID: historyEntryID ?? checkpointEntry.id
+            )
+        } catch {
             await invalidateCaches(for: change)
+            throw UpdateCoordinatorError.writeFinalizationFailed(
+                trackID: change.track.id,
+                effects: ["track mirror"]
+            )
         }
+        await invalidateCaches(for: change)
         _ = try backupCheckpoint(
             for: change.track.id,
             writing: (checkpointEntry, (.completed, historyEntryID, recoveryOriginYear)),
@@ -654,12 +612,10 @@ public actor UndoCoordinator {
         guard completesRecovery else { return }
 
         if checkpoint.metadata.phase == .changed {
-            var mirrorEntry = checkpoint.entry
-            mirrorEntry.oldYear = mirrorEntry.newYear
             do {
                 let trackStore = try requiredTrackStore(for: databaseID.rawValue)
-                _ = try await trackStore.commitAppliedChange(mirrorEntry)
-                await recordCommittedChange(mirrorEntry)
+                _ = try await trackStore.commitAppliedChange(checkpoint.entry)
+                await recordCommittedChange(checkpoint.entry)
             } catch {
                 await invalidateCaches(for: change)
                 throw UpdateCoordinatorError.writeFinalizationFailed(

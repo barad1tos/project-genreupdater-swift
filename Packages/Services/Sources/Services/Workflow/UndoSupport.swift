@@ -42,18 +42,21 @@ extension UndoCoordinator {
                 throw error
             }
             let entry = UpdateCoordinator.changeToLogEntry(
-                preparedWrite.change,
-                databaseID: preparedWrite.databaseID,
-                recoveryOrigin: recoveryOrigin
+                preparedWrite.change, databaseID: preparedWrite.databaseID, recoveryOrigin: recoveryOrigin
             )
             do {
                 try await prepareMirror?(preparedWrite, result)
-                try await commitRevert(
-                    entry,
-                    result: result,
-                    trackStore: trackStore,
-                    historyEntryID: revertingHistoryEntryID
-                )
+                if let revertingHistoryEntryID {
+                    _ = try await trackStore.commitRevertedChange(
+                        entry,
+                        removingHistoryEntryID: revertingHistoryEntryID
+                    )
+                } else if result == .changed {
+                    _ = try await trackStore.commitAppliedChange(entry)
+                    await recordCommittedChange(entry)
+                } else {
+                    _ = try await trackStore.commitObservedChange(entry)
+                }
             } catch {
                 await invalidateCaches(for: preparedWrite.change)
                 if let error = error as? UpdateCoordinatorError {
@@ -79,25 +82,6 @@ extension UndoCoordinator {
                     reason: "AppleScript write failed"
                 )
             }
-        }
-    }
-
-    private func commitRevert(
-        _ entry: ChangeLogEntry,
-        result: MusicWriteResult,
-        trackStore: any TrackStateStore,
-        historyEntryID: UUID?
-    ) async throws {
-        if let historyEntryID {
-            _ = try await trackStore.commitRevertedChange(
-                entry,
-                removingHistoryEntryID: historyEntryID
-            )
-        } else if result == .changed {
-            _ = try await trackStore.commitAppliedChange(entry)
-            await recordCommittedChange(entry)
-        } else {
-            _ = try await trackStore.commitObservedChange(entry)
         }
     }
 

@@ -140,39 +140,6 @@ struct RecoveryEvidenceRepairTests {
         #expect(written.map(\.id) == [terminal.id])
     }
 
-    @Test("repair skips entries the history already records")
-    func filtersMissingEntries() throws {
-        let runID = UUID()
-        let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
-        let recorded = makeWorkItem(
-            state: .outcome(.written),
-            changeType: .yearUpdate,
-            oldValue: "1999",
-            newValue: "2001"
-        )
-        let existing = try #require(RecoveryEvidenceRepair.changeLogEntry(for: recorded))
-
-        let entries = RecoveryEvidenceRepair.missingEntries(
-            for: [landed, recorded],
-            existing: [existing],
-            runID: runID
-        )
-
-        #expect(entries.map(\.newGenre) == ["Stoner Rock"])
-    }
-
-    @Test("repair is idempotent across repeated clearance attempts")
-    func staysIdempotent() {
-        let runID = UUID()
-        let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
-        let first = RecoveryEvidenceRepair.missingEntries(for: [landed], existing: [], runID: runID)
-
-        let second = RecoveryEvidenceRepair.missingEntries(for: [landed], existing: first, runID: runID)
-
-        #expect(first.count == 1)
-        #expect(second.isEmpty)
-    }
-
     @Test("finalization reuses matching durable history identity")
     func reusesDurableHistoryIdentity() throws {
         let runID = UUID()
@@ -200,6 +167,60 @@ struct RecoveryEvidenceRepairTests {
         #expect(entries.map(\.id) == [existing.id])
     }
 
+    @Test("finalization does not adopt a foreign run event with the same target effect")
+    func keepsForeignHistorySeparate() throws {
+        let runID = UUID()
+        let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
+        let candidate = try #require(RecoveryEvidenceRepair.changeLogEntry(for: landed))
+        var foreign = ChangeLogEntry(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            changeType: candidate.changeType,
+            trackID: candidate.trackID,
+            artist: candidate.artist,
+            trackName: candidate.trackName,
+            albumName: candidate.albumName,
+            oldGenre: candidate.oldGenre,
+            newGenre: candidate.newGenre
+        )
+        foreign.runID = UUID()
+
+        let entries = RecoveryEvidenceRepair.finalizationEntries(
+            for: [landed],
+            existing: [foreign],
+            runID: runID
+        )
+
+        #expect(entries.map(\.id) == [landed.id])
+    }
+
+    @Test("finalization does not reuse a same-run event with a different source effect")
+    func keepsDistinctTransition() throws {
+        let runID = UUID()
+        let landed = makeWorkItem(state: .outcome(.written), oldValue: "Rock", newValue: "Stoner Rock")
+        let candidate = try #require(RecoveryEvidenceRepair.changeLogEntry(for: landed))
+        var existing = ChangeLogEntry(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            changeType: candidate.changeType,
+            trackID: candidate.trackID,
+            artist: candidate.artist,
+            trackName: candidate.trackName,
+            albumName: candidate.albumName,
+            oldGenre: "Metal",
+            newGenre: candidate.newGenre
+        )
+        existing.runID = runID
+
+        let entries = RecoveryEvidenceRepair.finalizationEntries(
+            for: [landed],
+            existing: [existing],
+            runID: runID
+        )
+
+        #expect(entries.map(\.id) == [landed.id])
+    }
+
     @Test("same-run read identity is rewritten to the Music.app database ID")
     func rewritesSameRunReadID() {
         let runID = UUID()
@@ -218,7 +239,7 @@ struct RecoveryEvidenceRepairTests {
         )
         legacy.runID = runID
 
-        let entries = RecoveryEvidenceRepair.missingEntries(
+        let entries = RecoveryEvidenceRepair.finalizationEntries(
             for: [landed],
             existing: [legacy],
             runID: runID
@@ -246,7 +267,7 @@ struct RecoveryEvidenceRepairTests {
         )
         legacy.runID = UUID()
 
-        let entries = RecoveryEvidenceRepair.missingEntries(
+        let entries = RecoveryEvidenceRepair.finalizationEntries(
             for: [landed],
             existing: [legacy],
             runID: runID
@@ -255,44 +276,5 @@ struct RecoveryEvidenceRepairTests {
         #expect(entries.count == 1)
         #expect(entries.first?.id != legacyID)
         #expect(entries.first?.trackID == "persistent-1")
-    }
-
-    @Test("failed repaired save keeps legacy history until retry")
-    func retriesFailedRepair() async throws {
-        let store = MockChangeLogStore()
-        let coordinator = UndoCoordinator(
-            musicApp: MusicAppTestAccess(),
-            stores: .init(changeLog: store),
-            directory: FileManager.default.temporaryDirectory
-                .appendingPathComponent("RecoveryRepair-\(UUID().uuidString)")
-        )
-        let legacy = ChangeLogEntry(
-            changeType: .genreUpdate,
-            trackID: "persistent-1",
-            artist: "Artist"
-        )
-        try await coordinator.recordChange(legacy)
-        let canonical = ChangeLogEntry(
-            id: legacy.id,
-            timestamp: legacy.timestamp,
-            changeType: legacy.changeType,
-            trackID: "read-1",
-            artist: legacy.artist,
-            oldGenre: "Rock",
-            newGenre: "Stoner Rock"
-        )
-        await store.failSaves()
-
-        await #expect(throws: MockScriptError.self) {
-            try await coordinator.recordRepairedChanges([canonical])
-        }
-        #expect(await coordinator.getHistory().map(\.trackID) == ["persistent-1"])
-        #expect(try await store.loadAll().map(\.trackID) == ["persistent-1"])
-
-        await store.resumeSaves()
-        try await coordinator.recordRepairedChanges([canonical])
-
-        #expect(await coordinator.getHistory().map(\.trackID) == ["read-1"])
-        #expect(try await store.loadAll().map(\.trackID) == ["read-1"])
     }
 }

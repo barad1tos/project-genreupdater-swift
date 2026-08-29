@@ -637,13 +637,3 @@ public actor TrackDataStore: TrackStateStore {
         return duplicates.sorted()
     }
 }
-
-// MARK: - Factory
-
-extension TrackDataStore {
-    /// Create a track store with the default shared ModelContainer.
-    public static func createDefault() throws -> TrackDataStore {
-        let container = try ModelContainerFactory.create()
-        return TrackDataStore(modelContainer: container)
-    }
-}

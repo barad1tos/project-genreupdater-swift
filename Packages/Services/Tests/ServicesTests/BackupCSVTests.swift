@@ -225,7 +225,10 @@ struct BackupCSVTests {
         #expect(retryResult.updatedCount == 1)
         #expect(retryResult.skippedCount == 0)
         #expect(await bridge.writtenProperties.count == 1)
-        #expect(await retryCoordinator.getHistory().count == 1)
+        let history = await retryCoordinator.getHistory()
+        #expect(history.count == 1)
+        #expect(history.first?.oldYear == 2019)
+        #expect(history.first?.newYear == 1998)
         try await expectRestoredYear(in: trackStore)
     }
 
@@ -658,7 +661,7 @@ struct BackupCSVTests {
     private func expectRestoredYear(in store: MockTrackStore) async throws {
         let track = try #require(try await store.getTrack(byID: "T1"))
         #expect(track.year == 1998)
-        #expect(track.yearBeforeMGU == 1998)
+        #expect(track.yearBeforeMGU == 2019)
         #expect(track.yearSetByMGU == 1998)
     }
 }

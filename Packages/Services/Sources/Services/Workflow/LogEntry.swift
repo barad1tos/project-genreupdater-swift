@@ -51,12 +51,15 @@ extension UpdateCoordinator {
         return entry
     }
 
-    static func noOpLogEntry(_ change: ProposedChange) -> ChangeLogEntry {
+    static func noOpLogEntry(
+        _ change: ProposedChange,
+        databaseID: MusicDatabaseTrackID
+    ) -> ChangeLogEntry {
         var entry = ChangeLogEntry(
             id: change.id,
             timestamp: .now,
             changeType: change.changeType,
-            trackID: change.track.id,
+            trackID: databaseID.rawValue,
             artist: change.track.artist,
             trackName: change.track.name,
             albumName: change.track.album

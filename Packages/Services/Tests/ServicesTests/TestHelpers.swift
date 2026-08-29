@@ -21,6 +21,44 @@ extension TrackDataStore {
     }
 }
 
+extension ChangeLogStore {
+    func saveEntry(_ entry: ChangeLogEntry) async throws {
+        try await saveEntries([entry])
+    }
+}
+
+extension ChangeLogEntry {
+    init(
+        changeType: ChangeType,
+        trackID: String,
+        artist: String,
+        trackName: String = "",
+        albumName: String = ""
+    ) {
+        self.init(
+            id: UUID(),
+            timestamp: .now,
+            changeType: changeType,
+            trackID: trackID,
+            artist: artist,
+            trackName: trackName,
+            albumName: albumName
+        )
+    }
+}
+
+extension UndoCoordinator {
+    func recordChange(_ entry: ChangeLogEntry) async throws {
+        try await recordChanges([entry])
+    }
+
+    func recordChanges(_ entries: [ChangeLogEntry]) async throws {
+        _ = await getHistory()
+        history.append(contentsOf: entries)
+        try await changeLogStore?.saveEntries(entries)
+    }
+}
+
 func testDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {
     guard let databaseID = MusicDatabaseTrackID(rawValue: rawValue) else {
         preconditionFailure("Invalid test database ID: \(rawValue)")
@@ -242,10 +280,6 @@ actor MockChangeLogStore: ChangeLogStore {
 
     func failSaves() {
         shouldFailSaves = true
-    }
-
-    func resumeSaves() {
-        shouldFailSaves = false
     }
 
     func loadRecent(limit: Int) async throws -> [ChangeLogEntry] {

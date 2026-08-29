@@ -294,22 +294,6 @@ public struct ChangeLogEntry: Sendable, Codable, Identifiable, Equatable {
     /// that run's retention; nil entries are never pruned by run retention.
     public var runID: UUID?
 
-    public init(
-        changeType: ChangeType,
-        trackID: String,
-        artist: String,
-        trackName: String = "",
-        albumName: String = ""
-    ) {
-        id = UUID()
-        timestamp = .now
-        self.changeType = changeType
-        self.trackID = trackID
-        self.artist = artist
-        self.trackName = trackName
-        self.albumName = albumName
-    }
-
     /// Round-trip init for restoring from persistence (preserves original id and timestamp).
     public init(
         id: UUID,

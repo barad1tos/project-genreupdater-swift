@@ -41,12 +41,16 @@ extension TrackDataStore {
                 let persistedTrack = try fetchTrack(id: change.trackID)
                 let currentTrack = persistedTrack.toTrack()
                 let updatedTrack = try currentTrack.applying(change)
-                guard !isCommitted(
+                let hasAppliedState = Self.hasAppliedState(
                     change,
-                    history: historyChange,
                     current: currentTrack,
                     updated: updatedTrack,
                     persisted: persistedTrack
+                )
+                guard !isRepeatedCommit(
+                    history: historyChange,
+                    storedHistory: storedHistory,
+                    hasAppliedState: hasAppliedState
                 ) else {
                     applyHistory(historyChange, entry: change, stored: storedHistory, track: persistedTrack)
                     return
@@ -117,18 +121,20 @@ extension TrackDataStore {
         }
     }
 
-    private func isCommitted(
-        _ change: ChangeLogEntry,
+    private func isRepeatedCommit(
         history: HistoryChange,
-        current: Track,
-        updated: Track,
-        persisted: PersistedTrack
+        storedHistory: PersistedChangeLogEntry?,
+        hasAppliedState: Bool
     ) -> Bool {
         switch history {
         case .ignore:
-            Self.hasSameMetadata(change, current: current, updated: updated)
-        case .record, .remove:
-            Self.hasAppliedState(change, current: current, updated: updated, persisted: persisted)
+            false
+        case .record:
+            storedHistory != nil
+                && hasAppliedState
+        case .remove:
+            storedHistory == nil
+                && hasAppliedState
         }
     }
 
@@ -259,25 +265,6 @@ extension TrackDataStore {
             persisted.yearUpdated
         case .trackCleaning, .albumCleaning, .artistRename:
             true
-        }
-    }
-
-    private static func hasSameMetadata(
-        _ change: ChangeLogEntry,
-        current: Track,
-        updated: Track
-    ) -> Bool {
-        switch change.changeType {
-        case .genreUpdate:
-            current.genre == updated.genre
-        case .yearUpdate, .yearRevert:
-            current.year == updated.year
-        case .trackCleaning:
-            current.name == updated.name
-        case .albumCleaning:
-            current.album == updated.album
-        case .artistRename:
-            current.artist == updated.artist && current.albumArtist == updated.albumArtist
         }
     }
 }

@@ -59,30 +59,6 @@ public enum RecoveryEvidenceRepair {
         }
     }
 
-    /// Returns missing canonical entries for written items. A same-run legacy
-    /// read-ID entry is rewritten to the Music.app database ID while preserving its
-    /// event identity; entries owned by another run are never rewritten.
-    public static func missingEntries(
-        for items: [RunWorkItem],
-        existing: [ChangeLogEntry],
-        runID: UUID
-    ) -> [ChangeLogEntry] {
-        items.compactMap { item -> ChangeLogEntry? in
-            guard let candidate = changeLogEntry(for: item),
-                  !existing.contains(where: { matches($0, candidate) })
-            else { return nil }
-            guard case let .track(identity) = item.target,
-                  identity.readID != candidate.trackID,
-                  let legacy = existing.first(where: {
-                      $0.trackID == identity.readID
-                          && $0.runID == runID
-                          && matchesChange($0, candidate)
-                  })
-            else { return candidate }
-            return canonicalEntry(candidate, preserving: legacy)
-        }
-    }
-
     /// Returns one canonical durable event for every landed work item.
     /// Existing history keeps its event identity; missing history uses the
     /// stable work-item identity so retries and relaunches converge.
@@ -93,7 +69,9 @@ public enum RecoveryEvidenceRepair {
     ) -> [ChangeLogEntry] {
         items.compactMap { item in
             guard let candidate = changeLogEntry(for: item) else { return nil }
-            if let recorded = existing.first(where: { matches($0, candidate) }) {
+            if let recorded = existing.first(where: {
+                matchesStoredEvent($0, itemID: item.id, candidate: candidate, runID: runID)
+            }) {
                 return recorded
             }
             guard case let .track(identity) = item.target,
@@ -113,12 +91,27 @@ public enum RecoveryEvidenceRepair {
             && matchesChange(recorded, candidate)
     }
 
+    private static func matchesStoredEvent(
+        _ recorded: ChangeLogEntry,
+        itemID: UUID,
+        candidate: ChangeLogEntry,
+        runID: UUID
+    ) -> Bool {
+        recorded.id == itemID
+            || (recorded.runID == runID && matches(recorded, candidate))
+    }
+
     private static func matchesChange(_ recorded: ChangeLogEntry, _ candidate: ChangeLogEntry) -> Bool {
         recorded.changeType == candidate.changeType
+            && recorded.oldGenre == candidate.oldGenre
             && recorded.newGenre == candidate.newGenre
+            && recorded.oldYear == candidate.oldYear
             && recorded.newYear == candidate.newYear
+            && recorded.oldTrackName == candidate.oldTrackName
             && recorded.newTrackName == candidate.newTrackName
+            && recorded.oldAlbumName == candidate.oldAlbumName
             && recorded.newAlbumName == candidate.newAlbumName
+            && recorded.oldArtist == candidate.oldArtist
             && recorded.newArtist == candidate.newArtist
             && recorded.albumArtistChange == candidate.albumArtistChange
     }

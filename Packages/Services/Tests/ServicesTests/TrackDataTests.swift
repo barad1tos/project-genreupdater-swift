@@ -31,7 +31,7 @@ struct TrackDataTests {
         return try ModelContainer(for: schema, configurations: [configuration])
     }
 
-    private func sampleTrack(id: String = "T001", name: String = "Test Song") -> Track {
+    func sampleTrack(id: String = "T001", name: String = "Test Song") -> Track {
         Track(
             id: id,
             name: name,
@@ -47,7 +47,7 @@ struct TrackDataTests {
         try #require(MusicDatabaseTrackID(rawValue: rawValue))
     }
 
-    private func appliedChange(
+    func appliedChange(
         trackID: String = "T001",
         type: ChangeType
     ) -> ChangeLogEntry {
@@ -385,84 +385,6 @@ struct TrackDataTests {
         #expect(member.albumArtist == "Massive Attack")
         #expect(member.identityObservedAt == timestamp)
         #expect(member.identityRevisionValue == 2)
-    }
-
-    @Test("Existing history repairs an unfinished mirror finalization once")
-    func repairsHistoricSplitFinalization() async throws {
-        let container = try ModelContainerFactory.createInMemory()
-        let store = TrackDataStore(modelContainer: container)
-        try await store.initialize()
-        try await store.seedMirror([sampleTrack()])
-        let change = ChangeLogEntry(
-            id: UUID(),
-            timestamp: Date(timeIntervalSince1970: 1_800_000_000),
-            changeType: .yearUpdate,
-            trackID: "T001",
-            artist: "Test Artist",
-            trackName: "Test Song",
-            albumName: "Test Album",
-            oldYear: 2020,
-            newYear: 2024
-        )
-        let context = ModelContext(container)
-        context.insert(PersistedChangeLogEntry(from: change))
-        try context.save()
-
-        _ = try await store.commitAppliedChange(change)
-        _ = try await store.commitAppliedChange(change)
-
-        let snapshot = try await store.loadMirrorSnapshot()
-        let history = try context.fetch(FetchDescriptor<PersistedChangeLogEntry>())
-        #expect(snapshot.revision == MirrorRevision(value: 2))
-        #expect(snapshot.presentTracks.first?.year == 2024)
-        #expect(history.map(\.entryID) == [change.id])
-    }
-
-    @Test("Recovery canonicalizes same-event legacy history atomically")
-    func canonicalizesLegacyHistory() async throws {
-        let container = try ModelContainerFactory.createInMemory()
-        let store = TrackDataStore(modelContainer: container)
-        try await store.initialize()
-        try await store.seedMirror([sampleTrack()])
-        let changeID = UUID()
-        let runID = UUID()
-        var legacy = ChangeLogEntry(
-            id: changeID,
-            timestamp: Date(timeIntervalSince1970: 1_800_000_000),
-            changeType: .genreUpdate,
-            trackID: "music-kit-1",
-            artist: "Test Artist",
-            trackName: "Test Song",
-            albumName: "Test Album",
-            oldGenre: "Rock",
-            newGenre: "Metal"
-        )
-        legacy.runID = runID
-        var canonical = ChangeLogEntry(
-            id: changeID,
-            timestamp: legacy.timestamp,
-            changeType: legacy.changeType,
-            trackID: "T001",
-            artist: legacy.artist,
-            trackName: legacy.trackName,
-            albumName: legacy.albumName,
-            oldGenre: legacy.oldGenre,
-            newGenre: legacy.newGenre
-        )
-        canonical.runID = runID
-        let context = ModelContext(container)
-        context.insert(PersistedChangeLogEntry(from: legacy))
-        try context.save()
-
-        _ = try await store.commitAppliedChange(canonical)
-        _ = try await store.commitAppliedChange(canonical)
-
-        let snapshot = try await store.loadMirrorSnapshot()
-        let history = try context.fetch(FetchDescriptor<PersistedChangeLogEntry>())
-        #expect(snapshot.revision == MirrorRevision(value: 2))
-        #expect(snapshot.presentTracks.first?.genre == "Metal")
-        #expect(history.map(\.entryID) == [changeID])
-        #expect(history.map(\.trackID) == ["T001"])
     }
 
     @Test("Genre and year writes complete processing state")

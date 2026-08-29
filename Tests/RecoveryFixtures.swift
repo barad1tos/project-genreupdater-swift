@@ -15,6 +15,40 @@ struct RecoverySetup {
     let directory: URL
 }
 
+extension ChangeLogStore {
+    func saveEntry(_ entry: ChangeLogEntry) async throws {
+        try await saveEntries([entry])
+    }
+}
+
+extension ChangeLogEntry {
+    init(
+        changeType: ChangeType,
+        trackID: String,
+        artist: String,
+        trackName: String = "",
+        albumName: String = ""
+    ) {
+        self.init(
+            id: UUID(),
+            timestamp: .now,
+            changeType: changeType,
+            trackID: trackID,
+            artist: artist,
+            trackName: trackName,
+            albumName: albumName
+        )
+    }
+}
+
+extension UndoCoordinator {
+    func recordChange(_ entry: ChangeLogEntry) async throws {
+        _ = await getHistory()
+        history.append(entry)
+        try await changeLogStore?.saveEntries([entry])
+    }
+}
+
 /// SwiftData-backed history store with a controllable save failure for
 /// app-level recovery tests.
 actor RecoveryChangeLogStore: ChangeLogStore {

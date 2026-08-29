@@ -355,7 +355,6 @@ extension TrackProcessor {
 }
 
 public protocol ChangeLogStore: Actor {
-    func saveEntry(_ entry: ChangeLogEntry) async throws
     func saveEntries(_ entries: [ChangeLogEntry]) async throws
     func loadAll() async throws -> [ChangeLogEntry]
     /// Newest-first bounded read for display surfaces; `loadAll` stays

@@ -142,8 +142,15 @@ extension UpdateCoordinator {
         for (writeIndex, preparedWrite) in preparedWrites.enumerated() {
             switch Self.batchWorkOutcome(at: writeIndex, write: preparedWrite, batch: batch) {
             case .noFixNeeded:
-                await invalidateCaches(for: preparedWrite.change)
-                noOpEntries.append(Self.noOpLogEntry(preparedWrite.change))
+                do {
+                    let entry = try await recordObservedChange(
+                        preparedWrite.change,
+                        databaseID: preparedWrite.databaseID
+                    )
+                    noOpEntries.append(entry)
+                } catch {
+                    firstFinalizationError = firstFinalizationError ?? error
+                }
                 continue
             case .failed:
                 if let error = batch.preflightFailures[writeIndex] {
@@ -256,7 +263,11 @@ extension UpdateCoordinator {
                     firstFinalizationError = firstFinalizationError ?? error
                 }
             case .noFixNeeded:
-                await invalidateCaches(for: write.change)
+                do {
+                    _ = try await recordObservedChange(write.change, databaseID: write.databaseID)
+                } catch {
+                    firstFinalizationError = firstFinalizationError ?? error
+                }
             case .failed, .fixProposed, .needsReview, .skipped, .deferred, .dismissed:
                 assertionFailure("Unexpected unconfirmed batch work outcome")
             }

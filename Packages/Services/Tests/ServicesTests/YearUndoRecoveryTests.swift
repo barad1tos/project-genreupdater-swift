@@ -268,6 +268,71 @@ struct YearUndoRecoveryTests {
         #expect(await fixture.bridge.writtenProperties.count == 1)
     }
 
+    @Test("Legacy completed checkpoint removes durable history atomically")
+    func repairsLegacyCompletedCheckpoint() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let trackStore = TrackDataStore(modelContainer: container)
+        let historyStore = ChangeLogDataStore(modelContainer: container)
+        try await trackStore.initialize()
+        let track = Track(
+            id: "T1",
+            name: "Angel",
+            artist: "Massive Attack",
+            album: "Mezzanine",
+            year: nil,
+            appleScriptID: "T1"
+        )
+        try await trackStore.seedMirror([track])
+        var historyEntry = ChangeLogEntry(
+            changeType: .yearUpdate,
+            trackID: "T1",
+            artist: track.artist,
+            trackName: track.name,
+            albumName: track.album
+        )
+        historyEntry.oldYear = nil
+        historyEntry.newYear = 2019
+        try await historyStore.saveEntry(historyEntry)
+        var checkpointEntry = ChangeLogEntry(
+            changeType: .yearRevert,
+            trackID: "T1",
+            artist: track.artist,
+            trackName: track.name,
+            albumName: track.album
+        )
+        checkpointEntry.oldYear = 2019
+        checkpointEntry.newYear = MusicAppYear.missingValue
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LegacyCompletedUndo-\(UUID().uuidString)")
+        let bridge = MusicAppTestAccess()
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            stores: .init(changeLog: historyStore, tracks: trackStore),
+            directory: directory
+        )
+        _ = try await coordinator.backupCheckpoint(
+            for: checkpointEntry.trackID,
+            writing: (checkpointEntry, (.completed, historyEntry.id, nil)),
+            purpose: .historyUndo,
+            effect: "undo recovery checkpoint"
+        )
+        await coordinator.initialize()
+
+        try await coordinator.revertChange(historyEntry)
+
+        #expect(try await historyStore.loadAll().isEmpty)
+        #expect(await bridge.writtenProperties.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: directory
+                .appendingPathComponent("pending-year-revert.json").path))
+        let relaunched = UndoCoordinator(
+            musicApp: bridge,
+            stores: .init(changeLog: historyStore, tracks: trackStore),
+            directory: directory
+        )
+        await relaunched.initialize()
+        #expect(await relaunched.getHistory().isEmpty)
+    }
+
     @Test("Relaunch removes a completed checkpoint after history deletion")
     func removesCompletedOrphan() async throws {
         let fixture = YearUndoFixture()

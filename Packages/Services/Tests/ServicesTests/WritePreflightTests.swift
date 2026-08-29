@@ -53,7 +53,7 @@ struct WritePreflightTests {
         #expect(written.isEmpty)
         #expect(result.entries.isEmpty)
         #expect(result.noOpEntries.count == 1)
-        #expect(result.noOpEntries.first?.trackID == musicKitTrack.id)
+        #expect(result.noOpEntries.first?.trackID == "AS1")
         #expect(result.noOpEntries.first?.changeType == .yearUpdate)
         #expect(result.noOpEntries.first?.oldYear == 1970)
         #expect(result.noOpEntries.first?.newYear == 1970)
@@ -263,10 +263,11 @@ struct WritePreflightTests {
         let outcome = try await fixture.coordinator.applyChangeOutcome(change)
 
         #expect(outcome.entry == nil)
+        #expect(outcome.noOpEntry?.trackID == "AS1")
         #expect(outcome.noOpEntry?.albumArtistChange?.newValue == "Massive Attack")
         #expect(await fixture.bridge.batchUpdates.isEmpty)
         #expect(await fixture.bridge.writtenProperties.isEmpty)
-        #expect(await fixture.trackStore.appliedUpdates.isEmpty)
+        #expect(await fixture.trackStore.appliedUpdates.map(\.id) == ["AS1"])
     }
 
     @Test("Generated year update still writes already-processed metadata")
@@ -355,7 +356,9 @@ struct WritePreflightTests {
         let outcome = try await fixture.coordinator.applyChangeOutcome(change)
 
         #expect(outcome.entry == nil)
+        #expect(outcome.noOpEntry?.trackID == "AS1")
         #expect(outcome.noOpEntry?.newYear == MusicAppYear.missingValue)
+        #expect(await fixture.trackStore.appliedUpdates.map(\.id) == ["AS1"])
         #expect(await fixture.bridge.writtenProperties == [
             musicUpdate(databaseID: testDatabaseID("AS1"), property: .year, value: "0"),
         ])

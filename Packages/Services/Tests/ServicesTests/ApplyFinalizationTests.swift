@@ -8,10 +8,25 @@ extension ApplyAcceptedTests {
     func singlePersistenceFailure() async throws {
         let fixture = await makeCoordinator()
         await fixture.trackStore.failAppliedUpdates()
+        let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1969)
+        await fixture.cache.storeAlbumYear(
+            artist: track.artist,
+            album: track.album,
+            year: 1969,
+            confidence: 80
+        )
+        await fixture.cache.setCachedAPIResult(CachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            year: 1969,
+            source: "musicbrainz",
+            timestamp: .now,
+            ttl: nil
+        ))
         let itemID = UUID()
         let proposal = ProposedChange(
             id: itemID,
-            track: makeEditableTrack(id: "MK1", genre: "Rock", year: 1969),
+            track: track,
             changeType: .genreUpdate,
             oldValue: "Rock",
             newValue: "Electronic",
@@ -34,6 +49,13 @@ extension ApplyAcceptedTests {
         #expect(await checkpoints.values.last?.states == [itemID: .outcome(.written)])
         #expect(await fixture.undo.getHistory().isEmpty)
         #expect(await fixture.trackStore.appliedUpdates.isEmpty)
+        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
+        #expect(await fixture.cache.getCachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            source: "musicbrainz"
+        ) == nil)
+        #expect(await fixture.snapshot.wasCleared())
     }
 
     @Test("Verified batch finalization failures keep written outcomes")

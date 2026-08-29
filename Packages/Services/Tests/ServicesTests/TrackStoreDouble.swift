@@ -13,6 +13,7 @@ actor MockTrackStore: TrackStateStore {
     private var certificates: [ScopeCertificate] = []
     private var revision: MirrorRevision
     private(set) var appliedUpdates: [AppliedTrackUpdate] = []
+    private(set) var observedUpdateIDs: [String] = []
     private var shouldCancelReads = false
     private var shouldFailMirror = false
     private var appliedUpdateHook: (@Sendable () throws -> Void)?
@@ -100,7 +101,8 @@ actor MockTrackStore: TrackStateStore {
     }
 
     func commitObservedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision {
-        try await commitAppliedChange(change)
+        observedUpdateIDs.append(change.trackID)
+        return try await commitAppliedChange(change)
     }
 
     func commitRevertedChange(

@@ -68,7 +68,7 @@ final class WriteAttemptState: @unchecked Sendable {
 
 enum PreparedWriteOutcome {
     case write(PreparedWrite)
-    case noOp(ChangeLogEntry)
+    case noOp(change: ProposedChange, databaseID: MusicDatabaseTrackID)
     case skipped
 }
 
@@ -94,9 +94,10 @@ extension UpdateCoordinator {
         switch outcome {
         case let .write(write):
             return try await applyPreparedWrite(write, checkpoint: checkpoint)
-        case let .noOp(entry):
+        case let .noOp(preparedChange, databaseID):
             await invalidateCaches(for: change)
             try await checkpoint?(.afterVerification([change.id: .noFixNeeded]))
+            let entry = try await recordObservedChange(preparedChange, databaseID: databaseID)
             return (nil, entry)
         case .skipped:
             try await checkpoint?(.afterVerification([change.id: .skipped]))
@@ -151,8 +152,8 @@ extension UpdateCoordinator {
         guard result == .changed else {
             await invalidateCaches(for: write.change)
             try await checkpoint?(.afterVerification([write.change.id: .noFixNeeded]))
-            logNoOp(write.change)
-            return (nil, Self.noOpLogEntry(write.change))
+            let entry = try await recordObservedChange(write.change, databaseID: write.databaseID)
+            return (nil, entry)
         }
 
         // Checkpoint the verified outcome before finalization (same contract as
@@ -239,6 +240,7 @@ extension UpdateCoordinator {
             requiresKnownStatus: idMapper != nil
         )
         let property = Self.musicProperty(for: preparedChange.changeType)
+        let databaseID = try await databaseID(for: mutationTrack)
         if isReviewedChange,
            idMapper != nil,
            let albumArtistChange = preparedChange.albumArtistChange,
@@ -248,7 +250,7 @@ extension UpdateCoordinator {
                in: mutationTrack,
                property: .albumArtist
            ) {
-            return .noOp(Self.noOpLogEntry(preparedChange))
+            return .noOp(change: preparedChange, databaseID: databaseID)
         }
         if isReviewedChange,
            try !shouldWrite(preparedChange, to: mutationTrack, property: property) {
@@ -258,10 +260,9 @@ extension UpdateCoordinator {
                 \(preparedChange.track.id, privacy: .private) after write preflight
                 """
             )
-            return .noOp(Self.noOpLogEntry(preparedChange))
+            return .noOp(change: preparedChange, databaseID: databaseID)
         }
 
-        let databaseID = try await databaseID(for: mutationTrack)
         return try .write(PreparedWrite(
             change: preparedChange,
             databaseID: databaseID,
@@ -355,6 +356,7 @@ extension UpdateCoordinator {
             _ = try await trackStore.commitAppliedChange(entry)
             await undoCoordinator.recordCommittedChange(entry)
         } catch {
+            await invalidateCaches(for: change)
             log.error("""
             Failed to finalize applied change for track \(databaseID.rawValue, privacy: .private): \
             \(error.localizedDescription, privacy: .private)
@@ -368,6 +370,29 @@ extension UpdateCoordinator {
         log.info(
             "Applied \(change.changeType.rawValue, privacy: .public) to track \(databaseID.rawValue, privacy: .private)"
         )
+        return entry
+    }
+
+    func recordObservedChange(
+        _ change: ProposedChange,
+        databaseID: MusicDatabaseTrackID
+    ) async throws -> ChangeLogEntry {
+        let entry = Self.noOpLogEntry(change, databaseID: databaseID)
+        do {
+            _ = try await trackStore.commitObservedChange(entry)
+        } catch {
+            await invalidateCaches(for: change)
+            log.error("""
+            Failed to finalize observed change for track \(databaseID.rawValue, privacy: .private): \
+            \(error.localizedDescription, privacy: .private)
+            """)
+            throw UpdateCoordinatorError.writeFinalizationFailed(
+                trackID: databaseID.rawValue,
+                effects: ["track mirror"]
+            )
+        }
+        await invalidateCaches(for: change)
+        logNoOp(change)
         return entry
     }
 
