@@ -108,23 +108,28 @@ actor RecoveryChangeLogStore: ChangeLogStore {
     }
 }
 
-/// One write-uncertain track item for the recovery fixtures below.
-private func uncertainWorkItem(
+/// One track item for app-hosted recovery fixtures.
+func recoveryWorkItem(
+    id: UUID = UUID(),
     state: WorkState,
     oldValue: String?,
     newValue: String?,
     changeType: ChangeType = .genreUpdate,
+    readID: String = "read-1",
+    appleScriptID: String? = "persistent-1",
+    artist: String = "Artist",
+    album: String = "Album",
+    trackName: String = "Track",
     capturedAlbumArtist: String? = nil,
     albumArtistChange: AlbumArtistChange? = nil,
     writeChange: WorkChange? = nil
 ) -> RunWorkItem {
-    let id = UUID()
     let target = WorkTarget.track(FixPlanItemIdentity(
-        readID: "read-1",
-        appleScriptID: "persistent-1",
-        artist: "Artist",
-        album: "Album",
-        trackName: "Track",
+        readID: readID,
+        appleScriptID: appleScriptID,
+        artist: artist,
+        album: album,
+        trackName: trackName,
         albumArtist: capturedAlbumArtist
     ))
     let change = WorkChange(
@@ -148,32 +153,13 @@ private func uncertainWorkItem(
     return RunWorkItem(id: id, target: target, change: change, state: state)
 }
 
-/// One write-uncertain run record bound to a recovery hold, plus its item.
-func uncertainRunRecord(
-    recoveryID: UUID?,
-    itemState: WorkState = .attempted,
-    oldValue: String? = "Rock",
-    newValue: String? = "Stoner Rock",
-    changeType: ChangeType = .genreUpdate,
-    capturedAlbumArtist: String? = nil,
-    albumArtistChange: AlbumArtistChange? = nil,
-    writeChange: WorkChange? = nil
-) -> (record: RunRecord, item: RunWorkItem) {
+func recoveryRunRecord(recoveryID: UUID?, workItems: [RunWorkItem]) -> RunRecord {
     let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
     let scope = ProcessingScopeSnapshot.capture(
         requestedTestArtists: [],
         knownTrackCount: 1,
         createdAt: startedAt,
         reason: "recovery-test"
-    )
-    let item = uncertainWorkItem(
-        state: itemState,
-        oldValue: oldValue,
-        newValue: newValue,
-        changeType: changeType,
-        capturedAlbumArtist: capturedAlbumArtist,
-        albumArtistChange: albumArtistChange,
-        writeChange: writeChange
     )
     let input = FixPlanWriteInput(
         target: FixPlanWriteTarget(
@@ -195,7 +181,7 @@ func uncertainRunRecord(
             ),
             hadRecoveryHold: false
         ),
-        workItems: [item]
+        workItems: workItems
     )
     let lifecycle = RunLifecycleSnapshot(
         request: .manualWrite(input: input),
@@ -203,7 +189,7 @@ func uncertainRunRecord(
         startedAt: startedAt,
         phase: .suspended(.recoverable)
     )
-    let record = RunRecord(
+    return RunRecord(
         lifecycle: lifecycle,
         transitions: [
             RunLifecycleTransition(state: .created, timestamp: startedAt),
@@ -215,7 +201,29 @@ func uncertainRunRecord(
         failureMessage: "Unknown write outcome",
         finishedAt: nil
     )
-    return (record, item)
+}
+
+/// One write-uncertain run record bound to a recovery hold, plus its item.
+func uncertainRunRecord(
+    recoveryID: UUID?,
+    itemState: WorkState = .attempted,
+    oldValue: String? = "Rock",
+    newValue: String? = "Stoner Rock",
+    changeType: ChangeType = .genreUpdate,
+    capturedAlbumArtist: String? = nil,
+    albumArtistChange: AlbumArtistChange? = nil,
+    writeChange: WorkChange? = nil
+) -> (record: RunRecord, item: RunWorkItem) {
+    let item = recoveryWorkItem(
+        state: itemState,
+        oldValue: oldValue,
+        newValue: newValue,
+        changeType: changeType,
+        capturedAlbumArtist: capturedAlbumArtist,
+        albumArtistChange: albumArtistChange,
+        writeChange: writeChange
+    )
+    return (recoveryRunRecord(recoveryID: recoveryID, workItems: [item]), item)
 }
 
 func makeRelaunchedStore(

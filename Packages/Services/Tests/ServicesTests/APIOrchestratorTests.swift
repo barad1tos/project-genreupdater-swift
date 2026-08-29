@@ -176,6 +176,33 @@ struct APIOrchestratorTests {
         #expect(maxActive == 1)
     }
 
+    @Test("Cancelled source calls leave the concurrency probe balanced")
+    func cancelledSourceCallBalancesProbe() async {
+        let probe = APIConcurrencyProbe()
+        let service = RecordingAPIService(
+            probe: probe,
+            yearResult: YearResult(year: 2000, confidence: 60, yearScores: [2000: 60]),
+            delay: .seconds(10)
+        )
+        let call = Task {
+            try await service.getAlbumYear(
+                artist: "Test",
+                album: "Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }
+        while await probe.active() == 0 {
+            await Task.yield()
+        }
+
+        call.cancel()
+        await #expect(throws: CancellationError.self) {
+            _ = try await call.value
+        }
+        #expect(await probe.active() == 0)
+    }
+
     @Test("Preferred API breaks tied source scores")
     func preferredAPIBreaksTiedSourceScores() async {
         let orchestrator = makeAPIOrchestrator(
@@ -525,17 +552,19 @@ private actor APIConcurrencyProbe {
     private var activeCount = 0
     private var maxActiveCount = 0
 
-    func begin() {
+    func wait(for delay: Duration) async throws {
         activeCount += 1
         maxActiveCount = max(maxActiveCount, activeCount)
-    }
-
-    func end() {
-        activeCount -= 1
+        defer { activeCount -= 1 }
+        try await Task.sleep(for: delay)
     }
 
     func maxActive() -> Int {
         maxActiveCount
+    }
+
+    func active() -> Int {
+        activeCount
     }
 }
 
@@ -644,9 +673,7 @@ private struct RecordingAPIService: ExternalAPIService {
         currentLibraryYear _: Int?,
         earliestTrackAddedYear _: Int?
     ) async throws -> YearResult {
-        await probe.begin()
-        try await Task.sleep(for: delay)
-        await probe.end()
+        try await probe.wait(for: delay)
         return yearResult
     }
 

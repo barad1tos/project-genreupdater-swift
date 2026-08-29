@@ -3,7 +3,7 @@ import Foundation
 
 /// An actionable reason why physical Music.app evidence cannot safely
 /// finalize a recovery item.
-public enum RecoveryObservationIssue: Error, Equatable, Sendable {
+public enum RecoveryObservationIssue: String, Codable, Error, Equatable, Sendable {
     case observationUnavailable
     case trackMissing
     case trackIdentityChanged
@@ -14,21 +14,32 @@ public enum RecoveryObservationIssue: Error, Equatable, Sendable {
         case .observationUnavailable:
             "Music.app metadata could not be observed; try recovery again"
         case .trackMissing:
-            """
-            The track is no longer available in Music.app; open Reports and acknowledge the item to \
-            keep the mirror unchanged
-            """
+            "The track is no longer available in Music.app"
         case .trackIdentityChanged:
-            """
-            Music.app now associates this database ID with a different track; open Reports and acknowledge the item to \
-            keep the mirror unchanged
-            """
+            "Music.app now associates this database ID with a different track"
         case .writeIdentityMissing:
-            """
-            The recovery record has no valid Music.app track identity; open Reports and acknowledge the item to \
-            keep the mirror unchanged
-            """
+            "The recovery record has no valid Music.app track identity"
         }
+    }
+
+    var allowsMirrorUnchangedAcknowledgement: Bool {
+        self != .observationUnavailable
+    }
+}
+
+/// A permanent observation problem bound to the exact durable work item that
+/// the user can acknowledge in Reports.
+public struct RecoveryObservationBlocker: Error, Equatable, Sendable {
+    public let itemID: UUID
+    public let issue: RecoveryObservationIssue
+
+    public init(itemID: UUID, issue: RecoveryObservationIssue) {
+        self.itemID = itemID
+        self.issue = issue
+    }
+
+    public var userGuidance: String {
+        "\(issue.userGuidance); open Reports and acknowledge the highlighted item to keep the mirror unchanged"
     }
 }
 

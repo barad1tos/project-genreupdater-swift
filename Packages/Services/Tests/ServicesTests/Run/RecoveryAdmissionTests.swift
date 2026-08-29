@@ -341,7 +341,10 @@ extension RecoveryAdmissionTests {
         let holds = HoldProbe()
         let orchestrator = makeHoldOrchestrator(holds)
         await orchestrator.restoreRecovery(recovery)
-        let acknowledged = try recovery.dismissingUncertainWork(
+        let blocked = try recovery.recordingRecoveryObservationBlocker(
+            RecoveryObservationBlocker(itemID: legacyNoOp.id, issue: .trackMissing)
+        )
+        let acknowledged = try blocked.dismissingUncertainWork(
             id: legacyNoOp.id,
             reason: "track removed",
             at: Date(timeIntervalSince1970: 150)

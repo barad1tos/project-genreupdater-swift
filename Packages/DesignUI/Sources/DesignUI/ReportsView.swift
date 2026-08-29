@@ -393,10 +393,10 @@ struct ReportsView: View {
                             .font(.system(size: 13))
                             .foregroundStyle(Ayu.fg)
                             .lineLimit(1)
-                        if let dismissedLabel = item.dismissedLabel {
-                            Text(dismissedLabel)
+                        if let detailLabel = item.attentionLabel ?? item.dismissedLabel {
+                            Text(detailLabel)
                                 .font(.system(size: 11.5))
-                                .foregroundStyle(Ayu.fgMuted)
+                                .foregroundStyle(item.attentionLabel == nil ? Ayu.fgMuted : Ayu.warning)
                         }
                     }
                     Spacer()

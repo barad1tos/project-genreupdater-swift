@@ -420,7 +420,10 @@ struct WorkItemTests {
     func individualDismissalAcknowledgesLegacyNoOp() async throws {
         let store = try makeRunStore()
         let legacyNoOp = makeWorkItem(state: .outcome(.noFixNeeded))
-        let record = makeOpenRecoveryRecord(workItems: [legacyNoOp])
+        let record = try makeOpenRecoveryRecord(workItems: [legacyNoOp])
+            .recordingRecoveryObservationBlocker(
+                RecoveryObservationBlocker(itemID: legacyNoOp.id, issue: .trackMissing)
+            )
         try await store.upsert(record)
         let acknowledgedAt = Date(timeIntervalSince1970: 500)
 
@@ -436,6 +439,7 @@ struct WorkItemTests {
         #expect(item.state == .outcome(.noFixNeeded))
         #expect(item.detail == "Acknowledged by user; mirror left unchanged: track is no longer available")
         #expect(item.dismissedAt == acknowledgedAt)
+        #expect(item.recoveryObservationIssue == nil)
         #expect(!reloaded.requiresRecoveryObservation)
     }
 

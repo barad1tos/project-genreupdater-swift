@@ -47,6 +47,7 @@ enum ReportDetailAdapter {
                     isOpen: item.isOpen,
                     isWriteUncertain: item.isWriteUncertain,
                     canDismiss: item.canDismiss,
+                    attentionLabel: item.attentionLabel,
                     dismissedLabel: item.dismissedLabel
                 )
             },

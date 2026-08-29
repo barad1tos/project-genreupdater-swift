@@ -383,35 +383,45 @@ extension RunRecordDataStore {
         }
         for item in stored {
             guard let next = replacements[item.id] else { return "workItems" }
-            if item == next {
-                continue
-            }
-            if item.isLegacyNoOpAwaitingAcknowledgement,
-               next.state == item.state,
-               let detail = next.detail,
-               let stamp = next.dismissedAt,
-               item.recordingLegacyNoOpAcknowledgement(detail: detail, at: stamp) == next {
-                continue
-            }
-            guard item.state != next.state,
-                  let advanced = try? item.transition(
-                      to: next.state,
-                      detail: next.detail,
-                      writeChange: next.writeChange
-                  )
-            else { return "workItems" }
-            if advanced == next {
-                continue
-            }
-            // The dismissal timestamp may only appear together with a legal
-            // transition into `.dismissed`; it can never mutate afterwards.
-            guard next.state == .outcome(.dismissed),
-                  item.dismissedAt == nil,
-                  let stamp = next.dismissedAt,
-                  advanced.recordingDismissal(detail: next.detail, at: stamp) == next
-            else { return "workItems" }
+            guard isAllowedItemChange(from: item, to: next) else { return "workItems" }
         }
         return nil
+    }
+
+    private static func isAllowedItemChange(from item: RunWorkItem, to next: RunWorkItem) -> Bool {
+        if item == next {
+            return true
+        }
+        if item.state == .outcome(.noFixNeeded),
+           item.dismissedAt == nil,
+           item.recoveryObservationIssue != next.recoveryObservationIssue,
+           item.recordingRecoveryObservationIssue(next.recoveryObservationIssue) == next {
+            return true
+        }
+        if item.isRecoveryAcknowledgementRequired,
+           next.state == item.state,
+           let detail = next.detail,
+           let stamp = next.dismissedAt,
+           item.recordingRecoveryAcknowledgement(detail: detail, at: stamp) == next {
+            return true
+        }
+        guard item.state != next.state,
+              let advanced = try? item.transition(
+                  to: next.state,
+                  detail: next.detail,
+                  writeChange: next.writeChange
+              )
+        else { return false }
+        if advanced == next {
+            return true
+        }
+        // The dismissal timestamp may only appear together with a legal
+        // transition into `.dismissed`; it can never mutate afterwards.
+        guard next.state == .outcome(.dismissed),
+              item.dismissedAt == nil,
+              let stamp = next.dismissedAt
+        else { return false }
+        return advanced.recordingDismissal(detail: next.detail, at: stamp) == next
     }
 
     static func changedTerminalField(from stored: RunRecord, to replacement: RunRecord) -> String? {

@@ -33,6 +33,7 @@ public struct RunReportWorkItem: Identifiable, Equatable, Sendable {
     public let isOpen: Bool
     public let isWriteUncertain: Bool
     public let canDismiss: Bool
+    public let attentionLabel: String?
     public let dismissedLabel: String?
 
     public init(
@@ -42,6 +43,7 @@ public struct RunReportWorkItem: Identifiable, Equatable, Sendable {
         isOpen: Bool,
         isWriteUncertain: Bool,
         canDismiss: Bool = false,
+        attentionLabel: String? = nil,
         dismissedLabel: String?
     ) {
         self.id = id
@@ -50,6 +52,7 @@ public struct RunReportWorkItem: Identifiable, Equatable, Sendable {
         self.isOpen = isOpen
         self.isWriteUncertain = isWriteUncertain
         self.canDismiss = canDismiss
+        self.attentionLabel = attentionLabel
         self.dismissedLabel = dismissedLabel
     }
 }

@@ -82,6 +82,23 @@ struct RunRecoveryTests {
         }
     }
 
+    @Test("Closing an evidence-less legacy no-op without observation is rejected")
+    func rejectsBlindLegacyNoOpClosure() {
+        let record = makeRecoveryRecord(
+            startedAt: Date(timeIntervalSince1970: 100),
+            finishedAt: nil,
+            state: .recoverable,
+            input: RunRecordInput(
+                intent: .writeFixes,
+                workItems: [makeWorkItem(state: .outcome(.noFixNeeded))]
+            )
+        )
+
+        #expect(throws: WorkCheckpointError.self) {
+            try record.closingRecovery(at: Date(timeIntervalSince1970: 150))
+        }
+    }
+
     @Test("Recovery closure persists terminal work")
     func persistsRecoveryClosure() async throws {
         let store = try makeRunStore()

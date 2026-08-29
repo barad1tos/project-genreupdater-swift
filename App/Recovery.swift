@@ -298,7 +298,7 @@ extension AppDependencies {
         record: RunRecord,
         observedOutcomes: [UUID: ObservedWorkOutcome]?
     ) async throws {
-        guard let trackStore else {
+        guard let trackStore, let runRecordStore else {
             // Returning here reported a verified close over evidence that was
             // never rebuilt: the caller reads a normal return as repaired and
             // goes on to clear the hold. Fail closed so the hold is retained,
@@ -312,31 +312,18 @@ extension AppDependencies {
         )
         let noOpItems = RecoveryEvidenceRepair.noOpItems(in: record.workItems)
         guard !writtenItems.isEmpty || !noOpItems.isEmpty else { return }
-        let existing: [ChangeLogEntry]
-        if writtenItems.isEmpty {
-            existing = []
-        } else {
-            guard let undoCoordinator else {
-                recoveryLog.error("Recovery evidence repair blocked: undo coordinator unavailable")
-                throw AppDependencyServiceError.recoveryUnavailable
-            }
-            existing = try await undoCoordinator.loadDurableHistory()
-        }
+        let existing = try await loadRecoveryHistory(for: writtenItems)
         let writtenEntries = RecoveryEvidenceRepair.finalizationEntries(
             for: writtenItems,
             existing: existing,
             runID: record.runID.rawValue
         )
-        let noOpEntries: [ChangeLogEntry]
-        do {
-            noOpEntries = try RecoveryEvidenceRepair.noOpFinalizationEntries(
-                for: noOpItems,
-                observed: observedOutcomes,
-                runID: record.runID.rawValue
-            )
-        } catch let issue as RecoveryObservationIssue {
-            throw AppDependencyServiceError.recoveryObservationNeedsAttention(issue)
-        }
+        let noOpEntries = try await makeNoOpFinalizationEntries(
+            for: noOpItems,
+            observedOutcomes: observedOutcomes,
+            record: record,
+            store: runRecordStore
+        )
         guard writtenEntries.count == writtenItems.count,
               noOpEntries.count == noOpItems.count
         else {
@@ -349,6 +336,45 @@ extension AppDependencies {
         }
         for entry in noOpEntries {
             _ = try await trackStore.commitObservedChange(entry)
+        }
+        let clearedRecord = try record.clearingRecoveryObservationIssues()
+        if clearedRecord != record {
+            try await runRecordStore.upsert(clearedRecord)
+        }
+    }
+
+    private func loadRecoveryHistory(for writtenItems: [RunWorkItem]) async throws
+        -> [ChangeLogEntry] {
+        guard !writtenItems.isEmpty else { return [] }
+        guard let undoCoordinator else {
+            recoveryLog.error("Recovery evidence repair blocked: undo coordinator unavailable")
+            throw AppDependencyServiceError.recoveryUnavailable
+        }
+        return try await undoCoordinator.loadDurableHistory()
+    }
+
+    private func makeNoOpFinalizationEntries(
+        for items: [RunWorkItem],
+        observedOutcomes: [UUID: ObservedWorkOutcome]?,
+        record: RunRecord,
+        store: any RunRecordStore
+    ) async throws -> [ChangeLogEntry] {
+        do {
+            return try RecoveryEvidenceRepair.noOpFinalizationEntries(
+                for: items,
+                observed: observedOutcomes,
+                runID: record.runID.rawValue
+            )
+        } catch let blocker as RecoveryObservationBlocker {
+            do {
+                try await store.upsert(record.recordingRecoveryObservationBlocker(blocker))
+            } catch {
+                recoveryLog.error("Recovery blocker could not be persisted for the affected work item")
+                throw AppDependencyServiceError.recoveryUnavailable
+            }
+            throw AppDependencyServiceError.recoveryItemNeedsAttention(blocker)
+        } catch let issue as RecoveryObservationIssue {
+            throw AppDependencyServiceError.recoveryObservationNeedsAttention(issue)
         }
     }
 

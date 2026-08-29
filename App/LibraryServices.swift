@@ -38,6 +38,7 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
     case recoveryVerificationFailed
     case recoveryObservationBlocked(RecoveryPreflightBlocker)
     case recoveryObservationNeedsAttention(RecoveryObservationIssue)
+    case recoveryItemNeedsAttention(RecoveryObservationBlocker)
     case runRecordStoreUnavailable
     case runOrchestratorUnavailable
     case batchRunnerUnavailable
@@ -60,6 +61,8 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
             blocker.userGuidance
         case let .recoveryObservationNeedsAttention(issue):
             issue.userGuidance
+        case let .recoveryItemNeedsAttention(blocker):
+            blocker.userGuidance
         case .runRecordStoreUnavailable:
             "Run record store is unavailable"
         case .runOrchestratorUnavailable:

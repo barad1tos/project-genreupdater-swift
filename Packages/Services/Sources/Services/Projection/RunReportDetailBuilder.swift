@@ -14,6 +14,7 @@ public enum RunReportDetailBuilder {
         continuedBy: [RunID] = []
     ) -> RunReportDetailProjection {
         let state = ReportsRunLabels.runState(from: record, activeRunID: activeRunID)
+        let visibleWorkItems = makeVisibleWorkItems(from: record.workItems)
         return RunReportDetailProjection(
             runID: record.runID.rawValue.uuidString,
             state: state,
@@ -25,8 +26,8 @@ public enum RunReportDetailBuilder {
             transitions: makeTransitions(from: record.transitions, now: now),
             summaryItems: makeSummaryItems(from: record.syncSummary, intent: record.intent),
             detailMessage: ReportsRunLabels.detailMessage(state: state, failureMessage: record.failureMessage),
-            workItems: record.workItems.prefix(shownWorkItemLimit).map(makeWorkItem),
-            hiddenWorkItemCount: max(0, record.workItems.count - shownWorkItemLimit),
+            workItems: visibleWorkItems.map(makeWorkItem),
+            hiddenWorkItemCount: max(0, record.workItems.count - visibleWorkItems.count),
             preparedItemIDs: record.workItems.filter { $0.state == .prepared }.map(\.id),
             // writeTarget != nil: RunRequest.continuation fails closed on an
             // unverifiable source plan, so the affordance must hide with it.
@@ -77,8 +78,18 @@ public enum RunReportDetailBuilder {
             isOpen: isOpenItem(item),
             isWriteUncertain: item.state.isWriteUncertain,
             canDismiss: canDismissItem(item),
+            attentionLabel: item.recoveryObservationIssue?.userGuidance,
             dismissedLabel: item.dismissedAt == nil ? nil : item.detail
         )
+    }
+
+    private static func makeVisibleWorkItems(from items: [RunWorkItem]) -> [RunWorkItem] {
+        let boundedItems = Array(items.prefix(shownWorkItemLimit))
+        let boundedIDs = Set(boundedItems.map(\.id))
+        let additionalBlockers = items.filter {
+            !boundedIDs.contains($0.id) && $0.isRecoveryAcknowledgementRequired
+        }
+        return boundedItems + additionalBlockers
     }
 
     private static func isOpenItem(_ item: RunWorkItem) -> Bool {
@@ -89,7 +100,7 @@ public enum RunReportDetailBuilder {
     }
 
     private static func canDismissItem(_ item: RunWorkItem) -> Bool {
-        isOpenItem(item) || item.isLegacyNoOpAwaitingAcknowledgement
+        isOpenItem(item) || item.isRecoveryAcknowledgementRequired
     }
 
     private static func makeChangeLabel(from item: RunWorkItem) -> String {

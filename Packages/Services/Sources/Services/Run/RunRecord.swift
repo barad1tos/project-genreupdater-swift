@@ -224,13 +224,14 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
                 ? "Recovery closed after Music.app verification; \(reviewCount) item(s) need review."
                 : "Recovery closed after Music.app verification; observed outcomes recorded."
         } else {
-            // ADR 0006: the durable record mirrors the in-memory gate — write
-            // uncertainty may never be finalized by a blind grouped dismissal.
-            guard !workLedger.hasUncertainty else {
+            // ADR 0006: the durable record mirrors the in-memory gate — work
+            // that depends on physical Music.app evidence may never be
+            // finalized by a blind grouped dismissal.
+            guard !workLedger.requiresRecoveryObservation else {
                 throw WorkCheckpointError.invalid(
                     .afterVerification,
                     writeAdjacent: true,
-                    reason: "closing a write-uncertain recovery record requires observed outcomes"
+                    reason: "closing this recovery record requires observed Music.app outcomes"
                 )
             }
             closedWork = try workLedger.dismissingOpenWork()
@@ -280,12 +281,12 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
     /// The record stays open.
     public func dismissingUncertainWork(id: UUID, reason: String, at timestamp: Date) throws -> Self {
         try requireRecoveryResolution()
-        if workItems.contains(where: { $0.id == id && $0.isLegacyNoOpAwaitingAcknowledgement }) {
+        if workItems.contains(where: { $0.id == id && $0.isRecoveryAcknowledgementRequired }) {
             return try Self(
                 copying: self,
                 recoveryID: recoveryID,
                 transitions: transitions,
-                workLedger: workLedger.acknowledgingLegacyNoOp(
+                workLedger: workLedger.acknowledgingRecoveryNoOp(
                     id: id,
                     detail: "Acknowledged by user; mirror left unchanged: \(reason)",
                     at: timestamp
@@ -303,6 +304,30 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
             recoveryID: recoveryID,
             transitions: transitions,
             workLedger: workLedger.dismissingItems([id], detail: detail, at: timestamp),
+            failureMessage: failureMessage,
+            finishedAt: finishedAt
+        )
+    }
+
+    public func recordingRecoveryObservationBlocker(_ blocker: RecoveryObservationBlocker) throws -> Self {
+        try requireRecoveryResolution()
+        return try Self(
+            copying: self,
+            recoveryID: recoveryID,
+            transitions: transitions,
+            workLedger: workLedger.recordingRecoveryObservationBlocker(blocker),
+            failureMessage: failureMessage,
+            finishedAt: finishedAt
+        )
+    }
+
+    public func clearingRecoveryObservationIssues() throws -> Self {
+        try requireRecoveryResolution()
+        return Self(
+            copying: self,
+            recoveryID: recoveryID,
+            transitions: transitions,
+            workLedger: workLedger.clearingRecoveryObservationIssues(),
             failureMessage: failureMessage,
             finishedAt: finishedAt
         )

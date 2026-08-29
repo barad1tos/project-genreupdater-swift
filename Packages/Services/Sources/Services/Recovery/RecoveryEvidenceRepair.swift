@@ -110,7 +110,7 @@ public enum RecoveryEvidenceRepair {
         try items.map { item in
             if item.writeChange != nil {
                 guard let entry = changeLogEntry(for: item, runID: runID) else {
-                    throw RecoveryObservationIssue.writeIdentityMissing
+                    throw RecoveryObservationBlocker(itemID: item.id, issue: .writeIdentityMissing)
                 }
                 return entry
             }
@@ -118,6 +118,9 @@ public enum RecoveryEvidenceRepair {
                 throw RecoveryObservationIssue.observationUnavailable
             }
             if let issue = outcome.issue {
+                if issue.allowsMirrorUnchangedAcknowledgement {
+                    throw RecoveryObservationBlocker(itemID: item.id, issue: issue)
+                }
                 throw issue
             }
             guard outcome.outcome == .noFixNeeded,
@@ -126,7 +129,7 @@ public enum RecoveryEvidenceRepair {
                 throw RecoveryObservationIssue.observationUnavailable
             }
             guard let entry = observedNoOpEntry(for: item, effect: effect, runID: runID) else {
-                throw RecoveryObservationIssue.writeIdentityMissing
+                throw RecoveryObservationBlocker(itemID: item.id, issue: .writeIdentityMissing)
             }
             return entry
         }

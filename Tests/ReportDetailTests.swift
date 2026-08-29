@@ -92,6 +92,7 @@ struct ReportDetailTests {
                 isOpen: false,
                 isWriteUncertain: false,
                 canDismiss: true,
+                attentionLabel: "Track missing",
                 dismissedLabel: nil
             )],
             canDismissItems: true
@@ -100,6 +101,7 @@ struct ReportDetailTests {
         let item = try #require(ReportDetailAdapter.makeSnapshot(from: projection).workItems.first)
 
         #expect(item.canDismiss)
+        #expect(item.attentionLabel == "Track missing")
     }
 
     @Test("failed detail maps to error tone")
