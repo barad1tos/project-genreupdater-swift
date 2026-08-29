@@ -5,6 +5,23 @@ import Testing
 @testable import Genre_Updater
 @testable import Services
 
+extension ModelContainerFactory {
+    static func createInMemory() throws -> ModelContainer {
+        let schema = makeSchema()
+        let configuration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: true
+        )
+        return try create(schema: schema, configuration: configuration)
+    }
+}
+
+extension TrackDataStore {
+    static func createInMemory() throws -> TrackDataStore {
+        try TrackDataStore(modelContainer: ModelContainerFactory.createInMemory())
+    }
+}
+
 struct ContinuationsProbeFailure: Error {}
 
 struct LibraryPersistenceFixture {

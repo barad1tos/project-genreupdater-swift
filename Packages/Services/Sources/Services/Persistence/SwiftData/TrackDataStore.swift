@@ -612,10 +612,4 @@ extension TrackDataStore {
         let container = try ModelContainerFactory.create()
         return TrackDataStore(modelContainer: container)
     }
-
-    /// Create a track store with an in-memory container (for testing).
-    public static func createInMemory() throws -> TrackDataStore {
-        let container = try ModelContainerFactory.createInMemory()
-        return TrackDataStore(modelContainer: container)
-    }
 }

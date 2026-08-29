@@ -1,7 +1,25 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Core
 @testable import Services
+
+extension ModelContainerFactory {
+    static func createInMemory() throws -> ModelContainer {
+        let schema = makeSchema()
+        let configuration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: true
+        )
+        return try create(schema: schema, configuration: configuration)
+    }
+}
+
+extension TrackDataStore {
+    static func createInMemory() throws -> TrackDataStore {
+        try TrackDataStore(modelContainer: ModelContainerFactory.createInMemory())
+    }
+}
 
 func testDatabaseID(_ rawValue: String) -> MusicDatabaseTrackID {
     guard let databaseID = MusicDatabaseTrackID(rawValue: rawValue) else {
