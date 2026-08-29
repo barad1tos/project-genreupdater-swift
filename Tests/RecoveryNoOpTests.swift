@@ -533,11 +533,15 @@ private func assertCappedRecoveryAction(
     descriptor.perform(
         reason: "Track removed",
         using: RecoveryDetailActions(
-            applyRemainingFixes: { _ in },
+            applyRemainingFixes: { _ in
+                Issue.record("Recovery item action routed to apply remaining fixes")
+            },
             dismissItem: { runID, itemID, reason in
                 routedAction = (runID, itemID, reason)
             },
-            dismissPreparedItems: { _, _, _ in }
+            dismissPreparedItems: { _, _, _ in
+                Issue.record("Recovery item action routed to dismiss prepared items")
+            }
         )
     )
     #expect(routedAction?.runID == fixture.record.runID.rawValue.uuidString)
