@@ -97,20 +97,35 @@ public enum RecoveryEvidenceRepair {
     /// Returns one mirror-only finalization entry for every checkpointed no-op.
     /// Current payloads use their persisted write effect; legacy payloads must
     /// instead carry a fresh physical observation so a stale proposal can never
-    /// overwrite the mirror during recovery.
+    /// overwrite the mirror during recovery. Throws an actionable observation
+    /// issue instead of silently omitting an item that still needs attention.
     public static func noOpFinalizationEntries(
         for items: [RunWorkItem],
         observed: [UUID: ObservedWorkOutcome]?,
         runID: UUID
-    ) -> [ChangeLogEntry] {
-        items.compactMap { item in
+    ) throws -> [ChangeLogEntry] {
+        try items.map { item in
             if item.writeChange != nil {
-                return changeLogEntry(for: item, runID: runID)
+                guard let entry = changeLogEntry(for: item, runID: runID) else {
+                    throw RecoveryObservationIssue.writeIdentityMissing
+                }
+                return entry
             }
-            guard observed?[item.id]?.outcome == .noFixNeeded,
-                  let effect = observed?[item.id]?.observedNoOpEffect
-            else { return nil }
-            return observedNoOpEntry(for: item, effect: effect, runID: runID)
+            guard let outcome = observed?[item.id] else {
+                throw RecoveryObservationIssue.observationUnavailable
+            }
+            if let issue = outcome.issue {
+                throw issue
+            }
+            guard outcome.outcome == .noFixNeeded,
+                  let effect = outcome.observedNoOpEffect
+            else {
+                throw RecoveryObservationIssue.observationUnavailable
+            }
+            guard let entry = observedNoOpEntry(for: item, effect: effect, runID: runID) else {
+                throw RecoveryObservationIssue.writeIdentityMissing
+            }
+            return entry
         }
     }
 

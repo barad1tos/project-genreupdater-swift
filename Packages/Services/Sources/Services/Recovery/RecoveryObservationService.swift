@@ -74,14 +74,14 @@ public struct RecoveryObservationService: Sendable {
         guard case let .track(identity) = item.target,
               let databaseID = identity.appleScriptID.flatMap(MusicDatabaseTrackID.init(rawValue:))
         else {
-            return .resolved(ObservedWorkOutcome(outcome: .needsReview, observedValue: nil))
+            return .resolved(.missingWriteIdentity)
         }
         return .observe(databaseID)
     }
 
     private static func observedOutcome(for item: RunWorkItem, track: Track?) -> ObservedWorkOutcome {
         guard let track else {
-            return ObservedWorkOutcome(outcome: .needsReview, observedValue: nil)
+            return .missingTrack
         }
         guard case let .track(identity) = item.target,
               identity.matchesCurrentTrack(track, allowing: item.effectiveChange)

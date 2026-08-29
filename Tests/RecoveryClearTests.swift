@@ -509,8 +509,8 @@ struct RecoveryClearTests {
         }
     }
 
-    @Test("Clearance without observation keeps the uncertain record open")
-    func blindClearanceKeepsUncertainRecordOpen() async throws {
+    @Test("Clearance without an observation client reports the unavailable observation")
+    func unavailableObservationKeepsUncertainRecordOpen() async throws {
         let setup = try await makeRecoverySetup()
         defer { try? FileManager.default.removeItem(at: setup.directory) }
         let recoveryID = await setup.processor.beginRecoveryHold()
@@ -519,7 +519,7 @@ struct RecoveryClearTests {
         let stored = try #require(await setup.store.record(for: record.runID))
         await setup.dependencies.runOrchestrator?.restoreRecovery(stored)
 
-        await #expect(throws: AppDependencyServiceError.recoveryVerificationFailed) {
+        await #expect(throws: AppDependencyServiceError.recoveryObservationNeedsAttention(.observationUnavailable)) {
             try await setup.dependencies.clearRecoveryHold(id: recoveryID)
         }
 

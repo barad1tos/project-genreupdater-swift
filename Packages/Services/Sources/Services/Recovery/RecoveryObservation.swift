@@ -1,6 +1,28 @@
 import Core
 import Foundation
 
+/// An actionable reason why physical Music.app evidence cannot safely
+/// finalize a recovery item.
+public enum RecoveryObservationIssue: Error, Equatable, Sendable {
+    case observationUnavailable
+    case trackMissing
+    case trackIdentityChanged
+    case writeIdentityMissing
+
+    public var userGuidance: String {
+        switch self {
+        case .observationUnavailable:
+            "Music.app metadata could not be observed; try recovery again"
+        case .trackMissing:
+            "The track is no longer available in Music.app"
+        case .trackIdentityChanged:
+            "Music.app now associates this database ID with a different track"
+        case .writeIdentityMissing:
+            "The recovery record has no valid Music.app track identity"
+        }
+    }
+}
+
 /// One observed physical outcome for a work item: the classification plus the
 /// value actually seen in Music.app, preserved for the durable audit trail
 /// (ADR 0006 "changed externally" evidence cannot be reconstructed later).
@@ -8,12 +30,14 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
     public let outcome: WorkOutcome
     public let observedValue: String?
     private let detailOverride: String?
+    let issue: RecoveryObservationIssue?
     let observedNoOpEffect: ObservedNoOpEffect?
 
     public init(outcome: WorkOutcome, observedValue: String?) {
         self.outcome = outcome
         self.observedValue = observedValue
         detailOverride = nil
+        issue = nil
         observedNoOpEffect = nil
     }
 
@@ -21,6 +45,23 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
         outcome: .needsReview,
         observedValue: nil,
         detailOverride: "Music.app track identity changed since the write was planned",
+        issue: .trackIdentityChanged,
+        observedNoOpEffect: nil
+    )
+
+    static let missingTrack = Self(
+        outcome: .needsReview,
+        observedValue: nil,
+        detailOverride: "Track not found in Music.app",
+        issue: .trackMissing,
+        observedNoOpEffect: nil
+    )
+
+    static let missingWriteIdentity = Self(
+        outcome: .needsReview,
+        observedValue: nil,
+        detailOverride: "Recovery item has no valid Music.app track identity",
+        issue: .writeIdentityMissing,
         observedNoOpEffect: nil
     )
 
@@ -28,11 +69,13 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
         outcome: WorkOutcome,
         observedValue: String?,
         detailOverride: String?,
+        issue: RecoveryObservationIssue?,
         observedNoOpEffect: ObservedNoOpEffect?
     ) {
         self.outcome = outcome
         self.observedValue = observedValue
         self.detailOverride = detailOverride
+        self.issue = issue
         self.observedNoOpEffect = observedNoOpEffect
     }
 
@@ -41,6 +84,7 @@ public struct ObservedWorkOutcome: Equatable, Sendable {
             outcome: .noFixNeeded,
             observedValue: displayedValue,
             detailOverride: nil,
+            issue: nil,
             observedNoOpEffect: effect
         )
     }

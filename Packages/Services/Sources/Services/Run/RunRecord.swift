@@ -90,6 +90,16 @@ public struct RunRecord: Identifiable, Codable, Equatable, Sendable {
         workLedger.hasUncertainty
     }
 
+    /// True when recovery clearance must re-read Music.app before it may
+    /// finalize the record. Legacy terminal no-ops predate persisted write
+    /// effects, so their physical value is just as observation-dependent as
+    /// an interrupted write.
+    public var requiresRecoveryObservation: Bool {
+        hasWriteUncertainty || workItems.contains {
+            $0.state == .outcome(.noFixNeeded) && $0.writeChange == nil
+        }
+    }
+
     /// Work a linked continuation run may re-apply: items whose write
     /// definitively did not land (`.failed`, `.skipped`), in plan order.
     public var continuableWork: [RunWorkItem] {

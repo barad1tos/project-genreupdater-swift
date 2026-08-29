@@ -37,6 +37,7 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
     case recoveryUnavailable
     case recoveryVerificationFailed
     case recoveryObservationBlocked(RecoveryPreflightBlocker)
+    case recoveryObservationNeedsAttention(RecoveryObservationIssue)
     case runRecordStoreUnavailable
     case runOrchestratorUnavailable
     case batchRunnerUnavailable
@@ -57,6 +58,8 @@ enum AppDependencyServiceError: LocalizedError, Equatable {
             "Interrupted writes could not be verified against Music.app; the recovery hold was kept"
         case let .recoveryObservationBlocked(blocker):
             blocker.userGuidance
+        case let .recoveryObservationNeedsAttention(issue):
+            issue.userGuidance
         case .runRecordStoreUnavailable:
             "Run record store is unavailable"
         case .runOrchestratorUnavailable:

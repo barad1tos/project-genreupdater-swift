@@ -154,7 +154,7 @@ extension AppDependencies {
             if let record = page.records.first(where: {
                 $0.runID == runID || $0.recoveryID == runID.rawValue
             }) {
-                if record.hasWriteUncertainty,
+                if record.requiresRecoveryObservation,
                    let recoveryAvailability,
                    case let .blocked(blocker) = await recoveryAvailability.status() {
                     return .blocked(runID: runID, reason: blocker)
@@ -323,11 +323,16 @@ extension AppDependencies {
             existing: existing,
             runID: record.runID.rawValue
         )
-        let noOpEntries = RecoveryEvidenceRepair.noOpFinalizationEntries(
-            for: noOpItems,
-            observed: observedOutcomes,
-            runID: record.runID.rawValue
-        )
+        let noOpEntries: [ChangeLogEntry]
+        do {
+            noOpEntries = try RecoveryEvidenceRepair.noOpFinalizationEntries(
+                for: noOpItems,
+                observed: observedOutcomes,
+                runID: record.runID.rawValue
+            )
+        } catch let issue as RecoveryObservationIssue {
+            throw AppDependencyServiceError.recoveryObservationNeedsAttention(issue)
+        }
         guard writtenEntries.count == writtenItems.count,
               noOpEntries.count == noOpItems.count
         else {
@@ -366,23 +371,28 @@ extension AppDependencies {
             }
             return true
         }
-        let hasLegacyNoOp = record.workItems.contains {
-            $0.state == .outcome(.noFixNeeded) && $0.writeChange == nil
-        }
-        guard hasOpenWork || hasLegacyNoOp else { return nil }
+        guard hasOpenWork || record.requiresRecoveryObservation else { return nil }
         // Prepared-only records close locally. Write-uncertain work and legacy
         // no-ops without an authoritative effect must observe Music.app first.
-        if record.hasWriteUncertainty || hasLegacyNoOp,
+        if record.requiresRecoveryObservation,
            let recoveryAvailability,
            case let .blocked(blocker) = await recoveryAvailability.status() {
             throw AppDependencyServiceError.recoveryObservationBlocked(blocker)
         }
         guard let recoveryVerifier else {
             recoveryLog.error("Recovery observation skipped: no observation client available")
-            return nil
+            throw AppDependencyServiceError.recoveryObservationNeedsAttention(.observationUnavailable)
         }
-        return try await RecoveryObservationService(verifier: recoveryVerifier)
-            .observeOutcomes(for: record.workItems)
+        do {
+            return try await RecoveryObservationService(verifier: recoveryVerifier)
+                .observeOutcomes(for: record.workItems)
+        } catch {
+            recoveryLog.error("""
+            Recovery observation failed for run \(record.runID.rawValue.uuidString, privacy: .public): \
+            \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)
+            """)
+            throw AppDependencyServiceError.recoveryObservationNeedsAttention(.observationUnavailable)
+        }
     }
 
     private func closeRecoveryRun(
