@@ -1,3 +1,4 @@
+import Core
 import Foundation
 import Services
 
@@ -17,6 +18,18 @@ enum AppProcessMode: Equatable {
 
     var shouldStartLiveServices: Bool {
         self == .application
+    }
+}
+
+func loadProcessConfiguration(
+    for mode: AppProcessMode = .current,
+    applicationLoader: () throws -> AppConfiguration = AppConfiguration.load
+) throws -> AppConfiguration {
+    switch mode {
+    case .application:
+        try applicationLoader()
+    case .unitTestHost:
+        AppConfiguration()
     }
 }
 

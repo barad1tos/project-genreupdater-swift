@@ -113,6 +113,7 @@ final class AppDependencies {
     @ObservationIgnored private let configurationLoader: () throws -> AppConfiguration
     @ObservationIgnored private let configurationSaver: (AppConfiguration) throws -> Void
     @ObservationIgnored private let modelContainerFactory: () throws -> ModelContainer?
+    @ObservationIgnored let legacyPreferenceStore: UserDefaults
     @ObservationIgnored private var configurationSaveRecoveryState: AppState?
 
     // MARK: - Services (lazy, initialized in initialize())
@@ -171,15 +172,17 @@ final class AppDependencies {
     // MARK: - Init
 
     init(
-        configurationLoader: @escaping () throws -> AppConfiguration = AppConfiguration.load,
+        configurationLoader: @escaping () throws -> AppConfiguration = { try loadProcessConfiguration() },
         configurationSaver: @escaping (AppConfiguration) throws -> Void = { try $0.save() },
         modelContainerFactory: @escaping () throws -> ModelContainer? = makeProcessContainer,
-        musicCatalog: any MusicCatalogReading = makeProcessMusicCatalog()
+        musicCatalog: any MusicCatalogReading = makeProcessMusicCatalog(),
+        legacyPreferenceStore: UserDefaults = .standard
     ) {
         self.configurationLoader = configurationLoader
         self.configurationSaver = configurationSaver
         self.modelContainerFactory = modelContainerFactory
         self.musicCatalog = MeasuredMusicCatalog(base: musicCatalog)
+        self.legacyPreferenceStore = legacyPreferenceStore
 
         do {
             config = try configurationLoader()
@@ -355,7 +358,7 @@ final class AppDependencies {
             // The persisted config carries the current defaultUpdateBehavior,
             // so any pending legacy-key migration is superseded: a stale key
             // must not overwrite a newer explicit choice on the next launch.
-            UserDefaults.standard.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
+            legacyPreferenceStore.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
             return .saved
         } catch {
             let message = "\(configurationSaveErrorPrefix) \(error.localizedDescription)"

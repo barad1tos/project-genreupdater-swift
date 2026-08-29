@@ -26,6 +26,34 @@ struct AppProcessModeTests {
         #expect(mode.shouldStartLiveServices)
     }
 
+    @Test("Unit-test hosts never load the persisted application configuration")
+    func unitTestHostConfigurationIsInMemory() throws {
+        var applicationLoadCount = 0
+
+        let configuration = try loadProcessConfiguration(for: .unitTestHost) {
+            applicationLoadCount += 1
+            return AppConfiguration()
+        }
+
+        #expect(applicationLoadCount == 0)
+        #expect(configuration.revision == 0)
+    }
+
+    @Test("Application processes retain the persisted configuration loader")
+    func applicationConfigurationUsesStorageLoader() throws {
+        var persistedConfiguration = AppConfiguration()
+        persistedConfiguration.revision = 42
+        var applicationLoadCount = 0
+
+        let configuration = try loadProcessConfiguration(for: .application) {
+            applicationLoadCount += 1
+            return persistedConfiguration
+        }
+
+        #expect(applicationLoadCount == 1)
+        #expect(configuration.revision == 42)
+    }
+
     @MainActor
     @Test("Default unit-test dependencies never connect to the live MusicKit catalog")
     func defaultCatalogIsInactive() async {
@@ -47,21 +75,16 @@ struct AppProcessModeTests {
 
     @MainActor
     @Test("Direct unit-test initialization never starts live services")
-    func directInitializationIsInert() async {
-        let defaults = UserDefaults.standard
-        let originalBehavior = defaults.string(forKey: AppStorageKey.defaultUpdateBehavior)
+    func directInitializationIsInert() async throws {
+        let suiteName = "AppProcessModeTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set("genre_only", forKey: AppStorageKey.defaultUpdateBehavior)
-        defer {
-            if let originalBehavior {
-                defaults.set(originalBehavior, forKey: AppStorageKey.defaultUpdateBehavior)
-            } else {
-                defaults.removeObject(forKey: AppStorageKey.defaultUpdateBehavior)
-            }
-        }
         var savedConfigurations: [AppConfiguration] = []
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { savedConfigurations.append($0) }
+            configurationSaver: { savedConfigurations.append($0) },
+            legacyPreferenceStore: defaults
         )
 
         await dependencies.initialize()
