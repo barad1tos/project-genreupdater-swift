@@ -9,7 +9,7 @@ struct AppProcessModeTests {
     @Test("Injected unit-test hosts use isolated persistence without live startup")
     func unitTestHostPolicy() {
         let mode = AppProcessMode(environment: [
-            "XCTestConfigurationFilePath": "/tmp/GenreUpdaterTests.xctestconfiguration",
+            "XCTestConfigurationFilePath": "injected",
         ])
 
         #expect(mode == .unitTestHost)
