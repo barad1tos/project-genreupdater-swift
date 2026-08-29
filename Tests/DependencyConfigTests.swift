@@ -164,18 +164,16 @@ struct DependencyConfigTests {
         #expect(dependencies.apiOrchestrator == nil)
     }
 
-    @Test("Default test dependencies keep persistence in memory")
-    func usesMemoryStoresInTests() async throws {
+    @Test("Default test dependencies avoid eager SwiftData and keep the process cache in memory")
+    func isolatesDefaultTestStorage() async throws {
         let dependencies = AppDependencies(configurationLoader: { AppConfiguration() })
-        let container = try #require(dependencies.modelContainer)
         let configuration = AppConfiguration()
         let cache = try makeProcessCache(
             configuration: configuration,
             apiResultTTL: AppDependencies.apiResultCacheTTL(configuration: configuration)
         )
 
-        #expect(!container.configurations.isEmpty)
-        #expect(container.configurations.first?.isStoredInMemoryOnly == true)
+        #expect(dependencies.modelContainer == nil)
         #expect(await cache.storagePath == ":memory:")
     }
 

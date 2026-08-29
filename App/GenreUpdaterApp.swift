@@ -32,7 +32,9 @@ struct GenreUpdaterApp: App {
                     applyAppKitAppearance(newMode)
                 }
                 .task {
-                    await dependencies.initialize()
+                    if AppProcessMode.current.shouldStartLiveServices {
+                        await dependencies.initialize()
+                    }
                     applyAppKitAppearance(appearanceMode)
                 }
                 .onOpenURL { url in
@@ -199,9 +201,8 @@ struct NavigationCommands: Commands {
 extension View {
     /// Attaches a `ModelContainer` to the view hierarchy when available.
     ///
-    /// If the container is nil (ModelContainerFactory failed in init), the view
-    /// renders without SwiftData — `@Query` properties will return empty results
-    /// until the container is created during `initialize()`.
+    /// A nil container keeps injected unit-test hosts disconnected from SwiftData;
+    /// production initialization either creates one or publishes an error.
     @ViewBuilder
     fileprivate func optionalModelContainer(_ container: ModelContainer?) -> some View {
         if let container {

@@ -112,7 +112,7 @@ final class AppDependencies {
     private(set) var configurationLoadIssue: String?
     @ObservationIgnored private let configurationLoader: () throws -> AppConfiguration
     @ObservationIgnored private let configurationSaver: (AppConfiguration) throws -> Void
-    @ObservationIgnored private let modelContainerFactory: () throws -> ModelContainer
+    @ObservationIgnored private let modelContainerFactory: () throws -> ModelContainer?
     @ObservationIgnored private var configurationSaveRecoveryState: AppState?
 
     // MARK: - Services (lazy, initialized in initialize())
@@ -173,8 +173,8 @@ final class AppDependencies {
     init(
         configurationLoader: @escaping () throws -> AppConfiguration = AppConfiguration.load,
         configurationSaver: @escaping (AppConfiguration) throws -> Void = { try $0.save() },
-        modelContainerFactory: @escaping () throws -> ModelContainer = makeProcessContainer,
-        musicCatalog: any MusicCatalogReading = MusicLibraryReader()
+        modelContainerFactory: @escaping () throws -> ModelContainer? = makeProcessContainer,
+        musicCatalog: any MusicCatalogReading = makeProcessMusicCatalog()
     ) {
         self.configurationLoader = configurationLoader
         self.configurationSaver = configurationSaver
@@ -191,8 +191,8 @@ final class AppDependencies {
             log.error("Configuration load failed: \(message, privacy: .private)")
         }
 
-        // Create ModelContainer eagerly so SwiftUI can attach .modelContainer() immediately.
-        // ModelContainerFactory.create() is synchronous.
+        // Production creates the container eagerly so SwiftUI can attach it immediately.
+        // Injected unit-test hosts intentionally leave it absent until a test provides one.
         do {
             modelContainer = try modelContainerFactory()
         } catch {
@@ -402,7 +402,10 @@ final class AppDependencies {
         if let existing = modelContainer {
             container = existing
         } else {
-            container = try modelContainerFactory()
+            guard let createdContainer = try modelContainerFactory() else {
+                throw DependencySetupError.missingModelContainer
+            }
+            container = createdContainer
             modelContainer = container
         }
 
