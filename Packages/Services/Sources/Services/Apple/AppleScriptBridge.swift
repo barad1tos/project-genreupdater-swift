@@ -70,6 +70,10 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
         }
     }
 
+    func bulkMetadataTimeout(artist: String?) -> Duration {
+        artist == nil ? config.timeouts.fullLibraryFetch : config.timeouts.singleArtistFetch
+    }
+
     public func updateConfiguration(_ config: AppleScriptConfig) async {
         await concurrencyGate.updateLimit(config.concurrency)
         self.config = config
@@ -284,7 +288,7 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
         let output = try await runScriptBody(
             name: LibraryMetadataSnapshot.scriptName,
             arguments: trackIDArguments() + [artist ?? ""],
-            timeout: config.timeouts.fullLibraryFetch
+            timeout: bulkMetadataTimeout(artist: artist)
         )
         guard let output else {
             throw AppleScriptBridgeError.parseError(

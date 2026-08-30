@@ -72,6 +72,18 @@ struct AppleScriptConfigTests {
         )
     }
 
+    @Test("Bulk metadata snapshots use the timeout matching their scope")
+    func routesBulkMetadataTimeoutByScope() async {
+        let bridge = makeConfigBridge()
+        var configuration = AppleScriptConfig()
+        configuration.timeouts.fullLibraryFetch = .seconds(91)
+        configuration.timeouts.singleArtistFetch = .seconds(17)
+        await bridge.updateConfiguration(configuration)
+
+        #expect(await bridge.bulkMetadataTimeout(artist: nil) == .seconds(91))
+        #expect(await bridge.bulkMetadataTimeout(artist: "Target") == .seconds(17))
+    }
+
     @Test("Track ID fetch clamps invalid batch size before script execution")
     func clampsInvalidIDBatchSize() async {
         let bridge = makeConfigBridge()
