@@ -67,6 +67,109 @@ struct BrowseAdapterAppTests {
         #expect(scope?.isNarrowed == true)
     }
 
+    @Test("catalog fallback issues map onto the visible browse notice")
+    func catalogIssueMapsToNotice() {
+        let projection = BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: adapterTracks(),
+            testArtists: ["Clutch"],
+            catalogIssue: "MusicKit fetch failed"
+        ))
+
+        let notice = ActivitySnapshotAdapter.makeBrowseNotice(from: projection)
+
+        #expect(notice == "The Music catalog may be out of date. Refresh the library to retry the Music catalog read.")
+    }
+
+    @Test("a command outcome outranks the background catalog notice")
+    func commandOutcomeOutranksCatalogNotice() {
+        let projection = BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: adapterTracks(),
+            testArtists: ["Clutch"],
+            catalogIssue: "MusicKit fetch failed"
+        ))
+        let commandNotice = BrowseCommandNotice(
+            message: "The album preview is unavailable.",
+            projectionRevision: projection.revision
+        )
+
+        let notice = ActivitySnapshotAdapter.makeBrowseNotice(
+            from: projection,
+            commandNotice: commandNotice
+        )
+
+        #expect(notice == "The album preview is unavailable.")
+    }
+
+    @Test("a newer projection expires the previous command outcome")
+    func newerProjectionExpiresCommandOutcome() {
+        let projection = BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: adapterTracks(),
+            testArtists: ["Clutch"],
+            catalogIssue: "MusicKit fetch failed"
+        ))
+        let commandNotice = BrowseCommandNotice(
+            message: "The album preview is unavailable.",
+            projectionRevision: projection.revision
+        )
+        let refreshedProjection = advanceProjection(projection)
+
+        let notice = ActivitySnapshotAdapter.makeBrowseNotice(
+            from: refreshedProjection,
+            commandNotice: commandNotice
+        )
+
+        #expect(notice == "The Music catalog may be out of date. Refresh the library to retry the Music catalog read.")
+    }
+
+    @Test("an outcome racing a warning refresh stays bound to its command target")
+    func warningRefreshKeepsTargetRevision() {
+        let projection = BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: adapterTracks(),
+            testArtists: ["Clutch"],
+            catalogIssue: "MusicKit fetch failed"
+        ))
+        let refreshedProjection = advanceProjection(projection)
+        let notice = BrowseCommandNotice.makeOutcome(
+            message: "Preview services are unavailable.",
+            status: .temporaryUnavailable,
+            targetRevision: .initial,
+            currentProjection: refreshedProjection
+        )
+
+        #expect(notice.projectionRevision == .initial)
+    }
+
+    @Test("an outcome racing a clean refresh remains visible on the refreshed projection")
+    func cleanRefreshUsesCurrentRevision() {
+        let projection = BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: adapterTracks(),
+            testArtists: ["Clutch"]
+        ))
+        let refreshedProjection = advanceProjection(projection)
+        let notice = BrowseCommandNotice.makeOutcome(
+            message: "Preview services are unavailable.",
+            status: .temporaryUnavailable,
+            targetRevision: .initial,
+            currentProjection: refreshedProjection
+        )
+
+        #expect(notice.projectionRevision == refreshedProjection.revision)
+    }
+
+    @Test("a rejection that republishes Browse belongs to the refreshed projection")
+    func rejectionUsesCurrentRevision() {
+        let currentRevision = ProjectionRevision.initial.advanced()
+        let currentProjection = BrowseProjection.empty(revision: currentRevision)
+        let notice = BrowseCommandNotice.makeOutcome(
+            message: "Browse just refreshed.",
+            status: .rejectedStale,
+            targetRevision: .initial,
+            currentProjection: currentProjection
+        )
+
+        #expect(notice.projectionRevision == currentRevision)
+    }
+
     @Test("track rows map with per-row safety facts and keep order")
     func rowsMap() {
         let projection = makeProjection()
@@ -89,6 +192,17 @@ struct BrowseAdapterAppTests {
 
         #expect(ActivitySnapshotAdapter.makeBrowseArtists(from: empty).isEmpty)
         #expect(ActivitySnapshotAdapter.makeBrowseScope(from: empty) == nil)
+    }
+
+    private func advanceProjection(_ projection: BrowseProjection) -> BrowseProjection {
+        BrowseProjection(
+            revision: projection.revision.advanced(),
+            artists: projection.artists,
+            scope: projection.scope,
+            physicalTrackCount: projection.physicalTrackCount,
+            readSource: projection.readSource,
+            operationalIssues: projection.operationalIssues
+        )
     }
 }
 
@@ -292,7 +406,8 @@ private func adapterTracks() -> [Track] {
 private func makeAdapterBrowseInput(
     tracks: [Track],
     catalogTracks: [CatalogTrack]? = nil,
-    testArtists: [String]
+    testArtists: [String],
+    catalogIssue: String? = nil
 ) -> BrowseInput {
     BrowseInput(
         catalog: BrowseCatalogFacts(
@@ -301,7 +416,7 @@ private func makeAdapterBrowseInput(
                 capturedAt: Date(timeIntervalSince1970: 100)
             ),
             source: .live,
-            issue: nil
+            issue: catalogIssue
         ),
         processing: BrowseProcessingFacts(
             tracks: tracks,

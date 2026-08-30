@@ -25,7 +25,7 @@ struct DesignRootHostView: View {
     @State private var browseDesignArtists: [DesignUI.Artist] = []
     @State private var browseDesignScope: DesignBrowseScope?
     @State private var browseRowIndex: [String: [BrowseTrackRow]] = [:]
-    @State private var browseNoticeMessage: String?
+    @State private var browseCommandNotice: BrowseCommandNotice?
     @State private var artistCatalogFeed = ArtistCatalogFeed()
     @State private var analyticsSnapshot: DesignAnalyticsSnapshot = .empty
     @State private var analyticsWindow: DesignAnalyticsWindow = .currentSession
@@ -60,7 +60,10 @@ struct DesignRootHostView: View {
             setFastAnimationsAction: setFastAnimationsEnabled,
             browseTrackRows: browseRows(for:),
             browseAlbumPreviewAction: performAlbumPreview(albumID:),
-            browseNotice: browseNoticeMessage,
+            browseNotice: ActivitySnapshotAdapter.makeBrowseNotice(
+                from: browseProjection,
+                commandNotice: browseCommandNotice
+            ),
             reportRunSelectionAction: selectRunReport,
             recoveryDetailActions: RecoveryDetailActions(
                 applyRemainingFixes: applyRemainingFixes,
@@ -243,7 +246,7 @@ struct DesignRootHostView: View {
         let commands = dependencies.makeBrowseCommands {
             await refreshBrowseTruth(dependencies.browseProcessingFacts, loadToken: nil)
         }
-        browseNoticeMessage = nil
+        browseCommandNotice = nil
         Task { @MainActor in
             let status = await commands.performAlbumPreview(target: target)
             switch status {
@@ -259,7 +262,12 @@ struct DesignRootHostView: View {
                  .blockedByPermission,
                  .temporaryUnavailable,
                  .navigated:
-                browseNoticeMessage = BrowseCommands.noticeCopy(for: status)
+                browseCommandNotice = BrowseCommandNotice.makeOutcome(
+                    message: BrowseCommands.noticeCopy(for: status),
+                    status: status,
+                    targetRevision: target.projectionRevision,
+                    currentProjection: browseProjection
+                )
             }
         }
     }
@@ -581,7 +589,7 @@ struct DesignRootHostView: View {
         }
 
         workflowNoticeMessage = nil
-        browseNoticeMessage = nil
+        browseCommandNotice = nil
         dependencies.emptyLibraryTruthForScopeChange()
         workflowViewModel?.reset()
         applyWorkflowDefaults()

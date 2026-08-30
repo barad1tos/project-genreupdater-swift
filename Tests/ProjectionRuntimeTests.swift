@@ -481,7 +481,7 @@ struct ProjectionRuntimeTests {
             "activityCommandNoticeMessage", "activityCommandNoticeID",
             "fixPlanNoticeMessage", "fixPlanNoticeTone", "fixPlanNoticeID",
             "reportNotice", "reportNoticeID",
-            "browseNoticeMessage", "isReviewBusy", "isDismissalBusy",
+            "browseCommandNotice", "isReviewBusy", "isDismissalBusy",
         ]
         let source = try String(contentsOf: libraryLoadSourceURL(), encoding: .utf8)
         let declared = source.split(separator: "\n")
