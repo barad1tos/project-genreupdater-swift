@@ -11,7 +11,8 @@ struct ArtistCatalogAdapterTests {
     func mapsAvailableCatalog() {
         let projection = ArtistCatalogProjection(
             revision: .initial,
-            state: .available([ArtistCatalogEntry(name: "In Flames", trackCount: 202)])
+            state: .available([ArtistCatalogEntry(name: "In Flames", trackCount: 202)]),
+            issue: "The Music catalog may be out of date."
         )
 
         let scope = ArtistCatalogAdapter.makeScope(
@@ -23,7 +24,7 @@ struct ArtistCatalogAdapterTests {
         #expect(scope.settingsRevision == 12)
         #expect(scope.selected == ["In Flames"])
         #expect(scope.options == [DesignArtistOption(name: "In Flames", trackCount: 202)])
-        #expect(scope.catalogIssue == nil)
+        #expect(scope.catalogIssue == "The Music catalog may be out of date.")
     }
 
     @Test("keeps backend unavailability actionable")
@@ -134,7 +135,8 @@ struct ArtistCatalogAdapterTests {
 
         let afterFailure = try await currentArtistCatalog(in: dependencies.projectionStore)
         let persisted = try #require(try await store.loadSnapshot())
-        #expect(afterFailure == committed)
+        #expect(afterFailure.state == committed.state)
+        #expect(afterFailure.issue == "Couldn’t load artists. Try again.")
         #expect(persisted.tracks.map(\.artist) == ["Björk"])
     }
 

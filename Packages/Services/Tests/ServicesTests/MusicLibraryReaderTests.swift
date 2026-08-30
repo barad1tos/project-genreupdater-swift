@@ -91,6 +91,36 @@ struct MusicLibraryReaderTests {
         #expect(await source.loadCount() == 1)
     }
 
+    @Test("Every MusicKit response page contributes to the physical catalog")
+    func loadsEveryCatalogPage() async throws {
+        let pages = [
+            [Self.metadata(id: "MK-1")],
+            [Self.metadata(id: "MK-2")],
+            [Self.metadata(id: "MK-3")],
+        ]
+
+        let metadata = try await MusicKitPagination.collectMetadata(
+            firstPage: 0,
+            hasNextPage: { $0 < pages.index(before: pages.endIndex) },
+            metadata: { pages[$0] },
+            nextPage: { $0 + 1 }
+        )
+
+        #expect(metadata.map(\.id) == ["MK-1", "MK-2", "MK-3"])
+    }
+
+    @Test("A missing advertised MusicKit page fails closed")
+    func rejectsMissingCatalogPage() async {
+        await #expect(throws: MusicKitPaginationError.missingNextPage) {
+            try await MusicKitPagination.collectMetadata(
+                firstPage: 0,
+                hasNextPage: { _ in true },
+                metadata: { _ in [Self.metadata(id: "MK-1")] },
+                nextPage: { _ in nil }
+            )
+        }
+    }
+
     private static func metadata(
         id: String,
         title: String = "Song",

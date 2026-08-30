@@ -20,6 +20,32 @@ protocol MusicKitCatalogSource: Actor {
     func loadTracks() async throws -> [MusicKitTrackMetadata]
 }
 
+enum MusicKitPaginationError: Error, Equatable {
+    case missingNextPage
+}
+
+enum MusicKitPagination {
+    static func collectMetadata<Page>(
+        firstPage: Page,
+        hasNextPage: (Page) -> Bool,
+        metadata: (Page) -> [MusicKitTrackMetadata],
+        nextPage: (Page) async throws -> Page?
+    ) async throws -> [MusicKitTrackMetadata] {
+        var page = firstPage
+        var collectedMetadata = metadata(page)
+
+        while hasNextPage(page) {
+            try Task.checkCancellation()
+            guard let followingPage = try await nextPage(page) else {
+                throw MusicKitPaginationError.missingNextPage
+            }
+            page = followingPage
+            collectedMetadata.append(contentsOf: metadata(page))
+        }
+        return collectedMetadata
+    }
+}
+
 actor MusicKitCatalogAdapter: MusicKitCatalogSource {
     var isAuthorized: Bool {
         MusicAuthorization.currentStatus == .authorized
@@ -43,7 +69,12 @@ actor MusicKitCatalogAdapter: MusicKitCatalogSource {
         var request = MusicLibraryRequest<Song>()
         request.sort(by: \.artistName, ascending: true)
         let response = try await request.response()
-        return response.items.map(Self.metadata)
+        return try await MusicKitPagination.collectMetadata(
+            firstPage: response.items,
+            hasNextPage: { $0.hasNextBatch },
+            metadata: { $0.map(Self.metadata) },
+            nextPage: { try await $0.nextBatch() }
+        )
     }
 
     static func makeSnapshot(from metadata: [MusicKitTrackMetadata]) -> CatalogSnapshot {

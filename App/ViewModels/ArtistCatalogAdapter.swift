@@ -30,10 +30,10 @@ enum ArtistCatalogAdapter {
         switch projection.state {
         case let .available(entries):
             options = entries.map { DesignArtistOption(name: $0.name, trackCount: $0.trackCount) }
-            issue = nil
+            issue = projection.issue
         case let .unavailable(reason):
             options = []
-            issue = reason
+            issue = projection.issue ?? reason
         }
 
         return DesignArtistScope(
@@ -112,7 +112,10 @@ extension AppDependencies {
                 snapshot: catalogSnapshot,
                 source: catalogSnapshotSource,
                 issue: unavailableReason,
-                projection: ArtistCatalogBuilder.makeProjection(tracks: catalogSnapshot.tracks)
+                projection: ArtistCatalogBuilder.makeProjection(
+                    tracks: catalogSnapshot.tracks,
+                    issue: unavailableReason
+                )
             )
         }
         do {
@@ -121,7 +124,10 @@ extension AppDependencies {
                     snapshot: snapshot,
                     source: .persisted,
                     issue: unavailableReason,
-                    projection: ArtistCatalogBuilder.makeProjection(tracks: snapshot.tracks)
+                    projection: ArtistCatalogBuilder.makeProjection(
+                        tracks: snapshot.tracks,
+                        issue: unavailableReason
+                    )
                 )
             }
         } catch {
