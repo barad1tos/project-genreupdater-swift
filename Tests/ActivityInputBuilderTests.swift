@@ -70,6 +70,45 @@ enum ReadinessSample: CaseIterable, CustomTestStringConvertible, Sendable {
 
 @Suite("ActivityInputBuilder")
 struct ActivityInputBuilderTests {
+    @Test("mirror effect failure stays operational instead of replacing the app")
+    @MainActor
+    func surfacesMirrorEffectFailureWithoutFatalState() async throws {
+        let fixture = try makeFixture(testArtists: [])
+        let store = try TrackDataStore.createInMemory()
+        try await store.initialize()
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        fixture.dependencies.configureLibraryPersistenceForTesting(trackStore: store, cache: cache)
+        let mirror = try await store.loadMirrorSnapshot()
+        _ = try await store.commitMirror(MirrorCommit(
+            baseRevision: mirror.revision,
+            inventoryChange: .preserve,
+            repairs: [],
+            upserts: [],
+            certificates: .preserve,
+            effects: [.invalidateSnapshot]
+        ))
+
+        let drain = try #require(fixture.dependencies.mirrorEffectDrain)
+        await drain.drain()
+        let projection = await fixture.dependencies.projectionStore.activityProjection()
+
+        #expect(fixture.dependencies.mirrorEffectDrainIssue?.id == "mirror-effect-drain")
+        #expect(projection.operationalIssues.contains { $0.id == "mirror-effect-drain" })
+        if case .error = fixture.dependencies.appState {
+            Issue.record("A post-commit effect failure must not replace committed mirror truth")
+        }
+
+        let snapshot = SnapshotServiceSpy()
+        let projections = try #require(fixture.dependencies.mirrorProjectionOutput)
+        await drain.updateTargets(cache: cache, snapshot: snapshot, projections: projections)
+        await drain.drain()
+
+        #expect(fixture.dependencies.mirrorEffectDrainIssue == nil)
+        let recoveredProjection = await fixture.dependencies.projectionStore.activityProjection()
+        #expect(!recoveredProjection.operationalIssues.contains { $0.id == "mirror-effect-drain" })
+    }
+
     @Test("permission denied load error maps to permissionDenied library state")
     func mapsPermissionDenied() {
         let input = ActivityInputBuilder.makeInput(from: makeContext(
@@ -271,6 +310,7 @@ struct ActivityInputBuilderTests {
             reportsProjection: reportsProjection,
             queuedWrite: nil,
             pendingVerification: nil,
+            mirrorEffectIssue: nil,
             runLifecycle: nil,
             isLibrarySyncAvailable: true,
             isAutomationArmed: false,

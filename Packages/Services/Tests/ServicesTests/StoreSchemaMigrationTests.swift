@@ -16,7 +16,7 @@ struct StoreSchemaMigrationTests {
 
     private static let preMirrorChecksum = "4gyxaR3XVbJ4CxMo9jcZdflFXNqaKxs0rO8+kkx/1v0="
     private static let mirrorScopeChecksum = "vrVyyiD+OtvleDs7wa27tSGnDMLj4Bts1NWHukp62k4="
-    private static let syncRecordChecksum = "rlZMfluVDEVAON7i25ASHKftyiB+kOiR6nxIjVb7Cm4="
+    private static let effectSchemaChecksum = "IuXWWtvT3iB6ovt/1vETsdbNsHGdY0DKQ96oLGb/pY0="
     private static let deployedMembershipChecksum = "whynwE78EfLk6nFo6Pm4ZxQSXWggha8oemCvJY0LlPw="
     private static let deployedCoverageChecksum = "lCPA7P84tguSr6BvhsyyK+8Wzw49fLJgWhUikSppAIQ="
     private static let deployedV6Checksum = "RjRJxmJfhLjdHHhDRUvRjn2jqm3L/8ZpduaKKgTfRns="
@@ -82,8 +82,8 @@ struct StoreSchemaMigrationTests {
         }
     }
 
-    @Test("Current synchronization schema remains reopenable without a version change")
-    func pinsSyncRecordSchema() throws {
+    @Test("Current effect schema remains reopenable without a version change")
+    func pinsEffectSchema() throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -92,13 +92,43 @@ struct StoreSchemaMigrationTests {
 
         _ = try migratedContainer(at: storeURL)
         let checksum = try storeChecksum(at: storeURL)
-        #expect(checksum == Self.syncRecordChecksum)
+        #expect(checksum == Self.effectSchemaChecksum)
         let reopened = try migratedContainer(at: storeURL)
         let context = ModelContext(reopened)
         #expect(reopened.migrationPlan == nil)
         #expect(try context.fetch(FetchDescriptor<PersistedLibraryMember>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<PersistedScopeCertificate>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<PersistedSyncRecord>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<PersistedMirrorEffect>()).isEmpty)
+    }
+
+    @Test("V7 stores migrate to V8 with no inferred pending effects")
+    func migratesV7WithNoPendingEffects() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "GenreUpdater.store")
+        let legacySchema = Schema(versionedSchema: StoreSchemaV7.self)
+        let legacyConfiguration = ModelConfiguration(
+            "GenreUpdater",
+            schema: legacySchema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        do {
+            let container = try ModelContainer(for: legacySchema, configurations: [legacyConfiguration])
+            let context = ModelContext(container)
+            context.insert(PersistedMirrorState(revisionValue: 12))
+            try context.save()
+        }
+
+        let migrated = try migratedContainer(at: storeURL)
+        let context = ModelContext(migrated)
+
+        #expect(migrated.migrationPlan != nil)
+        #expect(try context.fetch(FetchDescriptor<PersistedMirrorState>()).first?.revisionValue == 12)
+        #expect(try context.fetch(FetchDescriptor<PersistedMirrorEffect>()).isEmpty)
     }
 
     @Test("V5 members migrate with unknown identity and remain reopenable")

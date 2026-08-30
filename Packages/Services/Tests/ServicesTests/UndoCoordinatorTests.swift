@@ -131,6 +131,7 @@ struct UndoCoordinatorTests {
             idMapper: CanonicalUndoMapper(),
             stores: .init(tracks: trackStore, cache: cache),
             librarySnapshotService: snapshotService,
+            effectDrain: makeTestEffectDrain(store: trackStore, cache: cache, snapshot: snapshotService),
             directory: makeTempDirectory()
         )
         let entry = yearUndoEntry(trackID: "MK1", oldYear: 1984)
@@ -158,7 +159,17 @@ struct UndoCoordinatorTests {
         let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let snapshotService = MockUndoLibrarySnapshotService()
-        let trackStore = MockTrackStore()
+        let observedTrack = Track(
+            id: "AS1",
+            name: "Karmacoma",
+            artist: "Tricky",
+            album: "Protection",
+            year: 2000,
+            trackStatus: TrackKind.subscription.rawValue,
+            albumArtist: "Massive Attack",
+            appleScriptID: "AS1"
+        )
+        let trackStore = MockTrackStore(tracks: [observedTrack])
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: MetadataUndoTrackIDMapper(
@@ -177,6 +188,7 @@ struct UndoCoordinatorTests {
             ),
             stores: .init(tracks: trackStore, cache: cache),
             librarySnapshotService: snapshotService,
+            effectDrain: makeTestEffectDrain(store: trackStore, cache: cache, snapshot: snapshotService),
             directory: makeTempDirectory()
         )
         let entry = yearUndoEntry(
@@ -184,16 +196,6 @@ struct UndoCoordinatorTests {
             artist: "Tricky",
             album: "Protection",
             oldYear: 1994
-        )
-        let observedTrack = Track(
-            id: "AS1",
-            name: "Karmacoma",
-            artist: "Tricky",
-            album: "Protection",
-            year: 2000,
-            trackStatus: TrackKind.subscription.rawValue,
-            albumArtist: "Massive Attack",
-            appleScriptID: "AS1"
         )
         await bridge.setFetchedTracks([observedTrack])
 
@@ -214,8 +216,8 @@ struct UndoCoordinatorTests {
         #expect(await snapshotService.wasCleared())
     }
 
-    @Test("Revert invalidates cleaned album cache aliases")
-    func revertInvalidatesCleanedAlbumCacheAliases() async throws {
+    @Test("Year revert preserves speculative cleaned album cache aliases")
+    func yearRevertPreservesSpeculativeCleanedAlbumCacheAliases() async throws {
         let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let trackStore = MockTrackStore()
@@ -223,6 +225,7 @@ struct UndoCoordinatorTests {
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
             stores: .init(tracks: trackStore, cache: cache),
+            effectDrain: makeTestEffectDrain(store: trackStore, cache: cache),
             cleaning: CleaningConfig(),
             directory: makeTempDirectory()
         )
@@ -246,9 +249,9 @@ struct UndoCoordinatorTests {
 
         try await coordinator.revertChange(entry)
 
-        #expect(await cache.getAlbumYear(artist: "Massive Attack", album: "Mezzanine") == nil)
+        #expect(await cache.getAlbumYear(artist: "Massive Attack", album: "Mezzanine")?.year == 2019)
         #expect(await cache
-            .getCachedAPIResult(artist: "Massive Attack", album: "Mezzanine", source: "musicbrainz") == nil)
+            .getCachedAPIResult(artist: "Massive Attack", album: "Mezzanine", source: "musicbrainz")?.year == 2019)
     }
 
     @Test("Album cleaning revert invalidates current and restored album caches")
@@ -256,18 +259,19 @@ struct UndoCoordinatorTests {
         let bridge = MusicAppTestAccess()
         let cache = MockCacheService()
         let snapshotService = MockUndoLibrarySnapshotService()
-        let trackStore = MockTrackStore()
+        let entry = albumUndoEntry(
+            artist: "Massive Attack",
+            oldAlbum: "Mezzanine (Remastered)",
+            newAlbum: "Mezzanine"
+        )
+        let trackStore = MockTrackStore(tracks: [undoTrack(for: entry)])
         let coordinator = UndoCoordinator(
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
             stores: .init(tracks: trackStore, cache: cache),
             librarySnapshotService: snapshotService,
+            effectDrain: makeTestEffectDrain(store: trackStore, cache: cache, snapshot: snapshotService),
             directory: makeTempDirectory()
-        )
-        let entry = albumUndoEntry(
-            artist: "Massive Attack",
-            oldAlbum: "Mezzanine (Remastered)",
-            newAlbum: "Mezzanine"
         )
         await bridge.setUndoEntries([entry])
 

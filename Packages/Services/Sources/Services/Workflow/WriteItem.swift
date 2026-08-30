@@ -94,7 +94,6 @@ extension UpdateCoordinator {
         case let .write(write):
             return try await applyPreparedWrite(write, checkpoint: checkpoint)
         case let .noOp(preparedChange, databaseID):
-            await invalidateCaches(for: change)
             try await checkpoint?(.afterVerification(
                 [change.id: .noFixNeeded],
                 writeChanges: [change.id: preparedChange.workChange]
@@ -152,7 +151,6 @@ extension UpdateCoordinator {
         try await checkpoint?(.beforeAttempt([write.change.id: write.writeChange]))
         let result = try await dispatchWrite(write, checkpoint: checkpoint)
         guard result == .changed else {
-            await invalidateCaches(for: write.change)
             try await checkpoint?(.afterVerification(
                 [write.change.id: .noFixNeeded],
                 writeChanges: [write.change.id: write.writeChange]
@@ -372,7 +370,7 @@ extension UpdateCoordinator {
                 effects: ["track mirror", "change history"]
             )
         }
-        await invalidateCaches(for: change)
+        await effectDrain?.drain()
         log.info(
             "Applied \(change.changeType.rawValue, privacy: .public) to track \(databaseID.rawValue, privacy: .private)"
         )
@@ -397,7 +395,7 @@ extension UpdateCoordinator {
                 effects: ["track mirror"]
             )
         }
-        await invalidateCaches(for: change)
+        await effectDrain?.drain()
         logNoOp(change)
         return entry
     }

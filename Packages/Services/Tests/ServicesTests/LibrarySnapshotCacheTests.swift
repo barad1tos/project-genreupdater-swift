@@ -374,7 +374,7 @@ struct LibrarySnapshotCacheTests {
         metadata.lastForceScanDate = forceScanDate
         try await service.updateSnapshotMetadata(metadata)
 
-        await service.clearSnapshot()
+        try await service.clearSnapshot()
 
         let statistics = await cache.getCacheStatistics()
         #expect(try await service.loadSnapshot() == nil)

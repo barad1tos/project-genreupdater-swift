@@ -193,13 +193,9 @@ public actor GRDBCacheService: PersistentCacheService, AnalyticsEventStore {
         return now.timeIntervalSince(lastGenericCleanupAt) >= cleanupInterval
     }
 
-    public func invalidate(key: String) async {
-        do {
-            try await dbWriter.write { database in
-                _ = try GenericCacheRow.deleteOne(database, key: key)
-            }
-        } catch {
-            log.error("Cache invalidate failed for key=\(key, privacy: .private): \(error, privacy: .private)")
+    public func invalidate(key: String) async throws {
+        try await dbWriter.write { database in
+            _ = try GenericCacheRow.deleteOne(database, key: key)
         }
     }
 
@@ -313,13 +309,9 @@ public actor GRDBCacheService: PersistentCacheService, AnalyticsEventStore {
         }
     }
 
-    public func invalidateAlbum(artist: String, album: String) async {
-        do {
-            try await dbWriter.write { database in
-                try Self.deleteAlbumYearRows(database, artist: artist, album: album)
-            }
-        } catch {
-            log.error("invalidateAlbum failed: \(error, privacy: .public)")
+    public func invalidateAlbum(artist: String, album: String) async throws {
+        try await dbWriter.write { database in
+            try Self.deleteAlbumYearRows(database, artist: artist, album: album)
         }
     }
 
@@ -403,13 +395,9 @@ public actor GRDBCacheService: PersistentCacheService, AnalyticsEventStore {
         }
     }
 
-    public func invalidateCachedAPIResults(artist: String, album: String) async {
-        do {
-            try await dbWriter.write { database in
-                try Self.deleteAPIResultRows(database, artist: artist, album: album)
-            }
-        } catch {
-            log.error("invalidateCachedAPIResults failed: \(error, privacy: .public)")
+    public func invalidateCachedAPIResults(artist: String, album: String) async throws {
+        try await dbWriter.write { database in
+            try Self.deleteAPIResultRows(database, artist: artist, album: album)
         }
     }
 

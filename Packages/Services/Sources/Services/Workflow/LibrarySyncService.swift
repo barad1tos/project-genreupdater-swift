@@ -8,7 +8,7 @@ import OSLog
 /// Auto-sync (Pro only): periodic background polling with configurable interval.
 public actor LibrarySyncService {
     let trackStore: any TrackStateStore
-    private let cache: (any CacheService)?
+    private let effectDrain: MirrorEffectDrain?
     let observer: any MusicAppReading
     private var pendingVerificationService: (any PendingVerificationService)?
     var librarySnapshotService: (any LibrarySnapshotService)?
@@ -18,7 +18,7 @@ public actor LibrarySyncService {
 
     public init(
         trackStore: any TrackStateStore,
-        cache: (any CacheService)? = nil,
+        effectDrain: MirrorEffectDrain? = nil,
         pendingVerificationService: (any PendingVerificationService)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         runtimeConfiguration: LibrarySyncRuntimeConfiguration = LibrarySyncRuntimeConfiguration(),
@@ -26,7 +26,7 @@ public actor LibrarySyncService {
         observer: any MusicAppReading
     ) {
         self.trackStore = trackStore
-        self.cache = cache
+        self.effectDrain = effectDrain
         self.observer = observer
         self.pendingVerificationService = pendingVerificationService
         self.librarySnapshotService = librarySnapshotService
@@ -110,13 +110,10 @@ public actor LibrarySyncService {
         let commitResult = try await commitInventory(
             observation,
             snapshot: snapshot,
+            removedTracks: removedDatabaseIDs.compactMap { canonicalByID[$0] },
             syncRecordLimit: configuration.syncRecordLimit
         )
         let removedTracks = removedDatabaseIDs.compactMap { canonicalByID[$0] }
-        await invalidateCachesForLibraryChanges(
-            hasLibraryChanges: !removedTracks.isEmpty,
-            targets: cacheInvalidationTargets(removedTracks: removedTracks)
-        )
         await removeResolvedPrereleasePendingEntries(
             removedTracks: removedTracks,
             currentTracks: commitResult.snapshot.presentTracks
@@ -153,6 +150,7 @@ public actor LibrarySyncService {
     private func commitInventory(
         _ observation: LibraryObservation,
         snapshot: TrackMirrorSnapshot,
+        removedTracks: [Track],
         syncRecordLimit: Int
     ) async throws -> MirrorCommitResult {
         let inventoryTransition: InventoryChange
@@ -201,16 +199,20 @@ public actor LibrarySyncService {
                 isMetadataComplete: observation.metadata.isComplete
             )
         )
-        return try await trackStore.commitMirror(MirrorCommit(
+        let effects = makeInventoryEffects(from: removedTracks, hasChanges: didChangeMembership || didObserveIdentity)
+        let result = try await trackStore.commitMirror(MirrorCommit(
             baseRevision: snapshot.revision,
             observation: observationID,
             inventoryChange: inventoryTransition,
             repairs: [],
             upserts: [],
             certificates: certificateTransition,
+            effects: effects,
             syncRecord: record,
             syncRecordLimit: syncRecordLimit
         ))
+        await effectDrain?.drain(newlyCommittedEffectIDs: result.pendingEffectIDs)
+        return result
     }
 
     /// Detect and persist Music.app library changes in the local store.
@@ -276,6 +278,8 @@ public actor LibrarySyncService {
             startedAt: input.startedAt,
             preparedAt: currentDate()
         )
+        let projected = detection.result
+        let effects = makeSyncEffects(from: projected, storedByID: detection.previousTracks)
         let commitResult = try await trackStore.commitMirror(MirrorCommit(
             baseRevision: detection.baseRevision,
             observation: detection.observationID,
@@ -283,6 +287,7 @@ public actor LibrarySyncService {
             repairs: detection.repairs,
             upserts: detection.upserts,
             certificates: detection.certificateChange,
+            effects: effects,
             syncRecord: syncRecord,
             syncRecordLimit: input.configuration.syncRecordLimit
         ))
@@ -297,17 +302,7 @@ public actor LibrarySyncService {
             throw LibrarySyncObservationError.invalidObservation(detail: "synchronization was not committed")
         }
         let result = try committedResult(from: committedDetection, snapshot: committedSnapshot)
-
-        await invalidateCachesForLibraryChanges(
-            hasLibraryChanges: result.hasChanges,
-            targets: cacheInvalidationTargets(
-                newTracks: result.newTracks,
-                modifiedTracks: result.modifiedTracks,
-                identityChangedTracks: result.identityChangedTracks,
-                removedTrackIDs: result.removedTrackIDs,
-                storedByID: detection.previousTracks
-            )
-        )
+        await effectDrain?.drain(newlyCommittedEffectIDs: commitResult.pendingEffectIDs)
         await removeResolvedPrereleasePendingEntries(
             refreshedTracks: result.modifiedTracks + result.identityChangedTracks,
             previousTracksByID: detection.previousTracks,
@@ -403,16 +398,39 @@ public actor LibrarySyncService {
         )
     }
 
-    private func invalidateCachesForLibraryChanges(
+    private func makeInventoryEffects(from removedTracks: [Track], hasChanges: Bool) -> [MirrorEffect] {
+        makeMirrorEffects(
+            hasLibraryChanges: hasChanges,
+            targets: cacheInvalidationTargets(removedTracks: removedTracks)
+        )
+    }
+
+    private func makeSyncEffects(from result: SyncResult, storedByID: [String: Track]) -> [MirrorEffect] {
+        makeMirrorEffects(
+            hasLibraryChanges: result.hasChanges,
+            targets: cacheInvalidationTargets(
+                newTracks: result.newTracks,
+                modifiedTracks: result.modifiedTracks,
+                identityChangedTracks: result.identityChangedTracks,
+                removedTrackIDs: result.removedTrackIDs,
+                storedByID: storedByID
+            )
+        )
+    }
+
+    private func makeMirrorEffects(
         hasLibraryChanges: Bool,
         targets: [(artist: String, album: String)]
-    ) async {
-        guard hasLibraryChanges else { return }
-        for target in targets {
-            await cache?.invalidateAlbum(artist: target.artist, album: target.album)
-            await cache?.invalidateCachedAPIResults(artist: target.artist, album: target.album)
-        }
-        await librarySnapshotService?.clearSnapshot()
+    ) -> [MirrorEffect] {
+        guard hasLibraryChanges else { return [] }
+        return targets.flatMap { target in
+            let identity = AlbumIdentity(artist: target.artist, album: target.album)
+            let targetEffects: [MirrorEffect] = [
+                .invalidateAlbumYear(identity),
+                .invalidateAPIResults(identity),
+            ]
+            return targetEffects
+        } + [.invalidateSnapshot, .refreshProjections]
     }
 
     private func cacheInvalidationTargets(

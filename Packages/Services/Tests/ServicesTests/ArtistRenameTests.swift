@@ -133,8 +133,13 @@ struct ArtistRenameTests {
 
     @Test("Artist rename write invalidates old original and new cache identities")
     func artistRenameWriteInvalidatesAllCacheIdentities() async throws {
+        let track = makeEditableTrack(
+            artist: "OldArtist",
+            originalArtist: "OriginalArtist"
+        )
         let fixture = await makeCoordinator(
-            mappings: ["OldArtist": "NewArtist"]
+            mappings: ["OldArtist": "NewArtist"],
+            storedTracks: [track]
         )
         let cacheTargets = ["OldArtist", "OriginalArtist", "NewArtist"]
         for artist in cacheTargets {
@@ -145,10 +150,6 @@ struct ArtistRenameTests {
             )
         }
 
-        let track = makeEditableTrack(
-            artist: "OldArtist",
-            originalArtist: "OriginalArtist"
-        )
         let changes = try await fixture.coordinator.updateTrack(
             track,
             options: UpdateOptions(updateGenre: false, updateYear: false),
@@ -189,11 +190,14 @@ struct ArtistRenameTests {
 
     private func makeCoordinator(
         mappings: [String: String],
-        testArtists: [String] = []
+        testArtists: [String] = [],
+        storedTracks: [Track] = []
     ) async -> (coordinator: UpdateCoordinator, bridge: MusicAppTestAccess, cache: MockCacheService) {
         let bridge = MusicAppTestAccess()
         let apiService = MockAPIService()
         let cache = MockCacheService()
+        let trackStore = MockTrackStore(tracks: storedTracks)
+        let effectDrain = makeTestEffectDrain(store: trackStore, cache: cache)
         let runtimeConfiguration = UpdateRuntimeConfiguration(
             artistRenameMappings: mappings,
             testArtists: testArtists
@@ -207,12 +211,13 @@ struct ArtistRenameTests {
                     appleMusic: apiService
                 ),
                 writer: bridge,
-                stores: .init(trackStore: MockTrackStore(), cache: cache),
+                stores: .init(trackStore: trackStore, cache: cache),
                 undoCoordinator: UndoCoordinator(
                     musicApp: bridge,
                     directory: FileManager.default.temporaryDirectory
                         .appendingPathComponent("ArtistRenameTests-\(UUID().uuidString)")
-                )
+                ),
+                effectDrain: effectDrain
             ),
             genreDeterminator: GenreDeterminator(),
             runtimeConfiguration: runtimeConfiguration

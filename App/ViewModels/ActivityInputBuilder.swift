@@ -97,6 +97,7 @@ struct ActivityInputContext {
     let reportsProjection: ReportsProjection
     let queuedWrite: ActivityQueuedWriteSummary?
     let pendingVerification: UpdateRunPendingVerificationSummary?
+    var mirrorEffectIssue: OperationalIssue?
     let runLifecycle: RunLifecycleSnapshot?
     let isLibrarySyncAvailable: Bool
     let isAutomationArmed: Bool
@@ -174,6 +175,7 @@ extension AppDependencies {
             reportsProjection: reports,
             queuedWrite: queuedWrite,
             pendingVerification: workflow.pendingVerification,
+            mirrorEffectIssue: mirrorEffectDrainIssue,
             runLifecycle: runLifecycle,
             isLibrarySyncAvailable: isLibrarySyncAvailable,
             isAutomationArmed: isAutomationArmedNow,
@@ -205,6 +207,7 @@ enum ActivityInputBuilder {
             recovery: makeRecoverySummary(from: context.reportsProjection),
             queuedWrite: context.queuedWrite,
             pendingVerification: makePendingVerification(from: context.pendingVerification),
+            mirrorEffectIssue: context.mirrorEffectIssue,
             runLifecycle: context.runLifecycle,
             isLibrarySyncAvailable: context.isLibrarySyncAvailable,
             isAutomationArmed: context.isAutomationArmed,

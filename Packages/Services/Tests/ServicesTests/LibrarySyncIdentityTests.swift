@@ -41,7 +41,7 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "Guest Guitar", album: "Removed Album")
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             observer: bridge
         )
@@ -87,7 +87,7 @@ struct LibrarySyncIdentityTests {
         await store.setStored([])
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 albumTargetIdentity: AlbumIdentity(
@@ -162,7 +162,7 @@ struct LibrarySyncIdentityTests {
         await store.setStored([storedTrack])
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 testArtists: ["Daft Punk"],
@@ -208,7 +208,7 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "New Artist", album: "New Album")
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             observer: bridge
         )
@@ -255,7 +255,7 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "Same Artist", album: "Same Album")
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             observer: bridge
         )
@@ -303,7 +303,7 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "same artist", album: "same album")
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             observer: bridge
         )
@@ -351,7 +351,7 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "Same Artist", album: "Same Album")
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             observer: bridge
         )
@@ -383,7 +383,7 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "New Artist", album: "New Album")
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             observer: bridge
         )
@@ -426,7 +426,7 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "Same Artist", album: "Same Album")
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             observer: bridge
         )
@@ -471,7 +471,7 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "Same Artist", album: "Same Album")
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             observer: bridge
         )
@@ -514,7 +514,7 @@ struct LibrarySyncIdentityTests {
         await seedSyncCaches(cache, artist: "New Artist", album: "New Album")
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             observer: bridge
         )

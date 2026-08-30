@@ -139,11 +139,67 @@ struct RunRuntimeTests {
         #expect(captured.development.testArtists == ["Artist"])
     }
 
+    @Test("Run-scoped writes succeed when effect delivery fails and retain pending effects")
+    func runScopedWriteRetainsFailedEffects() async throws {
+        let track = Track(
+            id: "AS-1",
+            name: "Track 1",
+            artist: "Artist",
+            album: "Album",
+            genre: "Rock",
+            trackStatus: TrackKind.subscription.rawValue,
+            appleScriptID: "AS-1"
+        )
+        let script = RuntimeScriptSpy(track: track)
+        let services = RunServiceFactory(
+            makeMusicAccess: { _ in
+                RunMusicAccess(
+                    identifier: script,
+                    writer: script,
+                    observer: MusicAppTestObserver(tracks: [track])
+                )
+            },
+            makePendingVerification: { _ in nil }
+        )
+        let runtime = try await makeRuntime(
+            services: services,
+            script: script,
+            track: track,
+            enablesFailingEffectDrain: true
+        )
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: ["Artist"],
+            knownTrackCount: 1,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "write-effect-drain-test"
+        )
+        let writer = try await runtime.makeWrite(configuration: makePlanConfig(), scope: scope)
+        let change = ProposedChange(
+            track: track,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Metal",
+            confidence: 90,
+            source: "runtime-test"
+        )
+
+        let result = try await writer.coordinator.applyAcceptedChanges([change], progressHandler: { _ in })
+
+        #expect(result.entries.count == 1)
+        #expect(await script.storedTrack(id: track.id)?.genre == "Metal")
+        #expect(try await runtime.store.getTrack(byID: track.id)?.genre == "Metal")
+        #expect(try await runtime.store.pendingMirrorEffects().map(\.effect) == [
+            .invalidateSnapshot,
+            .refreshProjections,
+        ])
+    }
+
     private func makeRuntime(
         services: RunServiceFactory,
         script: RuntimeScriptSpy,
         track: Track,
-        gate: FeatureGate = FeatureGate(fixedTier: .pro)
+        gate: FeatureGate = FeatureGate(fixedTier: .pro),
+        enablesFailingEffectDrain: Bool = false
     ) async throws -> RunRuntimeFactory {
         let container = try ModelContainerFactory.createInMemory()
         let store = TrackDataStore(modelContainer: container)
@@ -153,9 +209,13 @@ struct RunRuntimeTests {
         try await cache.initialize()
         let mapper = TrackIDMapper()
         await mapper.seedKnownMappings([(musicKitTrack: track, appleScriptTrack: track)])
+        let effectDrain = enablesFailingEffectDrain
+            ? MirrorEffectDrain(store: store, cache: cache, snapshot: nil, projections: nil)
+            : nil
         return RunRuntimeFactory(
             services: services,
             store: store,
+            effectDrain: effectDrain,
             gate: gate,
             cache: cache,
             undo: UndoCoordinator(musicApp: script),
@@ -313,6 +373,7 @@ private struct CompositionServices {
                 makePendingVerification: { _ in nil }
             ),
             store: store,
+            effectDrain: nil,
             gate: gate,
             cache: cache,
             undo: undo,
@@ -364,7 +425,7 @@ private func makeCompositionFixture(
     ))
     let syncService = try LibrarySyncService(
         trackStore: services.store,
-        cache: services.cache,
+        effectDrain: dependencies.mirrorEffectDrain,
         runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: configuration),
         observer: services.observer
     )

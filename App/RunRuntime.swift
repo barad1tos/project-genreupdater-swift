@@ -8,6 +8,7 @@ private let runRuntimeLog = Logger(subsystem: "com.genreupdater", category: "run
 struct RunRuntimeFactory {
     let services: RunServiceFactory
     let store: any TrackStateStore
+    let effectDrain: MirrorEffectDrain?
     let gate: FeatureGate
     let cache: GRDBCacheService
     let undo: UndoCoordinator
@@ -32,7 +33,7 @@ struct RunRuntimeFactory {
         )
         return try LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: effectDrain,
             pendingVerificationService: runServices.pendingVerification,
             librarySnapshotService: AppDependencies.makeSnapshotService(
                 cache: cache,
@@ -61,10 +62,7 @@ struct RunRuntimeFactory {
             id: configuration.id,
             configuration: appConfiguration
         )
-        let snapshotService = AppDependencies.makeSnapshotService(
-            cache: cache,
-            configuration: cacheConfiguration
-        )
+        let snapshotService = AppDependencies.makeSnapshotService(cache: cache, configuration: cacheConfiguration)
         let capturedAccess = try await discogsAccess(for: configuration)
         let apiOrchestrator = AppDependencies.makeCapturedAPI(
             configuration: cacheConfiguration,
@@ -84,7 +82,8 @@ struct RunRuntimeFactory {
                 idMapper: mapper,
                 librarySnapshotService: snapshotService,
                 pendingVerificationService: runServices.pendingVerification,
-                analytics: analytics
+                analytics: analytics,
+                effectDrain: effectDrain
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: AppDependencies.makeYearDeterminator(configuration: appConfiguration),
@@ -129,10 +128,7 @@ struct RunRuntimeFactory {
             id: configuration.id,
             configuration: appConfiguration
         )
-        let snapshotService = AppDependencies.makeSnapshotService(
-            cache: cache,
-            configuration: cacheConfiguration
-        )
+        let snapshotService = AppDependencies.makeSnapshotService(cache: cache, configuration: cacheConfiguration)
         let coordinator = UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: AppDependencies.makeCapturedAPI(
@@ -148,7 +144,8 @@ struct RunRuntimeFactory {
                 idMapper: mapper,
                 librarySnapshotService: snapshotService,
                 pendingVerificationService: runServices.pendingVerification,
-                analytics: analytics
+                analytics: analytics,
+                effectDrain: effectDrain
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: AppDependencies.makeYearDeterminator(configuration: appConfiguration),
@@ -269,6 +266,7 @@ extension AppDependencies {
                 }
             ),
             store: store,
+            effectDrain: mirrorEffectDrain,
             gate: gate,
             cache: cache,
             undo: undo,

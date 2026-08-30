@@ -130,6 +130,7 @@ public actor TrackDataStore: TrackStateStore {
         var membershipDelta = MembershipDelta()
         var committedRevision = commit.baseRevision
         var committedSnapshot: TrackMirrorSnapshot?
+        var pendingEffectIDs: [UUID] = []
         do {
             try modelContext.transaction {
                 let mirrorState: PersistedMirrorState
@@ -163,6 +164,7 @@ public actor TrackDataStore: TrackStateStore {
                     }
                 }
                 committedRevision = try mirrorState.advanceRevision()
+                pendingEffectIDs = enqueueMirrorEffects(commit.effects, revision: committedRevision)
                 committedSnapshot = try makeMirrorSnapshot()
             }
         } catch {
@@ -178,7 +180,11 @@ public actor TrackDataStore: TrackStateStore {
         guard let committedSnapshot else {
             throw TrackStoreError.invalidSyncRecord
         }
-        return MirrorCommitResult(revision: committedRevision, snapshot: committedSnapshot)
+        return MirrorCommitResult(
+            revision: committedRevision,
+            snapshot: committedSnapshot,
+            pendingEffectIDs: pendingEffectIDs
+        )
     }
 
     private func validateSyncRecord(

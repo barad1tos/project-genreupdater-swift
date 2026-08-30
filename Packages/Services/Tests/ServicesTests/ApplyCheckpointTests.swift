@@ -232,8 +232,8 @@ extension ApplyAcceptedTests {
         #expect(await !fixture.snapshot.wasCleared())
     }
 
-    @Test("Dispatched no-change clears caches before terminal checkpoint")
-    func noChangeCache() async throws {
+    @Test("No-change checkpoint failure preserves caches before mirror finalization")
+    func noChangeCheckpointFailurePreservesCaches() async throws {
         let fixture = await makeCoordinator()
         let track = makeEditableTrack(id: "MK1", genre: "Rock", year: 1969)
         try await seedCaches(for: track, fixture: fixture)
@@ -262,7 +262,13 @@ extension ApplyAcceptedTests {
         }
 
         #expect(await fixture.bridge.writtenProperties.count == 1)
-        await expectCachesCleared(for: track, fixture: fixture)
+        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album)?.year == track.year)
+        #expect(await fixture.cache.getCachedAPIResult(
+            artist: track.artist,
+            album: track.album,
+            source: "musicbrainz"
+        )?.year == track.year)
+        #expect(await !fixture.snapshot.wasCleared())
     }
 
     @Test("Preparation dual failure preserves checkpoint safety error")

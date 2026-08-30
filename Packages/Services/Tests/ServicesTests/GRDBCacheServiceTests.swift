@@ -59,7 +59,7 @@ struct GRDBCacheServiceTests {
         let service = try await makeService()
 
         await service.set(key: "to_remove", value: 42, ttl: nil)
-        await service.invalidate(key: "to_remove")
+        try await service.invalidate(key: "to_remove")
 
         let result: Int? = await service.get(key: "to_remove")
         #expect(result == nil)
@@ -351,7 +351,7 @@ struct GRDBCacheServiceTests {
         let service = try await makeService()
 
         await service.storeAlbumYear(artist: "Test", album: "Album", year: 2020, confidence: 80)
-        await service.invalidateAlbum(artist: "Test", album: "Album")
+        try await service.invalidateAlbum(artist: "Test", album: "Album")
 
         let entry = await service.getAlbumYear(artist: "Test", album: "Album")
         #expect(entry == nil)
@@ -428,7 +428,7 @@ struct GRDBCacheServiceTests {
             try AlbumYearRow(from: legacyEntry).save(database)
         }
 
-        await service.invalidateAlbum(artist: "in flames", album: "battles")
+        try await service.invalidateAlbum(artist: "in flames", album: "battles")
 
         let normalizedEntry = await service.getAlbumYear(artist: "in flames", album: "battles")
         let legacyEntryAfterInvalidation = await service.getAlbumYear(artist: " In Flames ", album: " Battles ")
@@ -593,7 +593,7 @@ struct GRDBCacheServiceTests {
             ttl: 3600
         ))
 
-        await service.invalidateCachedAPIResults(artist: "in flames", album: "battles")
+        try await service.invalidateCachedAPIResults(artist: "in flames", album: "battles")
 
         let musicBrainz = await service.getCachedAPIResult(
             artist: "In Flames",

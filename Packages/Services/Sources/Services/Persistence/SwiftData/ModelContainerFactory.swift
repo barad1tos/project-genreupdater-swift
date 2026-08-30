@@ -29,7 +29,7 @@ public enum ModelContainerFactory {
     }
 
     static func makeSchema() -> Schema {
-        Schema(versionedSchema: StoreSchemaV7.self)
+        Schema(versionedSchema: StoreSchemaV8.self)
     }
 
     static func create(schema: Schema, configuration: ModelConfiguration) throws -> ModelContainer {
@@ -43,6 +43,13 @@ public enum ModelContainerFactory {
                     try bootstrapRecoveryStore(configuration)
                 }
                 try prepareLegacyStore(configuration)
+                if try isV7Store(configuration) {
+                    return try ModelContainer(
+                        for: schema,
+                        migrationPlan: StoreSchemaMigrationPlan.self,
+                        configurations: [configuration]
+                    )
+                }
                 return try ModelContainer(for: schema, configurations: [configuration])
             }
         }
@@ -119,14 +126,21 @@ public enum ModelContainerFactory {
     }
 
     private static func isLegacyStore(_ configuration: ModelConfiguration) throws -> Bool {
-        guard !configuration.isStoredInMemoryOnly else { return false }
-        guard FileManager.default.fileExists(atPath: configuration.url.path) else { return false }
+        try storedVersions(in: configuration).contains { legacyVersions.contains($0) }
+    }
+
+    private static func isV7Store(_ configuration: ModelConfiguration) throws -> Bool {
+        try storedVersions(in: configuration).contains(StoreSchemaV7.versionIdentifier.description)
+    }
+
+    private static func storedVersions(in configuration: ModelConfiguration) throws -> [String] {
+        guard !configuration.isStoredInMemoryOnly else { return [] }
+        guard FileManager.default.fileExists(atPath: configuration.url.path) else { return [] }
         let metadata = try NSPersistentStoreCoordinator.metadataForPersistentStore(
             ofType: NSSQLiteStoreType,
             at: configuration.url
         )
-        guard let storedVersions = metadata[NSStoreModelVersionIdentifiersKey] as? [String] else { return false }
-        return storedVersions.contains { legacyVersions.contains($0) }
+        return metadata[NSStoreModelVersionIdentifiersKey] as? [String] ?? []
     }
 
     private static func bootstrapRecoveryStore(_ configuration: ModelConfiguration) throws {

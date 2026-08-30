@@ -241,7 +241,13 @@ private func cachedReleaseCandidates(
 
     if cachedEntry.candidates.isEmpty,
        !cachedEntry.isCurrentMiss(ttl: cacheContext.negativeResultTTL) {
-        await cacheContext.cache?.invalidate(key: cacheKey)
+        do {
+            try await cacheContext.cache?.invalidate(key: cacheKey)
+        } catch {
+            AppLogger.api.warning(
+                "Expired release-candidate miss could not be removed for \(source.rawValue, privacy: .public): \(error.localizedDescription, privacy: .private)"
+            )
+        }
         return nil
     }
 

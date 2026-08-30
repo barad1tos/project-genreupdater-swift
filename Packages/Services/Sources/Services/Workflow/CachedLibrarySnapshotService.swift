@@ -33,15 +33,15 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
         return await cachedSnapshot()
     }
 
-    public func clearSnapshot() async {
-        await cache.invalidate(key: snapshotKey)
-        await cache.invalidate(key: legacyDeltaKey)
+    public func clearSnapshot() async throws {
+        try await cache.invalidate(key: snapshotKey)
+        try await cache.invalidate(key: legacyDeltaKey)
     }
 
     @discardableResult
     public func saveSnapshot(_ tracks: [Track]) async throws -> String {
         let hash = try Self.snapshotHash(for: tracks)
-        await cache.invalidate(key: legacyDeltaKey)
+        try await cache.invalidate(key: legacyDeltaKey)
         guard isEnabled else { return hash }
 
         let previousMetadata = await getSnapshotMetadata()

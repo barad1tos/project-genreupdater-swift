@@ -482,7 +482,6 @@ struct LibrarySyncObservationTests {
         let service = makeService(
             store: store,
             reader: reader,
-            cache: cache,
             snapshot: snapshot,
             currentDate: { Date(timeIntervalSince1970: 1_800_000_000) }
         )
@@ -621,7 +620,6 @@ struct LibrarySyncObservationTests {
     private func makeService(
         store: ObservationMirrorStore,
         reader: ObservationReader,
-        cache: MockCacheService? = nil,
         snapshot: SyncMockLibrarySnapshotService? = nil,
         testArtists: [String] = [],
         albumTarget: AlbumIdentity? = nil,
@@ -631,7 +629,6 @@ struct LibrarySyncObservationTests {
             .appendingPathComponent("LibrarySyncObservationTests-\(UUID().uuidString)")
         return LibrarySyncService(
             trackStore: store,
-            cache: cache,
             librarySnapshotService: snapshot,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 logsBaseDirectory: logDirectory.path,

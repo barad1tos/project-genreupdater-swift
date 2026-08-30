@@ -21,6 +21,52 @@ extension TrackDataStore {
     }
 }
 
+extension TrackStateStore {
+    func pendingMirrorEffects() async throws -> [PendingMirrorEffect] {
+        []
+    }
+    func completeMirrorEffect(id _: UUID) async throws {}
+}
+
+actor TestMirrorProjectionOutput: MirrorProjectionOutput {
+    func refreshMirrorProjections() async throws {}
+}
+
+actor TestMirrorSnapshotTarget: LibrarySnapshotService {
+    let isEnabled = true
+
+    func loadSnapshot() async throws -> [Track]? {
+        nil
+    }
+    func saveSnapshot(_: [Track]) async throws -> String {
+        "snapshot"
+    }
+    func clearSnapshot() async throws {}
+    func isSnapshotValid() async -> Bool {
+        false
+    }
+    func getSnapshotMetadata() async -> LibraryCacheMetadata? {
+        nil
+    }
+    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {}
+    func getLibraryModificationDate() async throws -> Date {
+        .distantPast
+    }
+}
+
+func makeTestEffectDrain(
+    store: any TrackStateStore,
+    cache: any CacheService,
+    snapshot: (any LibrarySnapshotService)? = nil
+) -> MirrorEffectDrain {
+    MirrorEffectDrain(
+        store: store,
+        cache: cache,
+        snapshot: snapshot ?? TestMirrorSnapshotTarget(),
+        projections: TestMirrorProjectionOutput()
+    )
+}
+
 extension ChangeLogStore {
     func saveEntry(_ entry: ChangeLogEntry) async throws {
         try await saveEntries([entry])

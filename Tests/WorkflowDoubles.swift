@@ -17,6 +17,11 @@ extension SyncResult {
 }
 
 extension TrackStateStore {
+    func pendingMirrorEffects() async throws -> [PendingMirrorEffect] {
+        []
+    }
+    func completeMirrorEffect(id _: UUID) async throws {}
+
     func seedMirror(_ tracks: [Track]) async throws {
         let revision = try await loadMirrorSnapshot().revision
         let canonicalTracks = tracks.map { track in

@@ -67,7 +67,7 @@ extension UndoCoordinator {
                     effects: ["track mirror"]
                 )
             }
-            await invalidateCaches(for: preparedWrite.change)
+            await effectDrain?.drain()
             return (result, entry)
         } catch {
             switch error {
@@ -118,13 +118,9 @@ extension UndoCoordinator {
     }
 
     func invalidateCaches(for change: ProposedChange) async {
-        if let cache {
-            for target in UpdateCoordinator.cacheInvalidationTargets(for: change, cleaning: cleaning) {
-                await cache.invalidateAlbum(artist: target.artist, album: target.album)
-                await cache.invalidateCachedAPIResults(artist: target.artist, album: target.album)
-            }
-        }
-        await librarySnapshotService?.clearSnapshot()
+        await BestEffortInvalidator(cache: cache, snapshot: librarySnapshotService).invalidate(
+            targets: UpdateCoordinator.cacheInvalidationTargets(for: change, cleaning: cleaning)
+        )
     }
 
     func yearRevertChange(

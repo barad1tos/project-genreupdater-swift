@@ -5,15 +5,15 @@ public protocol CacheService: Actor, Sendable {
     func initialize() async throws
     func get<T: Codable & Sendable>(key: String) async -> T?
     func set(key: String, value: some Codable & Sendable, ttl: TimeInterval?) async
-    func invalidate(key: String) async
+    func invalidate(key: String) async throws
     func clear() async
     func getAlbumYear(artist: String, album: String) async -> AlbumCacheEntry?
     func storeAlbumYear(artist: String, album: String, year: Int, confidence: Int) async
-    func invalidateAlbum(artist: String, album: String) async
+    func invalidateAlbum(artist: String, album: String) async throws
     func invalidateAllAlbumYears() async
     func getCachedAPIResult(artist: String, album: String, source: String) async -> CachedAPIResult?
     func setCachedAPIResult(_ result: CachedAPIResult) async
-    func invalidateCachedAPIResults(artist: String, album: String) async
+    func invalidateCachedAPIResults(artist: String, album: String) async throws
     func syncToDisk() async throws
 }
 
@@ -171,6 +171,12 @@ public protocol TrackStateStore: Actor {
         _ change: ChangeLogEntry,
         removingHistoryEntryID entryID: UUID
     ) async throws -> MirrorRevision
+    /// Returns the first incomplete effect in stable originating-revision and sequence order.
+    func nextPendingMirrorEffect() async throws -> PendingMirrorEffect?
+    /// Returns incomplete effects in stable originating-revision and sequence order.
+    func pendingMirrorEffects() async throws -> [PendingMirrorEffect]
+    /// Marks an effect complete only after its idempotent target has succeeded.
+    func completeMirrorEffect(id: UUID) async throws
     func getUnprocessedTracks() async throws -> [Track]
     func trackCount() async throws -> Int
 }
@@ -178,6 +184,10 @@ public protocol TrackStateStore: Actor {
 extension TrackStateStore {
     public func getHistoricalTrack(byID id: String) async throws -> Track? {
         try await getTrack(byID: id)
+    }
+
+    public func nextPendingMirrorEffect() async throws -> PendingMirrorEffect? {
+        try await pendingMirrorEffects().first
     }
 }
 
@@ -320,7 +330,7 @@ public protocol LibrarySnapshotService: Actor {
     func loadSnapshot() async throws -> [Track]?
     func saveSnapshot(_ tracks: [Track]) async throws -> String
     /// Invalidates cached tracks while retaining all snapshot metadata, including the force-refresh schedule.
-    func clearSnapshot() async
+    func clearSnapshot() async throws
     func isSnapshotValid() async -> Bool
     func getSnapshotMetadata() async -> LibraryCacheMetadata?
     func updateSnapshotMetadata(_ metadata: LibraryCacheMetadata) async throws

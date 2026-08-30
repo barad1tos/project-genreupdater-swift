@@ -447,6 +447,7 @@ struct BackupCSVTests {
             idMapper: CanonicalUndoMapper(),
             stores: .init(tracks: trackStore, cache: cache),
             librarySnapshotService: snapshotService,
+            effectDrain: makeTestEffectDrain(store: trackStore, cache: cache, snapshot: snapshotService),
             directory: makeBackupTempDirectory()
         )
         let csv = """

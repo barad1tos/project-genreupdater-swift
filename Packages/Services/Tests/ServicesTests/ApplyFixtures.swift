@@ -31,7 +31,8 @@ struct CheckpointEffects: Sendable {
 func makeCoordinator(
     runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
     idMapper: (any TrackIDMapping)? = nil,
-    analytics: (any AnalyticsService)? = nil
+    analytics: (any AnalyticsService)? = nil,
+    hasEffectTargets: Bool = true
 ) async -> AcceptedApplyFixture {
     let bridge = MusicAppTestAccess()
     let apiService = MockAPIService()
@@ -45,9 +46,13 @@ func makeCoordinator(
     let cache = MockCacheService()
     let snapshot = MockLibrarySnapshotService()
     let trackStore = MockTrackStore()
+    let effectDrain = hasEffectTargets
+        ? makeTestEffectDrain(store: trackStore, cache: cache, snapshot: snapshot)
+        : MirrorEffectDrain(store: trackStore, cache: nil, snapshot: nil, projections: nil)
     let undo = UndoCoordinator(
         musicApp: bridge,
         stores: .init(tracks: trackStore),
+        effectDrain: effectDrain,
         directory: undoDir
     )
     let coordinator = UpdateCoordinator(
@@ -61,7 +66,8 @@ func makeCoordinator(
             undoCoordinator: undo,
             idMapper: idMapper,
             librarySnapshotService: snapshot,
-            analytics: analytics
+            analytics: analytics,
+            effectDrain: effectDrain
         ),
         genreDeterminator: GenreDeterminator(),
         yearDeterminator: YearDeterminator(),

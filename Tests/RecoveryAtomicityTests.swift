@@ -7,6 +7,105 @@ import Testing
 @Suite("Recovery atomicity")
 @MainActor
 struct RecoveryAtomicityTests {
+    @Test("Recovery keeps accepted commits successful when effect delivery fails")
+    func drainsBeforeNextRecoveryCommit() async throws {
+        let recoveryID = UUID()
+        let firstItem = recoveryWorkItem(
+            state: .outcome(.written),
+            change: RecoveryWorkChangeFixture(oldValue: "Rock", newValue: "Metal", changeType: .genreUpdate),
+            identity: RecoveryTrackIdentityFixture(
+                readID: "read-1",
+                appleScriptID: "persistent-1",
+                artist: "First Artist",
+                album: "First Album",
+                trackName: "First Track"
+            )
+        )
+        let secondItem = recoveryWorkItem(
+            state: .outcome(.written),
+            change: RecoveryWorkChangeFixture(oldValue: "Rock", newValue: "Metal", changeType: .genreUpdate),
+            identity: RecoveryTrackIdentityFixture(
+                readID: "read-2",
+                appleScriptID: "persistent-2",
+                artist: "Second Artist",
+                album: "Second Album",
+                trackName: "Second Track"
+            )
+        )
+        let record = recoveryRunRecord(recoveryID: recoveryID, workItems: [firstItem, secondItem])
+        let runStore = try RunRecordDataStore(modelContainer: ModelContainerFactory.createInMemory())
+        try await runStore.upsert(record)
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let setup = try await makeRecoverySetup(store: runStore, effectCache: cache)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        _ = await setup.processor.beginRecoveryHold(id: recoveryID)
+        try await seedEffectDrainTracks(in: setup.trackStore)
+        let reopened = try #require(await runStore.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(reopened)
+
+        try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+
+        #expect(try await setup.trackStore.getTrack(byID: "persistent-1")?.genre == "Metal")
+        #expect(try await setup.trackStore.getTrack(byID: "persistent-2")?.genre == "Metal")
+        #expect(try await setup.trackStore.pendingMirrorEffects().first?.effect == .invalidateSnapshot)
+        #expect(await setup.processor.recoveryHoldID() == nil)
+    }
+
+    @Test("Recovery keeps no-op commits successful when effect delivery fails")
+    func drainsBeforeNextNoOpRecoveryCommit() async throws {
+        let recoveryID = UUID()
+        let writeChange = WorkChange(
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Metal",
+            confidence: 90,
+            source: "Library"
+        )
+        let firstItem = recoveryWorkItem(
+            state: .outcome(.noFixNeeded),
+            change: RecoveryWorkChangeFixture(oldValue: "Rock", newValue: "Metal", changeType: .genreUpdate),
+            identity: RecoveryTrackIdentityFixture(
+                readID: "read-1",
+                appleScriptID: "persistent-1",
+                artist: "First Artist",
+                album: "First Album",
+                trackName: "First Track"
+            ),
+            writeChange: writeChange
+        )
+        let secondItem = recoveryWorkItem(
+            state: .outcome(.noFixNeeded),
+            change: RecoveryWorkChangeFixture(oldValue: "Rock", newValue: "Metal", changeType: .genreUpdate),
+            identity: RecoveryTrackIdentityFixture(
+                readID: "read-2",
+                appleScriptID: "persistent-2",
+                artist: "Second Artist",
+                album: "Second Album",
+                trackName: "Second Track"
+            ),
+            writeChange: writeChange
+        )
+        let record = recoveryRunRecord(recoveryID: recoveryID, workItems: [firstItem, secondItem])
+        let runStore = try RunRecordDataStore(modelContainer: ModelContainerFactory.createInMemory())
+        try await runStore.upsert(record)
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let setup = try await makeRecoverySetup(store: runStore, effectCache: cache)
+        defer { try? FileManager.default.removeItem(at: setup.directory) }
+        _ = await setup.processor.beginRecoveryHold(id: recoveryID)
+        try await seedEffectDrainTracks(in: setup.trackStore)
+        let reopened = try #require(await runStore.record(for: record.runID))
+        await setup.dependencies.runOrchestrator?.restoreRecovery(reopened)
+
+        try await setup.dependencies.clearRecoveryHold(id: recoveryID)
+
+        #expect(try await setup.trackStore.getTrack(byID: "persistent-1")?.genre == "Metal")
+        #expect(try await setup.trackStore.getTrack(byID: "persistent-2")?.genre == "Metal")
+        #expect(try await setup.trackStore.pendingMirrorEffects().first?.effect == .invalidateSnapshot)
+        #expect(await setup.processor.recoveryHoldID() == nil)
+    }
+
     @Test("Recovery retry does not advance a mirror-only finalization twice")
     func mirrorOnlyRetryIsIdempotent() async throws {
         let recoveryID = UUID()
@@ -120,5 +219,26 @@ struct RecoveryAtomicityTests {
         #expect(try await setup.trackStore.getTrack(byID: "persistent-1")?.year == 2001)
         #expect(try await setup.store.record(for: record.runID)?.finishedAt != nil)
         #expect(await setup.processor.recoveryHoldID() == nil)
+    }
+
+    private func seedEffectDrainTracks(in store: TrackDataStore) async throws {
+        try await store.seedMirror([
+            Track(
+                id: "persistent-1",
+                name: "First Track",
+                artist: "First Artist",
+                album: "First Album",
+                genre: "Rock",
+                appleScriptID: "persistent-1"
+            ),
+            Track(
+                id: "persistent-2",
+                name: "Second Track",
+                artist: "Second Artist",
+                album: "Second Album",
+                genre: "Rock",
+                appleScriptID: "persistent-2"
+            ),
+        ])
     }
 }

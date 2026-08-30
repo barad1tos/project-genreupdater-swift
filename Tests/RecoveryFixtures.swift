@@ -482,7 +482,10 @@ actor RecoveryScriptStub: MusicAppMutating, MusicAppVerifying {
 }
 
 @MainActor
-func makeRecoverySetup(store: (any RunRecordStore)? = nil) async throws -> RecoverySetup {
+func makeRecoverySetup(
+    store: (any RunRecordStore)? = nil,
+    effectCache: GRDBCacheService? = nil
+) async throws -> RecoverySetup {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("Recovery-\(UUID().uuidString)")
     let processor = BatchProcessor(
@@ -503,7 +506,8 @@ func makeRecoverySetup(store: (any RunRecordStore)? = nil) async throws -> Recov
     let fixture = try makeFixture(testArtists: [], runRecordStore: store)
     fixture.dependencies.configureLibraryPersistenceForTesting(
         trackStore: trackStore,
-        runRecordStore: store
+        runRecordStore: store,
+        cache: effectCache
     )
     fixture.dependencies.installTestWrites(TestWriteServices(
         batchProcessor: processor,

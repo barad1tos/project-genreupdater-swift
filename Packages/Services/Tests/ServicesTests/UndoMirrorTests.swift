@@ -6,6 +6,29 @@ import Testing
 
 @Suite("Undo track mirror")
 struct UndoMirrorTests {
+    @Test("Verified undo succeeds and removes history when effect delivery fails")
+    func undoSurvivesEffectFailure() async throws {
+        let bridge = MusicAppTestAccess()
+        let trackStore = MockTrackStore()
+        try await trackStore.seedMirror([currentTrack()])
+        let effectDrain = MirrorEffectDrain(store: trackStore, cache: nil, snapshot: nil, projections: nil)
+        let coordinator = UndoCoordinator(
+            musicApp: bridge,
+            stores: .init(tracks: trackStore),
+            effectDrain: effectDrain,
+            directory: makeDirectory()
+        )
+        let entry = genreEntry()
+        await bridge.setFetchedTracks([currentTrack()])
+        try await coordinator.recordChange(entry)
+
+        try await coordinator.revertChange(entry)
+
+        #expect(await bridge.writtenProperties.count == 1)
+        #expect(await coordinator.getHistory().isEmpty)
+        #expect(try await trackStore.pendingMirrorEffects().isEmpty == false)
+    }
+
     @Test("A verified undo persists the restored value before removing history")
     func revertPersistsMirror() async throws {
         let bridge = MusicAppTestAccess()
@@ -116,6 +139,7 @@ struct UndoMirrorTests {
             musicApp: bridge,
             idMapper: CanonicalUndoMapper(),
             stores: .init(tracks: trackStore, cache: cache),
+            effectDrain: makeTestEffectDrain(store: trackStore, cache: cache),
             directory: makeDirectory()
         )
         let entry = artistEntry()

@@ -154,6 +154,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
     public let recovery: ActivityRecoverySummary?
     public let queuedWrite: ActivityQueuedWriteSummary?
     public let pendingVerification: ActivityPendingVerificationSummary?
+    public let mirrorEffectIssue: OperationalIssue?
     public let runLifecycle: RunLifecycleSnapshot?
     public let isLibrarySyncAvailable: Bool
     public let isAutomationArmed: Bool
@@ -216,6 +217,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         recovery: ActivityRecoverySummary? = nil,
         queuedWrite: ActivityQueuedWriteSummary? = nil,
         pendingVerification: ActivityPendingVerificationSummary?,
+        mirrorEffectIssue: OperationalIssue? = nil,
         runLifecycle: RunLifecycleSnapshot? = nil,
         isLibrarySyncAvailable: Bool,
         isAutomationArmed: Bool,
@@ -232,6 +234,7 @@ public struct ActivityProjectionInput: Equatable, Sendable {
         self.recovery = recovery
         self.queuedWrite = queuedWrite
         self.pendingVerification = pendingVerification
+        self.mirrorEffectIssue = mirrorEffectIssue
         self.runLifecycle = runLifecycle
         self.isLibrarySyncAvailable = isLibrarySyncAvailable
         self.isAutomationArmed = isAutomationArmed

@@ -1,5 +1,65 @@
 import Core
 import Foundation
+import OSLog
+
+struct BestEffortInvalidator {
+    private let cache: (any CacheService)?
+    private let snapshot: (any LibrarySnapshotService)?
+    private let log = Logger(subsystem: "com.genreupdater", category: "BestEffortInvalidator")
+
+    init(
+        cache: (any CacheService)?,
+        snapshot: (any LibrarySnapshotService)?
+    ) {
+        self.cache = cache
+        self.snapshot = snapshot
+    }
+
+    func invalidate(targets: [(artist: String, album: String)]) async {
+        if let cache {
+            for target in targets {
+                await invalidateAlbumYear(target, cache: cache)
+                await invalidateAPIResults(target, cache: cache)
+            }
+        }
+        await invalidateSnapshot()
+    }
+
+    private func invalidateAlbumYear(
+        _ target: (artist: String, album: String),
+        cache: any CacheService
+    ) async {
+        do {
+            try await cache.invalidateAlbum(artist: target.artist, album: target.album)
+        } catch {
+            log.error(
+                "Album-year cache invalidation failed for artist \(target.artist, privacy: .private), album \(target.album, privacy: .private): \(error.localizedDescription, privacy: .private)"
+            )
+        }
+    }
+
+    private func invalidateAPIResults(
+        _ target: (artist: String, album: String),
+        cache: any CacheService
+    ) async {
+        do {
+            try await cache.invalidateCachedAPIResults(artist: target.artist, album: target.album)
+        } catch {
+            log.error(
+                "API-result cache invalidation failed for artist \(target.artist, privacy: .private), album \(target.album, privacy: .private): \(error.localizedDescription, privacy: .private)"
+            )
+        }
+    }
+
+    private func invalidateSnapshot() async {
+        guard let snapshot else { return }
+        do {
+            try await snapshot.clearSnapshot()
+        } catch {
+            log.error("Library snapshot invalidation failed: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+}
 
 extension UpdateCoordinator {
     static func musicProperty(for changeType: ChangeType) -> MusicTrackProperty {
@@ -38,11 +98,9 @@ extension UpdateCoordinator {
     }
 
     func invalidateCaches(for change: ProposedChange) async {
-        for target in Self.cacheInvalidationTargets(for: change, cleaning: runtimeConfiguration.cleaning) {
-            await cache.invalidateAlbum(artist: target.artist, album: target.album)
-            await cache.invalidateCachedAPIResults(artist: target.artist, album: target.album)
-        }
-        await librarySnapshotService?.clearSnapshot()
+        await BestEffortInvalidator(cache: cache, snapshot: librarySnapshotService).invalidate(
+            targets: Self.cacheInvalidationTargets(for: change, cleaning: runtimeConfiguration.cleaning)
+        )
     }
 
     static func cacheInvalidationTargets(

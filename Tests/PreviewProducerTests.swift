@@ -524,6 +524,7 @@ struct PreviewProducerTests {
         return RunRuntimeFactory(
             services: services,
             store: TrackDataStore(modelContainer: container),
+            effectDrain: nil,
             gate: FeatureGate(fixedTier: .pro),
             cache: cache,
             undo: UndoCoordinator(musicApp: script),
@@ -661,6 +662,7 @@ private func makeAlbumRuntime(
     return RunRuntimeFactory(
         services: services,
         store: store,
+        effectDrain: nil,
         gate: FeatureGate(fixedTier: .pro),
         cache: cache,
         undo: UndoCoordinator(musicApp: script),
