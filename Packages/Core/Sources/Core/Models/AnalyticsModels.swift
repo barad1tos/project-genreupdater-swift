@@ -30,6 +30,8 @@ public enum AnalyticsOperation: String, Codable, CaseIterable, Sendable {
     case musicAppFetch = "musicapp.fetch"
     case appleScriptRun = "applescript.run"
     case appleScriptFetchIDs = "applescript.fetch_ids"
+    case appleScriptIdentitySnapshot = "applescript.identity_snapshot"
+    case appleScriptMetadataSnapshot = "applescript.metadata_snapshot"
     case appleScriptBatchWrite = "applescript.batch_write"
     case musicBrainzArtistSearch = "musicbrainz.artist_search"
     case musicBrainzReleaseSearch = "musicbrainz.release_search"
@@ -50,7 +52,8 @@ public enum AnalyticsOperation: String, Codable, CaseIterable, Sendable {
         switch self {
         case .libraryLoad, .musicAppFetch:
             .library
-        case .appleScriptRun, .appleScriptFetchIDs, .appleScriptBatchWrite:
+        case .appleScriptRun, .appleScriptFetchIDs, .appleScriptIdentitySnapshot,
+             .appleScriptMetadataSnapshot, .appleScriptBatchWrite:
             .appleScript
         case .musicBrainzArtistSearch, .musicBrainzReleaseSearch, .discogsReleaseDetails,
              .discogsPrimaryRelease, .discogsYearSearch, .discogsReleaseSearch, .iTunesReleaseSearch:
@@ -71,6 +74,8 @@ public enum AnalyticsOperation: String, Codable, CaseIterable, Sendable {
         case .musicAppFetch: "Music.app fetch"
         case .appleScriptRun: "AppleScript run"
         case .appleScriptFetchIDs: "AppleScript ID fetch"
+        case .appleScriptIdentitySnapshot: "AppleScript identity snapshot"
+        case .appleScriptMetadataSnapshot: "AppleScript metadata snapshot"
         case .appleScriptBatchWrite: "AppleScript batch write"
         case .musicBrainzArtistSearch: "MusicBrainz artist search"
         case .musicBrainzReleaseSearch: "MusicBrainz release search"

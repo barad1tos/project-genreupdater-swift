@@ -35,31 +35,6 @@ enum TrackWireCodec {
         return tracks
     }
 
-    static func decodeIdentityRecords(_ output: String, scriptName: String) throws -> [LibraryIdentityRow] {
-        var identities: [LibraryIdentityRow] = []
-        for record in output.split(separator: recordSeparator, omittingEmptySubsequences: false) {
-            let rawRecord = String(record)
-            guard !rawRecord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-
-            let fields = rawRecord.split(separator: fieldSeparator, omittingEmptySubsequences: false)
-                .map(String.init)
-            guard fields.count == 3,
-                  let databaseID = MusicDatabaseTrackID(rawValue: fields[0])
-            else {
-                throw TrackWireError(
-                    scriptName: scriptName,
-                    detail: "Malformed identity record: expected 3 fields, got \(fields.count)"
-                )
-            }
-            identities.append(LibraryIdentityRow(
-                databaseID: databaseID,
-                artist: observedText(fields[1]),
-                albumArtist: observedText(fields[2])
-            ))
-        }
-        return identities
-    }
-
     private static func decodeTrack(_ fields: [String]) -> Core.Track? {
         guard fields.count >= 5,
               let databaseID = MusicDatabaseTrackID(rawValue: fields[0])
@@ -86,15 +61,11 @@ enum TrackWireCodec {
         return fields[index]
     }
 
-    private static func observedText(_ value: String) -> Observed<String> {
-        value.isEmpty ? .absent : .value(value)
-    }
-
-    private static func parseYear(_ value: String?) -> Int? {
+    static func parseYear(_ value: String?) -> Int? {
         value.flatMap(Int.init)
     }
 
-    private static func parseReleaseYear(_ value: String?) -> Int? {
+    static func parseReleaseYear(_ value: String?) -> Int? {
         guard let value else { return nil }
         if let year = parseYear(value) {
             return year
@@ -103,7 +74,7 @@ enum TrackWireCodec {
         return Calendar(identifier: .gregorian).component(.year, from: releaseDate)
     }
 
-    private static func parseDate(_ value: String) -> Date? {
+    static func parseDate(_ value: String) -> Date? {
         if let date = DateFormatters.compact.date(from: value) {
             return date
         }

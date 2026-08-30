@@ -437,8 +437,8 @@ struct LibrarySyncObservationTests {
         #expect(await store.stored.map(\.id) == ["A"])
     }
 
-    @Test("Duplicate authoritative metadata fails before mirror mutation")
-    func rejectsDuplicateMetadata() async throws {
+    @Test("Identical overlapping metadata rows collapse at the observation boundary")
+    func collapsesIdenticalMetadata() async throws {
         let databaseID = try databaseID("A")
         let generation = try #require(LibraryGeneration(sourceValue: "duplicate-generation"))
         let stored = mirrorTrack(id: "A", genre: "Metal")
@@ -450,11 +450,31 @@ struct LibrarySyncObservationTests {
         let store = ObservationMirrorStore(stored: [stored])
         let service = LibrarySyncService(trackStore: store, observer: observer)
 
+        let result = try await service.synchronizeNow(forceMetadataRefresh: true)
+
+        #expect(!result.hasChanges)
+        #expect(await store.stored == [stored])
+    }
+
+    @Test("Conflicting overlapping metadata rows fail before mirror mutation")
+    func rejectsConflictingMetadata() async throws {
+        let databaseID = try databaseID("A")
+        let generation = try #require(LibraryGeneration(sourceValue: "conflicting-generation"))
+        let stored = mirrorTrack(id: "A", genre: "Metal")
+        let conflicting = mirrorTrack(id: "A", genre: "Rock")
+        let source = try DuplicateMetadataSource(
+            census: TrackIDCensus(ids: [databaseID], totalCount: 1, generation: generation),
+            metadata: [stored, conflicting]
+        )
+        let observer = MusicAppObserver(source: source)
+        let store = ObservationMirrorStore(stored: [stored])
+        let service = LibrarySyncService(trackStore: store, observer: observer)
+
         do {
             _ = try await service.synchronizeNow(forceMetadataRefresh: true)
-            Issue.record("Expected duplicate metadata to reject synchronization")
-        } catch let MusicAppObservationError.duplicateMetadata(duplicateID) {
-            #expect(duplicateID == databaseID)
+            Issue.record("Expected conflicting metadata to reject synchronization")
+        } catch let MusicAppObservationError.conflictingMetadata(conflictingID) {
+            #expect(conflictingID == databaseID)
         } catch {
             Issue.record("Unexpected error: \(error)")
         }

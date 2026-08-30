@@ -118,6 +118,10 @@ struct ArtistScopeTests {
             updateBehavior: .both,
             minimumConfidencePercent: 90,
             releaseYearRestoreThresholdYears: 5,
+            metadataReads: DesignMetadataReadSettings(
+                bulkThreshold: 25,
+                bulkThresholdRange: 1 ... 1000
+            ),
             artistScope: scope,
             isPostWriteVerificationRequired: true
         )

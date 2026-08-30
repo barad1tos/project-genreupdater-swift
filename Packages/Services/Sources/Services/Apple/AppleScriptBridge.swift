@@ -17,6 +17,12 @@ import OSLog
 
 private let log = AppLogger.make(category: "applescript")
 
+enum ProcessingMetadataReadRoute: Equatable, Sendable {
+    case targeted
+    case fullSnapshot
+    case artistSnapshots([String])
+}
+
 // MARK: - AppleScript Bridge Actor
 
 /// Actor that manages all AppleScript interactions with Music.app.
@@ -50,6 +56,18 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
 
     var trackIDBatchSize: Int {
         BatchProcessingConfig.clampIDBatch(config.batchProcessing.idsBatchSize)
+    }
+
+    func processingMetadataReadRoute(
+        requestedCount: Int,
+        scope: ProcessingScopeSnapshot
+    ) -> ProcessingMetadataReadRoute {
+        switch scope.source {
+        case .testArtists:
+            .artistSnapshots(scope.normalizedTestArtists)
+        case .fullLibrary:
+            requestedCount >= config.batchProcessing.bulkMetadataThreshold ? .fullSnapshot : .targeted
+        }
     }
 
     public func updateConfiguration(_ config: AppleScriptConfig) async {
@@ -216,10 +234,10 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
 
     func fetchTrackIDCensus(timeout: Duration? = nil) async throws -> TrackIDCensus {
         let effectiveTimeout = timeout ?? config.timeouts.fullLibraryFetch
-        return try await scanTrackIDs(timeout: effectiveTimeout) { [self] offset, limit, remaining in
+        return try await scanTrackIDs(timeout: effectiveTimeout) { [self] remaining in
             try await runScriptBody(
                 name: "fetch_track_ids",
-                arguments: trackIDArguments(offset: offset, limit: limit),
+                arguments: trackIDArguments(),
                 timeout: remaining
             )
         }
@@ -229,26 +247,77 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
         try await fetchTrackIDCensus()
     }
 
-    func fetchIdentity(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [LibraryIdentityRow] {
-        try await TrackLookup(
-            batchSize: trackIDBatchSize,
-            timeout: config.timeouts.idsBatchFetch
-        ) { [self] ids, remaining in
-            try await runScriptBody(
-                name: TrackLookup<LibraryIdentityRow>.scriptName,
-                arguments: [ids.joined(separator: ","), "identity"],
-                timeout: remaining
+    func fetchIdentitySnapshot() async throws -> LibraryIdentitySnapshot {
+        guard let analytics else {
+            return try await fetchIdentitySnapshotBody()
+        }
+        return try await analytics.measure(.appleScriptIdentitySnapshot) {
+            try await self.fetchIdentitySnapshotBody()
+        }
+    }
+
+    private func fetchIdentitySnapshotBody() async throws -> LibraryIdentitySnapshot {
+        let output = try await runScriptBody(
+            name: LibraryIdentitySnapshot.scriptName,
+            arguments: trackIDArguments(),
+            timeout: config.timeouts.fullLibraryFetch
+        )
+        guard let output else {
+            throw AppleScriptBridgeError.parseError(
+                scriptName: LibraryIdentitySnapshot.scriptName,
+                detail: "Empty identity snapshot response"
             )
-        } parse: { output in
-            do {
-                return try TrackWireCodec.decodeIdentityRecords(
-                    output,
-                    scriptName: TrackLookup<LibraryIdentityRow>.scriptName
-                )
-            } catch let error as TrackWireError {
-                throw AppleScriptBridgeError.parseError(scriptName: error.scriptName, detail: error.detail)
+        }
+        return try LibraryIdentitySnapshot.decode(output)
+    }
+
+    func fetchBulkMetadata(artist: String?) async throws -> LibraryMetadataSnapshot {
+        guard let analytics else {
+            return try await fetchBulkMetadataBody(artist: artist)
+        }
+        return try await analytics.measure(.appleScriptMetadataSnapshot) {
+            try await self.fetchBulkMetadataBody(artist: artist)
+        }
+    }
+
+    private func fetchBulkMetadataBody(artist: String?) async throws -> LibraryMetadataSnapshot {
+        let output = try await runScriptBody(
+            name: LibraryMetadataSnapshot.scriptName,
+            arguments: trackIDArguments() + [artist ?? ""],
+            timeout: config.timeouts.fullLibraryFetch
+        )
+        guard let output else {
+            throw AppleScriptBridgeError.parseError(
+                scriptName: LibraryMetadataSnapshot.scriptName,
+                detail: "Empty metadata snapshot response"
+            )
+        }
+        return try LibraryMetadataSnapshot.decode(output)
+    }
+
+    func fetchProcessingMetadata(
+        for databaseIDs: [MusicDatabaseTrackID],
+        scope: ProcessingScopeSnapshot
+    ) async throws -> [Core.Track] {
+        let requestedIDs = Set(databaseIDs)
+        switch processingMetadataReadRoute(requestedCount: databaseIDs.count, scope: scope) {
+        case .targeted:
+            return try await fetchMetadata(for: databaseIDs)
+        case .fullSnapshot:
+            let snapshot = try await fetchBulkMetadata(artist: nil)
+            return snapshot.tracks.filter { track in
+                track.databaseID.map(requestedIDs.contains) ?? false
             }
-        }.run(ids: databaseIDs.map(\.rawValue))
+        case let .artistSnapshots(artists):
+            var tracks = [Core.Track]()
+            for artist in artists {
+                let snapshot = try await fetchBulkMetadata(artist: artist)
+                tracks.append(contentsOf: snapshot.tracks.filter { track in
+                    track.databaseID.map(requestedIDs.contains) ?? false
+                })
+            }
+            return tracks
+        }
     }
 
     public func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Core.Track] {
@@ -346,7 +415,6 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
     func scanTrackIDs(timeout: Duration, fetch: @escaping TrackIDScan.Fetch) async throws -> TrackIDCensus {
         let operation = {
             try await TrackIDScan(
-                batchSize: self.config.batchProcessing.batchSize,
                 timeout: timeout,
                 fetch: fetch
             ).run()
@@ -357,11 +425,11 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
         return try await analytics.measure(.appleScriptFetchIDs, body: operation)
     }
 
-    func trackIDArguments(offset: Int, limit: Int) throws -> [String] {
+    func trackIDArguments() throws -> [String] {
         guard let libraryPath, !libraryPath.isEmpty else {
             throw AppleScriptBridgeError.invalidLibraryPath
         }
-        return [String(offset), String(limit), libraryPath]
+        return [libraryPath]
     }
 }
 

@@ -55,6 +55,7 @@ struct DesignRootHostView: View {
             setUpdateBehaviorAction: setDefaultUpdateBehavior,
             setMinimumConfidenceAction: setMinimumConfidence,
             setReleaseYearRestoreThresholdAction: setReleaseYearRestoreThreshold,
+            setBulkThresholdAction: setBulkThreshold,
             setTestArtistsAction: setTestArtists,
             setAppearanceModeAction: setAppearanceMode,
             setFastAnimationsAction: setFastAnimationsEnabled,
@@ -409,6 +410,10 @@ struct DesignRootHostView: View {
             ) ?? .both,
             minimumConfidencePercent: configuration.yearRetrieval.logic.minConfidenceForNewYear,
             releaseYearRestoreThresholdYears: configuration.processing.releaseYearRestoreThreshold,
+            metadataReads: DesignMetadataReadSettings(
+                bulkThreshold: configuration.applescript.batchProcessing.bulkMetadataThreshold,
+                bulkThresholdRange: BatchProcessingConfig.bulkMetadataThresholdRange
+            ),
             artistScope: ArtistCatalogAdapter.makeScope(
                 selected: configuration.development.testArtists,
                 settingsRevision: configuration.revision,
@@ -816,6 +821,13 @@ extension DesignRootHostView {
         let normalizedYears = min(max(years, 0), 100)
         return mutateConfiguration(dependencies) { configuration in
             configuration.processing.releaseYearRestoreThreshold = normalizedYears
+        } == .accepted
+    }
+
+    private func setBulkThreshold(_ threshold: Int) -> Bool {
+        guard BatchProcessingConfig.bulkMetadataThresholdRange.contains(threshold) else { return false }
+        return mutateConfiguration(dependencies) { configuration in
+            configuration.applescript.batchProcessing.bulkMetadataThreshold = threshold
         } == .accepted
     }
 

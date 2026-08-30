@@ -52,6 +52,51 @@ struct LibrarySyncStateTests {
         #expect(await store.commitCount == 0)
     }
 
+    @Test("Cancellation while loading the mirror prevents source observation")
+    func cancellationStopsAfterMirrorLoad() async throws {
+        let gate = SyncStateGate()
+        let store = SyncStateStore(loadGate: gate)
+        let reader = SyncMockScriptClient()
+        let service = LibrarySyncService(trackStore: store, observer: reader)
+
+        let synchronization = Task { try await service.synchronizeNow() }
+        await gate.waitUntilEntered()
+        synchronization.cancel()
+        await gate.open()
+
+        await #expect(throws: CancellationError.self) {
+            try await synchronization.value
+        }
+        #expect(await reader.recordedObservationRequests().isEmpty)
+        #expect(await store.commitCount == 0)
+    }
+
+    @Test("Cancellation before conflict backoff prevents a retry")
+    func cancellationBeforeConflictRetry() async throws {
+        let gate = SyncStateGate()
+        let store = SyncStateStore()
+        let delegate = SyncMockScriptClient()
+        let reader = TransientConflictReader(delegate: delegate, firstAttemptGate: gate)
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                mirrorRetryPolicy: MirrorRetryPolicy(retryLimit: 1, delay: .seconds(60))
+            ),
+            observer: reader
+        )
+
+        let synchronization = Task { try await service.synchronizeNow() }
+        await gate.waitUntilEntered()
+        synchronization.cancel()
+        await gate.open()
+
+        await #expect(throws: CancellationError.self) {
+            try await synchronization.value
+        }
+        #expect(await reader.attemptCount == 1)
+        #expect(await store.commitCount == 0)
+    }
+
     @Test("The public result uses values accepted by the mirror store")
     func returnsCommittedValues() async throws {
         let store = SyncStateStore(normalizedName: "Normalized")
@@ -333,15 +378,20 @@ private actor GatedSyncReader: MusicAppReading {
 
 private actor TransientConflictReader: MusicAppReading {
     private let delegate: SyncMockScriptClient
+    private let firstAttemptGate: SyncStateGate?
     private(set) var attemptCount = 0
 
-    init(delegate: SyncMockScriptClient) {
+    init(delegate: SyncMockScriptClient, firstAttemptGate: SyncStateGate? = nil) {
         self.delegate = delegate
+        self.firstAttemptGate = firstAttemptGate
     }
 
     func observe(_ request: LibraryObservationRequest) async throws -> LibraryObservation {
         attemptCount += 1
         if attemptCount == 1 {
+            if let firstAttemptGate {
+                await firstAttemptGate.wait()
+            }
             throw MusicAppObservationError.censusChanged
         }
         return try await delegate.observe(request)

@@ -8,6 +8,8 @@ struct ScriptRetryTests {
     @Test("Only known read scripts are retryable")
     func classifiesIntent() {
         #expect(AppleScriptBridge.intent(forScript: "fetch_track_ids") == .read)
+        #expect(AppleScriptBridge.intent(forScript: "fetch_library_identity") == .read)
+        #expect(AppleScriptBridge.intent(forScript: "fetch_scope_metadata") == .read)
         #expect(AppleScriptBridge.intent(forScript: "fetch_tracks") == .read)
         #expect(AppleScriptBridge.intent(forScript: "lookup_tracks") == .read)
         #expect(AppleScriptBridge.intent(forScript: "update_property") == .mutation)

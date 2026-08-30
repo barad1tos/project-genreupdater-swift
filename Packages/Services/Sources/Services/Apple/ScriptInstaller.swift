@@ -62,7 +62,9 @@ public actor ScriptInstaller {
         "lookup_tracks",
         "update_property",
         "batch_update_tracks",
-        "fetch_track_ids"
+        "fetch_track_ids",
+        "fetch_library_identity",
+        "fetch_scope_metadata"
     ]
 
     /// URL to the Application Scripts directory for this app.

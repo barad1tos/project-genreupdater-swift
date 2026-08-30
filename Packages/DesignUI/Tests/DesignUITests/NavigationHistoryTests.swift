@@ -113,6 +113,7 @@ private func makeNavigationSnapshot(isAdvancedExperience: Bool) -> DesignDataSna
         updateBehavior: snapshot.settings.updateBehavior,
         minimumConfidencePercent: snapshot.settings.minimumConfidencePercent,
         releaseYearRestoreThresholdYears: snapshot.settings.releaseYearRestoreThresholdYears,
+        metadataReads: snapshot.settings.metadataReads,
         artistScope: snapshot.settings.artistScope,
         presentation: .init(isAdvancedExperience: isAdvancedExperience),
         isPostWriteVerificationRequired: snapshot.settings.isPostWriteVerificationRequired,

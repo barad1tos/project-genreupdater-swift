@@ -179,22 +179,28 @@ public struct BatchProcessingConfig: Sendable, Codable {
     /// Supported ID lookup batch sizes, matching the Python processing boundary.
     public static let idsBatchRange = 1 ... 1000
 
+    /// Supported crossover points between targeted and bulk metadata reads.
+    public static let bulkMetadataThresholdRange = 1 ... 1000
+
+    /// Default number of requested tracks at which one bulk metadata read becomes cheaper.
+    public static let defaultBulkMetadataThreshold = 25
+
     /// Clamps an ID lookup batch size to the supported processing boundary.
     public static func clampIDBatch(_ size: Int) -> Int {
         min(idsBatchRange.upperBound, max(idsBatchRange.lowerBound, size))
     }
 
     public var idsBatchSize: Int = 200
-    public var batchSize: Int = 1000
+    public var bulkMetadataThreshold: Int = Self.defaultBulkMetadataThreshold
 
     private enum CodingKeys: String, CodingKey {
-        case idsBatchSize, batchSize
+        case idsBatchSize, bulkMetadataThreshold
     }
 
     private enum DecodingKeys: String, CodingKey {
-        case idsBatchSize, batchSize
+        case idsBatchSize, bulkMetadataThreshold
         case legacyIdsBatchSize = "ids_batch_size"
-        case legacyBatchSize = "batch_size"
+        case legacyBulkMetadataThreshold = "bulk_metadata_threshold"
     }
 
     public init() {}
@@ -204,8 +210,8 @@ public struct BatchProcessingConfig: Sendable, Codable {
         idsBatchSize = try container.decodeIfPresent(Int.self, forKey: .idsBatchSize)
             ?? container.decodeIfPresent(Int.self, forKey: .legacyIdsBatchSize)
             ?? 200
-        batchSize = try container.decodeIfPresent(Int.self, forKey: .batchSize)
-            ?? container.decodeIfPresent(Int.self, forKey: .legacyBatchSize)
-            ?? 1000
+        bulkMetadataThreshold = try container.decodeIfPresent(Int.self, forKey: .bulkMetadataThreshold)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyBulkMetadataThreshold)
+            ?? Self.defaultBulkMetadataThreshold
     }
 }

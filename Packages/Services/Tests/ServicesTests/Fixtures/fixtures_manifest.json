@@ -9,6 +9,12 @@
       "generated": 9,
       "verifiedByExecution": 0
     },
+    "library_convergence_reference.json": {
+      "digest": "sha256:a94ca906ff53555689e60b2aef43c9d41b35c3b8434a5379a58a5019ba93949e",
+      "caseCount": 9,
+      "generated": 9,
+      "verifiedByExecution": 0
+    },
     "provider_acquisition_reference.json": {
       "digest": "sha256:9cc337498f0ce1cda40eefd019c9f8be4f48553aaf9ffdedff707dfcb927ca99",
       "caseCount": 1,

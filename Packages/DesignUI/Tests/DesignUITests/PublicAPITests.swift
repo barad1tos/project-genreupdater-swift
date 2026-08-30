@@ -115,6 +115,7 @@ struct PublicAPITests {
             setUpdateBehaviorAction: { $0 == .both },
             setMinimumConfidenceAction: { $0 >= 0 },
             setReleaseYearRestoreThresholdAction: { $0 >= 0 },
+            setBulkThresholdAction: { (1 ... 1000).contains($0) },
             recoveryDetailActions: nil,
             reportNotice: ReportNotice(message: "Dismissed 2 items", tone: .success),
             updateContent: {
@@ -165,6 +166,10 @@ struct PublicAPITests {
             updateBehavior: .genreOnly,
             minimumConfidencePercent: 30,
             releaseYearRestoreThresholdYears: 5,
+            metadataReads: DesignMetadataReadSettings(
+                bulkThreshold: 25,
+                bulkThresholdRange: 1 ... 1000
+            ),
             artistScope: DesignArtistScope(settingsRevision: 0, selected: [], options: []),
             isPostWriteVerificationRequired: true
         )
@@ -172,6 +177,10 @@ struct PublicAPITests {
             updateBehavior: .yearOnly,
             minimumConfidencePercent: 80,
             releaseYearRestoreThresholdYears: 8,
+            metadataReads: DesignMetadataReadSettings(
+                bulkThreshold: 42,
+                bulkThresholdRange: 1 ... 1000
+            ),
             artistScope: DesignArtistScope(
                 settingsRevision: 1,
                 selected: ["Aphex Twin"],
@@ -186,6 +195,7 @@ struct PublicAPITests {
         #expect(model.data.settings.updateBehavior == .yearOnly)
         #expect(model.data.settings.minimumConfidencePercent == 80)
         #expect(model.data.settings.releaseYearRestoreThresholdYears == 8)
+        #expect(model.data.settings.metadataReads.bulkThreshold == 42)
         #expect(model.data.settings.artistScope.selected == ["Aphex Twin"])
     }
 

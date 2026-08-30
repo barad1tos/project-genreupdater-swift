@@ -186,10 +186,10 @@ extension AppConfiguration {
             minimum: 1,
             path: "applescript.batchProcessing.idsBatchSize"
         )
-        validation.requireAtLeast(
-            applescript.batchProcessing.batchSize,
-            minimum: 1,
-            path: "applescript.batchProcessing.batchSize"
+        validation.requireInRange(
+            applescript.batchProcessing.bulkMetadataThreshold,
+            range: BatchProcessingConfig.bulkMetadataThresholdRange,
+            path: "applescript.batchProcessing.bulkMetadataThreshold"
         )
     }
 

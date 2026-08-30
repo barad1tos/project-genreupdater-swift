@@ -4,6 +4,12 @@ import Testing
 
 @Suite("ScriptInstaller — installed script freshness")
 struct ScriptInstallerTests {
+    @Test("Bulk observation scripts are required resources")
+    func requiresBulkObservationScripts() {
+        #expect(ScriptInstaller.requiredScripts.contains("fetch_library_identity"))
+        #expect(ScriptInstaller.requiredScripts.contains("fetch_scope_metadata"))
+    }
+
     @Test("Missing installed script requires installation")
     func missingInstalledScriptRequiresInstallation() async throws {
         let fixture = try ScriptInstallerFixture()

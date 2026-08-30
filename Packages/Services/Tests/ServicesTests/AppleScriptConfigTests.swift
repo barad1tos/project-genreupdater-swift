@@ -39,6 +39,39 @@ struct AppleScriptConfigTests {
         #expect(await bridge.trackIDBatchSize == 1)
     }
 
+    @Test("Processing metadata route follows the configured crossover")
+    func usesConfiguredBulkMetadataThreshold() async {
+        let bridge = makeConfigBridge()
+        var configuration = AppleScriptConfig()
+        configuration.batchProcessing.bulkMetadataThreshold = 25
+        await bridge.updateConfiguration(configuration)
+        let fullLibrary = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: nil,
+            createdAt: .distantPast,
+            reason: "metadata routing fixture"
+        )
+
+        #expect(await bridge.processingMetadataReadRoute(requestedCount: 24, scope: fullLibrary) == .targeted)
+        #expect(await bridge.processingMetadataReadRoute(requestedCount: 25, scope: fullLibrary) == .fullSnapshot)
+    }
+
+    @Test("Test Artists always use one bulk snapshot per normalized artist")
+    func routesTestArtistsToScopedSnapshots() async {
+        let bridge = makeConfigBridge()
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [" Target ", "target", "Guest"],
+            knownTrackCount: nil,
+            createdAt: .distantPast,
+            reason: "metadata routing fixture"
+        )
+
+        #expect(
+            await bridge.processingMetadataReadRoute(requestedCount: 1, scope: scope)
+                == .artistSnapshots(["Target", "Guest"])
+        )
+    }
+
     @Test("Track ID fetch clamps invalid batch size before script execution")
     func clampsInvalidIDBatchSize() async {
         let bridge = makeConfigBridge()

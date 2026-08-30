@@ -66,11 +66,37 @@ struct AnalyticsBoundaryTests {
             analytics: analytics
         )
 
-        let ids = try await bridge.scanTrackIDs(timeout: .seconds(1)) { _, _, _ in "BATCH:0:0:G1:" }
+        let ids = try await bridge.scanTrackIDs(timeout: .seconds(1)) { _ in "CENSUS:0:G1:" }
 
         #expect(ids.ids.isEmpty)
         #expect(await analytics.results == [
             InstrumentationResult(operation: .appleScriptFetchIDs, outcome: .succeeded),
+        ])
+    }
+
+    @Test("Bulk AppleScript reads record their semantic snapshot boundaries")
+    func appleScriptSnapshotReads() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AnalyticsSnapshots-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let analytics = InstrumentationAnalytics()
+        let bridge = AppleScriptBridge(
+            installer: ScriptInstaller(scriptsDirectory: directory, bundleScriptsDirectory: nil),
+            libraryPath: "/missing/Music Library.musiclibrary",
+            analytics: analytics
+        )
+
+        await #expect(throws: AppleScriptBridgeError.self) {
+            _ = try await bridge.fetchIdentitySnapshot()
+        }
+        await #expect(throws: AppleScriptBridgeError.self) {
+            _ = try await bridge.fetchBulkMetadata(artist: "Target")
+        }
+
+        #expect(await analytics.results == [
+            InstrumentationResult(operation: .appleScriptIdentitySnapshot, outcome: .failed),
+            InstrumentationResult(operation: .appleScriptMetadataSnapshot, outcome: .failed),
         ])
     }
 

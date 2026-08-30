@@ -391,11 +391,12 @@ public struct LibraryObservation: Equatable, Sendable {
 enum MusicAppObservationError: Error, LocalizedError {
     case censusChanged
     case generationChanged(started: LibraryGeneration, ended: LibraryGeneration)
-    case duplicateMetadata(MusicDatabaseTrackID)
+    case conflictingMetadata(MusicDatabaseTrackID)
     case duplicateIdentity(MusicDatabaseTrackID)
     case unexpectedMetadata(MusicDatabaseTrackID)
     case unexpectedIdentity(MusicDatabaseTrackID)
     case unresolvedMetadataIdentity
+    case identitySnapshotMismatch
 
     var errorDescription: String? {
         switch self {
@@ -403,8 +404,8 @@ enum MusicAppObservationError: Error, LocalizedError {
             "Music library census changed during metadata observation"
         case let .generationChanged(started, ended):
             "Music library generation changed during observation (\(started.rawValue) to \(ended.rawValue))"
-        case let .duplicateMetadata(databaseID):
-            "Metadata lookup returned database ID \(databaseID.rawValue) more than once"
+        case let .conflictingMetadata(databaseID):
+            "Metadata reads returned conflicting rows for database ID \(databaseID.rawValue)"
         case let .duplicateIdentity(databaseID):
             "Identity lookup returned database ID \(databaseID.rawValue) more than once"
         case let .unexpectedMetadata(databaseID):
@@ -413,6 +414,8 @@ enum MusicAppObservationError: Error, LocalizedError {
             "Identity lookup returned unrequested database ID \(databaseID.rawValue)"
         case .unresolvedMetadataIdentity:
             "Metadata lookup returned a track without a resolved AppleScript database ID"
+        case .identitySnapshotMismatch:
+            "Identity snapshot rows do not match its complete Music library census"
         }
     }
 }

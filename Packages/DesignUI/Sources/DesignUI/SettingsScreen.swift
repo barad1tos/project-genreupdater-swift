@@ -6,6 +6,7 @@ struct SettingsScreen: View {
     var setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)?
     var setMinimumConfidenceAction: ((Double) -> Bool)?
     var setReleaseYearRestoreThresholdAction: ((Int) -> Bool)?
+    var setBulkThresholdAction: ((Int) -> Bool)?
     var setTestArtistsAction: ((ArtistScopeChange) -> ArtistScopeSaveResult)?
     var setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)?
     var setFastAnimationsAction: ((Bool) -> Bool)?
@@ -115,6 +116,14 @@ struct SettingsScreen: View {
             settings.releaseYearRestoreThresholdYears
         } set: { years in
             recordSave(setReleaseYearRestoreThresholdAction?(years) ?? false)
+        }
+    }
+
+    private var bulkThresholdBinding: Binding<Int> {
+        Binding {
+            settings.metadataReads.bulkThreshold
+        } set: { threshold in
+            recordSave(setBulkThresholdAction?(threshold) ?? false)
         }
     }
 
@@ -309,6 +318,22 @@ struct SettingsScreen: View {
                         tone: settings.isPostWriteVerificationRequired ? .success : .neutral,
                         dot: true
                     )
+                }
+            }
+            group("Music metadata reads", "music.note.list", .info) {
+                row(
+                    "Bulk metadata threshold",
+                    "Below this count, reads are targeted by Music database ID; at or above it, one bulk read is used."
+                ) {
+                    Stepper(
+                        value: bulkThresholdBinding,
+                        in: settings.metadataReads.bulkThresholdRange
+                    ) {
+                        Text("\(settings.metadataReads.bulkThreshold) tracks")
+                            .font(.system(size: 13, weight: .bold).monospacedDigit())
+                    }
+                    .frame(width: 132)
+                    .disabled(setBulkThresholdAction == nil)
                 }
             }
             group("Diagnostics", "doc.text", .purple) {

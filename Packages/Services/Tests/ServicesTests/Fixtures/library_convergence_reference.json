@@ -1,0 +1,735 @@
+{
+  "cases": [
+    {
+      "description": "An unchanged library performs no metadata or cache work",
+      "id": "unchanged-library",
+      "input": {
+        "currentTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          }
+        ],
+        "forceMetadataRefresh": false,
+        "metadataResponseIDs": [
+          "1"
+        ],
+        "previousTestArtists": [],
+        "previousTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          }
+        ],
+        "sourceChangesDuringScan": false,
+        "testArtists": []
+      },
+      "pythonExpected": {
+        "admittedIDs": [
+          "1"
+        ],
+        "downstreamDecision": "continue-with-snapshot",
+        "identityChangedIDs": [],
+        "invalidationTargets": [],
+        "managedMetadataChangedIDs": [],
+        "membershipDelta": {
+          "newIDs": [],
+          "removedIDs": []
+        },
+        "metadataObservedIDs": [],
+        "metadataRequestIDs": [],
+        "readiness": null
+      },
+      "swiftExpected": {
+        "downstreamDecision": "continue-with-committed-mirror",
+        "identityRequestIDs": [],
+        "invalidationTargets": [],
+        "isReady": true,
+        "persistedClassificationRemovedIDs": [],
+        "persistedClassificationUpsertedIDs": [],
+        "strongerContractReasons": []
+      }
+    },
+    {
+      "description": "A new track enters the physical inventory and processing mirror",
+      "id": "new-track",
+      "input": {
+        "currentTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          },
+          {
+            "album": "Character",
+            "album_artist": null,
+            "artist": "Dark Tranquillity",
+            "genre": "Metal",
+            "identifier": "2",
+            "year": "2004"
+          }
+        ],
+        "forceMetadataRefresh": false,
+        "metadataResponseIDs": [
+          "1",
+          "2"
+        ],
+        "previousTestArtists": [],
+        "previousTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          }
+        ],
+        "sourceChangesDuringScan": false,
+        "testArtists": []
+      },
+      "pythonExpected": {
+        "admittedIDs": [
+          "1",
+          "2"
+        ],
+        "downstreamDecision": "continue-with-snapshot",
+        "identityChangedIDs": [],
+        "invalidationTargets": [],
+        "managedMetadataChangedIDs": [],
+        "membershipDelta": {
+          "newIDs": [
+            "2"
+          ],
+          "removedIDs": []
+        },
+        "metadataObservedIDs": [
+          "2"
+        ],
+        "metadataRequestIDs": [
+          "2"
+        ],
+        "readiness": null
+      },
+      "swiftExpected": {
+        "downstreamDecision": "continue-with-committed-mirror",
+        "identityRequestIDs": [],
+        "invalidationTargets": [
+          {
+            "album": "Character",
+            "artist": "Dark Tranquillity"
+          }
+        ],
+        "isReady": true,
+        "persistedClassificationRemovedIDs": [],
+        "persistedClassificationUpsertedIDs": [
+          "2"
+        ],
+        "strongerContractReasons": [
+          "Swift invalidates the closed old-and-new album identity set; Python emits only production Smart Delta events."
+        ]
+      }
+    },
+    {
+      "description": "A removed track leaves membership and invalidates its album caches",
+      "id": "removed-track",
+      "input": {
+        "currentTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          }
+        ],
+        "forceMetadataRefresh": false,
+        "metadataResponseIDs": [
+          "1"
+        ],
+        "previousTestArtists": [],
+        "previousTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          },
+          {
+            "album": "Character",
+            "album_artist": null,
+            "artist": "Dark Tranquillity",
+            "genre": "Metal",
+            "identifier": "2",
+            "year": "2004"
+          }
+        ],
+        "sourceChangesDuringScan": false,
+        "testArtists": []
+      },
+      "pythonExpected": {
+        "admittedIDs": [
+          "1"
+        ],
+        "downstreamDecision": "continue-with-snapshot",
+        "identityChangedIDs": [],
+        "invalidationTargets": [
+          {
+            "album": "Character",
+            "artist": "Dark Tranquillity"
+          }
+        ],
+        "managedMetadataChangedIDs": [],
+        "membershipDelta": {
+          "newIDs": [],
+          "removedIDs": [
+            "2"
+          ]
+        },
+        "metadataObservedIDs": [],
+        "metadataRequestIDs": [],
+        "readiness": null
+      },
+      "swiftExpected": {
+        "downstreamDecision": "continue-with-committed-mirror",
+        "identityRequestIDs": [],
+        "invalidationTargets": [
+          {
+            "album": "Character",
+            "artist": "Dark Tranquillity"
+          }
+        ],
+        "isReady": true,
+        "persistedClassificationRemovedIDs": [
+          "2"
+        ],
+        "persistedClassificationUpsertedIDs": [],
+        "strongerContractReasons": []
+      }
+    },
+    {
+      "description": "A force refresh observes changed managed metadata",
+      "id": "metadata-change",
+      "input": {
+        "currentTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Melodic Death Metal",
+            "identifier": "1",
+            "year": "2006"
+          }
+        ],
+        "forceMetadataRefresh": true,
+        "metadataResponseIDs": [
+          "1"
+        ],
+        "previousTestArtists": [],
+        "previousTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          }
+        ],
+        "sourceChangesDuringScan": false,
+        "testArtists": []
+      },
+      "pythonExpected": {
+        "admittedIDs": [
+          "1"
+        ],
+        "downstreamDecision": "continue-with-snapshot",
+        "identityChangedIDs": [],
+        "invalidationTargets": [],
+        "managedMetadataChangedIDs": [
+          "1"
+        ],
+        "membershipDelta": {
+          "newIDs": [],
+          "removedIDs": []
+        },
+        "metadataObservedIDs": [
+          "1"
+        ],
+        "metadataRequestIDs": [
+          "1"
+        ],
+        "readiness": null
+      },
+      "swiftExpected": {
+        "downstreamDecision": "continue-with-committed-mirror",
+        "identityRequestIDs": [],
+        "invalidationTargets": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "artist": "In Flames"
+          }
+        ],
+        "isReady": true,
+        "persistedClassificationRemovedIDs": [],
+        "persistedClassificationUpsertedIDs": [],
+        "strongerContractReasons": [
+          "Swift invalidates the closed old-and-new album identity set; Python emits only production Smart Delta events."
+        ]
+      }
+    },
+    {
+      "description": "A force refresh observes an artist and album identity change",
+      "id": "identity-change",
+      "input": {
+        "currentTracks": [
+          {
+            "album": "Days of the Lost",
+            "album_artist": null,
+            "artist": "The Halo Effect",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          }
+        ],
+        "forceMetadataRefresh": true,
+        "metadataResponseIDs": [
+          "1"
+        ],
+        "previousTestArtists": [],
+        "previousTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          }
+        ],
+        "sourceChangesDuringScan": false,
+        "testArtists": []
+      },
+      "pythonExpected": {
+        "admittedIDs": [
+          "1"
+        ],
+        "downstreamDecision": "continue-with-snapshot",
+        "identityChangedIDs": [
+          "1"
+        ],
+        "invalidationTargets": [],
+        "managedMetadataChangedIDs": [],
+        "membershipDelta": {
+          "newIDs": [],
+          "removedIDs": []
+        },
+        "metadataObservedIDs": [
+          "1"
+        ],
+        "metadataRequestIDs": [
+          "1"
+        ],
+        "readiness": null
+      },
+      "swiftExpected": {
+        "downstreamDecision": "continue-with-committed-mirror",
+        "identityRequestIDs": [],
+        "invalidationTargets": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "artist": "In Flames"
+          },
+          {
+            "album": "Days of the Lost",
+            "artist": "The Halo Effect"
+          }
+        ],
+        "isReady": true,
+        "persistedClassificationRemovedIDs": [],
+        "persistedClassificationUpsertedIDs": [
+          "1"
+        ],
+        "strongerContractReasons": [
+          "Swift invalidates the closed old-and-new album identity set; Python emits only production Smart Delta events."
+        ]
+      }
+    },
+    {
+      "description": "Changing Test Artists reclassifies the processing scope without narrowing physical membership",
+      "id": "test-artists-change",
+      "input": {
+        "currentTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          },
+          {
+            "album": "Character",
+            "album_artist": null,
+            "artist": "Dark Tranquillity",
+            "genre": "Metal",
+            "identifier": "2",
+            "year": "2004"
+          },
+          {
+            "album": "Fiction",
+            "album_artist": "Dark Tranquillity",
+            "artist": "Guest Vocalist",
+            "genre": "Metal",
+            "identifier": "3",
+            "year": "2004"
+          }
+        ],
+        "forceMetadataRefresh": false,
+        "metadataResponseIDs": [
+          "1",
+          "2",
+          "3"
+        ],
+        "previousTestArtists": [
+          "In Flames"
+        ],
+        "previousTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          },
+          {
+            "album": "Character",
+            "album_artist": null,
+            "artist": "Dark Tranquillity",
+            "genre": "Metal",
+            "identifier": "2",
+            "year": "2004"
+          }
+        ],
+        "sourceChangesDuringScan": false,
+        "testArtists": [
+          "Dark Tranquillity"
+        ]
+      },
+      "pythonExpected": {
+        "admittedIDs": [
+          "2",
+          "3"
+        ],
+        "downstreamDecision": "continue-with-snapshot",
+        "identityChangedIDs": [],
+        "invalidationTargets": [],
+        "managedMetadataChangedIDs": [],
+        "membershipDelta": {
+          "newIDs": [
+            "3"
+          ],
+          "removedIDs": []
+        },
+        "metadataObservedIDs": [
+          "2",
+          "3"
+        ],
+        "metadataRequestIDs": [
+          "2",
+          "3"
+        ],
+        "readiness": null
+      },
+      "swiftExpected": {
+        "downstreamDecision": "continue-with-committed-mirror",
+        "identityRequestIDs": [
+          "1",
+          "2",
+          "3"
+        ],
+        "invalidationTargets": [
+          {
+            "album": "Character",
+            "artist": "Dark Tranquillity"
+          },
+          {
+            "album": "Fiction",
+            "artist": "Dark Tranquillity"
+          },
+          {
+            "album": "Fiction",
+            "artist": "Guest Vocalist"
+          }
+        ],
+        "isReady": true,
+        "persistedClassificationRemovedIDs": [],
+        "persistedClassificationUpsertedIDs": [
+          "3"
+        ],
+        "strongerContractReasons": [
+          "Swift classifies Test Artists membership from one generation-fenced full identity snapshot.",
+          "Swift invalidates the closed old-and-new album identity set; Python emits only production Smart Delta events."
+        ]
+      }
+    },
+    {
+      "description": "A configured force refresh re-reads common metadata without inventing a delta",
+      "id": "configured-force-refresh",
+      "input": {
+        "currentTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          }
+        ],
+        "forceMetadataRefresh": true,
+        "metadataResponseIDs": [
+          "1"
+        ],
+        "previousTestArtists": [],
+        "previousTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          }
+        ],
+        "sourceChangesDuringScan": false,
+        "testArtists": []
+      },
+      "pythonExpected": {
+        "admittedIDs": [
+          "1"
+        ],
+        "downstreamDecision": "continue-with-snapshot",
+        "identityChangedIDs": [],
+        "invalidationTargets": [],
+        "managedMetadataChangedIDs": [],
+        "membershipDelta": {
+          "newIDs": [],
+          "removedIDs": []
+        },
+        "metadataObservedIDs": [
+          "1"
+        ],
+        "metadataRequestIDs": [
+          "1"
+        ],
+        "readiness": null
+      },
+      "swiftExpected": {
+        "downstreamDecision": "continue-with-committed-mirror",
+        "identityRequestIDs": [],
+        "invalidationTargets": [],
+        "isReady": true,
+        "persistedClassificationRemovedIDs": [],
+        "persistedClassificationUpsertedIDs": [],
+        "strongerContractReasons": []
+      }
+    },
+    {
+      "description": "A partial force response must not certify metadata that was not observed",
+      "id": "partial-response",
+      "input": {
+        "currentTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          },
+          {
+            "album": "Character",
+            "album_artist": null,
+            "artist": "Dark Tranquillity",
+            "genre": "Metal",
+            "identifier": "2",
+            "year": "2004"
+          }
+        ],
+        "forceMetadataRefresh": true,
+        "metadataResponseIDs": [
+          "1"
+        ],
+        "previousTestArtists": [],
+        "previousTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          },
+          {
+            "album": "Character",
+            "album_artist": null,
+            "artist": "Dark Tranquillity",
+            "genre": "Metal",
+            "identifier": "2",
+            "year": "2004"
+          }
+        ],
+        "sourceChangesDuringScan": false,
+        "testArtists": []
+      },
+      "pythonExpected": {
+        "admittedIDs": [
+          "1",
+          "2"
+        ],
+        "downstreamDecision": "continue-with-snapshot",
+        "identityChangedIDs": [],
+        "invalidationTargets": [],
+        "managedMetadataChangedIDs": [],
+        "membershipDelta": {
+          "newIDs": [],
+          "removedIDs": []
+        },
+        "metadataObservedIDs": [
+          "1"
+        ],
+        "metadataRequestIDs": [
+          "1",
+          "2"
+        ],
+        "readiness": null
+      },
+      "swiftExpected": {
+        "downstreamDecision": "refuse-incomplete-observation",
+        "identityRequestIDs": [],
+        "invalidationTargets": [],
+        "isReady": false,
+        "persistedClassificationRemovedIDs": [],
+        "persistedClassificationUpsertedIDs": [],
+        "strongerContractReasons": [
+          "Swift refuses incomplete metadata coverage; Python has no persisted readiness certificate."
+        ]
+      }
+    },
+    {
+      "description": "A source generation change must not publish a mixed observation",
+      "id": "source-change-during-scan",
+      "input": {
+        "currentTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          },
+          {
+            "album": "Character",
+            "album_artist": null,
+            "artist": "Dark Tranquillity",
+            "genre": "Metal",
+            "identifier": "2",
+            "year": "2004"
+          }
+        ],
+        "forceMetadataRefresh": false,
+        "metadataResponseIDs": [
+          "1",
+          "2"
+        ],
+        "previousTestArtists": [],
+        "previousTracks": [
+          {
+            "album": "Soundtrack to Your Escape",
+            "album_artist": null,
+            "artist": "In Flames",
+            "genre": "Metal",
+            "identifier": "1",
+            "year": "2004"
+          }
+        ],
+        "sourceChangesDuringScan": true,
+        "testArtists": []
+      },
+      "pythonExpected": {
+        "admittedIDs": [
+          "1",
+          "2"
+        ],
+        "downstreamDecision": "continue-with-snapshot",
+        "identityChangedIDs": [],
+        "invalidationTargets": [],
+        "managedMetadataChangedIDs": [],
+        "membershipDelta": {
+          "newIDs": [
+            "2"
+          ],
+          "removedIDs": []
+        },
+        "metadataObservedIDs": [
+          "2"
+        ],
+        "metadataRequestIDs": [
+          "2"
+        ],
+        "readiness": null
+      },
+      "swiftExpected": {
+        "downstreamDecision": "continue-with-committed-mirror",
+        "identityRequestIDs": [],
+        "invalidationTargets": [
+          {
+            "album": "Character",
+            "artist": "Dark Tranquillity"
+          }
+        ],
+        "isReady": true,
+        "persistedClassificationRemovedIDs": [],
+        "persistedClassificationUpsertedIDs": [
+          "2"
+        ],
+        "strongerContractReasons": [
+          "Swift invalidates the closed old-and-new album identity set; Python emits only production Smart Delta events.",
+          "Swift retries a source-generation change before commit; Python has no source-generation observation fence."
+        ]
+      }
+    }
+  ],
+  "pythonBaseline": "0f6dca1f36eab74a6899a0f770511927b68d3e15",
+  "pythonEntryPoints": [
+    "core.tracks.track_delta.compute_track_delta",
+    "core.tracks.track_delta.has_track_changed",
+    "core.tracks.track_delta.has_identity_changed",
+    "app.music_updater.MusicUpdater._try_smart_delta_fetch",
+    "services.cache.snapshot.LibrarySnapshotService.compute_smart_delta",
+    "services.cache.snapshot.LibrarySnapshotService._detect_updated_tracks",
+    "services.cache.snapshot.LibrarySnapshotService._parse_fetch_tracks_output",
+    "services.cache.snapshot.LibrarySnapshotService._parse_raw_track",
+    "app.pipeline_snapshot.PipelineSnapshotManager.merge_smart_delta",
+    "core.tracks.track_processor.TrackProcessor._process_test_artists",
+    "applescripts/fetch_tracks.applescript"
+  ],
+  "schemaVersion": 1
+}

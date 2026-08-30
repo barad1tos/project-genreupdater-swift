@@ -8,7 +8,6 @@
     - Per-track fetch (required for ID-based lookup)
 
     Expected argument 1: comma-separated list of track IDs.
-    Optional argument 2: "identity" for database ID, artist, and album artist only.
 *)
 
 on run argv
@@ -16,9 +15,6 @@ on run argv
 
     set idsParam to item 1 of argv
     if idsParam is "" then return ""
-    set lookupMode to "metadata"
-    if (count of argv) > 1 then set lookupMode to item 2 of argv
-
     set fieldSeparator to ASCII character 30
     set lineSeparator to ASCII character 29
     set finalResult to {}
@@ -36,11 +32,7 @@ on run argv
             else
                 try
                     set currentTrack to track id trackIdText
-                    if lookupMode is "identity" then
-                        set trackLine to my serializeIdentity(currentTrack, fieldSeparator)
-                    else
-                        set trackLine to my serializeTrack(currentTrack, fieldSeparator)
-                    end if
+                    set trackLine to my serializeTrack(currentTrack, fieldSeparator)
                     if trackLine is not "" then
                         set end of finalResult to trackLine
                     end if
@@ -53,21 +45,6 @@ on run argv
 
     return my joinLines(finalResult, lineSeparator)
 end run
-
-
-on serializeIdentity(trackRef, fieldSeparator)
-    try
-        tell application "Music"
-            set track_id to (id of trackRef) as text
-            if track_id is "" then return ""
-            set track_artist to my safeText(artist of trackRef)
-            set album_artist to my safeText(album artist of trackRef)
-        end tell
-        return my joinFields({track_id, track_artist, album_artist}, fieldSeparator)
-    on error
-        return ""
-    end try
-end serializeIdentity
 
 
 on serializeTrack(trackRef, fieldSeparator)
