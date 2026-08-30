@@ -288,30 +288,24 @@ struct ActivityInputBuilderTests {
     @Test("projection refresh retry preserves library-load bookkeeping")
     @MainActor
     func projectionRefreshRetryPreservesLoadBookkeeping() async throws {
-        let failingReports = RunRecordStoreStub(reportsError: CocoaError(.fileReadCorruptFile))
-        let fixture = try makeFixture(testArtists: [], runRecordStore: failingReports)
+        let setup = try await makeProjectionRetrySetup()
+        let fixture = setup.fixture
         let store = fixture.trackStore
-        try await store.initialize()
-        let cache = try GRDBCacheService.createInMemory()
-        try await cache.initialize()
-        let metricsStore = try MetricsSnapshotStore(modelContainer: ModelContainerFactory.createInMemory())
-        await metricsStore.upsert(from: [track(id: "metrics-before")])
-        await metricsStore.upsert(from: [track(id: "metrics-current"), track(id: "metrics-current-2")])
-        let persistedMetrics = try #require(await metricsStore.loadLatest())
-        fixture.dependencies.configureLibraryPersistenceForTesting(
-            trackStore: store,
-            librarySnapshotService: fixture.snapshotService,
-            metricsSnapshotStore: metricsStore,
-            runRecordStore: failingReports,
-            cache: cache
-        )
-        var analyticsConfiguration = AnalyticsConfig()
-        analyticsConfiguration.enabled = true
-        let analytics = AnalyticsRecorder(store: cache, configuration: analyticsConfiguration)
-        await analytics.initialize()
-        fixture.dependencies.installTestAnalyticsRecorder(analytics)
-
+        let persistedMetrics = setup.persistedMetrics
         let incrementalBaseline = track(id: "incremental-baseline")
+        let expectedMirrorMetrics = expectedMirrorMetrics(preserving: persistedMetrics)
+        var browsedTrackIDs: [[String]] = []
+        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
+            browsedTrackIDs.append(tracks.map(\.id))
+        }
+        var mirrorFactTrackIDs: [[String]] = []
+        fixture.dependencies.onMirrorFactsApplied = { tracks in
+            mirrorFactTrackIDs.append(tracks.map(\.id))
+        }
+        var libraryLoadTrackIDs: [[String]] = []
+        fixture.dependencies.onLibraryLoadApplied = { tracks in
+            libraryLoadTrackIDs.append(tracks.map(\.id))
+        }
         fixture.dependencies.replacePreviousIncrementalScopeTracks([incrementalBaseline])
         fixture.dependencies.libraryMetrics = persistedMetrics
         fixture.dependencies.libraryTracks = [canonicalMirrorTrack(track(id: "stale-presentation"))]
@@ -322,23 +316,89 @@ struct ActivityInputBuilderTests {
 
         #expect(try await store.pendingMirrorEffects().count == 1)
         #expect(fixture.dependencies.previousIncrementalScopeTracks == [incrementalBaseline])
-        #expect(await metricsStore.loadLatest() == persistedMetrics)
-        #expect(await analytics.projection(for: .currentSession).summary.calls == 0)
+        #expect(await setup.metricsStore.loadLatest() == persistedMetrics)
+        #expect(await setup.analytics.projection(for: .currentSession).summary.calls == 0)
+        #expect(fixture.dependencies.libraryReadiness.isReady)
+        #expect(fixture.dependencies.libraryMetrics == expectedMirrorMetrics)
+        #expect(browsedTrackIDs.last == ["committed-mirror"])
+        #expect(mirrorFactTrackIDs == [["committed-mirror"]])
+        #expect(libraryLoadTrackIDs.isEmpty)
 
         fixture.dependencies.configureLibraryPersistenceForTesting(
             trackStore: store,
             librarySnapshotService: fixture.snapshotService,
-            metricsSnapshotStore: metricsStore,
+            metricsSnapshotStore: setup.metricsStore,
             runRecordStore: RunRecordStoreStub(),
-            cache: cache
+            cache: setup.cache
         )
         await fixture.dependencies.mirrorEffectDrain?.drain()
 
         #expect(try await store.pendingMirrorEffects().isEmpty)
         #expect(fixture.dependencies.libraryTracks.map(\.id) == ["committed-mirror"])
         #expect(fixture.dependencies.previousIncrementalScopeTracks == [incrementalBaseline])
-        #expect(await metricsStore.loadLatest() == persistedMetrics)
-        #expect(await analytics.projection(for: .currentSession).summary.calls == 0)
+        #expect(await setup.metricsStore.loadLatest() == persistedMetrics)
+        #expect(await setup.analytics.projection(for: .currentSession).summary.calls == 0)
+        #expect(fixture.dependencies.libraryReadiness.isReady)
+        #expect(fixture.dependencies.libraryMetrics == expectedMirrorMetrics)
+        #expect(browsedTrackIDs.last == ["committed-mirror"])
+        #expect(mirrorFactTrackIDs == [["committed-mirror"], ["committed-mirror"]])
+        #expect(libraryLoadTrackIDs.isEmpty)
+        #expect(fixture.dependencies.mirrorEffectDrainIssue == nil)
+    }
+
+    @Test("cancelled projection refresh does not partially apply mirror facts")
+    @MainActor
+    func cancelledProjectionRefreshPreservesPreviousFacts() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let store = fixture.trackStore
+        try await store.initialize()
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub(),
+            cache: cache
+        )
+        let previousTrack = canonicalMirrorTrack(track(id: "previous-presentation"))
+        let previousReadiness = MirrorReadiness.incomplete(.freshObservationRequired)
+        fixture.dependencies.libraryTracks = [previousTrack]
+        fixture.dependencies.libraryReadiness = previousReadiness
+        try await store.seedMirror([track(id: "committed-mirror")])
+        try await enqueueProjectionRefresh(in: store)
+        fixture.dependencies.applyBrowseTruthForLoad = { _, _, _ in
+            fixture.dependencies.invalidateLibraryLoads()
+        }
+
+        await fixture.dependencies.mirrorEffectDrain?.drain()
+
+        #expect(try await store.pendingMirrorEffects().count == 1)
+        #expect(fixture.dependencies.libraryTracks == [previousTrack])
+        #expect(fixture.dependencies.libraryReadiness == previousReadiness)
+    }
+
+    @Test("projection refresh without prior metrics does not invent a scan date")
+    @MainActor
+    func projectionRefreshWithoutMetricsKeepsMetricsAbsent() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let store = fixture.trackStore
+        try await store.initialize()
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub(),
+            cache: cache
+        )
+        try await store.seedMirror([track(id: "committed-mirror")])
+        try await enqueueProjectionRefresh(in: store)
+
+        await fixture.dependencies.mirrorEffectDrain?.drain()
+
+        #expect(try await store.pendingMirrorEffects().isEmpty)
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["committed-mirror"])
+        #expect(fixture.dependencies.libraryMetrics == nil)
     }
 
     @Test("corrupted mirror queue asks for repair instead of retry")
@@ -529,6 +589,63 @@ struct ActivityInputBuilderTests {
             unresolvedRunCount: 2,
             latestRecoveryRunID: "run-blocked"
         ))
+    }
+
+    private struct ProjectionRetrySetup {
+        let fixture: LibraryPersistenceFixture
+        let cache: GRDBCacheService
+        let metricsStore: MetricsSnapshotStore
+        let persistedMetrics: MetricsSnapshotValues
+        let analytics: AnalyticsRecorder
+    }
+
+    @MainActor
+    private func makeProjectionRetrySetup() async throws -> ProjectionRetrySetup {
+        let failingReports = RunRecordStoreStub(reportsError: CocoaError(.fileReadCorruptFile))
+        let fixture = try makeFixture(testArtists: [], runRecordStore: failingReports)
+        try await fixture.trackStore.initialize()
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let metricsStore = try MetricsSnapshotStore(modelContainer: ModelContainerFactory.createInMemory())
+        await metricsStore.upsert(from: [track(id: "metrics-before")])
+        await metricsStore.upsert(from: [track(id: "metrics-current"), track(id: "metrics-current-2")])
+        let persistedMetrics = try #require(await metricsStore.loadLatest())
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: fixture.trackStore,
+            librarySnapshotService: fixture.snapshotService,
+            metricsSnapshotStore: metricsStore,
+            runRecordStore: failingReports,
+            cache: cache
+        )
+        var analyticsConfiguration = AnalyticsConfig()
+        analyticsConfiguration.enabled = true
+        let analytics = AnalyticsRecorder(store: cache, configuration: analyticsConfiguration)
+        await analytics.initialize()
+        fixture.dependencies.installTestAnalyticsRecorder(analytics)
+        return ProjectionRetrySetup(
+            fixture: fixture,
+            cache: cache,
+            metricsStore: metricsStore,
+            persistedMetrics: persistedMetrics,
+            analytics: analytics
+        )
+    }
+
+    private func expectedMirrorMetrics(preserving previous: MetricsSnapshotValues) -> MetricsSnapshotValues {
+        MetricsSnapshotValues(
+            totalTracks: 1,
+            tracksWithGenre: 0,
+            tracksWithYear: 0,
+            tracksWithBoth: 0,
+            tracksNeedingGenre: 1,
+            tracksNeedingYear: 1,
+            recentlyAdded: 0,
+            timestamp: previous.timestamp,
+            previousTotalTracks: previous.previousTotalTracks,
+            previousTracksNeedingGenre: previous.previousTracksNeedingGenre,
+            previousTracksNeedingYear: previous.previousTracksNeedingYear,
+            previousRecentlyAdded: previous.previousRecentlyAdded
+        )
     }
 
     private func track(id: String) -> Core.Track {

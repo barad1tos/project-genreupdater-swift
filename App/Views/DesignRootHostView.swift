@@ -610,8 +610,10 @@ struct DesignRootHostView: View {
         dependencies.applyBrowseTruthForLoad = { loadedTracks, readSource, token in
             await refreshBrowseTruth(loadedTracks, readSource: readSource, loadToken: token)
         }
-        dependencies.onLibraryLoadApplied = { _ in
+        dependencies.onMirrorFactsApplied = { _ in
             refreshWorkflowScopePreview()
+        }
+        dependencies.onLibraryLoadApplied = { _ in
             Task { @MainActor in
                 await dependencies.refreshArtistCatalog()
             }

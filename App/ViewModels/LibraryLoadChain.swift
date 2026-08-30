@@ -199,6 +199,7 @@ extension AppDependencies {
         guard libraryLoadGate.isCurrent(token) else { return false }
         lastLibraryScanDate = nil
         libraryMetrics = upsertedMetrics
+        onMirrorFactsApplied?(mirrorLoad.tracks)
         onLibraryLoadApplied?(mirrorLoad.tracks)
         await recordLibraryLoad(
             startedAt: loadStart,
@@ -212,18 +213,19 @@ extension AppDependencies {
         token: UInt64
     ) async -> Bool {
         guard libraryLoadGate.isCurrent(token) else { return false }
-        libraryReadiness = mirrorLoad.readiness
-        libraryTracks = mirrorLoad.tracks
         await applyBrowseTruthForLoad?(mirrorLoad.tracks, .cachedMirror(scannedAt: nil), token)
         guard libraryLoadGate.isCurrent(token) else { return false }
+        libraryReadiness = mirrorLoad.readiness
+        libraryTracks = mirrorLoad.tracks
         libraryMetrics = makeMirrorProjectionMetrics(from: mirrorLoad.tracks)
-        onLibraryLoadApplied?(mirrorLoad.tracks)
+        onMirrorFactsApplied?(mirrorLoad.tracks)
         return libraryLoadGate.isCurrent(token)
     }
 
     private func makeMirrorProjectionMetrics(from tracks: [Track]) -> MetricsSnapshotValues? {
-        guard let currentValues = MetricsSnapshotValues.make(from: tracks) else { return nil }
-        guard let previousValues = libraryMetrics else { return currentValues }
+        guard let previousValues = libraryMetrics,
+              let currentValues = MetricsSnapshotValues.make(from: tracks)
+        else { return nil }
         return MetricsSnapshotValues(
             totalTracks: currentValues.totalTracks,
             tracksWithGenre: currentValues.tracksWithGenre,
@@ -255,6 +257,7 @@ extension AppDependencies {
         ))
         libraryTracks = []
         await applyBrowseTruthForLoad?([], .cachedMirror(scannedAt: nil), token)
+        onMirrorFactsApplied?([])
         onLibraryLoadApplied?([])
     }
 

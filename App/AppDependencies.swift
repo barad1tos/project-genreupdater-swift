@@ -103,7 +103,8 @@ final class AppDependencies {
     }
     @ObservationIgnored let libraryLoadGate = RequestTokenGate()
     @ObservationIgnored let analyticsReportGate = RequestTokenGate()
-    /// Host-registered post-load hook (scope preview) until slice 12.
+    /// Replay-safe current-facts hook; the full-load hook may start non-idempotent work.
+    @ObservationIgnored var onMirrorFactsApplied: (@MainActor ([Track]) -> Void)?
     @ObservationIgnored var onLibraryLoadApplied: (@MainActor ([Track]) -> Void)?
     /// Browse truth application stays host-owned (row-index pairing is
     /// view state); the chain hands it the landed tracks + read source.
