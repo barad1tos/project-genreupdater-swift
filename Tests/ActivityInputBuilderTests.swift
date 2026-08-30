@@ -652,18 +652,6 @@ struct ActivityInputBuilderTests {
         Core.Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album")
     }
 
-    private func enqueueProjectionRefresh(in store: any TrackStateStore) async throws {
-        let initial = try await store.loadMirrorSnapshot()
-        _ = try await store.commitMirror(MirrorCommit(
-            baseRevision: initial.revision,
-            inventoryChange: .preserve,
-            repairs: [],
-            upserts: [],
-            certificates: .preserve,
-            effects: [.refreshProjections]
-        ))
-    }
-
     private func makeContext(
         tracks: [Core.Track] = [],
         loadError: LibraryLoadError?,

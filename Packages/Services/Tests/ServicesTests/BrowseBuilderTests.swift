@@ -543,4 +543,50 @@ struct BrowseBuilderTrackRowTests {
             #expect(index[albumID] == BrowseBuilder.trackRows(forAlbumID: albumID, input: input))
         }
     }
+
+    @Test("ambiguous mirror matches never grant catalog rows write identity")
+    func ambiguousMirrorMatchIsReadOnly() {
+        let input = makeInput(
+            tracks: [
+                makeTrack(id: "mirror-1", name: "Song", artist: "Artist", album: "Album"),
+                makeTrack(id: "mirror-2", name: "Song", artist: "Artist", album: "Album"),
+            ],
+            catalogTracks: [
+                makeCatalogTrack(makeTrack(id: "catalog", name: "Song", artist: "Artist", album: "Album")),
+            ]
+        )
+
+        let index = BrowseBuilder.makeTrackRowIndex(input: input)
+        let rows = index[AlbumIdentity(artist: "Artist", album: "Album").key]
+
+        #expect(rows?.count == 1)
+        #expect(rows?.first?.hasWriteIdentity == false)
+    }
+
+    @Test("same-titled tracks in distinct albums keep their write identities")
+    func sameTitleKeepsWriteIdentity() {
+        let tracks = [
+            makeTrack(
+                id: "mirror-1",
+                name: "Intro",
+                artist: "Alpha",
+                album: "First",
+                appleScriptID: "as-1"
+            ),
+            makeTrack(
+                id: "mirror-2",
+                name: "Intro",
+                artist: "Beta",
+                album: "Second",
+                appleScriptID: "as-2"
+            ),
+        ]
+
+        let index = BrowseBuilder.makeTrackRowIndex(input: makeInput(tracks: tracks))
+        let firstRows = index[AlbumIdentity(artist: "Alpha", album: "First").key]
+        let secondRows = index[AlbumIdentity(artist: "Beta", album: "Second").key]
+
+        #expect(firstRows?.first?.hasWriteIdentity == true)
+        #expect(secondRows?.first?.hasWriteIdentity == true)
+    }
 }

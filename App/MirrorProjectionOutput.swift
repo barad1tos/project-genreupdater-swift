@@ -14,6 +14,10 @@ final class AppMirrorProjectionOutput: MirrorProjectionOutput {
         guard let dependencies else {
             throw MirrorEffectDrainError.projectionOutputUnavailable
         }
+        let catalogRefresh = await dependencies.refreshArtistCatalog(republishBrowse: false)
+        guard catalogRefresh == .applied else {
+            throw AppMirrorProjectionError.catalogRefreshInterrupted
+        }
         try await dependencies.reloadMirrorFacts()
         _ = try await dependencies.refreshFixPlanFromStore()
         guard await dependencies.refreshReportsProjection() != nil else {
@@ -25,10 +29,16 @@ final class AppMirrorProjectionOutput: MirrorProjectionOutput {
 }
 
 private enum AppMirrorProjectionError: LocalizedError {
+    case catalogRefreshInterrupted
     case reportsUnavailable
 
     var errorDescription: String? {
-        "Mirror-dependent reports could not be refreshed"
+        switch self {
+        case .catalogRefreshInterrupted:
+            "Physical catalog refresh was superseded or cancelled"
+        case .reportsUnavailable:
+            "Mirror-dependent reports could not be refreshed"
+        }
     }
 }
 

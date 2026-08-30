@@ -104,9 +104,10 @@ struct ArtistCatalogAdapterTests {
         #expect(availableProjection.state == .available([ArtistCatalogEntry(name: "Björk", trackCount: 1)]))
 
         await catalog.replaceFailure(.cancellation)
-        await dependencies.refreshArtistCatalog()
+        let outcome = await dependencies.refreshArtistCatalog()
         let projectionAfterCancellation = try await currentArtistCatalog(in: dependencies.projectionStore)
 
+        #expect(outcome == .cancelled)
         #expect(projectionAfterCancellation == availableProjection)
     }
 
@@ -196,12 +197,16 @@ struct ArtistCatalogAdapterTests {
     }
 }
 
-private actor CatalogProbe: MusicCatalogReading {
+actor CatalogProbe: MusicCatalogReading {
     private var tracks: [CatalogTrack]
     private var failure: CatalogFailure
     private var loads = 0
     private var authorizationRequestCount = 0
     private var isAuthorizationGranted: Bool
+    private var shouldBlockNextLoad = false
+    private var didStartBlockedLoad = false
+    private var blockedLoadWaiters: [CheckedContinuation<Void, Never>] = []
+    private var blockedLoadRelease: CheckedContinuation<Void, Never>?
 
     init(
         tracks: [CatalogTrack],
@@ -224,6 +229,14 @@ private actor CatalogProbe: MusicCatalogReading {
 
     func loadCatalog() async throws -> CatalogSnapshot {
         loads += 1
+        let snapshot = CatalogSnapshot(tracks: tracks)
+        if shouldBlockNextLoad {
+            shouldBlockNextLoad = false
+            didStartBlockedLoad = true
+            blockedLoadWaiters.forEach { $0.resume() }
+            blockedLoadWaiters.removeAll()
+            await withCheckedContinuation { blockedLoadRelease = $0 }
+        }
         switch failure {
         case .none:
             break
@@ -236,7 +249,7 @@ private actor CatalogProbe: MusicCatalogReading {
         case .fetchFailed:
             throw MusicLibraryError.fetchFailed(detail: "fixture failure")
         }
-        return CatalogSnapshot(tracks: tracks)
+        return snapshot
     }
 
     func replaceTracks(_ tracks: [CatalogTrack]) {
@@ -249,6 +262,21 @@ private actor CatalogProbe: MusicCatalogReading {
 
     func loadCount() -> Int {
         loads
+    }
+
+    func blockNextLoad() {
+        shouldBlockNextLoad = true
+        didStartBlockedLoad = false
+    }
+
+    func waitUntilBlockedLoadStarts() async {
+        guard !didStartBlockedLoad else { return }
+        await withCheckedContinuation { blockedLoadWaiters.append($0) }
+    }
+
+    func releaseBlockedLoad() {
+        blockedLoadRelease?.resume()
+        blockedLoadRelease = nil
     }
 
     func authorizationRequests() -> Int {
@@ -275,7 +303,7 @@ enum CatalogFailure: Sendable {
     }
 }
 
-private func catalogTrack(id: String, title: String, artist: String, album: String) -> CatalogTrack {
+func catalogTrack(id: String, title: String, artist: String, album: String) -> CatalogTrack {
     guard let catalogID = CatalogTrackID(displayValue: id) else {
         preconditionFailure("Invalid catalog ID")
     }

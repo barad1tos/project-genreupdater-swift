@@ -52,9 +52,14 @@ public struct BrowseInput: Equatable, Sendable {
 public enum BrowseBuilder {
     public static func makeProjection(input: BrowseInput) -> BrowseProjection {
         let catalogTracks = input.catalog.snapshot?.tracks ?? []
+        let processingIndex = ProcessingIndex(tracks: input.processing.tracks)
         return BrowseProjection(
             revision: .initial,
-            artists: makeArtistNodes(albums: makeAlbumNodes(catalogTracks: catalogTracks, input: input)),
+            artists: makeArtistNodes(albums: makeAlbumNodes(
+                catalogTracks: catalogTracks,
+                processingIndex: processingIndex,
+                input: input
+            )),
             scope: makeScopeFacts(input.scope),
             physicalTrackCount: input.catalog.snapshot?.tracks.count,
             readSource: makeReadSource(catalog: input.catalog),
@@ -63,18 +68,38 @@ public enum BrowseBuilder {
     }
 
     public static func trackRows(forAlbumID albumID: String, input: BrowseInput) -> [BrowseTrackRow] {
-        identifiedCatalogTracks(in: input.catalog.snapshot?.tracks ?? [])
+        let processingIndex = ProcessingIndex(tracks: input.processing.tracks)
+        return identifiedCatalogTracks(in: input.catalog.snapshot?.tracks ?? [])
             .filter { $0.identity.key == albumID }
             .sorted(by: catalogTrackOrder)
-            .map { makeRow(for: $0.track, input: input) }
+            .map { makeRow(for: $0.track, processingIndex: processingIndex, input: input) }
     }
 
     public static func makeTrackRowIndex(input: BrowseInput) -> [String: [BrowseTrackRow]] {
+        let processingIndex = ProcessingIndex(tracks: input.processing.tracks)
         let groups = Dictionary(grouping: identifiedCatalogTracks(in: input.catalog.snapshot?.tracks ?? [])) {
             $0.identity.key
         }
         return groups.mapValues { members in
-            members.sorted(by: catalogTrackOrder).map { makeRow(for: $0.track, input: input) }
+            members.sorted(by: catalogTrackOrder).map {
+                makeRow(for: $0.track, processingIndex: processingIndex, input: input)
+            }
+        }
+    }
+
+    private struct ProcessingIndex {
+        let tracksByAlbum: [AlbumIdentity: [Track]]
+        let tracksByAlbumTitle: [AlbumIdentity: [String: [Track]]]
+
+        init(tracks: [Track]) {
+            tracksByAlbum = Dictionary(grouping: tracks) { AlbumIdentity(track: $0) }
+            var tracksByAlbumTitle: [AlbumIdentity: [String: [Track]]] = [:]
+            for track in tracks {
+                let album = AlbumIdentity(track: track)
+                let title = normalizeForMatching(track.name)
+                tracksByAlbumTitle[album, default: [:]][title, default: []].append(track)
+            }
+            self.tracksByAlbumTitle = tracksByAlbumTitle
         }
     }
 
@@ -102,11 +127,15 @@ public enum BrowseBuilder {
         )
     }
 
-    private static func makeAlbumNodes(catalogTracks: [CatalogTrack], input: BrowseInput) -> [BrowseAlbumNode] {
+    private static func makeAlbumNodes(
+        catalogTracks: [CatalogTrack],
+        processingIndex: ProcessingIndex,
+        input: BrowseInput
+    ) -> [BrowseAlbumNode] {
         let groups = Dictionary(grouping: identifiedCatalogTracks(in: catalogTracks)) { $0.identity }
         return groups.map { identity, members in
             let tracks = members.map(\.track)
-            let processingTracks = input.processing.tracks.filter { AlbumIdentity(track: $0) == identity }
+            let processingTracks = processingIndex.tracksByAlbum[identity] ?? []
             let counts = makeCounts(
                 catalogTracks: tracks,
                 processingTracks: processingTracks,
@@ -168,11 +197,14 @@ public enum BrowseBuilder {
         )
     }
 
-    private static func makeRow(for track: CatalogTrack, input: BrowseInput) -> BrowseTrackRow {
-        let matchingRows = input.processing.tracks.filter { candidate in
-            AlbumIdentity(track: candidate) == catalogAlbumIdentity(track)
-                && normalizeForMatching(candidate.name) == normalizeForMatching(track.title)
-        }
+    private static func makeRow(
+        for track: CatalogTrack,
+        processingIndex: ProcessingIndex,
+        input: BrowseInput
+    ) -> BrowseTrackRow {
+        let album = catalogAlbumIdentity(track)
+        let title = normalizeForMatching(track.title)
+        let matchingRows = processingIndex.tracksByAlbumTitle[album]?[title] ?? []
         let verifiedRow = matchingRows.count == 1 ? matchingRows[0] : nil
         return BrowseTrackRow(
             id: track.id.displayValue,

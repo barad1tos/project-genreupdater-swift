@@ -45,47 +45,65 @@ enum ArtistCatalogAdapter {
     }
 }
 
+enum CatalogRefreshOutcome: Equatable {
+    case applied
+    case superseded
+    case cancelled
+}
+
 extension AppDependencies {
-    func refreshArtistCatalog(republishBrowse: Bool = true) async {
+    @discardableResult
+    func refreshArtistCatalog(republishBrowse: Bool = true) async -> CatalogRefreshOutcome {
         let token = catalogLoadGate.begin()
         let generation = await projectionStore.claimArtistCatalogGeneration()
-        guard catalogLoadGate.isCurrent(token) else { return }
-        guard let result = await loadArtistCatalog(token: token) else { return }
+        guard catalogLoadGate.isCurrent(token) else { return .superseded }
 
-        guard catalogLoadGate.isCurrent(token) else { return }
+        let loadOutcome = await loadArtistCatalog(token: token)
+        let result: ArtistCatalogRefreshResult
+        switch loadOutcome {
+        case let .loaded(loadedResult):
+            result = loadedResult
+        case .superseded:
+            return .superseded
+        case .cancelled:
+            return .cancelled
+        }
+
+        guard catalogLoadGate.isCurrent(token) else { return .superseded }
         catalogSnapshot = result.snapshot
         catalogSnapshotSource = result.source
         catalogLoadIssue = result.issue
         await projectionStore.replaceArtistCatalog(result.projection, inputGeneration: generation)
-        guard catalogLoadGate.isCurrent(token) else { return }
+        guard catalogLoadGate.isCurrent(token) else { return .superseded }
         await refreshChromeProjection()
-        guard catalogLoadGate.isCurrent(token) else { return }
+        guard catalogLoadGate.isCurrent(token) else { return .superseded }
         if republishBrowse {
             await applyBrowseTruth?(browseProcessingFacts, nil)
         }
+        return .applied
     }
 
-    private func loadArtistCatalog(token: UInt64) async -> ArtistCatalogRefreshResult? {
+    private func loadArtistCatalog(token: UInt64) async -> CatalogLoadOutcome {
         do {
             let snapshot = try await musicCatalog.loadCatalog()
-            guard catalogLoadGate.isCurrent(token) else { return nil }
+            guard catalogLoadGate.isCurrent(token) else { return .superseded }
             try await catalogStore?.replaceSnapshot(snapshot)
-            guard catalogLoadGate.isCurrent(token) else { return nil }
-            return ArtistCatalogRefreshResult(
+            guard catalogLoadGate.isCurrent(token) else { return .superseded }
+            return .loaded(ArtistCatalogRefreshResult(
                 snapshot: snapshot,
                 source: .live,
                 issue: nil,
                 projection: ArtistCatalogBuilder.makeProjection(tracks: snapshot.tracks)
-            )
+            ))
         } catch is CancellationError {
-            return nil
+            return .cancelled
         } catch let error as MusicLibraryError {
-            return await resultForMusicLibraryError(error)
+            return await .loaded(resultForMusicLibraryError(error))
         } catch {
             artistCatalogLog.error(
                 "Artist catalog refresh failed with an unexpected error: \(error.localizedDescription, privacy: .private)"
             )
-            return await preservedArtistCatalog(or: "Couldn’t load artists. Try again.")
+            return await .loaded(preservedArtistCatalog(or: "Couldn’t load artists. Try again."))
         }
     }
 
@@ -142,6 +160,12 @@ extension AppDependencies {
             projection: unavailableArtistCatalog(reason: unavailableReason)
         )
     }
+}
+
+private enum CatalogLoadOutcome {
+    case loaded(ArtistCatalogRefreshResult)
+    case superseded
+    case cancelled
 }
 
 private struct ArtistCatalogRefreshResult {
