@@ -126,7 +126,9 @@ struct ActivityInputBuilderTests {
         ))
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in },
+            configurationSaver: { _ in
+                // Intentionally empty: this projection test never persists configuration.
+            },
             modelContainerFactory: { container }
         )
         _ = await dependencies.projectionStore.replaceFixPlanProjection(
@@ -494,7 +496,9 @@ struct ActivityInputBuilderTests {
 }
 
 private actor FailingFixPlanStore: FixPlanStore {
-    func savePlan(_: FixPlan, initialDecision _: FixPlanReviewDecision) async throws {}
+    func savePlan(_: FixPlan, initialDecision _: FixPlanReviewDecision) async throws {
+        // Intentionally empty: this double fails reads, while writes are irrelevant.
+    }
 
     func plan(id _: FixPlanID, revision _: FixPlanRevision) async throws -> FixPlan? {
         nil
@@ -518,7 +522,9 @@ private actor FailingFixPlanStore: FixPlanStore {
 }
 
 private actor FailingChangeLogStore: ChangeLogStore {
-    func saveEntries(_: [ChangeLogEntry]) async throws {}
+    func saveEntries(_: [ChangeLogEntry]) async throws {
+        // Intentionally empty: this double fails reads, while writes are irrelevant.
+    }
 
     func loadAll() async throws -> [ChangeLogEntry] {
         throw CocoaError(.fileReadCorruptFile)
@@ -528,7 +534,11 @@ private actor FailingChangeLogStore: ChangeLogStore {
         throw CocoaError(.fileReadCorruptFile)
     }
 
-    func delete(entryID _: UUID) async throws {}
+    func delete(entryID _: UUID) async throws {
+        // Intentionally empty: deletion is outside the activity read-failure scenario.
+    }
 
-    func deleteAll() async throws {}
+    func deleteAll() async throws {
+        // Intentionally empty: deletion is outside the activity read-failure scenario.
+    }
 }

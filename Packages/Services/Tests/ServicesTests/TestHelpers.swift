@@ -25,11 +25,15 @@ extension TrackStateStore {
     func pendingMirrorEffects() async throws -> [PendingMirrorEffect] {
         []
     }
-    func completeMirrorEffect(id _: UUID) async throws {}
+    func completeMirrorEffect(id _: UUID) async throws {
+        // Intentionally empty: stores using this default have no queued effects.
+    }
 }
 
 actor TestMirrorProjectionOutput: MirrorProjectionOutput {
-    func refreshMirrorProjections() async throws {}
+    func refreshMirrorProjections() async throws {
+        // Intentionally empty: tests using this target do not observe projections.
+    }
 }
 
 actor TestMirrorSnapshotTarget: LibrarySnapshotService {
@@ -41,14 +45,18 @@ actor TestMirrorSnapshotTarget: LibrarySnapshotService {
     func saveSnapshot(_: [Track]) async throws -> String {
         "snapshot"
     }
-    func clearSnapshot() async throws {}
+    func clearSnapshot() async throws {
+        // Intentionally empty: this target accepts snapshot invalidation without state.
+    }
     func isSnapshotValid() async -> Bool {
         false
     }
     func getSnapshotMetadata() async -> LibraryCacheMetadata? {
         nil
     }
-    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {}
+    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {
+        // Intentionally empty: snapshot metadata is outside these tests.
+    }
     func getLibraryModificationDate() async throws -> Date {
         .distantPast
     }

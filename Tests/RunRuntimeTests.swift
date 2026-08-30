@@ -183,7 +183,9 @@ struct RunRuntimeTests {
             source: "runtime-test"
         )
 
-        let result = try await writer.coordinator.applyAcceptedChanges([change], progressHandler: { _ in })
+        let result = try await writer.coordinator.applyAcceptedChanges([change], progressHandler: { _ in
+            // Intentionally empty: this test asserts final write state, not progress events.
+        })
 
         #expect(result.entries.count == 1)
         #expect(await script.storedTrack(id: track.id)?.genre == "Metal")

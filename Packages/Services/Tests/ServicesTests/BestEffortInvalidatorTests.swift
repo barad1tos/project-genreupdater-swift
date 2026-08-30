@@ -38,35 +38,51 @@ private enum InvalidationFailure: Error {
 private actor FailingInvalidationCache: CacheService {
     private(set) var attempts: [InvalidationAttempt] = []
 
-    func initialize() async throws {}
+    func initialize() async throws {
+        // Intentionally empty: this cache double has no startup work.
+    }
     func get<T: Codable & Sendable>(key _: String) async -> T? {
         nil
     }
-    func set(key _: String, value _: some Codable & Sendable, ttl _: TimeInterval?) async {}
-    func invalidate(key _: String) async throws {}
-    func clear() async {}
+    func set(key _: String, value _: some Codable & Sendable, ttl _: TimeInterval?) async {
+        // Intentionally empty: generic cache writes are outside this invalidation test.
+    }
+    func invalidate(key _: String) async throws {
+        // Intentionally empty: keyed invalidation is outside this album invalidation test.
+    }
+    func clear() async {
+        // Intentionally empty: whole-cache clearing is outside this invalidation test.
+    }
     func getAlbumYear(artist _: String, album _: String) async -> AlbumCacheEntry? {
         nil
     }
-    func storeAlbumYear(artist _: String, album _: String, year _: Int, confidence _: Int) async {}
+    func storeAlbumYear(artist _: String, album _: String, year _: Int, confidence _: Int) async {
+        // Intentionally empty: the test only observes invalidation attempts.
+    }
 
     func invalidateAlbum(artist: String, album: String) async throws {
         attempts.append(.albumYear(artist: artist, album: album))
         throw InvalidationFailure.requested
     }
 
-    func invalidateAllAlbumYears() async {}
+    func invalidateAllAlbumYears() async {
+        // Intentionally empty: the test exercises per-album invalidation only.
+    }
     func getCachedAPIResult(artist _: String, album _: String, source _: String) async -> CachedAPIResult? {
         nil
     }
-    func setCachedAPIResult(_: CachedAPIResult) async {}
+    func setCachedAPIResult(_: CachedAPIResult) async {
+        // Intentionally empty: the test only observes API-result invalidation.
+    }
 
     func invalidateCachedAPIResults(artist: String, album: String) async throws {
         attempts.append(.apiResults(artist: artist, album: album))
         throw InvalidationFailure.requested
     }
 
-    func syncToDisk() async throws {}
+    func syncToDisk() async throws {
+        // Intentionally empty: this in-memory double has nothing to persist.
+    }
 }
 
 private actor FailingInvalidationSnapshot: LibrarySnapshotService {
@@ -91,7 +107,9 @@ private actor FailingInvalidationSnapshot: LibrarySnapshotService {
     func getSnapshotMetadata() async -> LibraryCacheMetadata? {
         nil
     }
-    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {}
+    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {
+        // Intentionally empty: snapshot metadata is outside this clear-failure test.
+    }
     func getLibraryModificationDate() async throws -> Date {
         .distantPast
     }

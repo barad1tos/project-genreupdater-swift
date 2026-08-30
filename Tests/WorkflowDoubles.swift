@@ -20,7 +20,9 @@ extension TrackStateStore {
     func pendingMirrorEffects() async throws -> [PendingMirrorEffect] {
         []
     }
-    func completeMirrorEffect(id _: UUID) async throws {}
+    func completeMirrorEffect(id _: UUID) async throws {
+        // Intentionally empty: workflow doubles without queued effects need no completion state.
+    }
 
     func seedMirror(_ tracks: [Track]) async throws {
         let revision = try await loadMirrorSnapshot().revision
