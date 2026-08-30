@@ -199,6 +199,40 @@ struct BrowseBuilderGroupingTests {
         #expect(album.action.isEnabled)
     }
 
+    @Test("catalog rows spanning canonical targets keep album preview disabled")
+    func catalogRowsSpanningCanonicalTargetsStayDisabled() {
+        let canonicalTrack = makeTrack(
+            name: "Canonical Song",
+            artist: "Guest Artist",
+            album: "Compilation",
+            albumArtist: "Various Artists",
+            appleScriptID: "as-canonical"
+        )
+        let aliasTrack = makeTrack(
+            name: "Alias Song",
+            artist: "Various Artists",
+            album: "Compilation",
+            albumArtist: "Other Artists",
+            appleScriptID: "as-alias"
+        )
+        let aliasCatalogTrack = makeCatalogTrack(makeTrack(
+            name: "Alias Song",
+            artist: "Various Artists",
+            album: "Compilation"
+        ))
+        let input = makeInput(
+            tracks: [canonicalTrack, aliasTrack],
+            catalogTracks: [makeCatalogTrack(canonicalTrack), aliasCatalogTrack]
+        )
+        let album = BrowseBuilder.makeProjection(input: input).artists[0].albums[0]
+        let rows = BrowseBuilder.trackRows(forAlbumID: album.id, input: input)
+        #expect(rows.map(\.hasWriteIdentity) == [true, true])
+        #expect(album.counts == BrowseNodeCounts(total: 2, inScope: 2, writable: 2))
+        #expect(album.previewTarget == nil)
+        #expect(album.action.isEnabled == false)
+        #expect(album.action.disabledReason == "Processing metadata is ambiguous for this album.")
+    }
+
     @Test("a stale catalog never counts or previews hidden mirror tracks")
     func staleCatalogExcludesHiddenMirrorTracks() {
         let visibleTrack = makeTrack(
@@ -215,15 +249,12 @@ struct BrowseBuilderGroupingTests {
             album: "Album",
             appleScriptID: "as-hidden"
         )
-
-        let projection = BrowseBuilder.makeProjection(input: makeInput(
+        let album = BrowseBuilder.makeProjection(input: makeInput(
             tracks: [visibleTrack, hiddenTrack],
             catalogTracks: [makeCatalogTrack(visibleTrack)],
             catalogSource: .persisted,
             catalogIssue: .refreshFailed(message: "MusicKit fetch failed")
-        ))
-
-        let album = projection.artists[0].albums[0]
+        )).artists[0].albums[0]
         #expect(album.counts == BrowseNodeCounts(total: 1, inScope: 1, writable: 1))
         #expect(album.previewTarget == nil)
         #expect(album.action.isEnabled == false)

@@ -107,18 +107,32 @@ public enum BrowseBuilder {
             aliases = aliasLookup
         }
 
-        func albumTracks(for album: AlbumIdentity) -> [Track] {
-            canonical.tracks(in: album) ?? aliases.tracks(in: album) ?? []
-        }
-
         func titleTracks(for album: AlbumIdentity, title: String) -> [Track] {
-            canonical.tracks(named: title, in: album) ?? aliases.tracks(named: title, in: album) ?? []
+            mergedTracks(
+                canonical.tracks(named: title, in: album) ?? [],
+                aliases.tracks(named: title, in: album) ?? []
+            )
         }
 
         func catalogMatch(for album: AlbumIdentity, catalogTracks: [CatalogTrack]) -> CatalogProcessingMatch {
-            let processingTracks = albumTracks(for: album)
             let catalogTitleCounts = Dictionary(grouping: catalogTracks, by: { normalizeForMatching($0.title) })
                 .mapValues(\.count)
+            let catalogTitles = Set(catalogTitleCounts.keys)
+            let canonicalTracks = canonical.tracks(in: album) ?? []
+            let aliasTracks = aliases.tracks(in: album) ?? []
+            let targetCandidates = if canonicalTracks.isEmpty {
+                aliasTracks
+            } else {
+                mergedTracks(canonicalTracks, aliasTracks.filter {
+                    catalogTitles.contains(normalizeForMatching($0.name))
+                })
+            }
+            let canonicalTargets = Set(targetCandidates.map(AlbumIdentity.init(track:)))
+            let processingTracks = if canonicalTargets.count == 1, let canonicalTarget = canonicalTargets.first {
+                canonical.tracks(in: canonicalTarget) ?? targetCandidates
+            } else {
+                targetCandidates
+            }
             let processingTitleCounts = Dictionary(grouping: processingTracks, by: { normalizeForMatching($0.name) })
                 .mapValues(\.count)
             let verifiedTitles = Set(processingTitleCounts.compactMap { title, count in
@@ -130,6 +144,11 @@ public enum BrowseBuilder {
                 verifiedTracks: verifiedTracks,
                 coversAllProcessingTracks: verifiedTracks.count == processingTracks.count
             )
+        }
+
+        private func mergedTracks(_ primary: [Track], _ aliases: [Track]) -> [Track] {
+            var seenIDs = Set<String>()
+            return (primary + aliases).filter { seenIDs.insert($0.id).inserted }
         }
     }
 
