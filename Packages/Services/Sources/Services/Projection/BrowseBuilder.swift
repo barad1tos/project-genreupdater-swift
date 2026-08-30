@@ -114,6 +114,29 @@ public enum BrowseBuilder {
         func titleTracks(for album: AlbumIdentity, title: String) -> [Track] {
             canonical.tracks(named: title, in: album) ?? aliases.tracks(named: title, in: album) ?? []
         }
+
+        func catalogMatch(for album: AlbumIdentity, catalogTracks: [CatalogTrack]) -> CatalogProcessingMatch {
+            let processingTracks = albumTracks(for: album)
+            let catalogTitleCounts = Dictionary(grouping: catalogTracks, by: { normalizeForMatching($0.title) })
+                .mapValues(\.count)
+            let processingTitleCounts = Dictionary(grouping: processingTracks, by: { normalizeForMatching($0.name) })
+                .mapValues(\.count)
+            let verifiedTitles = Set(processingTitleCounts.compactMap { title, count in
+                catalogTitleCounts[title] == count ? title : nil
+            })
+            let verifiedTracks = processingTracks.filter { verifiedTitles.contains(normalizeForMatching($0.name)) }
+            return CatalogProcessingMatch(
+                processingTracks: processingTracks,
+                verifiedTracks: verifiedTracks,
+                coversAllProcessingTracks: verifiedTracks.count == processingTracks.count
+            )
+        }
+    }
+
+    private struct CatalogProcessingMatch {
+        let processingTracks: [Track]
+        let verifiedTracks: [Track]
+        let coversAllProcessingTracks: Bool
     }
 
     private struct TrackLookup {
@@ -167,11 +190,12 @@ public enum BrowseBuilder {
         let groups = Dictionary(grouping: identifiedCatalogTracks(in: catalogTracks)) { $0.identity }
         return groups.map { identity, members in
             let tracks = members.map(\.track)
-            let processingTracks = processingIndex.albumTracks(for: identity)
-            let previewTarget = makePreviewTarget(processingTracks)
+            let processingMatch = processingIndex.catalogMatch(for: identity, catalogTracks: tracks)
+            let candidatePreviewTarget = makePreviewTarget(processingMatch.processingTracks)
+            let previewTarget = processingMatch.coversAllProcessingTracks ? candidatePreviewTarget : nil
             let counts = makeCounts(
                 catalogTracks: tracks,
-                processingTracks: processingTracks,
+                processingTracks: processingMatch.verifiedTracks,
                 scope: input.scope
             )
             return BrowseAlbumNode(
@@ -184,8 +208,8 @@ public enum BrowseBuilder {
                 counts: counts,
                 action: makeAlbumAction(
                     albumID: identity.key,
-                    processingTracks: processingTracks,
-                    previewTarget: previewTarget,
+                    processingMatch: processingMatch,
+                    candidatePreviewTarget: candidatePreviewTarget,
                     counts: counts,
                     input: input
                 )
@@ -207,8 +231,8 @@ public enum BrowseBuilder {
 
     private static func makeAlbumAction(
         albumID: String,
-        processingTracks: [Track],
-        previewTarget: FixPlanAlbumTarget?,
+        processingMatch: CatalogProcessingMatch,
+        candidatePreviewTarget: FixPlanAlbumTarget?,
         counts: BrowseNodeCounts,
         input: BrowseInput
     ) -> ChromeCommandDescriptor {
@@ -216,10 +240,12 @@ public enum BrowseBuilder {
             unavailableReason
         } else if !input.processing.readiness.isReady {
             ProcessingAdmissionRejection.mirror(input.processing.readiness).localizedDescription
-        } else if processingTracks.isEmpty {
+        } else if processingMatch.processingTracks.isEmpty {
             "Processing metadata isn’t available for this album yet."
-        } else if previewTarget == nil {
+        } else if candidatePreviewTarget == nil {
             "Processing metadata is ambiguous for this album."
+        } else if !processingMatch.coversAllProcessingTracks {
+            "Processing metadata doesn’t match this catalog yet."
         } else if input.scope.source == .testArtists, counts.inScope == 0 {
             "Outside the current Test Artists scope."
         } else {

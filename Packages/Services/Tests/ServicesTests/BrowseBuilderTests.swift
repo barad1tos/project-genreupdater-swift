@@ -199,6 +199,37 @@ struct BrowseBuilderGroupingTests {
         #expect(album.action.isEnabled)
     }
 
+    @Test("a stale catalog never counts or previews hidden mirror tracks")
+    func staleCatalogExcludesHiddenMirrorTracks() {
+        let visibleTrack = makeTrack(
+            id: "visible",
+            name: "Visible Song",
+            artist: "Artist",
+            album: "Album",
+            appleScriptID: "as-visible"
+        )
+        let hiddenTrack = makeTrack(
+            id: "hidden",
+            name: "Hidden Song",
+            artist: "Artist",
+            album: "Album",
+            appleScriptID: "as-hidden"
+        )
+
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [visibleTrack, hiddenTrack],
+            catalogTracks: [makeCatalogTrack(visibleTrack)],
+            catalogSource: .persisted,
+            catalogIssue: .refreshFailed(message: "MusicKit fetch failed")
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.counts == BrowseNodeCounts(total: 1, inScope: 1, writable: 1))
+        #expect(album.previewTarget == nil)
+        #expect(album.action.isEnabled == false)
+        #expect(album.action.disabledReason == "Processing metadata doesn’t match this catalog yet.")
+    }
+
     @Test("case variants merge into one artist node with a stable id")
     func caseVariantsMerge() {
         let projection = BrowseBuilder.makeProjection(input: makeInput(tracks: [
