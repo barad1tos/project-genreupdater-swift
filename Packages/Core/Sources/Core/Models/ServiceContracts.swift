@@ -22,6 +22,10 @@ public protocol PersistentCacheService: CacheService {
     /// Stores a value without time-based expiry; it remains removable by `invalidate(key:)`, `clear()`, or capacity
     /// eviction.
     func setPersistent(key: String, value: some Codable & Sendable) async
+
+    /// Removes persistent values whose keys match both the prefix and one of the suffixes.
+    /// Empty selectors are ignored so an invalid request cannot clear unrelated cache entries.
+    func invalidatePersistentValues(keyPrefix: String, keySuffixes: [String]) async throws
 }
 
 public enum TrackStoreError: LocalizedError, Sendable, Equatable {

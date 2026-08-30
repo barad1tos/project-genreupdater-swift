@@ -100,7 +100,7 @@ public actor MirrorEffectDrain {
         await requestDrain(policy: .ordered, committedEffectCount: committedEffectCount)
     }
 
-    /// Delivers one finalized batch while collapsing its snapshot and projection work.
+    /// Delivers the complete backlog after a finalized batch while collapsing idempotent global work.
     func drainBatchEffects() async {
         await requestDrain(policy: .coalescingGlobalEffects)
     }
@@ -191,33 +191,25 @@ public actor MirrorEffectDrain {
 
     private func drainBatchPendingEffects() async throws {
         let pendingEffects = try await store.pendingMirrorEffects()
-        let snapshotEffects = pendingEffects.filter { $0.effect == .invalidateSnapshot }
-        let projectionEffects = pendingEffects.filter { $0.effect == .refreshProjections }
+        var didInvalidateSnapshot = false
+        var didRefreshProjections = false
 
-        for pending in pendingEffects where !Self.isGlobal(pending.effect) {
-            try Task.checkCancellation()
-            try await execute(pending.effect)
-            try Task.checkCancellation()
-            try await store.completeMirrorEffect(id: pending.id)
-        }
-        try await executeOnce(.invalidateSnapshot, for: snapshotEffects)
-        try await executeOnce(.refreshProjections, for: projectionEffects)
-    }
-
-    private static func isGlobal(_ effect: MirrorEffect) -> Bool {
-        switch effect {
-        case .invalidateSnapshot, .refreshProjections:
-            true
-        case .invalidateAlbumYear, .invalidateAPIResults:
-            false
-        }
-    }
-
-    private func executeOnce(_ effect: MirrorEffect, for pendingEffects: [PendingMirrorEffect]) async throws {
-        guard !pendingEffects.isEmpty else { return }
-        try Task.checkCancellation()
-        try await execute(effect)
         for pending in pendingEffects {
+            try Task.checkCancellation()
+            switch pending.effect {
+            case .invalidateSnapshot where didInvalidateSnapshot:
+                break
+            case .invalidateSnapshot:
+                try await execute(pending.effect)
+                didInvalidateSnapshot = true
+            case .refreshProjections where didRefreshProjections:
+                break
+            case .refreshProjections:
+                try await execute(pending.effect)
+                didRefreshProjections = true
+            case .invalidateAlbumYear, .invalidateAPIResults:
+                try await execute(pending.effect)
+            }
             try Task.checkCancellation()
             try await store.completeMirrorEffect(id: pending.id)
         }

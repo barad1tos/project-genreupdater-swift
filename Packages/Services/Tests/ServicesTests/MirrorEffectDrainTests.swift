@@ -473,7 +473,7 @@ struct MirrorEffectDrainTests {
     }
 }
 
-private struct PersistentEffectFixture {
+struct PersistentEffectFixture {
     let directory: URL
     let storeURL: URL
 

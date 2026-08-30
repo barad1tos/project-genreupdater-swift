@@ -199,6 +199,16 @@ public actor GRDBCacheService: PersistentCacheService, AnalyticsEventStore {
         }
     }
 
+    public func invalidatePersistentValues(keyPrefix: String, keySuffixes: [String]) async throws {
+        guard !keyPrefix.isEmpty, !keySuffixes.isEmpty, keySuffixes.allSatisfy({ !$0.isEmpty }) else { return }
+        try await dbWriter.write { database in
+            let keys = try String.fetchAll(database, sql: "SELECT key FROM generic_cache")
+            for key in keys where key.hasPrefix(keyPrefix) && keySuffixes.contains(where: key.hasSuffix) {
+                _ = try GenericCacheRow.deleteOne(database, key: key)
+            }
+        }
+    }
+
     public func clear() async {
         do {
             try await dbWriter.write { database in

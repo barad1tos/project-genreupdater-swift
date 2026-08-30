@@ -5,6 +5,9 @@ import CryptoKit
 import Foundation
 
 public actor CachedLibrarySnapshotService: LibrarySnapshotService {
+    private static let namespacePrefix = "library-snapshot:"
+    private static let payloadKeySuffixes = [":tracks", ":delta"]
+
     private let cache: any PersistentCacheService
     private let configuration: LibrarySnapshotConfig
     private let currentDate: @Sendable () -> Date
@@ -25,7 +28,7 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
         self.configuration = configuration
         self.currentDate = currentDate
         self.libraryModificationDateProvider = libraryModificationDateProvider
-        namespace = "library-snapshot:\(configuration.cacheFile)"
+        namespace = "\(Self.namespacePrefix)\(configuration.cacheFile)"
     }
 
     public func loadSnapshot() async throws -> [Track]? {
@@ -34,8 +37,10 @@ public actor CachedLibrarySnapshotService: LibrarySnapshotService {
     }
 
     public func clearSnapshot() async throws {
-        try await cache.invalidate(key: snapshotKey)
-        try await cache.invalidate(key: legacyDeltaKey)
+        try await cache.invalidatePersistentValues(
+            keyPrefix: Self.namespacePrefix,
+            keySuffixes: Self.payloadKeySuffixes
+        )
     }
 
     @discardableResult

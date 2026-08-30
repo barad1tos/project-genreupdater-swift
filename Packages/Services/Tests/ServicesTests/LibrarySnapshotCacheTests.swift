@@ -388,6 +388,86 @@ struct LibrarySnapshotCacheTests {
         #expect(await service.getSnapshotMetadata()?.lastForceScanDate == forceScanDate)
     }
 
+    @Test("Clearing a snapshot invalidates payloads from every configured namespace")
+    func clearsAllNamespaces() async throws {
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        var firstConfiguration = LibrarySnapshotConfig()
+        firstConfiguration.cacheFile = "cache/first-library.json"
+        var secondConfiguration = LibrarySnapshotConfig()
+        secondConfiguration.cacheFile = "cache/second-library.json"
+        let firstService = CachedLibrarySnapshotService(cache: cache, configuration: firstConfiguration)
+        let secondService = CachedLibrarySnapshotService(cache: cache, configuration: secondConfiguration)
+        let firstTracks = [Track(id: "A", name: "First", artist: "Artist", album: "Album")]
+        let secondTracks = [Track(id: "B", name: "Second", artist: "Artist", album: "Album")]
+        _ = try await firstService.saveSnapshot(firstTracks)
+        _ = try await secondService.saveSnapshot(secondTracks)
+
+        try await secondService.clearSnapshot()
+
+        #expect(try await firstService.loadSnapshot() == nil)
+        #expect(try await secondService.loadSnapshot() == nil)
+        #expect(await firstService.getSnapshotMetadata()?.trackCount == 1)
+        #expect(await secondService.getSnapshotMetadata()?.trackCount == 1)
+    }
+
+    @Test("Pending snapshot invalidation clears every namespace after relaunch")
+    func snapshotInvalidationSurvivesNamespaceChange() async throws {
+        let fixture = try PersistentEffectFixture()
+        defer { fixture.remove() }
+        let cachePath = fixture.directory.appending(path: "cache.sqlite").path()
+        var firstConfiguration = LibrarySnapshotConfig()
+        firstConfiguration.cacheFile = "cache/first-library.json"
+        var secondConfiguration = LibrarySnapshotConfig()
+        secondConfiguration.cacheFile = "cache/second-library.json"
+
+        do {
+            let cache = try GRDBCacheService(databasePath: cachePath)
+            try await cache.initialize()
+            let firstSnapshot = CachedLibrarySnapshotService(cache: cache, configuration: firstConfiguration)
+            let secondSnapshot = CachedLibrarySnapshotService(cache: cache, configuration: secondConfiguration)
+            _ = try await firstSnapshot.saveSnapshot([
+                Track(id: "A", name: "First", artist: "Artist", album: "Album"),
+            ])
+            _ = try await secondSnapshot.saveSnapshot([
+                Track(id: "B", name: "Second", artist: "Artist", album: "Album"),
+            ])
+
+            let store = try fixture.openStore()
+            let mirror = try await store.loadMirrorSnapshot()
+            _ = try await store.commitMirror(MirrorCommit(
+                baseRevision: mirror.revision,
+                inventoryChange: .preserve,
+                repairs: [],
+                upserts: [],
+                certificates: .preserve,
+                effects: [.invalidateSnapshot]
+            ))
+        }
+
+        do {
+            let cache = try GRDBCacheService(databasePath: cachePath)
+            try await cache.initialize()
+            let firstSnapshot = CachedLibrarySnapshotService(cache: cache, configuration: firstConfiguration)
+            let secondSnapshot = CachedLibrarySnapshotService(cache: cache, configuration: secondConfiguration)
+            let store = try fixture.openStore()
+            let drain = MirrorEffectDrain(
+                store: store,
+                cache: cache,
+                snapshot: secondSnapshot,
+                projections: ProjectionRecorder()
+            )
+
+            await drain.drain()
+
+            #expect(try await store.pendingMirrorEffects().isEmpty)
+            #expect(try await firstSnapshot.loadSnapshot() == nil)
+            #expect(try await secondSnapshot.loadSnapshot() == nil)
+            #expect(await firstSnapshot.getSnapshotMetadata()?.trackCount == 1)
+            #expect(await secondSnapshot.getSnapshotMetadata()?.trackCount == 1)
+        }
+    }
+
     private func snapshotHash(for tracks: [LegacySnapshotTrack]) throws -> String {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

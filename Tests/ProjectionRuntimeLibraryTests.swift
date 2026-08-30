@@ -578,7 +578,9 @@ private actor BlockingAnalyticsStore: AnalyticsEventStore {
         []
     }
 
-    func migrateLegacyAnalytics(retention _: AnalyticsRetentionPolicy) {}
+    func migrateLegacyAnalytics(retention _: AnalyticsRetentionPolicy) {
+        // Intentionally empty: this in-memory test store has no legacy analytics state to migrate.
+    }
 
     func waitUntilAppendStarts() async {
         if hasStartedAppend {
