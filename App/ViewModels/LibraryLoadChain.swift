@@ -113,6 +113,34 @@ extension AppDependencies {
         await republishActivityProjection()
     }
 
+    /// Replaces cached presentation facts with the current committed mirror before dependent projections publish.
+    func reloadMirrorFacts() async throws {
+        let token = libraryLoadGate.begin()
+        defer { finishLibraryLoadIfCurrent(token) }
+        guard let trackStore else {
+            throw LibraryLoadError.failed("Track store is unavailable")
+        }
+
+        let scopedArtists = LibraryTrackLoader.scopedArtists(from: self)
+        let previousTracks = libraryTracks
+        let loadStart = ContinuousClock.now
+        let runtimeConfiguration = try LibrarySyncRuntimeConfiguration(configuration: config)
+        let mirrorLoad = try await LibraryTrackLoader.currentMirror(
+            store: trackStore,
+            cachedTracks: previousTracks,
+            requirement: runtimeConfiguration.processingRequirement
+        )
+        let didApply = await applyCurrentMirrorLoad(
+            mirrorLoad,
+            token: token,
+            scopedArtists: scopedArtists,
+            previousTracks: previousTracks,
+            loadStart: loadStart
+        )
+        guard didApply else { throw CancellationError() }
+        libraryLoadError = nil
+    }
+
     private func loadCurrentMirror(
         store: any TrackStateStore,
         token: UInt64,
@@ -130,7 +158,7 @@ extension AppDependencies {
                 cachedTracks: cachedTracks ?? [],
                 requirement: requirement
             )
-            await applyCurrentMirrorLoad(
+            _ = await applyCurrentMirrorLoad(
                 mirrorLoad,
                 token: token,
                 scopedArtists: scopedArtists,
@@ -159,21 +187,21 @@ extension AppDependencies {
         scopedArtists: [String],
         previousTracks: [Track]?,
         loadStart: ContinuousClock.Instant
-    ) async {
-        guard libraryLoadGate.isCurrent(token) else { return }
+    ) async -> Bool {
+        guard libraryLoadGate.isCurrent(token) else { return false }
         await cacheLibraryLoad(
             mirrorLoad.tracks,
             scopedArtists: scopedArtists,
             isAuthoritative: mirrorLoad.readiness.isReady,
             previousTracks: previousTracks
         )
-        guard libraryLoadGate.isCurrent(token) else { return }
+        guard libraryLoadGate.isCurrent(token) else { return false }
         libraryReadiness = mirrorLoad.readiness
         libraryTracks = mirrorLoad.tracks
         await applyBrowseTruthForLoad?(mirrorLoad.tracks, .cachedMirror(scannedAt: nil), token)
-        guard libraryLoadGate.isCurrent(token) else { return }
+        guard libraryLoadGate.isCurrent(token) else { return false }
         let upsertedMetrics = await metricsSnapshotStore?.upsert(from: mirrorLoad.tracks)
-        guard libraryLoadGate.isCurrent(token) else { return }
+        guard libraryLoadGate.isCurrent(token) else { return false }
         lastLibraryScanDate = nil
         libraryMetrics = upsertedMetrics
         onLibraryLoadApplied?(mirrorLoad.tracks)
@@ -181,6 +209,7 @@ extension AppDependencies {
             startedAt: loadStart,
             outcome: mirrorLoad.readiness.isReady ? .succeeded : .degraded
         )
+        return libraryLoadGate.isCurrent(token)
     }
 
     private func handleLibraryLoadFailure(

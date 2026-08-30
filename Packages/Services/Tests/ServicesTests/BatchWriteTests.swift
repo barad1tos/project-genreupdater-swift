@@ -62,6 +62,60 @@ struct BatchWriteTests {
         ])
     }
 
+    @Test("A verified batch publishes committed mirror effects once")
+    func batchCoalescesEffects() async throws {
+        let input = coupledBatchInput(currentAlbumArtist: "Massive")
+        let bridge = MusicAppTestAccess()
+        await bridge.setFetchedTracks([input.currentTrack])
+        let cache = MockCacheService()
+        let snapshot = CountingBatchSnapshot()
+        let projections = CountingBatchProjections()
+        let trackStore = try TrackDataStore.createInMemory()
+        try await trackStore.initialize()
+        try await trackStore.seedMirror([input.currentTrack])
+        let effectDrain = MirrorEffectDrain(
+            store: trackStore,
+            cache: cache,
+            snapshot: snapshot,
+            projections: projections
+        )
+        let undo = UndoCoordinator(
+            musicApp: bridge,
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("BatchWriteEffects-\(UUID().uuidString)")
+        )
+        let apiService = MockAPIService()
+        let coordinator = UpdateCoordinator(
+            dependencies: UpdateDependencies(
+                apiOrchestrator: makeAPIOrchestrator(
+                    musicBrainz: apiService,
+                    discogs: apiService,
+                    appleMusic: apiService
+                ),
+                writer: bridge,
+                stores: .init(trackStore: trackStore, cache: cache),
+                undoCoordinator: undo,
+                librarySnapshotService: snapshot,
+                effectDrain: effectDrain
+            ),
+            genreDeterminator: GenreDeterminator(),
+            runtimeConfiguration: UpdateRuntimeConfiguration(
+                areBatchUpdatesEnabled: true,
+                maxBatchUpdateSize: 5
+            )
+        )
+
+        let result = try await coordinator.applyAcceptedChanges(
+            input.proposals,
+            progressHandler: ignoreProgress
+        )
+
+        #expect(result.entries.count == 2)
+        #expect(await snapshot.clearCount == 1)
+        #expect(await projections.refreshCount == 1)
+        #expect(try await trackStore.pendingMirrorEffects().isEmpty)
+    }
+
     @Test("A duplicate accepted change ID fails before dispatch")
     func rejectsDuplicateID() async throws {
         let fixture = await makeCoordinator(batchUpdatesEnabled: true)
@@ -628,6 +682,47 @@ private struct BatchWriteFixture {
     let snapshot: MockLibrarySnapshotService
     let trackStore: MockTrackStore
     let undo: UndoCoordinator
+}
+
+private actor CountingBatchSnapshot: LibrarySnapshotService {
+    private(set) var clearCount = 0
+    let isEnabled = true
+
+    func loadSnapshot() async throws -> [Track]? {
+        nil
+    }
+
+    func saveSnapshot(_: [Track]) async throws -> String {
+        "snapshot"
+    }
+
+    func clearSnapshot() async throws {
+        clearCount += 1
+    }
+
+    func isSnapshotValid() async -> Bool {
+        false
+    }
+
+    func getSnapshotMetadata() async -> LibraryCacheMetadata? {
+        nil
+    }
+
+    func updateSnapshotMetadata(_: LibraryCacheMetadata) async throws {
+        // This test only observes snapshot invalidation count.
+    }
+
+    func getLibraryModificationDate() async throws -> Date {
+        .distantPast
+    }
+}
+
+private actor CountingBatchProjections: MirrorProjectionOutput {
+    private(set) var refreshCount = 0
+
+    func refreshMirrorProjections() async throws {
+        refreshCount += 1
+    }
 }
 
 private actor CheckpointRecorder {

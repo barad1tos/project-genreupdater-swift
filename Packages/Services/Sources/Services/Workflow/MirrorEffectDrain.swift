@@ -34,6 +34,18 @@ public protocol MirrorEffectDrainReporting: Sendable {
 
 /// Delivers durable mirror effects in stable order with at-least-once semantics.
 public actor MirrorEffectDrain {
+    private enum DrainPolicy {
+        case ordered
+        case coalescingGlobalEffects
+
+        func combined(with other: Self) -> Self {
+            if self == .coalescingGlobalEffects || other == .coalescingGlobalEffects {
+                return .coalescingGlobalEffects
+            }
+            return .ordered
+        }
+    }
+
     private let store: any TrackStateStore
     private var cache: (any CacheService)?
     private var snapshot: (any LibrarySnapshotService)?
@@ -41,7 +53,7 @@ public actor MirrorEffectDrain {
     private let reporter: (any MirrorEffectDrainReporting)?
     private let log = Logger(subsystem: "com.genreupdater", category: "MirrorEffectDrain")
     private var isDraining = false
-    private var drainRequested = false
+    private var queuedDrainPolicy: DrainPolicy?
     private var drainWaiters: [CheckedContinuation<Bool, Never>] = []
     var hasQueuedDrainRequest: Bool {
         !drainWaiters.isEmpty
@@ -74,7 +86,7 @@ public actor MirrorEffectDrain {
 
     /// Delivers every pending effect in the store's stable order.
     public func drain() async {
-        await requestDrain()
+        await requestDrain(policy: .ordered)
     }
 
     /// Delivers the complete backlog after a commit, using the new effect count for diagnostics.
@@ -85,12 +97,17 @@ public actor MirrorEffectDrain {
     public func drain(newlyCommittedEffectIDs: [UUID]) async {
         let committedEffectCount = Set(newlyCommittedEffectIDs).count
         log.info("Draining mirror effects after a commit with \(committedEffectCount, privacy: .public) new intents")
-        await requestDrain(committedEffectCount: committedEffectCount)
+        await requestDrain(policy: .ordered, committedEffectCount: committedEffectCount)
     }
 
-    private func requestDrain(committedEffectCount: Int? = nil) async {
+    /// Delivers one finalized batch while collapsing its snapshot and projection work.
+    func drainBatchEffects() async {
+        await requestDrain(policy: .coalescingGlobalEffects)
+    }
+
+    private func requestDrain(policy: DrainPolicy, committedEffectCount: Int? = nil) async {
         guard !isDraining else {
-            drainRequested = true
+            queuedDrainPolicy = queuedDrainPolicy?.combined(with: policy) ?? policy
             let shouldTakeOver = await withCheckedContinuation { drainWaiters.append($0) }
             guard shouldTakeOver else { return }
             await runDrainLoop()
@@ -98,30 +115,50 @@ public actor MirrorEffectDrain {
         }
 
         isDraining = true
-        await runDrainLoop(committedEffectCount: committedEffectCount)
+        await runDrainLoop(initialPolicy: policy, committedEffectCount: committedEffectCount)
     }
 
-    private func runDrainLoop(committedEffectCount: Int? = nil) async {
+    private func runDrainLoop(
+        initialPolicy: DrainPolicy? = nil,
+        committedEffectCount: Int? = nil
+    ) async {
+        var policy = initialPolicy ?? takeQueuedDrainPolicy()
         var diagnosticCount = committedEffectCount
-        repeat {
-            drainRequested = false
-            await deliverPendingEffects(committedEffectCount: diagnosticCount)
+        while let currentPolicy = policy {
+            await deliverPendingEffects(
+                policy: currentPolicy,
+                committedEffectCount: diagnosticCount
+            )
             diagnosticCount = nil
             if Task.isCancelled, hasQueuedDrainRequest {
                 let nextLeader = drainWaiters.removeFirst()
                 nextLeader.resume(returning: true)
                 return
             }
-        } while drainRequested
+            policy = takeQueuedDrainPolicy()
+        }
         isDraining = false
         let waiters = drainWaiters
         drainWaiters.removeAll()
         waiters.forEach { $0.resume(returning: false) }
     }
 
-    private func deliverPendingEffects(committedEffectCount: Int? = nil) async {
+    private func takeQueuedDrainPolicy() -> DrainPolicy? {
+        defer { queuedDrainPolicy = nil }
+        return queuedDrainPolicy
+    }
+
+    private func deliverPendingEffects(
+        policy: DrainPolicy,
+        committedEffectCount: Int? = nil
+    ) async {
         do {
-            try await drainPendingEffects()
+            switch policy {
+            case .ordered:
+                try await drainPendingEffects()
+            case .coalescingGlobalEffects:
+                try await drainBatchPendingEffects()
+            }
             await reporter?.clearMirrorEffectFailure()
         } catch {
             let failure = Self.failure(from: error)
@@ -147,6 +184,40 @@ public actor MirrorEffectDrain {
         while let pending = try await store.nextPendingMirrorEffect() {
             try Task.checkCancellation()
             try await execute(pending.effect)
+            try Task.checkCancellation()
+            try await store.completeMirrorEffect(id: pending.id)
+        }
+    }
+
+    private func drainBatchPendingEffects() async throws {
+        let pendingEffects = try await store.pendingMirrorEffects()
+        let snapshotEffects = pendingEffects.filter { $0.effect == .invalidateSnapshot }
+        let projectionEffects = pendingEffects.filter { $0.effect == .refreshProjections }
+
+        for pending in pendingEffects where !Self.isGlobal(pending.effect) {
+            try Task.checkCancellation()
+            try await execute(pending.effect)
+            try Task.checkCancellation()
+            try await store.completeMirrorEffect(id: pending.id)
+        }
+        try await executeOnce(.invalidateSnapshot, for: snapshotEffects)
+        try await executeOnce(.refreshProjections, for: projectionEffects)
+    }
+
+    private static func isGlobal(_ effect: MirrorEffect) -> Bool {
+        switch effect {
+        case .invalidateSnapshot, .refreshProjections:
+            true
+        case .invalidateAlbumYear, .invalidateAPIResults:
+            false
+        }
+    }
+
+    private func executeOnce(_ effect: MirrorEffect, for pendingEffects: [PendingMirrorEffect]) async throws {
+        guard !pendingEffects.isEmpty else { return }
+        try Task.checkCancellation()
+        try await execute(effect)
+        for pending in pendingEffects {
             try Task.checkCancellation()
             try await store.completeMirrorEffect(id: pending.id)
         }

@@ -14,6 +14,7 @@ final class AppMirrorProjectionOutput: MirrorProjectionOutput {
         guard let dependencies else {
             throw MirrorEffectDrainError.projectionOutputUnavailable
         }
+        try await dependencies.reloadMirrorFacts()
         _ = try await dependencies.refreshFixPlanFromStore()
         guard await dependencies.refreshReportsProjection() != nil else {
             throw AppMirrorProjectionError.reportsUnavailable

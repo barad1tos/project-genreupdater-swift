@@ -227,6 +227,64 @@ struct ActivityInputBuilderTests {
         #expect(fixture.dependencies.mirrorEffectDrainIssue?.category == .temporaryUnavailable)
     }
 
+    @Test("projection refresh reloads committed mirror membership before publishing activity")
+    @MainActor
+    func refreshReloadsMirrorMembership() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let store = fixture.trackStore
+        try await store.initialize()
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub(),
+            cache: cache
+        )
+        let removedTrack = Core.Track(
+            id: "removed-track",
+            name: "Removed Track",
+            artist: "In Flames",
+            album: "Foregone",
+            appleScriptID: "removed-track"
+        )
+        let databaseID = try #require(removedTrack.databaseID)
+        let initial = try await store.loadMirrorSnapshot()
+        let seedInventory = try InventoryChange.replace(
+            stamp: testMembershipStamp(for: [databaseID]),
+            ids: [databaseID],
+            identities: testIdentities(for: [removedTrack]),
+            observedAt: .distantPast
+        )
+        let seeded = try await store.commitMirror(MirrorCommit(
+            baseRevision: initial.revision,
+            inventoryChange: seedInventory,
+            repairs: [],
+            upserts: [removedTrack],
+            certificates: .invalidate(.membershipChanged)
+        ))
+        fixture.dependencies.libraryTracks = [removedTrack]
+        let emptyInventory = try InventoryChange.replace(
+            stamp: testMembershipStamp(for: []),
+            ids: [],
+            identities: [],
+            observedAt: .now
+        )
+        _ = try await store.commitMirror(MirrorCommit(
+            baseRevision: seeded.revision,
+            inventoryChange: emptyInventory,
+            repairs: [],
+            upserts: [],
+            certificates: .invalidate(.membershipChanged),
+            effects: [.refreshProjections]
+        ))
+
+        await fixture.dependencies.mirrorEffectDrain?.drain()
+
+        #expect(fixture.dependencies.libraryTracks.isEmpty)
+        #expect(try await store.pendingMirrorEffects().isEmpty)
+    }
+
     @Test("corrupted mirror queue asks for repair instead of retry")
     @MainActor
     func corruptedMirrorQueueHasRepairIssue() async throws {

@@ -561,7 +561,7 @@ enum EffectFailureStage: Sendable {
     case projections
 }
 
-private actor EffectCache: CacheService {
+actor EffectCache: CacheService {
     enum FailingOperation {
         case albumYear
         case apiResults
@@ -626,7 +626,7 @@ private actor EffectCache: CacheService {
     }
 }
 
-private actor EffectSnapshot: LibrarySnapshotService {
+actor EffectSnapshot: LibrarySnapshotService {
     private(set) var clearCount = 0
     private let shouldFail: Bool
     var isEnabled: Bool {
@@ -661,7 +661,7 @@ private actor EffectSnapshot: LibrarySnapshotService {
     }
 }
 
-private actor ProjectionRecorder: MirrorProjectionOutput {
+actor ProjectionRecorder: MirrorProjectionOutput {
     private(set) var refreshCount = 0
     private let shouldFail: Bool
 
@@ -694,7 +694,7 @@ private actor EffectReporter: MirrorEffectDrainReporting {
     }
 }
 
-private actor EffectStore: TrackStateStore {
+actor EffectStore: TrackStateStore {
     private var pending: [PendingMirrorEffect]
     private var completionFailures: Int
     private var completedIDs: [UUID] = []

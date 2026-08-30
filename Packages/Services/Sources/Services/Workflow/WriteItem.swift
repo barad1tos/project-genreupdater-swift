@@ -72,6 +72,11 @@ enum WritePreflightDecision {
 }
 
 extension UpdateCoordinator {
+    enum EffectDelivery {
+        case immediate
+        case deferred
+    }
+
     @discardableResult
     func applyChange(
         _ change: ProposedChange,
@@ -353,7 +358,8 @@ extension UpdateCoordinator {
 
     func recordAppliedChange(
         _ change: ProposedChange,
-        databaseID: MusicDatabaseTrackID
+        databaseID: MusicDatabaseTrackID,
+        effectDelivery: EffectDelivery = .immediate
     ) async throws -> ChangeLogEntry {
         let entry = attributed(Self.changeToLogEntry(change, databaseID: databaseID))
         do {
@@ -370,7 +376,9 @@ extension UpdateCoordinator {
                 effects: ["track mirror", "change history"]
             )
         }
-        await effectDrain?.drain()
+        if effectDelivery == .immediate {
+            await effectDrain?.drain()
+        }
         log.info(
             "Applied \(change.changeType.rawValue, privacy: .public) to track \(databaseID.rawValue, privacy: .private)"
         )
@@ -379,7 +387,8 @@ extension UpdateCoordinator {
 
     func recordObservedChange(
         _ change: ProposedChange,
-        databaseID: MusicDatabaseTrackID
+        databaseID: MusicDatabaseTrackID,
+        effectDelivery: EffectDelivery = .immediate
     ) async throws -> ChangeLogEntry {
         let entry = Self.noOpLogEntry(change, databaseID: databaseID)
         do {
@@ -395,7 +404,9 @@ extension UpdateCoordinator {
                 effects: ["track mirror"]
             )
         }
-        await effectDrain?.drain()
+        if effectDelivery == .immediate {
+            await effectDrain?.drain()
+        }
         logNoOp(change)
         return entry
     }
