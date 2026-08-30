@@ -306,6 +306,52 @@ struct ProjectionRuntimeLibraryTests {
         #expect(row.failed == 1)
     }
 
+    @Test("a superseding load prevents stale failure callbacks")
+    func dropsStaleFailureCallbacks() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let currentTrack = canonicalMirrorTrack(Core.Track(
+            id: "current",
+            name: "Current",
+            artist: "Clutch",
+            album: "Blast Tyrant"
+        ))
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(beforeLoad: {
+                throw MusicLibraryError.fetchFailed(detail: "stale mirror failure")
+            }),
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
+
+        var shouldSupersedeFailure = true
+        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
+            guard tracks.isEmpty, shouldSupersedeFailure else { return }
+            shouldSupersedeFailure = false
+            fixture.dependencies.invalidateLibraryLoads()
+            fixture.dependencies.configureLibraryPersistenceForTesting(
+                trackStore: MirrorTrackStoreStub(tracks: [currentTrack]),
+                librarySnapshotService: fixture.snapshotService,
+                runRecordStore: RunRecordStoreStub()
+            )
+            await fixture.dependencies.loadLibrary()
+        }
+        var mirrorFactApplications: [[String]] = []
+        fixture.dependencies.onMirrorFactsApplied = { tracks in
+            mirrorFactApplications.append(tracks.map(\.id))
+        }
+        var libraryLoadApplications: [[String]] = []
+        fixture.dependencies.onLibraryLoadApplied = { tracks in
+            libraryLoadApplications.append(tracks.map(\.id))
+        }
+
+        await fixture.dependencies.loadLibrary()
+
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["current"])
+        #expect(fixture.dependencies.libraryLoadError == nil)
+        #expect(mirrorFactApplications == [["current"]])
+        #expect(libraryLoadApplications == [["current"]])
+    }
+
     @Test("a contaminated cache is ignored when the current mirror is canonical")
     func contaminatedCacheDoesNotBlockCurrentMirror() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())

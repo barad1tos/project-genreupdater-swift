@@ -250,6 +250,7 @@ extension AppDependencies {
     ) async {
         guard libraryLoadGate.isCurrent(token) else { return }
         await recordLibraryLoad(startedAt: loadStart, outcome: .failed)
+        guard libraryLoadGate.isCurrent(token) else { return }
         libraryLoadError = LibraryLoadError.make(from: error)
         libraryReadiness = .unavailable(MirrorFailure(
             category: .observation,
@@ -257,6 +258,7 @@ extension AppDependencies {
         ))
         libraryTracks = []
         await applyBrowseTruthForLoad?([], .cachedMirror(scannedAt: nil), token)
+        guard libraryLoadGate.isCurrent(token) else { return }
         onMirrorFactsApplied?([])
         onLibraryLoadApplied?([])
     }
