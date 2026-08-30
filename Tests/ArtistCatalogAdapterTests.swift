@@ -378,7 +378,9 @@ private enum CatalogWriteFailure: Error {
 }
 
 private actor CancellingReadStore: CatalogSnapshotStore {
-    func replaceSnapshot(_: CatalogSnapshot) async throws {}
+    func replaceSnapshot(_: CatalogSnapshot) async throws {
+        throw CatalogStoreProbeFailure.unexpectedWrite
+    }
 
     func loadSnapshot() async throws -> CatalogSnapshot? {
         throw CancellationError()
@@ -423,14 +425,17 @@ private actor BlockingCatalogStore: CatalogSnapshotStore {
 }
 
 private actor FailingReadStore: CatalogSnapshotStore {
-    func replaceSnapshot(_: CatalogSnapshot) async throws {}
+    func replaceSnapshot(_: CatalogSnapshot) async throws {
+        throw CatalogStoreProbeFailure.unexpectedWrite
+    }
 
     func loadSnapshot() async throws -> CatalogSnapshot? {
-        throw CatalogReadFailure.unreadable
+        throw CatalogStoreProbeFailure.unreadable
     }
 }
 
-private enum CatalogReadFailure: Error {
+private enum CatalogStoreProbeFailure: Error {
+    case unexpectedWrite
     case unreadable
 }
 
