@@ -14,7 +14,7 @@ struct AnalyticsBoundaryTests {
             analytics: analytics
         )
 
-        let actual = try await catalog.loadCatalog(testArtists: [])
+        let actual = try await catalog.loadCatalog()
 
         #expect(actual == expected)
         #expect(await analytics.results == [
@@ -182,12 +182,8 @@ private actor AnalyticsMusicCatalog: MusicCatalogReading {
         // This catalog test double is permanently authorized.
     }
 
-    func loadCatalog(testArtists _: [String]) async throws -> CatalogSnapshot {
+    func loadCatalog() async throws -> CatalogSnapshot {
         snapshot
-    }
-
-    func trackCount() async throws -> Int {
-        snapshot.tracks.count
     }
 }
 

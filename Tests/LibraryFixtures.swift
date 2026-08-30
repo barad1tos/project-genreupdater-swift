@@ -364,6 +364,18 @@ func makeLibraryDependencies(
     return dependencies
 }
 
+func enqueueProjectionRefresh(in store: any TrackStateStore) async throws {
+    let initial = try await store.loadMirrorSnapshot()
+    _ = try await store.commitMirror(MirrorCommit(
+        baseRevision: initial.revision,
+        inventoryChange: .preserve,
+        repairs: [],
+        upserts: [],
+        certificates: .preserve,
+        effects: [.refreshProjections]
+    ))
+}
+
 actor RunRecordStoreStub: RunRecordStore {
     private let reportsError: (any Error)?
     private let recordError: (any Error)?

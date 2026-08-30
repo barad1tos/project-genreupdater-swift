@@ -22,10 +22,12 @@ public enum ArtistCatalogState: Equatable, Sendable {
 public struct ArtistCatalogProjection: Equatable, Sendable {
     public let revision: ProjectionRevision
     public let state: ArtistCatalogState
+    public let issue: String?
 
-    public init(revision: ProjectionRevision, state: ArtistCatalogState) {
+    public init(revision: ProjectionRevision, state: ArtistCatalogState, issue: String? = nil) {
         self.revision = revision
         self.state = state
+        self.issue = issue
     }
 
     /// Creates the initial unavailable projection before the first catalog result.
@@ -34,7 +36,7 @@ public struct ArtistCatalogProjection: Equatable, Sendable {
     }
 
     func withRevision(_ revision: ProjectionRevision) -> Self {
-        Self(revision: revision, state: state)
+        Self(revision: revision, state: state, issue: issue)
     }
 }
 
@@ -42,7 +44,7 @@ public struct ArtistCatalogProjection: Equatable, Sendable {
 public enum ArtistCatalogBuilder {
     /// Groups supplied tracks by effective artist with deterministic display ordering.
     /// Callers must supply full-library rows when full-library completeness is required.
-    public static func makeProjection(tracks: [CatalogTrack]) -> ArtistCatalogProjection {
+    public static func makeProjection(tracks: [CatalogTrack], issue: String? = nil) -> ArtistCatalogProjection {
         let artists = tracks.enumerated().compactMap { index, track -> (index: Int, name: String)? in
             guard let name = ArtistAllowList.normalizedName(track.albumArtist ?? track.artist) else { return nil }
             return (index, name)
@@ -68,6 +70,6 @@ public enum ArtistCatalogBuilder {
         entries.sort {
             $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
-        return ArtistCatalogProjection(revision: .initial, state: .available(entries))
+        return ArtistCatalogProjection(revision: .initial, state: .available(entries), issue: issue)
     }
 }

@@ -13,6 +13,31 @@ struct DesignActivitySnapshotInput {
     let now: Date
 }
 
+struct BrowseCommandNotice: Equatable, Sendable {
+    let message: String
+    let projectionRevision: ProjectionRevision
+
+    static func makeOutcome(
+        message: String,
+        status: CommandResultStatus,
+        targetRevision: ProjectionRevision,
+        currentProjection: BrowseProjection
+    ) -> Self {
+        let noticeRevision = switch status {
+        case .rejectedStale, .rejectedInvalid:
+            currentProjection.revision
+        default:
+            if currentProjection.revision > targetRevision,
+               currentProjection.operationalIssues.isEmpty {
+                currentProjection.revision
+            } else {
+                targetRevision
+            }
+        }
+        return Self(message: message, projectionRevision: noticeRevision)
+    }
+}
+
 enum ActivitySnapshotAdapter {
     /// Mirrors the Chrome projection into DesignUI's shell snapshot —
     /// pure mapping, no derivation (ADR 0012).
@@ -63,6 +88,20 @@ enum ActivitySnapshotAdapter {
                 isNarrowed: scope.summary.isNarrowedFromPhysical
             )
         }
+    }
+
+    static func makeBrowseNotice(
+        from projection: BrowseProjection,
+        commandNotice: BrowseCommandNotice? = nil
+    ) -> String? {
+        if let commandNotice, commandNotice.projectionRevision == projection.revision {
+            return commandNotice.message
+        }
+
+        guard let issue = projection.operationalIssues.first else { return nil }
+        return [issue.summary, issue.nextAction]
+            .compactMap(\.self)
+            .joined(separator: " ")
     }
 
     static func makeBrowseRows(_ rows: [BrowseTrackRow]) -> [DesignBrowseTrackRow] {

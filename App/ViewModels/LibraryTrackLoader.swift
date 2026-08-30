@@ -12,7 +12,9 @@ enum LibraryTrackLoader {
         ArtistAllowList.normalized(dependencies.config.development.testArtists)
     }
 
-    static func cachedSnapshot(
+    /// Rebuildable historical presentation used only for incremental comparison.
+    /// It never contributes current rows or processing readiness.
+    static func previousSnapshot(
         from dependencies: AppDependencies,
         scopedArtists: [String],
         forceRefresh: Bool
@@ -20,16 +22,11 @@ enum LibraryTrackLoader {
         guard !forceRefresh, let cachedTracks = await dependencies.loadLibrarySnapshot() else {
             return nil
         }
-
-        guard let scopedCachedTracks = try? canonicalTracks(cachedTracks, scopedArtists: scopedArtists) else {
-            return nil
-        }
-        return scopedCachedTracks
+        return try? canonicalTracks(cachedTracks, scopedArtists: scopedArtists)
     }
 
     static func currentMirror(
         store: any TrackStateStore,
-        cachedTracks: [Track] = [],
         requirement: MirrorRequirement,
         at date: Date = Date()
     ) async throws -> LibraryMirrorTrackLoad {
@@ -37,9 +34,8 @@ enum LibraryTrackLoader {
         let snapshot = try await store.loadMirrorSnapshot()
         try Task.checkCancellation()
         let readiness = snapshot.readiness(for: requirement, at: date)
-        let tracks = try presentationTracks(
-            snapshot: snapshot,
-            cachedTracks: cachedTracks,
+        let tracks = try canonicalTracks(
+            snapshot.presentTracks,
             scopedArtists: requirement.normalizedTestArtists
         )
 
@@ -47,23 +43,6 @@ enum LibraryTrackLoader {
             tracks: tracks,
             readiness: readiness
         )
-    }
-
-    private static func presentationTracks(
-        snapshot: TrackMirrorSnapshot,
-        cachedTracks: [Track],
-        scopedArtists: [String]
-    ) throws -> [Track] {
-        var tracks = try canonicalTracks(snapshot.presentTracks, scopedArtists: scopedArtists)
-        var includedIDs = Set(tracks.compactMap(\.databaseID))
-        for track in try canonicalTracks(cachedTracks, scopedArtists: scopedArtists) {
-            guard let databaseID = track.databaseID,
-                  snapshot.presentIDs.contains(databaseID),
-                  includedIDs.insert(databaseID).inserted
-            else { continue }
-            tracks.append(track)
-        }
-        return tracks
     }
 
     private static func canonicalTracks(_ tracks: [Track], scopedArtists: [String]) throws -> [Track] {

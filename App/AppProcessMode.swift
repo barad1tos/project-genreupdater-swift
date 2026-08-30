@@ -51,11 +51,7 @@ private actor InactiveMusicCatalog: MusicCatalogReading {
         throw MusicLibraryError.musicAppNotAvailable
     }
 
-    func loadCatalog(testArtists _: [String]) async throws -> CatalogSnapshot {
-        throw MusicLibraryError.musicAppNotAvailable
-    }
-
-    func trackCount() async throws -> Int {
+    func loadCatalog() async throws -> CatalogSnapshot {
         throw MusicLibraryError.musicAppNotAvailable
     }
 }

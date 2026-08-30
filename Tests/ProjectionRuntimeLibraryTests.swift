@@ -13,6 +13,80 @@ struct ProjectionRuntimeLibraryTests {
         case unavailable
     }
 
+    @Test("projection refresh reloads the physical catalog before publishing the committed mirror")
+    func refreshReloadsCatalog() async throws {
+        let catalog = CatalogProbe(tracks: [
+            catalogTrack(id: "OLD", title: "Old Song", artist: "Old Artist", album: "Old Album"),
+        ])
+        let store = try TrackDataStore.createInMemory()
+        try await store.initialize()
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            musicCatalog: catalog
+        )
+        dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            runRecordStore: RunRecordStoreStub(),
+            cache: cache
+        )
+        dependencies.applyBrowseTruth = { [weak dependencies] processing, _ in
+            guard let dependencies else { return }
+            _ = await dependencies.refreshBrowseProjection(processing: processing)
+        }
+        await dependencies.refreshArtistCatalog()
+
+        await catalog.replaceTracks([
+            catalogTrack(id: "NEW", title: "New Song", artist: "New Artist", album: "New Album"),
+        ])
+        try await enqueueProjectionRefresh(in: store)
+
+        await dependencies.mirrorEffectDrain?.drain()
+
+        #expect(await catalog.loadCount() == 2)
+        #expect(dependencies.catalogSnapshot?.tracks.map(\.title) == ["New Song"])
+        let browse = await dependencies.projectionStore.currentBrowse()
+        #expect(browse.artists.map(\.name) == ["New Artist"])
+        #expect(try await store.pendingMirrorEffects().isEmpty)
+    }
+
+    @Test("a superseded catalog refresh retains the durable mirror effect")
+    func supersededRefreshRetainsEffect() async throws {
+        let catalog = CatalogProbe(tracks: [
+            catalogTrack(id: "OLD", title: "Old Song", artist: "Old Artist", album: "Old Album"),
+        ])
+        let store = try TrackDataStore.createInMemory()
+        try await store.initialize()
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            musicCatalog: catalog
+        )
+        dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            runRecordStore: RunRecordStoreStub(),
+            cache: cache
+        )
+        await dependencies.refreshArtistCatalog()
+        await catalog.blockNextLoad()
+        try await enqueueProjectionRefresh(in: store)
+
+        let drain = Task { await dependencies.mirrorEffectDrain?.drain() }
+        await catalog.waitUntilBlockedLoadStarts()
+        await catalog.replaceTracks([
+            catalogTrack(id: "NEW", title: "New Song", artist: "New Artist", album: "New Album"),
+        ])
+        await dependencies.refreshArtistCatalog()
+        await catalog.releaseBlockedLoad()
+        await drain.value
+
+        #expect(dependencies.catalogSnapshot?.tracks.map(\.title) == ["New Song"])
+        #expect(try await store.pendingMirrorEffects().count == 1)
+        #expect(dependencies.mirrorEffectDrainIssue?.category == .temporaryUnavailable)
+    }
+
     @Test("the backend load chain publishes library facts headlessly")
     func backendLoadPublishesLibraryFacts() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
@@ -35,8 +109,11 @@ struct ProjectionRuntimeLibraryTests {
             appliedCounts.append(tracks.count)
         }
         var browseApplications: [(count: Int, isCurrent: Bool)] = []
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, token in
-            browseApplications.append((tracks.count, fixture.dependencies.libraryLoadGate.isCurrent(token)))
+        fixture.dependencies.applyBrowseTruth = { processing, token in
+            browseApplications.append((
+                processing.tracks.count,
+                token.map(fixture.dependencies.libraryLoadGate.isCurrent) ?? true
+            ))
         }
 
         await fixture.dependencies.loadLibrary()
@@ -230,10 +307,8 @@ struct ProjectionRuntimeLibraryTests {
             librarySnapshotService: fixture.snapshotService,
             runRecordStore: RunRecordStoreStub()
         )
-        fixture.dependencies.applyBrowseTruthForLoad = { _, readSource, _ in
-            if case .cachedMirror = readSource {
-                fixture.dependencies.invalidateLibraryLoads()
-            }
+        fixture.dependencies.applyBrowseTruth = { _, _ in
+            fixture.dependencies.invalidateLibraryLoads()
         }
 
         await fixture.dependencies.loadLibrary()
@@ -324,8 +399,8 @@ struct ProjectionRuntimeLibraryTests {
         )
 
         var shouldSupersedeFailure = true
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
-            guard tracks.isEmpty, shouldSupersedeFailure else { return }
+        fixture.dependencies.applyBrowseTruth = { processing, _ in
+            guard processing.tracks.isEmpty, shouldSupersedeFailure else { return }
             shouldSupersedeFailure = false
             fixture.dependencies.invalidateLibraryLoads()
             fixture.dependencies.configureLibraryPersistenceForTesting(
@@ -375,8 +450,8 @@ struct ProjectionRuntimeLibraryTests {
             librarySnapshotService: fixture.snapshotService,
             runRecordStore: RunRecordStoreStub()
         )
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
-            if tracks.isEmpty {
+        fixture.dependencies.applyBrowseTruth = { processing, _ in
+            if processing.tracks.isEmpty {
                 fixture.dependencies.invalidateLibraryLoads()
             }
         }
@@ -414,8 +489,8 @@ struct ProjectionRuntimeLibraryTests {
             runRecordStore: RunRecordStoreStub()
         )
         var browseApplications: [[String]] = []
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
-            browseApplications.append(tracks.map(\.id))
+        fixture.dependencies.applyBrowseTruth = { processing, _ in
+            browseApplications.append(processing.tracks.map(\.id))
         }
         var mirrorFactApplications: [[String]] = []
         fixture.dependencies.onMirrorFactsApplied = { tracks in
@@ -473,8 +548,8 @@ struct ProjectionRuntimeLibraryTests {
             runRecordStore: RunRecordStoreStub()
         )
         var browsedTrackIDs: [[String]] = []
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
-            browsedTrackIDs.append(tracks.map(\.id))
+        fixture.dependencies.applyBrowseTruth = { processing, _ in
+            browsedTrackIDs.append(processing.tracks.map(\.id))
         }
 
         await fixture.dependencies.loadLibrary()

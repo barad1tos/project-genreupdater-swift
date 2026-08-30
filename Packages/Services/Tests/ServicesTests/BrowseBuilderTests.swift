@@ -32,22 +32,69 @@ private func makeTrack(
 private func makeInput(
     tracks: [Track],
     testArtists: [String] = [],
-    physicalTrackCount: Int? = nil,
-    readSource: BrowseReadSource = .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
+    catalogTracks: [CatalogTrack]? = nil,
+    catalogSource: CatalogSnapshotSource = .live,
+    capturedAt: Date = Date(timeIntervalSince1970: 100),
+    catalogIssue: CatalogIssue? = nil,
+    readiness: MirrorReadiness? = nil,
     previewUnavailableReason: String? = nil
 ) -> BrowseInput {
-    BrowseInput(
-        tracks: tracks,
-        scope: ProcessingScopeSnapshot.capture(
-            requestedTestArtists: testArtists,
-            knownTrackCount: tracks.count,
-            createdAt: Date(timeIntervalSince1970: 100),
-            reason: "browse-test"
+    let scope = ProcessingScopeSnapshot.capture(
+        requestedTestArtists: testArtists,
+        knownTrackCount: tracks.count,
+        createdAt: Date(timeIntervalSince1970: 100),
+        reason: "browse-test"
+    )
+    return BrowseInput(
+        catalog: BrowseCatalogFacts(
+            snapshot: CatalogSnapshot(
+                tracks: catalogTracks ?? tracks.map(makeCatalogTrack),
+                capturedAt: capturedAt
+            ),
+            source: catalogSource,
+            issue: catalogIssue
         ),
-        physicalTrackCount: physicalTrackCount,
-        readSource: readSource,
+        processing: BrowseProcessingFacts(
+            tracks: tracks,
+            readiness: readiness ?? readyReadiness(testArtists: testArtists, trackCount: tracks.count)
+        ),
+        scope: scope,
         previewUnavailableReason: previewUnavailableReason
     )
+}
+
+private func makeCatalogTrack(_ track: Track) -> CatalogTrack {
+    guard let id = CatalogTrackID(displayValue: track.id) else {
+        preconditionFailure("Browse fixture catalog IDs must be non-empty")
+    }
+    return CatalogTrack(
+        id: id,
+        title: track.name,
+        artist: track.artist,
+        album: track.album,
+        albumArtist: track.albumArtist,
+        genres: track.genre.map { [$0] } ?? [],
+        dates: CatalogDates(releaseYear: track.year, dateAdded: track.dateAdded)
+    )
+}
+
+private func readyReadiness(testArtists: [String], trackCount: Int) -> MirrorReadiness {
+    guard let membership = try? MembershipStamp(fingerprint: String(repeating: "a", count: 64)) else {
+        preconditionFailure("Browse fixture membership fingerprint must be canonical")
+    }
+    return .ready(ScopeCertificate(
+        id: UUID(),
+        revision: .initial,
+        membership: membership,
+        testArtists: testArtists,
+        fieldSet: .processingV1,
+        evidence: ScopeEvidence(
+            requestedFingerprint: "browse-fixture",
+            observedFingerprint: "browse-fixture",
+            trackCount: trackCount
+        ),
+        observedAt: Date(timeIntervalSince1970: 100)
+    ))
 }
 
 // MARK: - Grouping
@@ -64,6 +111,154 @@ struct BrowseBuilderGroupingTests {
         #expect(projection.artists.count == 1)
         #expect(projection.artists[0].albums.count == 1)
         #expect(projection.artists[0].albums[0].counts.total == 2)
+    }
+
+    @Test("catalog artist aliases retain processing authority when albumArtist differs")
+    func catalogAliasFindsTrack() {
+        let processingTrack = makeTrack(
+            name: "Guest Song",
+            artist: "Guest Artist",
+            album: "Compilation",
+            albumArtist: "Various Artists"
+        )
+        let catalogTrack = makeCatalogTrack(makeTrack(
+            name: "Guest Song",
+            artist: "Guest Artist",
+            album: "Compilation"
+        ))
+
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [processingTrack],
+            catalogTracks: [catalogTrack]
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.counts.inScope == 1)
+        #expect(album.counts.writable == 1)
+        #expect(album.previewTarget == FixPlanAlbumTarget(artist: "Various Artists", album: "Compilation"))
+        #expect(album.action.isEnabled)
+    }
+
+    @Test("an alias shared by distinct canonical albums stays disabled")
+    func ambiguousAliasStaysDisabled() {
+        let processingTracks = [
+            makeTrack(
+                name: "First Song",
+                artist: "Guest Artist",
+                album: "Compilation",
+                albumArtist: "Various Artists"
+            ),
+            makeTrack(
+                name: "Second Song",
+                artist: "Guest Artist",
+                album: "Compilation",
+                albumArtist: "Other Artists"
+            ),
+        ]
+        let catalogTrack = makeCatalogTrack(makeTrack(
+            name: "First Song",
+            artist: "Guest Artist",
+            album: "Compilation"
+        ))
+
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: processingTracks,
+            catalogTracks: [catalogTrack]
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.previewTarget == nil)
+        #expect(album.action.isEnabled == false)
+        #expect(album.action.disabledReason == "Processing metadata is ambiguous for this album.")
+    }
+
+    @Test("an exact canonical album outranks a neighboring alias")
+    func exactAlbumOutranksAlias() {
+        let canonicalTrack = makeTrack(
+            name: "Canonical Song",
+            artist: "Guest Artist",
+            album: "Compilation",
+            albumArtist: "Various Artists"
+        )
+        let aliasTrack = makeTrack(
+            name: "Neighbor Song",
+            artist: "Various Artists",
+            album: "Compilation",
+            albumArtist: "Other Artists"
+        )
+        let catalogTrack = makeCatalogTrack(canonicalTrack)
+
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [canonicalTrack, aliasTrack],
+            catalogTracks: [catalogTrack]
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.counts.inScope == 1)
+        #expect(album.previewTarget == FixPlanAlbumTarget(artist: "Various Artists", album: "Compilation"))
+        #expect(album.action.isEnabled)
+    }
+
+    @Test("catalog rows spanning canonical targets keep album preview disabled")
+    func catalogRowsSpanningCanonicalTargetsStayDisabled() {
+        let canonicalTrack = makeTrack(
+            name: "Canonical Song",
+            artist: "Guest Artist",
+            album: "Compilation",
+            albumArtist: "Various Artists",
+            appleScriptID: "as-canonical"
+        )
+        let aliasTrack = makeTrack(
+            name: "Alias Song",
+            artist: "Various Artists",
+            album: "Compilation",
+            albumArtist: "Other Artists",
+            appleScriptID: "as-alias"
+        )
+        let aliasCatalogTrack = makeCatalogTrack(makeTrack(
+            name: "Alias Song",
+            artist: "Various Artists",
+            album: "Compilation"
+        ))
+        let input = makeInput(
+            tracks: [canonicalTrack, aliasTrack],
+            catalogTracks: [makeCatalogTrack(canonicalTrack), aliasCatalogTrack]
+        )
+        let album = BrowseBuilder.makeProjection(input: input).artists[0].albums[0]
+        let rows = BrowseBuilder.trackRows(forAlbumID: album.id, input: input)
+        #expect(rows.map(\.hasWriteIdentity) == [true, true])
+        #expect(album.counts == BrowseNodeCounts(total: 2, inScope: 2, writable: 2))
+        #expect(album.previewTarget == nil)
+        #expect(album.action.isEnabled == false)
+        #expect(album.action.disabledReason == "Processing metadata is ambiguous for this album.")
+    }
+
+    @Test("a stale catalog never counts or previews hidden mirror tracks")
+    func staleCatalogExcludesHiddenMirrorTracks() {
+        let visibleTrack = makeTrack(
+            id: "visible",
+            name: "Visible Song",
+            artist: "Artist",
+            album: "Album",
+            appleScriptID: "as-visible"
+        )
+        let hiddenTrack = makeTrack(
+            id: "hidden",
+            name: "Hidden Song",
+            artist: "Artist",
+            album: "Album",
+            appleScriptID: "as-hidden"
+        )
+        let album = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [visibleTrack, hiddenTrack],
+            catalogTracks: [makeCatalogTrack(visibleTrack)],
+            catalogSource: .persisted,
+            catalogIssue: .refreshFailed(message: "MusicKit fetch failed")
+        )).artists[0].albums[0]
+        #expect(album.counts == BrowseNodeCounts(total: 1, inScope: 1, writable: 1))
+        #expect(album.previewTarget == nil)
+        #expect(album.action.isEnabled == false)
+        #expect(album.action.disabledReason == "Processing metadata doesn’t match this catalog yet.")
     }
 
     @Test("case variants merge into one artist node with a stable id")
@@ -118,19 +313,22 @@ struct BrowseBuilderGroupingTests {
         #expect(projection.artists[0].albums.map(\.title) == ["Kept"])
     }
 
-    @Test("an empty mirror still carries scope, read source, and count facts")
+    @Test("an empty mirror keeps the physical catalog, scope, and source facts")
     func emptyTracksKeepsFacts() {
         let projection = BrowseBuilder.makeProjection(input: makeInput(
             tracks: [],
             testArtists: ["Clutch"],
-            physicalTrackCount: 10,
-            readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 50))
+            catalogTracks: (0 ..< 10).map { index in
+                makeCatalogTrack(makeTrack(id: "catalog-\(index)", artist: "Clutch", album: "Album"))
+            },
+            catalogSource: .persisted,
+            capturedAt: Date(timeIntervalSince1970: 50)
         ))
 
-        #expect(projection.artists.isEmpty)
+        #expect(projection.artists.count == 1)
         #expect(projection.scope?.summary.sourceLabel == "Test artists (1)")
         #expect(projection.physicalTrackCount == 10)
-        #expect(projection.readSource == .cachedMirror(scannedAt: Date(timeIntervalSince1970: 50)))
+        #expect(projection.readSource == .persistedCatalog(capturedAt: Date(timeIntervalSince1970: 50)))
     }
 
     @Test("the same album title under different artists yields two nodes")
@@ -303,6 +501,81 @@ struct BrowseBuilderScopeTests {
         #expect(album.action.disabledReason == "Services are still starting.")
     }
 
+    @Test("a catalog-only album remains visible without gaining processing authority")
+    func catalogOnlyAlbumIsReadOnly() {
+        let catalogTrack = makeCatalogTrack(makeTrack(
+            id: "catalog-only",
+            name: "Jóga",
+            artist: "Björk",
+            album: "Homogenic"
+        ))
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [],
+            catalogTracks: [catalogTrack],
+            readiness: readyReadiness(testArtists: [], trackCount: 0)
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.counts == BrowseNodeCounts(total: 1, inScope: 0, writable: 0))
+        #expect(!album.action.isEnabled)
+        #expect(album.action.disabledReason == "Processing metadata isn’t available for this album yet.")
+    }
+
+    @Test("persisted catalog content stays visible with a live-refresh issue")
+    func staleCatalogSurfacesIssue() {
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [makeTrack(artist: "Björk", album: "Homogenic")],
+            catalogSource: .persisted,
+            catalogIssue: .refreshFailed(message: "MusicKit fetch failed")
+        ))
+
+        #expect(projection.artists.map(\.name) == ["Björk"])
+        #expect(projection.operationalIssues.first?.category == .musicKitUnavailable)
+        #expect(projection.operationalIssues.first?.summary == "The Music catalog may be out of date.")
+    }
+
+    @Test("a missing catalog with a refresh issue reports unavailability")
+    func missingCatalogSurfacesIssue() {
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 0,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "browse-test"
+        )
+        let projection = BrowseBuilder.makeProjection(input: BrowseInput(
+            catalog: BrowseCatalogFacts(
+                snapshot: nil,
+                source: nil,
+                issue: .refreshFailed(message: "MusicKit fetch failed")
+            ),
+            processing: BrowseProcessingFacts(
+                tracks: [],
+                readiness: readyReadiness(testArtists: [], trackCount: 0)
+            ),
+            scope: scope,
+            previewUnavailableReason: nil
+        ))
+
+        let issue = projection.operationalIssues.first
+        #expect(issue?.category == .musicKitUnavailable)
+        #expect(issue?.summary == "The Music catalog is unavailable.")
+        #expect(issue?.technicalDetail == "MusicKit fetch failed")
+    }
+
+    @Test("a live catalog persistence issue does not report stale content")
+    func keepsLiveCatalogCurrent() {
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [makeTrack(artist: "Björk", album: "Homogenic")],
+            catalogIssue: .persistenceFailed(message: "Catalog save failed")
+        ))
+
+        let issue = projection.operationalIssues.first
+        #expect(issue?.category == .temporaryUnavailable)
+        #expect(issue?.summary == "The current Music catalog couldn’t be saved.")
+        #expect(issue?.technicalDetail == "Catalog save failed")
+        #expect(issue?.nextAction == "Refresh the library to retry saving it.")
+    }
+
     @Test("a testArtists snapshot with an empty list fails closed")
     func degenerateSnapshotFailsClosed() {
         // capture() cannot produce this shape; a decoded or hand-built
@@ -317,10 +590,18 @@ struct BrowseBuilderScopeTests {
             reason: "browse-test"
         )
         let projection = BrowseBuilder.makeProjection(input: BrowseInput(
-            tracks: [makeTrack(artist: "Anyone", album: "Anything")],
+            catalog: BrowseCatalogFacts(
+                snapshot: CatalogSnapshot(tracks: [
+                    makeCatalogTrack(makeTrack(artist: "Anyone", album: "Anything")),
+                ]),
+                source: .live,
+                issue: nil
+            ),
+            processing: BrowseProcessingFacts(
+                tracks: [makeTrack(artist: "Anyone", album: "Anything")],
+                readiness: readyReadiness(testArtists: [], trackCount: 1)
+            ),
             scope: degenerateScope,
-            physicalTrackCount: nil,
-            readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
             previewUnavailableReason: nil
         ))
 
@@ -335,7 +616,7 @@ struct BrowseBuilderScopeTests {
 
 @Suite("Browse builder track rows")
 struct BrowseBuilderTrackRowTests {
-    @Test("rows order by position, then name, unknown position last")
+    @Test("catalog rows sort by title with snapshot order as the tie breaker")
     func rowOrder() {
         let rows = BrowseBuilder.trackRows(
             forAlbumID: AlbumIdentity(artist: "Artist", album: "One").key,
@@ -347,7 +628,7 @@ struct BrowseBuilderTrackRowTests {
             ])
         )
 
-        #expect(rows.map(\.title) == ["Opener", "Middle", "Bonus", "Closer"])
+        #expect(rows.map(\.title) == ["Bonus", "Closer", "Middle", "Opener"])
     }
 
     @Test("rows carry per-track write identity and scope membership")
@@ -377,10 +658,30 @@ struct BrowseBuilderTrackRowTests {
         )
 
         #expect(rows.count == 2)
-        #expect(rows[0].hasWriteIdentity && rows[0].isInScope)
-        #expect(rows[0].genre == "Rock")
-        #expect(rows[0].year == 1969)
-        #expect(!rows[1].hasWriteIdentity && !rows[1].isInScope)
+        let something = rows.first { $0.title == "Something" }
+        let getBack = rows.first { $0.title == "Get Back" }
+        #expect(something?.hasWriteIdentity == true && something?.isInScope == true)
+        #expect(something?.genre == "Rock")
+        #expect(something?.year == 1969)
+        #expect(getBack?.hasWriteIdentity == false && getBack?.isInScope == false)
+    }
+
+    @Test("row scope membership matches either track artist field")
+    func rowScopeMatchesTrackArtist() {
+        let track = makeTrack(
+            name: "Guest Song",
+            artist: "Guest Artist",
+            album: "Compilation",
+            albumArtist: "Various Artists"
+        )
+        let rows = BrowseBuilder.trackRows(
+            forAlbumID: AlbumIdentity(artist: "Various Artists", album: "Compilation").key,
+            input: makeInput(tracks: [track], testArtists: ["Guest Artist"])
+        )
+
+        #expect(rows.count == 1)
+        #expect(rows[0].isInScope)
+        #expect(rows[0].hasWriteIdentity)
     }
 
     @Test("an unknown album id returns no rows")
@@ -408,8 +709,8 @@ struct BrowseBuilderTrackRowTests {
         #expect(rows.count == 2)
     }
 
-    @Test("scope membership does not depend on the read source")
-    func cachedMirrorMembershipSame() {
+    @Test("scope membership does not depend on live versus persisted catalog source")
+    func catalogSourceDoesNotChangeMembership() {
         let albumID = AlbumIdentity(artist: "The Beatles", album: "Abbey Road").key
         let tracks = [
             makeTrack(artist: "The Beatles", album: "Abbey Road", originalPosition: 1),
@@ -420,17 +721,18 @@ struct BrowseBuilderTrackRowTests {
             forAlbumID: albumID,
             input: makeInput(tracks: tracks, testArtists: ["The Beatles"])
         )
-        let cachedRows = BrowseBuilder.trackRows(
+        let persistedRows = BrowseBuilder.trackRows(
             forAlbumID: albumID,
             input: makeInput(
                 tracks: tracks,
                 testArtists: ["The Beatles"],
-                readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 50))
+                catalogSource: .persisted,
+                capturedAt: Date(timeIntervalSince1970: 50)
             )
         )
 
         #expect(liveRows.map(\.isInScope) == [true, false])
-        #expect(cachedRows.map(\.isInScope) == liveRows.map(\.isInScope))
+        #expect(persistedRows.map(\.isInScope) == liveRows.map(\.isInScope))
     }
 
     @Test("the track-row index matches per-album rows")
@@ -448,5 +750,51 @@ struct BrowseBuilderTrackRowTests {
         for albumID in index.keys {
             #expect(index[albumID] == BrowseBuilder.trackRows(forAlbumID: albumID, input: input))
         }
+    }
+
+    @Test("ambiguous mirror matches never grant catalog rows write identity")
+    func ambiguousMirrorMatchIsReadOnly() {
+        let input = makeInput(
+            tracks: [
+                makeTrack(id: "mirror-1", name: "Song", artist: "Artist", album: "Album"),
+                makeTrack(id: "mirror-2", name: "Song", artist: "Artist", album: "Album"),
+            ],
+            catalogTracks: [
+                makeCatalogTrack(makeTrack(id: "catalog", name: "Song", artist: "Artist", album: "Album")),
+            ]
+        )
+
+        let index = BrowseBuilder.makeTrackRowIndex(input: input)
+        let rows = index[AlbumIdentity(artist: "Artist", album: "Album").key]
+
+        #expect(rows?.count == 1)
+        #expect(rows?.first?.hasWriteIdentity == false)
+    }
+
+    @Test("same-titled tracks in distinct albums keep their write identities")
+    func sameTitleKeepsWriteIdentity() {
+        let tracks = [
+            makeTrack(
+                id: "mirror-1",
+                name: "Intro",
+                artist: "Alpha",
+                album: "First",
+                appleScriptID: "as-1"
+            ),
+            makeTrack(
+                id: "mirror-2",
+                name: "Intro",
+                artist: "Beta",
+                album: "Second",
+                appleScriptID: "as-2"
+            ),
+        ]
+
+        let index = BrowseBuilder.makeTrackRowIndex(input: makeInput(tracks: tracks))
+        let firstRows = index[AlbumIdentity(artist: "Alpha", album: "First").key]
+        let secondRows = index[AlbumIdentity(artist: "Beta", album: "Second").key]
+
+        #expect(firstRows?.first?.hasWriteIdentity == true)
+        #expect(secondRows?.first?.hasWriteIdentity == true)
     }
 }

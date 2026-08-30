@@ -11,7 +11,8 @@ struct BrowseCommandsTests {
 
     private func projection(
         revision: ProjectionRevision = .initial,
-        actionEnabled: Bool = true
+        actionEnabled: Bool = true,
+        previewTarget: FixPlanAlbumTarget? = FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant")
     ) -> BrowseProjection {
         let action = ChromeCommandDescriptor(
             id: "browse-preview-key",
@@ -24,6 +25,7 @@ struct BrowseCommandsTests {
             id: "album-key",
             title: "Blast Tyrant",
             artistName: "Clutch",
+            previewTarget: previewTarget,
             genre: "Rock",
             year: 2004,
             counts: BrowseNodeCounts(total: 12, inScope: actionEnabled ? 12 : 0, writable: 12),
@@ -42,7 +44,7 @@ struct BrowseCommandsTests {
                 )
             ),
             physicalTrackCount: nil,
-            readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
+            readSource: .liveCatalog(capturedAt: Date(timeIntervalSince1970: 100)),
             operationalIssues: []
         )
     }
@@ -131,6 +133,18 @@ struct BrowseCommandsTests {
         #expect(recorder.submitted.isEmpty)
     }
 
+    @Test("an enabled album without a canonical preview target rejects")
+    func missingPreviewTargetRejects() async {
+        let recorder = Recorder()
+        let commands = makeCommands(projection: projection(previewTarget: nil), recorder: recorder)
+
+        let status = await commands.performAlbumPreview(target: target())
+
+        #expect(status == .rejectedInvalid)
+        #expect(recorder.republishCount == 1)
+        #expect(recorder.submitted.isEmpty)
+    }
+
     @Test("a scope-less projection fails closed")
     func nilScopeRejects() async {
         // BrowseProjection.empty() is a real nil-scope state; a command
@@ -154,8 +168,8 @@ struct BrowseCommandsTests {
         #expect(recorder.submitted.isEmpty)
     }
 
-    @Test("a valid request submits the node's display identity")
-    func validRequestSubmits() async {
+    @Test("a valid request submits the node's canonical preview target")
+    func validRequestSubmitsTarget() async {
         let recorder = Recorder()
         let commands = makeCommands(
             projection: projection(),

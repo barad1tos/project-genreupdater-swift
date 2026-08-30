@@ -295,8 +295,8 @@ struct ActivityInputBuilderTests {
         let incrementalBaseline = track(id: "incremental-baseline")
         let expectedMirrorMetrics = expectedMirrorMetrics(preserving: persistedMetrics)
         var browsedTrackIDs: [[String]] = []
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
-            browsedTrackIDs.append(tracks.map(\.id))
+        fixture.dependencies.applyBrowseTruth = { processing, _ in
+            browsedTrackIDs.append(processing.tracks.map(\.id))
         }
         var mirrorFactTrackIDs: [[String]] = []
         fixture.dependencies.onMirrorFactsApplied = { tracks in
@@ -366,7 +366,7 @@ struct ActivityInputBuilderTests {
         fixture.dependencies.libraryReadiness = previousReadiness
         try await store.seedMirror([track(id: "committed-mirror")])
         try await enqueueProjectionRefresh(in: store)
-        fixture.dependencies.applyBrowseTruthForLoad = { _, _, _ in
+        fixture.dependencies.applyBrowseTruth = { _, _ in
             fixture.dependencies.invalidateLibraryLoads()
         }
 
@@ -650,18 +650,6 @@ struct ActivityInputBuilderTests {
 
     private func track(id: String) -> Core.Track {
         Core.Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album")
-    }
-
-    private func enqueueProjectionRefresh(in store: any TrackStateStore) async throws {
-        let initial = try await store.loadMirrorSnapshot()
-        _ = try await store.commitMirror(MirrorCommit(
-            baseRevision: initial.revision,
-            inventoryChange: .preserve,
-            repairs: [],
-            upserts: [],
-            certificates: .preserve,
-            effects: [.refreshProjections]
-        ))
     }
 
     private func makeContext(

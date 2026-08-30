@@ -210,6 +210,37 @@ struct ChromeProjectionAppTests {
         #expect(input.automation.isIncrementalDue == nil)
     }
 
+    @Test("physical catalog count stays separate from the effective processing scope")
+    func physicalCatalogAndProcessingScopeStaySeparate() async {
+        let dependencies = makeChromeTestDependencies()
+        dependencies.catalogSnapshot = CatalogSnapshot(tracks: [
+            makeChromeCatalogTrack(id: "catalog-1"),
+            makeChromeCatalogTrack(id: "catalog-2"),
+            makeChromeCatalogTrack(id: "catalog-3"),
+        ])
+        let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        dependencies.currentLifecycleSnapshot = RunLifecycleSnapshot(
+            runID: RunID(),
+            requestID: RunRequestID(),
+            trigger: .manualCheck,
+            intent: .observeLibrary,
+            scope: ProcessingScopeSnapshot.capture(
+                requestedTestArtists: ["Clutch"],
+                knownTrackCount: 1,
+                createdAt: startedAt,
+                reason: "chrome-catalog-scope-pin"
+            ),
+            startedAt: startedAt,
+            phase: .active(.syncingLibrary)
+        )
+
+        let input = await dependencies.makeChromeInput()
+
+        #expect(input.library.physicalTrackCount == 3)
+        #expect(input.library.scope?.knownTrackCount == 1)
+        #expect(input.library.scope?.source == .testArtists)
+    }
+
     @Test("the interval is minutes, not seconds")
     func intervalIsMinutesNotSeconds() async {
         let dependencies = makeChromeTestDependencies()
@@ -247,3 +278,18 @@ struct ChromeProjectionAppTests {
 }
 
 private struct ChromeProbeFailure: Error {}
+
+private func makeChromeCatalogTrack(id: String) -> CatalogTrack {
+    guard let catalogID = CatalogTrackID(displayValue: id) else {
+        preconditionFailure("Chrome fixture catalog IDs must be non-empty")
+    }
+    return CatalogTrack(
+        id: catalogID,
+        title: "Track",
+        artist: "Artist",
+        album: "Album",
+        albumArtist: nil,
+        genres: [],
+        dates: CatalogDates(releaseYear: nil, dateAdded: nil)
+    )
+}

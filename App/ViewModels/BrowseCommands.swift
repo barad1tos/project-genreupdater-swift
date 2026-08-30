@@ -28,12 +28,15 @@ struct BrowseCommands: Sendable {
             await republishBrowse()
             return .rejectedStale
         }
-        guard let album = album(target.albumID, in: projection), album.action.isEnabled else {
-            log.info("Browse preview rejected: album unavailable or out of scope")
+        guard let album = album(target.albumID, in: projection),
+              album.action.isEnabled,
+              let previewTarget = album.previewTarget
+        else {
+            log.info("Browse preview rejected: album unavailable, out of scope, or lacks a canonical target")
             await republishBrowse()
             return .rejectedInvalid
         }
-        return await submit(FixPlanAlbumTarget(artist: album.artistName, album: album.title))
+        return await submit(previewTarget)
     }
 
     private func album(_ albumID: String, in projection: BrowseProjection) -> BrowseAlbumNode? {

@@ -25,8 +25,7 @@ struct DesignRootHostView: View {
     @State private var browseDesignArtists: [DesignUI.Artist] = []
     @State private var browseDesignScope: DesignBrowseScope?
     @State private var browseRowIndex: [String: [BrowseTrackRow]] = [:]
-    @State private var browseReadSource: BrowseReadSource = .cachedMirror(scannedAt: nil)
-    @State private var browseNoticeMessage: String?
+    @State private var browseCommandNotice: BrowseCommandNotice?
     @State private var artistCatalogFeed = ArtistCatalogFeed()
     @State private var analyticsSnapshot: DesignAnalyticsSnapshot = .empty
     @State private var analyticsWindow: DesignAnalyticsWindow = .currentSession
@@ -61,7 +60,10 @@ struct DesignRootHostView: View {
             setFastAnimationsAction: setFastAnimationsEnabled,
             browseTrackRows: browseRows(for:),
             browseAlbumPreviewAction: performAlbumPreview(albumID:),
-            browseNotice: browseNoticeMessage,
+            browseNotice: ActivitySnapshotAdapter.makeBrowseNotice(
+                from: browseProjection,
+                commandNotice: browseCommandNotice
+            ),
             reportRunSelectionAction: selectRunReport,
             recoveryDetailActions: RecoveryDetailActions(
                 applyRemainingFixes: applyRemainingFixes,
@@ -218,14 +220,11 @@ struct DesignRootHostView: View {
     /// Ordering and pairing guarantees live in the backend extension
     /// now; this wrapper keeps only the view-state application.
     private func refreshBrowseTruth(
-        _ loadedTracks: [Core.Track],
-        readSource: BrowseReadSource,
+        _ processing: BrowseProcessingFacts,
         loadToken: UInt64?
     ) async {
-        browseReadSource = readSource
         let result = await dependencies.refreshBrowseProjection(
-            tracks: loadedTracks,
-            readSource: readSource,
+            processing: processing,
             isCurrent: { loadToken.map(dependencies.libraryLoadGate.isCurrent) ?? true }
         )
         guard let result else { return }
@@ -245,9 +244,9 @@ struct DesignRootHostView: View {
             scopeSnapshotID: browseProjection.scope?.snapshotID ?? UUID()
         )
         let commands = dependencies.makeBrowseCommands {
-            await refreshBrowseTruth(dependencies.libraryTracks, readSource: browseReadSource, loadToken: nil)
+            await refreshBrowseTruth(dependencies.browseProcessingFacts, loadToken: nil)
         }
-        browseNoticeMessage = nil
+        browseCommandNotice = nil
         Task { @MainActor in
             let status = await commands.performAlbumPreview(target: target)
             switch status {
@@ -263,7 +262,12 @@ struct DesignRootHostView: View {
                  .blockedByPermission,
                  .temporaryUnavailable,
                  .navigated:
-                browseNoticeMessage = BrowseCommands.noticeCopy(for: status)
+                browseCommandNotice = BrowseCommandNotice.makeOutcome(
+                    message: BrowseCommands.noticeCopy(for: status),
+                    status: status,
+                    targetRevision: target.projectionRevision,
+                    currentProjection: browseProjection
+                )
             }
         }
     }
@@ -585,7 +589,7 @@ struct DesignRootHostView: View {
         }
 
         workflowNoticeMessage = nil
-        browseNoticeMessage = nil
+        browseCommandNotice = nil
         dependencies.emptyLibraryTruthForScopeChange()
         workflowViewModel?.reset()
         applyWorkflowDefaults()
@@ -598,7 +602,13 @@ struct DesignRootHostView: View {
 
     private func emptyBrowseTruthForScopeChange() {
         Task { @MainActor in
-            await refreshBrowseTruth([], readSource: browseReadSource, loadToken: nil)
+            await refreshBrowseTruth(
+                BrowseProcessingFacts(
+                    tracks: [],
+                    readiness: .incomplete(.freshObservationRequired)
+                ),
+                loadToken: nil
+            )
         }
     }
 
@@ -607,22 +617,16 @@ struct DesignRootHostView: View {
         hasStartedInitialLoad = true
         // The chain delegates browse application (row-index pairing is
         // view state) and the scope-preview refresh back to the host.
-        dependencies.applyBrowseTruthForLoad = { loadedTracks, readSource, token in
-            await refreshBrowseTruth(loadedTracks, readSource: readSource, loadToken: token)
+        dependencies.applyBrowseTruth = { processing, token in
+            await refreshBrowseTruth(processing, loadToken: token)
         }
         dependencies.onMirrorFactsApplied = { _ in
             refreshWorkflowScopePreview()
-        }
-        dependencies.onLibraryLoadApplied = { _ in
-            Task { @MainActor in
-                await dependencies.refreshArtistCatalog()
-            }
         }
         ensureWorkflowViewModel()
         if await dependencies.ensureRecoveryHold() {
             _ = await workflowViewModel?.stopForRecoveryHold()
         }
-        await dependencies.refreshArtistCatalog()
         await dependencies.loadLibrary()
         await refreshActivityProjection()
     }

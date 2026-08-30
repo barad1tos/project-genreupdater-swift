@@ -9,36 +9,19 @@ import Testing
 @MainActor
 struct BrowseAdapterAppTests {
     private func makeProjection() -> BrowseProjection {
-        BrowseBuilder.makeProjection(input: BrowseInput(
-            tracks: [
-                Track(
-                    id: "t1",
-                    name: "The Regulator",
-                    artist: "Clutch",
-                    album: "Blast Tyrant",
-                    genre: "Rock",
-                    year: 2004,
-                    originalPosition: 2,
-                    appleScriptID: "as-1"
-                ),
-                Track(
-                    id: "t2",
-                    name: "Profits of Doom",
-                    artist: "Clutch feat. Guest",
-                    album: "Blast Tyrant",
-                    originalPosition: 1,
-                    appleScriptID: nil
-                ),
-            ],
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: ["Clutch"],
-                knownTrackCount: 2,
-                createdAt: Date(timeIntervalSince1970: 100),
-                reason: "adapter-test"
-            ),
-            physicalTrackCount: 40,
-            readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
-            previewUnavailableReason: nil
+        let tracks = adapterTracks()
+        let catalogTracks = tracks.map(makeAdapterCatalogTrack) + (2 ..< 40).map { index in
+            makeAdapterCatalogTrack(Track(
+                id: "catalog-\(index)",
+                name: "Catalog \(index)",
+                artist: "Other",
+                album: "Other"
+            ))
+        }
+        return BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: tracks,
+            catalogTracks: catalogTracks,
+            testArtists: ["Clutch"]
         ))
     }
 
@@ -48,7 +31,7 @@ struct BrowseAdapterAppTests {
 
         let artists = ActivitySnapshotAdapter.makeBrowseArtists(from: projection)
 
-        #expect(artists.count == 1)
+        #expect(artists.count == 2)
         #expect(artists[0].name == "Clutch")
         let album = artists[0].albums[0]
         #expect(album.name == "Blast Tyrant")
@@ -63,17 +46,10 @@ struct BrowseAdapterAppTests {
 
     @Test("a disabled action's reason survives the mapping")
     func disabledReasonSurvives() {
-        let projection = BrowseBuilder.makeProjection(input: BrowseInput(
-            tracks: [Track(id: "t", name: "Song", artist: "Other", album: "Elsewhere")],
-            scope: ProcessingScopeSnapshot.capture(
-                requestedTestArtists: ["Clutch"],
-                knownTrackCount: 1,
-                createdAt: Date(timeIntervalSince1970: 100),
-                reason: "adapter-test"
-            ),
-            physicalTrackCount: nil,
-            readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
-            previewUnavailableReason: nil
+        let tracks = [Track(id: "t", name: "Song", artist: "Other", album: "Elsewhere")]
+        let projection = BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: tracks,
+            testArtists: ["Clutch"]
         ))
 
         let album = ActivitySnapshotAdapter.makeBrowseArtists(from: projection)[0].albums[0]
@@ -91,43 +67,116 @@ struct BrowseAdapterAppTests {
         #expect(scope?.isNarrowed == true)
     }
 
+    @Test("catalog fallback issues map onto the visible browse notice")
+    func catalogIssueMapsToNotice() {
+        let projection = BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: adapterTracks(),
+            testArtists: ["Clutch"],
+            catalogIssue: "MusicKit fetch failed"
+        ))
+
+        let notice = ActivitySnapshotAdapter.makeBrowseNotice(from: projection)
+
+        #expect(notice == "The Music catalog may be out of date. Refresh the library to retry the Music catalog read.")
+    }
+
+    @Test("a command outcome outranks the background catalog notice")
+    func commandOutcomeOutranksCatalogNotice() {
+        let projection = BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: adapterTracks(),
+            testArtists: ["Clutch"],
+            catalogIssue: "MusicKit fetch failed"
+        ))
+        let commandNotice = BrowseCommandNotice(
+            message: "The album preview is unavailable.",
+            projectionRevision: projection.revision
+        )
+
+        let notice = ActivitySnapshotAdapter.makeBrowseNotice(
+            from: projection,
+            commandNotice: commandNotice
+        )
+
+        #expect(notice == "The album preview is unavailable.")
+    }
+
+    @Test("a newer projection expires the previous command outcome")
+    func newerProjectionExpiresCommandOutcome() {
+        let projection = BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: adapterTracks(),
+            testArtists: ["Clutch"],
+            catalogIssue: "MusicKit fetch failed"
+        ))
+        let commandNotice = BrowseCommandNotice(
+            message: "The album preview is unavailable.",
+            projectionRevision: projection.revision
+        )
+        let refreshedProjection = advanceProjection(projection)
+
+        let notice = ActivitySnapshotAdapter.makeBrowseNotice(
+            from: refreshedProjection,
+            commandNotice: commandNotice
+        )
+
+        #expect(notice == "The Music catalog may be out of date. Refresh the library to retry the Music catalog read.")
+    }
+
+    @Test("an outcome racing a warning refresh stays bound to its command target")
+    func warningRefreshKeepsTargetRevision() {
+        let projection = BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: adapterTracks(),
+            testArtists: ["Clutch"],
+            catalogIssue: "MusicKit fetch failed"
+        ))
+        let refreshedProjection = advanceProjection(projection)
+        let notice = BrowseCommandNotice.makeOutcome(
+            message: "Preview services are unavailable.",
+            status: .temporaryUnavailable,
+            targetRevision: .initial,
+            currentProjection: refreshedProjection
+        )
+
+        #expect(notice.projectionRevision == .initial)
+    }
+
+    @Test("an outcome racing a clean refresh remains visible on the refreshed projection")
+    func cleanRefreshUsesCurrentRevision() {
+        let projection = BrowseBuilder.makeProjection(input: makeAdapterBrowseInput(
+            tracks: adapterTracks(),
+            testArtists: ["Clutch"]
+        ))
+        let refreshedProjection = advanceProjection(projection)
+        let notice = BrowseCommandNotice.makeOutcome(
+            message: "Preview services are unavailable.",
+            status: .temporaryUnavailable,
+            targetRevision: .initial,
+            currentProjection: refreshedProjection
+        )
+
+        #expect(notice.projectionRevision == refreshedProjection.revision)
+    }
+
+    @Test("a rejection that republishes Browse belongs to the refreshed projection")
+    func rejectionUsesCurrentRevision() {
+        let currentRevision = ProjectionRevision.initial.advanced()
+        let currentProjection = BrowseProjection.empty(revision: currentRevision)
+        let notice = BrowseCommandNotice.makeOutcome(
+            message: "Browse just refreshed.",
+            status: .rejectedStale,
+            targetRevision: .initial,
+            currentProjection: currentProjection
+        )
+
+        #expect(notice.projectionRevision == currentRevision)
+    }
+
     @Test("track rows map with per-row safety facts and keep order")
     func rowsMap() {
         let projection = makeProjection()
         let albumID = projection.artists[0].albums[0].id
         let rows = ActivitySnapshotAdapter.makeBrowseRows(BrowseBuilder.trackRows(
             forAlbumID: albumID,
-            input: BrowseInput(
-                tracks: [
-                    Track(
-                        id: "t1",
-                        name: "The Regulator",
-                        artist: "Clutch",
-                        album: "Blast Tyrant",
-                        genre: "Rock",
-                        year: 2004,
-                        originalPosition: 2,
-                        appleScriptID: "as-1"
-                    ),
-                    Track(
-                        id: "t2",
-                        name: "Profits of Doom",
-                        artist: "Clutch feat. Guest",
-                        album: "Blast Tyrant",
-                        originalPosition: 1,
-                        appleScriptID: nil
-                    ),
-                ],
-                scope: ProcessingScopeSnapshot.capture(
-                    requestedTestArtists: ["Clutch"],
-                    knownTrackCount: 2,
-                    createdAt: Date(timeIntervalSince1970: 100),
-                    reason: "adapter-test"
-                ),
-                physicalTrackCount: nil,
-                readSource: .cachedMirror(scannedAt: Date(timeIntervalSince1970: 100)),
-                previewUnavailableReason: nil
-            )
+            input: makeAdapterBrowseInput(tracks: adapterTracks(), testArtists: ["Clutch"])
         ))
 
         #expect(rows.map(\.title) == ["Profits of Doom", "The Regulator"])
@@ -143,6 +192,17 @@ struct BrowseAdapterAppTests {
 
         #expect(ActivitySnapshotAdapter.makeBrowseArtists(from: empty).isEmpty)
         #expect(ActivitySnapshotAdapter.makeBrowseScope(from: empty) == nil)
+    }
+
+    private func advanceProjection(_ projection: BrowseProjection) -> BrowseProjection {
+        BrowseProjection(
+            revision: projection.revision.advanced(),
+            artists: projection.artists,
+            scope: projection.scope,
+            physicalTrackCount: projection.physicalTrackCount,
+            readSource: projection.readSource,
+            operationalIssues: projection.operationalIssues
+        )
     }
 }
 
@@ -196,20 +256,18 @@ struct BrowseHostPublishTests {
     func identicalPublishDedups() async {
         let dependencies = makeDependencies()
         let track = Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")
+        installAdapterCatalog([track], on: dependencies)
 
-        let firstInput = await dependencies.makeBrowseInput(
-            tracks: [track],
-            readSource: .cachedMirror(scannedAt: nil)
-        )
+        let firstInput = dependencies.makeBrowseInput(processing: makeAdapterProcessingFacts([track], on: dependencies))
         let firstGeneration = await dependencies.claimBrowseInputGeneration()
         let first = await dependencies.publishBrowseProjection(
             BrowseBuilder.makeProjection(input: firstInput),
             inputGeneration: firstGeneration
         )
-        let secondInput = await dependencies.makeBrowseInput(
-            tracks: [track],
-            readSource: .cachedMirror(scannedAt: nil)
-        )
+        let secondInput = dependencies.makeBrowseInput(processing: makeAdapterProcessingFacts(
+            [track],
+            on: dependencies
+        ))
         let secondGeneration = await dependencies.claimBrowseInputGeneration()
         let second = await dependencies.publishBrowseProjection(
             BrowseBuilder.makeProjection(input: secondInput),
@@ -227,18 +285,20 @@ struct BrowseHostPublishTests {
         let olderGeneration = await dependencies.claimBrowseInputGeneration()
         let newerGeneration = await dependencies.claimBrowseInputGeneration()
 
-        let newerInput = await dependencies.makeBrowseInput(
-            tracks: [Track(id: "new", name: "New", artist: "Clutch", album: "Newer")],
-            readSource: .cachedMirror(scannedAt: nil)
+        let newerTrack = Track(id: "new", name: "New", artist: "Clutch", album: "Newer")
+        installAdapterCatalog([newerTrack], on: dependencies)
+        let newerInput = dependencies.makeBrowseInput(
+            processing: makeAdapterProcessingFacts([newerTrack], on: dependencies)
         )
         _ = await dependencies.publishBrowseProjection(
             BrowseBuilder.makeProjection(input: newerInput),
             inputGeneration: newerGeneration
         )
 
-        let olderInput = await dependencies.makeBrowseInput(
-            tracks: [Track(id: "old", name: "Old", artist: "Clutch", album: "Older")],
-            readSource: .cachedMirror(scannedAt: nil)
+        let olderTrack = Track(id: "old", name: "Old", artist: "Clutch", album: "Older")
+        installAdapterCatalog([olderTrack], on: dependencies)
+        let olderInput = dependencies.makeBrowseInput(
+            processing: makeAdapterProcessingFacts([olderTrack], on: dependencies)
         )
         let result = await dependencies.publishBrowseProjection(
             BrowseBuilder.makeProjection(input: olderInput),
@@ -250,9 +310,10 @@ struct BrowseHostPublishTests {
         #expect(await dependencies.projectionStore.currentBrowse().artists.first?.albums.first?.title == "Newer")
     }
 
-    @Test("the browse commands factory routes into preview production only")
-    func factoryRoutesToPreview() async throws {
+    @Test("the browse commands factory routes alias matches to the canonical preview target")
+    func factoryUsesCanonicalTarget() async throws {
         let dependencies = makeDependencies()
+        dependencies.config.development.testArtists = ["Guest Artist"]
         let recorder = ProducedTargetRecorder()
         dependencies.installTrackCountSource { 1 }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
@@ -267,9 +328,24 @@ struct BrowseHostPublishTests {
             }
         )))
 
-        let input = await dependencies.makeBrowseInput(
-            tracks: [Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant", appleScriptID: "as-1")],
-            readSource: .cachedMirror(scannedAt: nil)
+        let processingTrack = Track(
+            id: "t",
+            name: "Song",
+            artist: "Guest Artist",
+            album: "Compilation",
+            albumArtist: "Various Artists",
+            appleScriptID: "as-1"
+        )
+        let catalogTrack = Track(
+            id: "t",
+            name: "Song",
+            artist: "Guest Artist",
+            album: "Compilation",
+            appleScriptID: "as-1"
+        )
+        installAdapterCatalog([catalogTrack], on: dependencies)
+        let input = dependencies.makeBrowseInput(
+            processing: makeAdapterProcessingFacts([processingTrack], on: dependencies)
         )
         let generation = await dependencies.claimBrowseInputGeneration()
         let published = await dependencies.publishBrowseProjection(
@@ -291,7 +367,7 @@ struct BrowseHostPublishTests {
         // The dispatch reached fix-plan production — the preview-only
         // seam — carrying the album target; no write seam exists here.
         #expect(status == .noOp)
-        #expect(recorder.target == FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant"))
+        #expect(recorder.target == FixPlanAlbumTarget(artist: "Various Artists", album: "Compilation"))
     }
 
     @Test("makeSnapshot carries browse truth through")
@@ -313,6 +389,110 @@ struct BrowseHostPublishTests {
         #expect(snapshot.artists == [artist])
         #expect(snapshot.browseScope == scope)
     }
+}
+
+private func adapterTracks() -> [Track] {
+    [
+        Track(
+            id: "t1",
+            name: "The Regulator",
+            artist: "Clutch",
+            album: "Blast Tyrant",
+            genre: "Rock",
+            year: 2004,
+            originalPosition: 2,
+            appleScriptID: "as-1"
+        ),
+        Track(
+            id: "t2",
+            name: "Profits of Doom",
+            artist: "Clutch feat. Guest",
+            album: "Blast Tyrant",
+            originalPosition: 1,
+            appleScriptID: nil
+        ),
+    ]
+}
+
+private func makeAdapterBrowseInput(
+    tracks: [Track],
+    catalogTracks: [CatalogTrack]? = nil,
+    testArtists: [String],
+    catalogIssue: String? = nil
+) -> BrowseInput {
+    BrowseInput(
+        catalog: BrowseCatalogFacts(
+            snapshot: CatalogSnapshot(
+                tracks: catalogTracks ?? tracks.map(makeAdapterCatalogTrack),
+                capturedAt: Date(timeIntervalSince1970: 100)
+            ),
+            source: .live,
+            issue: catalogIssue.map(CatalogIssue.refreshFailed(message:))
+        ),
+        processing: BrowseProcessingFacts(
+            tracks: tracks,
+            readiness: adapterReadyReadiness(testArtists: testArtists, trackCount: tracks.count)
+        ),
+        scope: ProcessingScopeSnapshot.capture(
+            requestedTestArtists: testArtists,
+            knownTrackCount: tracks.count,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "adapter-test"
+        ),
+        previewUnavailableReason: nil
+    )
+}
+
+private func makeAdapterCatalogTrack(_ track: Track) -> CatalogTrack {
+    guard let id = CatalogTrackID(displayValue: track.id) else {
+        preconditionFailure("Adapter fixture catalog IDs must be non-empty")
+    }
+    return CatalogTrack(
+        id: id,
+        title: track.name,
+        artist: track.artist,
+        album: track.album,
+        albumArtist: track.albumArtist,
+        genres: track.genre.map { [$0] } ?? [],
+        dates: CatalogDates(releaseYear: track.year, dateAdded: track.dateAdded)
+    )
+}
+
+@MainActor
+private func makeAdapterProcessingFacts(
+    _ tracks: [Track],
+    on dependencies: AppDependencies
+) -> BrowseProcessingFacts {
+    BrowseProcessingFacts(tracks: tracks, readiness: dependencies.libraryReadiness)
+}
+
+@MainActor
+private func installAdapterCatalog(_ tracks: [Track], on dependencies: AppDependencies) {
+    dependencies.catalogSnapshot = CatalogSnapshot(tracks: tracks.map(makeAdapterCatalogTrack))
+    dependencies.catalogSnapshotSource = .live
+    dependencies.libraryReadiness = adapterReadyReadiness(
+        testArtists: dependencies.config.development.testArtists,
+        trackCount: tracks.count
+    )
+}
+
+private func adapterReadyReadiness(testArtists: [String], trackCount: Int) -> MirrorReadiness {
+    guard let membership = try? MembershipStamp(fingerprint: String(repeating: "b", count: 64)) else {
+        preconditionFailure("Adapter fixture membership fingerprint must be canonical")
+    }
+    return .ready(ScopeCertificate(
+        id: UUID(),
+        revision: .initial,
+        membership: membership,
+        testArtists: testArtists,
+        fieldSet: .processingV1,
+        evidence: ScopeEvidence(
+            requestedFingerprint: "adapter-fixture",
+            observedFingerprint: "adapter-fixture",
+            trackCount: trackCount
+        ),
+        observedAt: Date(timeIntervalSince1970: 100)
+    ))
 }
 
 private final class ProducedTargetRecorder: @unchecked Sendable {

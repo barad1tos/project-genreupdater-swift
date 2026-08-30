@@ -8,12 +8,6 @@ import SwiftUI
 private let log = AppLogger.make(category: "dependencies")
 private let configurationSaveErrorPrefix = "Failed to save configuration:"
 
-enum ConfigurationSaveResult: Equatable {
-    case saved
-    case invalid(ConfigurationValidationError)
-    case unavailable
-}
-
 // MARK: - App Dependencies
 
 /// Central dependency container and app state manager; injected via
@@ -98,17 +92,21 @@ final class AppDependencies {
     var libraryLoadError: LibraryLoadError?
     var isLibraryLoading = false
     var libraryReadiness: MirrorReadiness = .incomplete(.freshObservationRequired)
+    var catalogSnapshot: CatalogSnapshot?
+    var catalogSnapshotSource: CatalogSnapshotSource?
+    var catalogIssue: CatalogIssue?
     var isLibraryReadyForUpdates: Bool {
         libraryReadiness.isReady
     }
     @ObservationIgnored let libraryLoadGate = RequestTokenGate()
+    @ObservationIgnored let catalogLoadGate = RequestTokenGate()
     @ObservationIgnored let analyticsReportGate = RequestTokenGate()
     /// Replay-safe current-facts hook; the full-load hook may start non-idempotent work.
     @ObservationIgnored var onMirrorFactsApplied: (@MainActor ([Track]) -> Void)?
     @ObservationIgnored var onLibraryLoadApplied: (@MainActor ([Track]) -> Void)?
     /// Browse truth application stays host-owned (row-index pairing is
-    /// view state); the chain hands it the landed tracks + read source.
-    @ObservationIgnored var applyBrowseTruthForLoad: (@MainActor ([Track], BrowseReadSource, UInt64) async -> Void)?
+    /// view state); callers hand it one explicit processing snapshot.
+    @ObservationIgnored var applyBrowseTruth: (@MainActor (BrowseProcessingFacts, UInt64?) async -> Void)?
     @ObservationIgnored let projectionStore = ProjectionStore()
     private(set) var configurationLoadIssue: String?
     @ObservationIgnored private let configurationLoader: () throws -> AppConfiguration
@@ -134,6 +132,7 @@ final class AppDependencies {
     private(set) var apiOrchestrator: APIOrchestrator?
     private(set) var pendingVerificationService: (any PendingVerificationService)?
     private(set) var cacheService: GRDBCacheService?
+    private(set) var catalogStore: (any CatalogSnapshotStore)?
     private(set) var trackStore: (any TrackStateStore)?
     private(set) var changeLogStore: (any ChangeLogStore)?
     private(set) var metricsSnapshotStore: MetricsSnapshotStore?
@@ -425,6 +424,7 @@ final class AppDependencies {
         let store = TrackDataStore(modelContainer: container)
         try await store.initialize()
         trackStore = store
+        catalogStore = CatalogDataStore(modelContainer: container)
 
         let logStore = ChangeLogDataStore(modelContainer: container)
         changeLogStore = logStore
@@ -661,6 +661,76 @@ final class AppDependencies {
     }
 }
 
+#if DEBUG
+extension AppDependencies {
+    func installTestWrites(_ services: TestWriteServices) {
+        batchProcessor = services.batchProcessor
+        undoCoordinator = services.undoCoordinator
+        updateCoordinator = services.updateCoordinator
+        trackIDMapper = services.mapper
+        fixPlanStore = services.fixPlanStore
+        runRecordStore = services.runRecordStore
+    }
+
+    func configureLibraryPersistenceForTesting(
+        trackStore: (any TrackStateStore)? = nil,
+        catalogStore: (any CatalogSnapshotStore)? = nil,
+        librarySnapshotService: (any LibrarySnapshotService)? = nil,
+        metricsSnapshotStore: MetricsSnapshotStore? = nil,
+        runRecordStore: (any RunRecordStore)? = nil,
+        fixPlanStore: (any FixPlanStore)? = nil,
+        cache: GRDBCacheService? = nil
+    ) {
+        self.trackStore = trackStore
+        self.catalogStore = catalogStore
+        self.librarySnapshotService = librarySnapshotService
+        self.metricsSnapshotStore = metricsSnapshotStore
+        self.runRecordStore = runRecordStore
+        self.fixPlanStore = fixPlanStore
+        cacheService = cache
+        if let trackStore, let cache {
+            let projectionOutput = AppMirrorProjectionOutput(dependencies: self)
+            mirrorProjectionOutput = projectionOutput
+            mirrorEffectDrain = MirrorEffectDrain(
+                store: trackStore,
+                cache: cache,
+                snapshot: librarySnapshotService,
+                projections: projectionOutput,
+                reporter: AppMirrorEffectReporter(dependencies: self)
+            )
+        }
+    }
+
+    func installTestChangeLogStore(_ store: any ChangeLogStore) {
+        changeLogStore = store
+    }
+
+    func installTestOrchestrator(_ orchestrator: RunOrchestrator) async {
+        runOrchestrator = orchestrator
+        await lifecycleRelay.attach(to: orchestrator)
+    }
+
+    func installTestFeatureGate(_ gate: FeatureGate) {
+        featureGate = gate
+        appliedTier = gate.currentTier
+        appliedCacheAccess = gate.canAccess(.advancedCache)
+    }
+
+    func installTestIncrementalRunTracker(_ tracker: IncrementalRunTracker) {
+        incrementalRunTracker = tracker
+    }
+    func installTestAnalyticsRecorder(_ recorder: AnalyticsRecorder) {
+        analyticsService = recorder
+    }
+    func installTestAgentRegistrar(_ registrar: any AgentRegistrar) {
+        agentRegistrar = registrar
+    }
+    func installTestAvailability(_ availability: RecoveryAvailability) {
+        recoveryAvailability = availability
+    }
+}
+#endif
+
 extension AppDependencies {
     func applyRuntimeConfigurationHead() throws -> RuntimeApplyHandoff {
         let canUseAdvancedCache = featureGate?.canAccess(.advancedCache) == true
@@ -727,74 +797,3 @@ extension AppDependencies {
         )
     }
 }
-
-#if DEBUG
-extension AppDependencies {
-    func installTestWrites(_ services: TestWriteServices) {
-        batchProcessor = services.batchProcessor
-        undoCoordinator = services.undoCoordinator
-        updateCoordinator = services.updateCoordinator
-        trackIDMapper = services.mapper
-        fixPlanStore = services.fixPlanStore
-        runRecordStore = services.runRecordStore
-    }
-
-    func configureLibraryPersistenceForTesting(
-        trackStore: (any TrackStateStore)? = nil,
-        librarySnapshotService: (any LibrarySnapshotService)? = nil,
-        metricsSnapshotStore: MetricsSnapshotStore? = nil,
-        runRecordStore: (any RunRecordStore)? = nil,
-        fixPlanStore: (any FixPlanStore)? = nil,
-        cache: GRDBCacheService? = nil
-    ) {
-        self.trackStore = trackStore
-        self.librarySnapshotService = librarySnapshotService
-        self.metricsSnapshotStore = metricsSnapshotStore
-        self.runRecordStore = runRecordStore
-        self.fixPlanStore = fixPlanStore
-        cacheService = cache
-        if let trackStore, let cache {
-            let projectionOutput = AppMirrorProjectionOutput(dependencies: self)
-            mirrorProjectionOutput = projectionOutput
-            mirrorEffectDrain = MirrorEffectDrain(
-                store: trackStore,
-                cache: cache,
-                snapshot: librarySnapshotService,
-                projections: projectionOutput,
-                reporter: AppMirrorEffectReporter(dependencies: self)
-            )
-        }
-    }
-
-    func installTestChangeLogStore(_ store: any ChangeLogStore) {
-        changeLogStore = store
-    }
-
-    func installTestOrchestrator(_ orchestrator: RunOrchestrator) async {
-        runOrchestrator = orchestrator
-        await lifecycleRelay.attach(to: orchestrator)
-    }
-
-    func installTestFeatureGate(_ gate: FeatureGate) {
-        featureGate = gate
-        appliedTier = gate.currentTier
-        appliedCacheAccess = gate.canAccess(.advancedCache)
-    }
-
-    func installTestIncrementalRunTracker(_ tracker: IncrementalRunTracker) {
-        incrementalRunTracker = tracker
-    }
-
-    func installTestAnalyticsRecorder(_ recorder: AnalyticsRecorder) {
-        analyticsService = recorder
-    }
-
-    func installTestAgentRegistrar(_ registrar: any AgentRegistrar) {
-        agentRegistrar = registrar
-    }
-
-    func installTestAvailability(_ availability: RecoveryAvailability) {
-        recoveryAvailability = availability
-    }
-}
-#endif

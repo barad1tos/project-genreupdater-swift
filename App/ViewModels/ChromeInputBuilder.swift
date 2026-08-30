@@ -2,8 +2,6 @@ import Core
 import Foundation
 import Services
 
-private let log = AppLogger.make(category: "chrome-input")
-
 /// Snapshots the probed facts chrome assembly needs and publishes the
 /// projection through the store (ADR 0013). Publish points live at the
 /// same boundaries the other surfaces use until slice 10 moves assembly
@@ -45,7 +43,7 @@ extension AppDependencies {
             settings: settings,
             automation: automation,
             library: ChromeLibraryFacts(
-                physicalTrackCount: probedPhysicalTrackCount(),
+                physicalTrackCount: catalogSnapshot?.tracks.count,
                 scope: lifecycle?.scope
             ),
             permissions: probedChromePermissions()
@@ -101,18 +99,5 @@ extension AppDependencies {
             isMusicPermissionGranted: musicPermission,
             isDiscogsAccessAvailable: isDiscogsAccessAvailable
         )
-    }
-
-    /// The whole-Music.app count (never the scoped mirror): probed via
-    /// MusicKit only when authorization already exists, so the probe can
-    /// never prompt.
-    func probedPhysicalTrackCount() async -> Int? {
-        guard await musicCatalog.isAuthorized else { return nil }
-        do {
-            return try await musicCatalog.trackCount()
-        } catch {
-            log.error("Chrome physical count probe failed: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
     }
 }
