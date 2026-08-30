@@ -527,6 +527,22 @@ struct ActivityBuilderTests {
         #expect(facts.counts.isProtectedFileCountKnown)
     }
 
+    @Test("mirror effect failure is surfaced alongside the primary issue")
+    func surfacesMirrorEffectFailure() {
+        let mirrorIssue = OperationalIssue(
+            id: "mirror-effect-drain",
+            category: .temporaryUnavailable,
+            summary: "Some library views may be stale"
+        )
+        let projection = ActivityBuilder.makeProjection(from: makeInput(
+            libraryState: .failed("Library unavailable"),
+            mirrorEffectIssue: mirrorIssue
+        ))
+
+        #expect(projection.operationalIssues.count == 2)
+        #expect(projection.operationalIssues.last == mirrorIssue)
+    }
+
     private func track(id: String, genre: String?, year: Int?, status: String) -> Track {
         Track(id: id, name: id, artist: "Artist", album: "Album", genre: genre, year: year, trackStatus: status)
     }
@@ -539,6 +555,7 @@ struct ActivityBuilderTests {
         recovery: ActivityRecoverySummary? = nil,
         queuedWrite: ActivityQueuedWriteSummary? = nil,
         pendingVerification: ActivityPendingVerificationSummary? = nil,
+        mirrorEffectIssue: OperationalIssue? = nil,
         environment: InputEnvironment = InputEnvironment()
     ) -> ActivityProjectionInput {
         ActivityProjectionInput(
@@ -552,6 +569,7 @@ struct ActivityBuilderTests {
             recovery: recovery,
             queuedWrite: queuedWrite,
             pendingVerification: pendingVerification,
+            mirrorEffectIssue: mirrorEffectIssue,
             runLifecycle: environment.runLifecycle,
             isLibrarySyncAvailable: environment.isLibrarySyncAvailable,
             isAutomationArmed: false,

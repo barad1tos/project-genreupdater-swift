@@ -506,7 +506,6 @@ struct AlbumIdentityFlowTests {
         let cache = MockCacheService()
         await seedAlbumIdentityInvalidationCache(cache)
         let bridge = MusicAppTestAccess()
-        let coordinator = makeCoordinator(script: bridge, cache: cache)
         let track = makeTrack(
             id: "ram-1",
             artist: "Daft Punk feat. Pharrell Williams",
@@ -514,6 +513,7 @@ struct AlbumIdentityFlowTests {
             year: 2012,
             metadata: .init(originalArtist: "The Robots")
         )
+        let coordinator = makeCoordinator(script: bridge, cache: cache, trackStore: MockTrackStore(tracks: [track]))
 
         _ = try await coordinator.applyAcceptedChanges([
             acceptedYearChange(for: track, year: 2013),
@@ -544,13 +544,13 @@ struct AlbumIdentityFlowTests {
         let cache = MockCacheService()
         await seedOriginalArtistCleanedAlbumCache(cache)
         let bridge = MusicAppTestAccess()
-        let coordinator = makeCoordinator(script: bridge, cache: cache)
         let track = makeTrack(
             id: "ram-clean",
             artist: "Daft Punk feat. Pharrell Williams",
             album: "Random Access Memories (Deluxe Edition)",
             metadata: .init(originalArtist: "The Robots")
         )
+        let coordinator = makeCoordinator(script: bridge, cache: cache, trackStore: MockTrackStore(tracks: [track]))
 
         _ = try await coordinator.applyAcceptedChanges([
             acceptedAlbumCleaningChange(for: track, album: "Random Access Memories"),
@@ -611,7 +611,8 @@ struct AlbumIdentityFlowTests {
         idMapper: (any TrackIDMapping)? = nil,
         pendingVerification: (any PendingVerificationService)? = nil,
         runtimeConfiguration: UpdateRuntimeConfiguration = UpdateRuntimeConfiguration(),
-        disabledSources: Set<APISource> = []
+        disabledSources: Set<APISource> = [],
+        trackStore: MockTrackStore = MockTrackStore()
     ) -> UpdateCoordinator {
         let api = makeAPIOrchestrator(
             musicBrainz: apiService,
@@ -622,12 +623,13 @@ struct AlbumIdentityFlowTests {
         )
         let undoDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AlbumIdentityFlowTests-\(UUID().uuidString)")
+        let effectDrain = makeTestEffectDrain(store: trackStore, cache: cache)
         return UpdateCoordinator(
             dependencies: UpdateDependencies(
                 apiOrchestrator: api,
                 writer: script,
                 stores: .init(
-                    trackStore: MockTrackStore(),
+                    trackStore: trackStore,
                     cache: cache
                 ),
                 undoCoordinator: UndoCoordinator(
@@ -635,7 +637,8 @@ struct AlbumIdentityFlowTests {
                     directory: undoDirectory
                 ),
                 idMapper: idMapper,
-                pendingVerificationService: pendingVerification
+                pendingVerificationService: pendingVerification,
+                effectDrain: effectDrain
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),

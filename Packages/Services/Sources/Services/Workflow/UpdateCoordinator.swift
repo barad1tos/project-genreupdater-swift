@@ -32,6 +32,7 @@ public actor UpdateCoordinator {
     var librarySnapshotService: (any LibrarySnapshotService)?
     let pendingVerificationService: (any PendingVerificationService)?
     let analytics: (any AnalyticsService)?
+    let effectDrain: MirrorEffectDrain?
     let genreDeterminator: GenreDeterminator
     var yearDeterminator: YearDeterminator
     var runtimeConfiguration: UpdateRuntimeConfiguration
@@ -57,6 +58,7 @@ public actor UpdateCoordinator {
         librarySnapshotService = dependencies.librarySnapshotService
         pendingVerificationService = dependencies.pendingVerificationService
         analytics = dependencies.analytics
+        effectDrain = dependencies.effectDrain
         self.genreDeterminator = genreDeterminator
         self.yearDeterminator = yearDeterminator
         self.runtimeConfiguration = runtimeConfiguration

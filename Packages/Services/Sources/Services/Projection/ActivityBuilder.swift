@@ -215,22 +215,22 @@ public enum ActivityBuilder {
     }
 
     private static func makeOperationalIssues(from input: ActivityProjectionInput) -> [OperationalIssue] {
+        var issues: [OperationalIssue] = []
         if shouldShowRecoveryNotice(input: input) {
-            return [OperationalIssue(
+            issues.append(OperationalIssue(
                 id: "recovery-needed",
                 category: .recoveryRequired,
                 summary: "Previous run needs recovery",
                 technicalDetail: input.recovery?.latestRecoveryRunID
-            )]
+            ))
+        } else if let issue = input.libraryState.operationalIssue {
+            issues.append(issue)
+        } else if let syncIssue = input.effectiveSyncState.operationalIssue {
+            issues.append(syncIssue)
         }
-
-        if let issue = input.libraryState.operationalIssue {
-            return [issue]
+        if let mirrorEffectIssue = input.mirrorEffectIssue {
+            issues.append(mirrorEffectIssue)
         }
-
-        if let syncIssue = input.effectiveSyncState.operationalIssue {
-            return [syncIssue]
-        }
-        return []
+        return issues
     }
 }

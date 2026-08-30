@@ -127,3 +127,29 @@ actor RunServiceFactory {
         return try encoder.encode(configuration)
     }
 }
+
+extension AppDependencies {
+    func makeLibrarySyncService(
+        bridge: AppleScriptBridge,
+        store: any TrackStateStore,
+        effectDrain: MirrorEffectDrain?
+    ) throws -> LibrarySyncService {
+        try LibrarySyncService(
+            trackStore: store,
+            effectDrain: effectDrain,
+            pendingVerificationService: pendingVerificationService,
+            librarySnapshotService: librarySnapshotService,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config),
+            observer: MusicAppObserver(bridge: bridge)
+        )
+    }
+
+    func makeBatchProcessor(checkpoint: CheckpointManager, gate: FeatureGate) -> BatchProcessor {
+        BatchProcessor(
+            checkpointManager: checkpoint,
+            featureGate: gate,
+            processingConfiguration: BatchProcessingConfiguration(configuration: config),
+            analytics: analyticsService
+        )
+    }
+}

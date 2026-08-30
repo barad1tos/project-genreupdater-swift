@@ -17,9 +17,11 @@ actor MockTrackStore: TrackStateStore {
     private var shouldCancelReads = false
     private var shouldFailMirror = false
     private var appliedUpdateHook: (@Sendable () throws -> Void)?
+    private var pendingEffects: [PendingMirrorEffect] = []
 
-    init(revision: MirrorRevision = .initial) {
+    init(revision: MirrorRevision = .initial, tracks: [Track] = []) {
         self.revision = revision
+        self.tracks = tracks
     }
 
     func failAppliedUpdates() {
@@ -72,6 +74,7 @@ actor MockTrackStore: TrackStateStore {
             }
         }
         revision = nextRevision
+        enqueue(commit.effects, revision: revision)
         return try MirrorCommitResult(
             revision: revision,
             snapshot: mirrorSnapshot(revision: revision, tracks: tracks, certificates: certificates)
@@ -89,9 +92,18 @@ actor MockTrackStore: TrackStateStore {
         if shouldFailMirror {
             throw MockScriptError.intentional
         }
+        let currentTrack: Track
+        let updatedTrack: Track
         if let trackIndex = tracks.firstIndex(where: { $0.id == change.trackID }) {
-            tracks[trackIndex] = try tracks[trackIndex].applying(change)
+            currentTrack = tracks[trackIndex]
+            updatedTrack = try currentTrack.applying(change)
+            tracks[trackIndex] = updatedTrack
+        } else {
+            currentTrack = trackBeforeApplying(change)
+            updatedTrack = try currentTrack.applying(change)
         }
+        let nextRevision = try revision.advanced()
+        enqueue(MirrorEffect.forTrackTransition(from: currentTrack, to: updatedTrack), revision: nextRevision)
         appliedUpdates.append(AppliedTrackUpdate(
             id: change.trackID,
             genreUpdated: change.changeType == .genreUpdate ? true : nil,
@@ -100,6 +112,14 @@ actor MockTrackStore: TrackStateStore {
         try appliedUpdateHook?()
         revision = try revision.advanced()
         return revision
+    }
+
+    func pendingMirrorEffects() async throws -> [PendingMirrorEffect] {
+        pendingEffects
+    }
+
+    func completeMirrorEffect(id: UUID) async throws {
+        pendingEffects.removeAll { $0.id == id }
     }
 
     func commitObservedChange(_ change: ChangeLogEntry) async throws -> MirrorRevision {
@@ -120,5 +140,24 @@ actor MockTrackStore: TrackStateStore {
 
     func trackCount() async throws -> Int {
         tracks.count
+    }
+
+    private func enqueue(_ effects: [MirrorEffect], revision: MirrorRevision) {
+        pendingEffects.append(contentsOf: effects.enumerated().map { sequence, effect in
+            PendingMirrorEffect(id: UUID(), revision: revision, sequence: sequence, effect: effect)
+        })
+    }
+
+    private func trackBeforeApplying(_ change: ChangeLogEntry) -> Track {
+        Track(
+            id: change.trackID,
+            name: change.oldTrackName ?? change.trackName,
+            artist: change.oldArtist ?? change.artist,
+            album: change.oldAlbumName ?? change.albumName,
+            genre: change.oldGenre,
+            year: change.oldYear,
+            albumArtist: change.albumArtistChange?.oldValue,
+            appleScriptID: change.trackID
+        )
     }
 }

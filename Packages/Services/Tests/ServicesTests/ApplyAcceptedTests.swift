@@ -473,8 +473,8 @@ struct ApplyAcceptedTests {
         ) == nil)
     }
 
-    @Test("Reviewed year writes invalidate cleaned album cache aliases")
-    func reviewedYearWritesInvalidateCleanedAlbumCacheAliases() async throws {
+    @Test("Reviewed year writes invalidate only durable album aliases")
+    func reviewedYearWritesInvalidateOnlyDurableAlbumAliases() async throws {
         let fixture = await makeCoordinator()
         let track = makeEditableTrack(
             id: "MK1",
@@ -511,12 +511,12 @@ struct ApplyAcceptedTests {
         #expect(written.map(\.property) == [.year])
         #expect(result.entries.map(\.changeType) == [.yearUpdate])
         #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: track.album) == nil)
-        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: "Album") == nil)
+        #expect(await fixture.cache.getAlbumYear(artist: track.artist, album: "Album")?.year == 2001)
         #expect(await fixture.cache.getCachedAPIResult(
             artist: track.artist,
             album: "Album",
             source: "MusicBrainz"
-        ) == nil)
+        )?.year == 2001)
     }
 
     @Test("Batch failure falls back to single reviewed writes")

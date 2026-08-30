@@ -19,6 +19,7 @@ extension AppDependencies {
             await applyRuntimeConfigurationAndWait()
             await publishSettingsProjection()
             _ = await refreshFixPlanProjection()
+            _ = await republishActivityProjection()
             _ = await refreshChromeProjection()
         }
         runtimeApplyQueue = queued
@@ -66,6 +67,12 @@ extension AppDependencies {
             log.error("Pending-verification initialization failed: \(error.localizedDescription, privacy: .public)")
         }
         await cacheService?.updatePolicy(configuration: handoff.cacheConfiguration)
+        await mirrorEffectDrain?.updateTargets(
+            cache: cacheService,
+            snapshot: handoff.snapshotService,
+            projections: mirrorProjectionOutput
+        )
+        await drainMirrorEffectsReportingFailure()
         await applescriptBridge?.updateConfiguration(handoff.appleScriptConfiguration)
         await applescriptBridge?.updateLibraryPath(handoff.libraryPath)
         await librarySyncService?.updateRuntimeConfiguration(

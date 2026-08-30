@@ -103,7 +103,8 @@ final class AppDependencies {
     }
     @ObservationIgnored let libraryLoadGate = RequestTokenGate()
     @ObservationIgnored let analyticsReportGate = RequestTokenGate()
-    /// Host-registered post-load hook (scope preview) until slice 12.
+    /// Replay-safe current-facts hook; the full-load hook may start non-idempotent work.
+    @ObservationIgnored var onMirrorFactsApplied: (@MainActor ([Track]) -> Void)?
     @ObservationIgnored var onLibraryLoadApplied: (@MainActor ([Track]) -> Void)?
     /// Browse truth application stays host-owned (row-index pairing is
     /// view state); the chain hands it the landed tracks + read source.
@@ -134,7 +135,7 @@ final class AppDependencies {
     private(set) var pendingVerificationService: (any PendingVerificationService)?
     private(set) var cacheService: GRDBCacheService?
     private(set) var trackStore: (any TrackStateStore)?
-    private(set) var changeLogStore: ChangeLogDataStore?
+    private(set) var changeLogStore: (any ChangeLogStore)?
     private(set) var metricsSnapshotStore: MetricsSnapshotStore?
     private(set) var modelContainer: ModelContainer?
     private(set) var genreDeterminator: GenreDeterminator?
@@ -151,6 +152,9 @@ final class AppDependencies {
     private(set) var runRecordStore: (any RunRecordStore)?
     private(set) var fixPlanStore: (any FixPlanStore)?
     private(set) var librarySnapshotService: (any LibrarySnapshotService)?
+    var mirrorEffectDrain: MirrorEffectDrain?
+    @ObservationIgnored var mirrorProjectionOutput: AppMirrorProjectionOutput?
+    var mirrorEffectDrainIssue: OperationalIssue?
     private(set) var analyticsService: AnalyticsRecorder?
     private let analyticsSessionID = UUID()
     private(set) var maintenanceCoordinator: MaintenanceCoordinator?
@@ -406,7 +410,7 @@ final class AppDependencies {
     // MARK: - Initialization Helpers
 
     /// Step 5: Set up SwiftData and GRDB persistence layers.
-    private func initializePersistence(cacheConfiguration: AppConfiguration) async throws {
+    func initializePersistence(cacheConfiguration: AppConfiguration) async throws {
         let container: ModelContainer
         if let existing = modelContainer {
             container = existing
@@ -436,6 +440,7 @@ final class AppDependencies {
         try await cache.initialize()
         cacheService = cache
         librarySnapshotService = Self.makeSnapshotService(cache: cache, configuration: cacheConfiguration)
+        await installMirrorEffectDrain(store: store, cache: cache)
         let analyticsRecorder = AnalyticsRecorder(
             store: cache,
             configuration: cacheConfiguration.analytics,
@@ -507,9 +512,7 @@ final class AppDependencies {
 
     /// Step 8: Wire workflow services that depend on persistence, algorithms, and the script bridge.
     private func initializeWorkflowServices(bridge: AppleScriptBridge, gate: FeatureGate) async throws {
-        let checkpoint = CheckpointManager()
-        checkpointManager = checkpoint
-        await installIncrementalRunTracker()
+        let checkpoint = await prepareWorkflowCheckpoint()
 
         guard let logStore = changeLogStore,
               let store = trackStore,
@@ -530,6 +533,7 @@ final class AppDependencies {
             idMapper: mapper,
             stores: Self.makeUndoStores(changeLogStore: logStore, trackStore: store, cache: cache),
             librarySnapshotService: librarySnapshotService,
+            effectDrain: mirrorEffectDrain,
             cleaning: config.cleaning
         )
         await undo.initialize()
@@ -544,7 +548,8 @@ final class AppDependencies {
                 idMapper: mapper,
                 librarySnapshotService: librarySnapshotService,
                 pendingVerificationService: pendingVerificationService,
-                analytics: analyticsService
+                analytics: analyticsService,
+                effectDrain: mirrorEffectDrain
             ),
             genreDeterminator: genreDeterm,
             yearDeterminator: yearDeterm,
@@ -557,7 +562,7 @@ final class AppDependencies {
         let syncService = try makeLibrarySyncService(
             bridge: bridge,
             store: store,
-            cache: cache
+            effectDrain: mirrorEffectDrain
         )
         librarySyncService = syncService
         let createdRunOrchestrator = makeRunOrchestrator(
@@ -576,28 +581,11 @@ final class AppDependencies {
         changePreviewPipeline = ChangePreviewPipeline()
     }
 
-    private func makeLibrarySyncService(
-        bridge: AppleScriptBridge,
-        store: any TrackStateStore,
-        cache: any CacheService
-    ) throws -> LibrarySyncService {
-        try LibrarySyncService(
-            trackStore: store,
-            cache: cache,
-            pendingVerificationService: pendingVerificationService,
-            librarySnapshotService: librarySnapshotService,
-            runtimeConfiguration: LibrarySyncRuntimeConfiguration(configuration: config),
-            observer: MusicAppObserver(bridge: bridge)
-        )
-    }
-
-    private func makeBatchProcessor(checkpoint: CheckpointManager, gate: FeatureGate) -> BatchProcessor {
-        BatchProcessor(
-            checkpointManager: checkpoint,
-            featureGate: gate,
-            processingConfiguration: BatchProcessingConfiguration(configuration: config),
-            analytics: analyticsService
-        )
+    private func prepareWorkflowCheckpoint() async -> CheckpointManager {
+        let checkpoint = CheckpointManager()
+        checkpointManager = checkpoint
+        await installIncrementalRunTracker()
+        return checkpoint
     }
 
     func refreshFixPlanProjection() async -> FixPlanProjection {
@@ -608,10 +596,13 @@ final class AppDependencies {
         } catch {
             projection = .unavailable(message: error.localizedDescription)
         }
-        return await projectionStore.replaceFixPlanProjection(
-            projection,
-            inputGeneration: inputGeneration
-        )
+        return await projectionStore.replaceFixPlanProjection(projection, inputGeneration: inputGeneration)
+    }
+
+    func refreshFixPlanFromStore() async throws -> FixPlanProjection {
+        let inputGeneration = await projectionStore.nextFixPlanInputGeneration()
+        let projection = try await latestFixPlanProjection()
+        return await projectionStore.replaceFixPlanProjection(projection, inputGeneration: inputGeneration)
     }
 
     private func latestFixPlanProjection() async throws -> FixPlanProjection {
@@ -762,9 +753,20 @@ extension AppDependencies {
         self.runRecordStore = runRecordStore
         self.fixPlanStore = fixPlanStore
         cacheService = cache
+        if let trackStore, let cache {
+            let projectionOutput = AppMirrorProjectionOutput(dependencies: self)
+            mirrorProjectionOutput = projectionOutput
+            mirrorEffectDrain = MirrorEffectDrain(
+                store: trackStore,
+                cache: cache,
+                snapshot: librarySnapshotService,
+                projections: projectionOutput,
+                reporter: AppMirrorEffectReporter(dependencies: self)
+            )
+        }
     }
 
-    func installTestChangeLogStore(_ store: ChangeLogDataStore) {
+    func installTestChangeLogStore(_ store: any ChangeLogStore) {
         changeLogStore = store
     }
 

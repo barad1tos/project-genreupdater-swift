@@ -215,6 +215,62 @@ enum MirrorSyncRecordValidationError: Error, Equatable, Sendable {
     case inconsistentCompleteness
 }
 
+/// Closed set of idempotent work that must follow a committed mirror revision.
+public enum MirrorEffect: Equatable, Sendable {
+    case invalidateAlbumYear(AlbumIdentity)
+    case invalidateAPIResults(AlbumIdentity)
+    case invalidateSnapshot
+    case refreshProjections
+}
+
+extension MirrorEffect {
+    /// Derives the closed invalidation set for one durable track transition.
+    public static func forTrackTransition(from current: Track, to updated: Track) -> [MirrorEffect] {
+        var seenKeys: Set<String> = []
+        let identities = [current, updated]
+            .flatMap { track -> [AlbumIdentity] in
+                var albums = [track.album]
+                if let originalAlbum = track.originalAlbum {
+                    albums.append(originalAlbum)
+                }
+                return albums.flatMap { album in
+                    var albumTrack = track
+                    albumTrack.album = album
+                    var identities = AlbumIdentity.lookupCandidates(for: albumTrack)
+                    if let originalArtist = track.originalArtist {
+                        identities.append(contentsOf: AlbumIdentity.lookupCandidates(
+                            artist: originalArtist,
+                            album: album
+                        ))
+                    }
+                    return identities
+                }
+            }
+            .filter { seenKeys.insert($0.key).inserted }
+        return identities.flatMap { identity in
+            [
+                .invalidateAlbumYear(identity),
+                .invalidateAPIResults(identity),
+            ]
+        } + [.invalidateSnapshot, .refreshProjections]
+    }
+}
+
+/// Durable delivery metadata assigned atomically by the track state store.
+public struct PendingMirrorEffect: Equatable, Sendable {
+    public let id: UUID
+    public let revision: MirrorRevision
+    public let sequence: Int
+    public let effect: MirrorEffect
+
+    public init(id: UUID, revision: MirrorRevision, sequence: Int, effect: MirrorEffect) {
+        self.id = id
+        self.revision = revision
+        self.sequence = sequence
+        self.effect = effect
+    }
+}
+
 /// An atomic mirror mutation accepted only when its base revision and certificate transition are valid.
 public struct MirrorCommit: Sendable {
     public let baseRevision: MirrorRevision
@@ -223,6 +279,7 @@ public struct MirrorCommit: Sendable {
     public let repairs: [TrackMirrorRepair]
     public let upserts: [Track]
     public let certificates: CertificateChange
+    public let effects: [MirrorEffect]
     public let syncRecord: MirrorSyncRecord?
     public let syncRecordLimit: Int?
 
@@ -233,6 +290,7 @@ public struct MirrorCommit: Sendable {
         repairs: [TrackMirrorRepair],
         upserts: [Track],
         certificates: CertificateChange,
+        effects: [MirrorEffect] = [],
         syncRecord: MirrorSyncRecord? = nil,
         syncRecordLimit: Int? = nil
     ) {
@@ -242,6 +300,7 @@ public struct MirrorCommit: Sendable {
         self.repairs = repairs
         self.upserts = upserts
         self.certificates = certificates
+        self.effects = effects
         self.syncRecord = syncRecord
         self.syncRecordLimit = syncRecordLimit
     }
@@ -252,9 +311,11 @@ public struct MirrorCommitResult: Equatable, Sendable {
     public let revision: MirrorRevision
     /// Exact post-transaction mirror state returned atomically with the accepted revision.
     public let snapshot: TrackMirrorSnapshot
+    public let pendingEffectIDs: [UUID]
 
-    public init(revision: MirrorRevision, snapshot: TrackMirrorSnapshot) {
+    public init(revision: MirrorRevision, snapshot: TrackMirrorSnapshot, pendingEffectIDs: [UUID] = []) {
         self.revision = revision
         self.snapshot = snapshot
+        self.pendingEffectIDs = pendingEffectIDs
     }
 }

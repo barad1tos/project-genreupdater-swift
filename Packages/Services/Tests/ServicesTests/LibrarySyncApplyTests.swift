@@ -11,6 +11,17 @@ private struct PrereleaseFixture {
 
 @Suite("LibrarySyncService - applying detected changes")
 struct LibrarySyncApplyTests {
+    @Test("Sync succeeds and completes prerelease bookkeeping when effect delivery fails")
+    func syncSurvivesEffectFailure() async throws {
+        let fixture = await makePrereleaseFixture(currentStatus: .subscription, hasEffectTargets: false)
+
+        let result = try await fixture.service.synchronizeNow(forceMetadataRefresh: true)
+
+        #expect(result.modifiedTracks.map(\.id) == ["PRE"])
+        #expect(await fixture.pendingVerification.removedAlbums.count == 1)
+        #expect(try await fixture.store.pendingMirrorEffects().isEmpty == false)
+    }
+
     @Test("No changes detected returns empty result")
     func noChanges() async throws {
         let bridge = SyncMockScriptClient()
@@ -155,7 +166,7 @@ struct LibrarySyncApplyTests {
 
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             observer: bridge
         )
@@ -169,7 +180,10 @@ struct LibrarySyncApplyTests {
         #expect(wasCleared)
     }
 
-    private func makePrereleaseFixture(currentStatus: TrackKind) async -> PrereleaseFixture {
+    private func makePrereleaseFixture(
+        currentStatus: TrackKind,
+        hasEffectTargets: Bool = true
+    ) async -> PrereleaseFixture {
         let bridge = SyncMockScriptClient()
         let store = SyncMockTrackStore()
         let pendingVerification = PendingVerificationProbe(
@@ -201,8 +215,12 @@ struct LibrarySyncApplyTests {
         await bridge.setLibrary(ids: ["PRE"], tracks: ["PRE": currentTrack])
         await store.setStored([storedTrack])
 
+        let effectDrain = hasEffectTargets
+            ? nil
+            : MirrorEffectDrain(store: store, cache: nil, snapshot: nil, projections: nil)
         let service = LibrarySyncService(
             trackStore: store,
+            effectDrain: effectDrain,
             pendingVerificationService: pendingVerification,
             observer: bridge
         )

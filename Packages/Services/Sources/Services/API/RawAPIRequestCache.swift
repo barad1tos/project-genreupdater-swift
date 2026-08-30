@@ -73,7 +73,13 @@ public struct RawAPIRequestCache: Sendable {
                 }
                 return payload
             }
-            await cache.invalidate(key: key)
+            do {
+                try await cache.invalidate(key: key)
+            } catch {
+                log.warning(
+                    "Expired raw API cache entry could not be removed for \(api, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                )
+            }
         }
 
         let payload = try await fetch()

@@ -72,6 +72,11 @@ enum WritePreflightDecision {
 }
 
 extension UpdateCoordinator {
+    enum EffectDelivery {
+        case immediate
+        case deferred
+    }
+
     @discardableResult
     func applyChange(
         _ change: ProposedChange,
@@ -94,7 +99,6 @@ extension UpdateCoordinator {
         case let .write(write):
             return try await applyPreparedWrite(write, checkpoint: checkpoint)
         case let .noOp(preparedChange, databaseID):
-            await invalidateCaches(for: change)
             try await checkpoint?(.afterVerification(
                 [change.id: .noFixNeeded],
                 writeChanges: [change.id: preparedChange.workChange]
@@ -152,7 +156,6 @@ extension UpdateCoordinator {
         try await checkpoint?(.beforeAttempt([write.change.id: write.writeChange]))
         let result = try await dispatchWrite(write, checkpoint: checkpoint)
         guard result == .changed else {
-            await invalidateCaches(for: write.change)
             try await checkpoint?(.afterVerification(
                 [write.change.id: .noFixNeeded],
                 writeChanges: [write.change.id: write.writeChange]
@@ -355,7 +358,8 @@ extension UpdateCoordinator {
 
     func recordAppliedChange(
         _ change: ProposedChange,
-        databaseID: MusicDatabaseTrackID
+        databaseID: MusicDatabaseTrackID,
+        effectDelivery: EffectDelivery = .immediate
     ) async throws -> ChangeLogEntry {
         let entry = attributed(Self.changeToLogEntry(change, databaseID: databaseID))
         do {
@@ -372,7 +376,9 @@ extension UpdateCoordinator {
                 effects: ["track mirror", "change history"]
             )
         }
-        await invalidateCaches(for: change)
+        if effectDelivery == .immediate {
+            await effectDrain?.drain()
+        }
         log.info(
             "Applied \(change.changeType.rawValue, privacy: .public) to track \(databaseID.rawValue, privacy: .private)"
         )
@@ -381,7 +387,8 @@ extension UpdateCoordinator {
 
     func recordObservedChange(
         _ change: ProposedChange,
-        databaseID: MusicDatabaseTrackID
+        databaseID: MusicDatabaseTrackID,
+        effectDelivery: EffectDelivery = .immediate
     ) async throws -> ChangeLogEntry {
         let entry = Self.noOpLogEntry(change, databaseID: databaseID)
         do {
@@ -397,7 +404,9 @@ extension UpdateCoordinator {
                 effects: ["track mirror"]
             )
         }
-        await invalidateCaches(for: change)
+        if effectDelivery == .immediate {
+            await effectDrain?.drain()
+        }
         logNoOp(change)
         return entry
     }

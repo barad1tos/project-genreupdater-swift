@@ -4,6 +4,31 @@ import Testing
 @testable import Services
 
 extension ApplyAcceptedTests {
+    @Test("Accepted write succeeds and keeps undo evidence when effect delivery fails")
+    func acceptedWriteSurvivesEffectFailure() async throws {
+        let fixture = await makeCoordinator(hasEffectTargets: false)
+        let track = makeEditableTrack(id: "T1", genre: "Rock", year: 1999)
+        let change = ProposedChange(
+            track: track,
+            changeType: .genreUpdate,
+            oldValue: "Rock",
+            newValue: "Metal",
+            confidence: 90,
+            source: "Library",
+            isAccepted: true
+        )
+
+        let result = try await fixture.coordinator.applyAcceptedChanges(
+            [change],
+            progressHandler: ignoreAcceptedChangeProgress
+        )
+
+        #expect(result.entries.count == 1)
+        #expect(await fixture.bridge.writtenProperties.count == 1)
+        #expect(await fixture.undo.getHistory().count == 1)
+        #expect(try await fixture.trackStore.pendingMirrorEffects().isEmpty == false)
+    }
+
     @Test("Single-write finalization failures keep the written outcome")
     func singlePersistenceFailure() async throws {
         let fixture = await makeCoordinator()

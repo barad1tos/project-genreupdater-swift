@@ -398,3 +398,22 @@ enum StoreSchemaV7: VersionedSchema {
         PersistedSyncRecord.self,
     ]
 }
+
+enum StoreSchemaV8: VersionedSchema {
+    static let versionIdentifier = Schema.Version(8, 0, 0)
+
+    static let models: [any PersistentModel.Type] = StoreSchemaV7.models + [
+        PersistedMirrorEffect.self,
+    ]
+}
+
+enum StoreSchemaMigrationPlan: SchemaMigrationPlan {
+    static let schemas: [any VersionedSchema.Type] = [
+        StoreSchemaV7.self,
+        StoreSchemaV8.self,
+    ]
+
+    static let stages: [MigrationStage] = [
+        .lightweight(fromVersion: StoreSchemaV7.self, toVersion: StoreSchemaV8.self),
+    ]
+}

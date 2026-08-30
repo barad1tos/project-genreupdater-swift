@@ -5,6 +5,33 @@ import Testing
 @testable import Services
 
 extension TrackDataTests {
+    @Test("Applied change enqueues derived effects once with its revision")
+    func appliedChangeEnqueuesEffectsOnce() async throws {
+        let store = try TrackDataStore.createInMemory()
+        try await store.initialize()
+        try await store.seedMirror([sampleTrack()])
+        let change = appliedChange(type: .artistRename)
+
+        let revision = try await store.commitAppliedChange(change)
+        let firstPending = try await store.pendingMirrorEffects()
+        let repeatedRevision = try await store.commitAppliedChange(change)
+
+        let oldIdentity = AlbumIdentity(artist: "Test Artist", album: "Test Album")
+        let newIdentity = AlbumIdentity(artist: "Canonical Artist", album: "Test Album")
+        #expect(revision == MirrorRevision(value: 2))
+        #expect(repeatedRevision == revision)
+        #expect(firstPending.map(\.revision) == Array(repeating: revision, count: 6))
+        #expect(firstPending.map(\.effect) == [
+            .invalidateAlbumYear(oldIdentity),
+            .invalidateAPIResults(oldIdentity),
+            .invalidateAlbumYear(newIdentity),
+            .invalidateAPIResults(newIdentity),
+            .invalidateSnapshot,
+            .refreshProjections,
+        ])
+        #expect(try await store.pendingMirrorEffects() == firstPending)
+    }
+
     @Test("Distinct applied events with the same effect advance separately")
     func commitsDistinctEvents() async throws {
         let container = try ModelContainerFactory.createInMemory()

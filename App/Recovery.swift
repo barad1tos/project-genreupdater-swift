@@ -348,9 +348,11 @@ extension AppDependencies {
         for entry in writtenEntries {
             _ = try await trackStore.commitAppliedChange(entry)
             await undoCoordinator?.recordCommittedChange(entry)
+            await mirrorEffectDrain?.drain()
         }
         for entry in noOpEntries {
             _ = try await trackStore.commitObservedChange(entry)
+            await mirrorEffectDrain?.drain()
         }
         let clearedRecord = try record.clearingRecoveryObservationIssues()
         if clearedRecord != record {

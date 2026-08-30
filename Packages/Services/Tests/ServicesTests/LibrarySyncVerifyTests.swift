@@ -323,7 +323,7 @@ struct LibrarySyncVerifyTests {
         await store.rejectNextMirrorCommits(2)
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             pendingVerificationService: pending,
             librarySnapshotService: snapshotService,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
@@ -367,7 +367,7 @@ struct LibrarySyncVerifyTests {
 
         let service = LibrarySyncService(
             trackStore: store,
-            cache: cache,
+            effectDrain: makeSyncEffectDrain(store: store, cache: cache, snapshotService: snapshotService),
             librarySnapshotService: snapshotService,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 logsBaseDirectory: logDirectory.path,
@@ -511,6 +511,51 @@ struct LibrarySyncVerifyTests {
         let requests = await bridge.recordedObservationRequests()
         #expect(requests.count == 1)
         #expect(requests.first?.refresh == .membershipOnly)
+    }
+
+    @Test("Out-of-scope removal evicts caches without metadata or provider work")
+    func outOfScopeRemovalDoesNotFetchMetadata() async throws {
+        let bridge = SyncMockScriptClient()
+        let store = SyncMockTrackStore()
+        let cache = MockCacheService()
+        let snapshotService = SyncMockLibrarySnapshotService()
+        let projections = SyncProjectionOutput()
+        let removedTrack = Track(
+            id: "OUTSIDE",
+            name: "Gone",
+            artist: "Outside Artist",
+            album: "Outside Album"
+        )
+        await bridge.setLibrary(ids: ["TARGET"], tracks: [:])
+        await store.setStored([
+            Track(id: "TARGET", name: "Kept", artist: "Target Artist", album: "Target Album"),
+            removedTrack,
+        ])
+        await seedSyncCaches(cache, artist: removedTrack.artist, album: removedTrack.album)
+        let drain = makeSyncEffectDrain(
+            store: store,
+            cache: cache,
+            snapshotService: snapshotService,
+            projections: projections
+        )
+        let service = LibrarySyncService(
+            trackStore: store,
+            effectDrain: drain,
+            librarySnapshotService: snapshotService,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(testArtists: ["Target Artist"]),
+            observer: bridge
+        )
+
+        let result = try await service.verifyAndCleanDatabase(force: true)
+
+        #expect(result.removedTrackIDs == ["OUTSIDE"])
+        #expect(try await store.loadMirrorSnapshot().presentTracks.map(\.id) == ["TARGET"])
+        await expectSyncCachesInvalidated(cache, artist: removedTrack.artist, album: removedTrack.album)
+        #expect(await snapshotService.wasCleared())
+        #expect(await projections.numberOfRefreshes() == 1)
+        let requests = await bridge.recordedObservationRequests()
+        #expect(requests.map(\.refresh) == [.membershipOnly])
+        #expect(await bridge.recordedMetadataRequestIDs() == [[]])
     }
 }
 

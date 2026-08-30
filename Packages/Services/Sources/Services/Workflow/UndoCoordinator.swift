@@ -17,6 +17,7 @@ public actor UndoCoordinator {
     let changeLogStore: (any ChangeLogStore)?
     let trackStore: (any TrackStateStore)?
     let cache: (any CacheService)?
+    let effectDrain: MirrorEffectDrain?
     var librarySnapshotService: (any LibrarySnapshotService)?
     var cleaning: CleaningConfig?
     var history: [ChangeLogEntry]
@@ -31,6 +32,7 @@ public actor UndoCoordinator {
         idMapper: (any TrackIDMapping)? = nil,
         stores: Stores,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
+        effectDrain: MirrorEffectDrain? = nil,
         cleaning: CleaningConfig? = nil,
         directory: URL? = nil
     ) {
@@ -39,6 +41,7 @@ public actor UndoCoordinator {
         self.changeLogStore = stores.changeLog
         self.trackStore = stores.tracks
         self.cache = stores.cache
+        self.effectDrain = effectDrain
         self.librarySnapshotService = librarySnapshotService
         self.cleaning = cleaning
         self.fileManager = .default
@@ -55,6 +58,7 @@ public actor UndoCoordinator {
         changeLogStore: (any ChangeLogStore)? = nil,
         cache: (any CacheService)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
+        effectDrain: MirrorEffectDrain? = nil,
         cleaning: CleaningConfig? = nil,
         directory: URL? = nil
     ) {
@@ -63,6 +67,7 @@ public actor UndoCoordinator {
             idMapper: idMapper,
             stores: Stores(changeLog: changeLogStore, cache: cache),
             librarySnapshotService: librarySnapshotService,
+            effectDrain: effectDrain,
             cleaning: cleaning,
             directory: directory
         )
@@ -303,7 +308,7 @@ public actor UndoCoordinator {
                 effects: ["track mirror"]
             )
         }
-        await invalidateCaches(for: change)
+        await effectDrain?.drain()
         _ = try backupCheckpoint(
             for: change.track.id,
             writing: (checkpointEntry, (.completed, historyEntryID, recoveryOriginYear)),
@@ -635,7 +640,7 @@ public actor UndoCoordinator {
                 )
             }
         }
-        await invalidateCaches(for: change)
+        await effectDrain?.drain()
         _ = try backupCheckpoint(for: databaseID.rawValue, shouldRemove: true)
     }
 

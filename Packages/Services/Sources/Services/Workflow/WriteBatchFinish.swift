@@ -153,7 +153,8 @@ extension UpdateCoordinator {
                 do {
                     let entry = try await recordObservedChange(
                         preparedWrite.change,
-                        databaseID: preparedWrite.databaseID
+                        databaseID: preparedWrite.databaseID,
+                        effectDelivery: .deferred
                     )
                     noOpEntries.append(entry)
                 } catch {
@@ -174,7 +175,8 @@ extension UpdateCoordinator {
                 do {
                     let entry = try await recordAppliedChange(
                         preparedWrite.change,
-                        databaseID: preparedWrite.databaseID
+                        databaseID: preparedWrite.databaseID,
+                        effectDelivery: .deferred
                     )
                     entries.append(entry)
                 } catch {
@@ -184,6 +186,7 @@ extension UpdateCoordinator {
                 assertionFailure("Unexpected terminal batch work outcome")
             }
         }
+        await effectDrain?.drainBatchEffects()
         if let firstFinalizationError {
             guard !entries.isEmpty else { throw firstFinalizationError }
             throw PartialWriteError(
@@ -283,7 +286,8 @@ extension UpdateCoordinator {
                 do {
                     let entry = try await recordAppliedChange(
                         write.change,
-                        databaseID: write.databaseID
+                        databaseID: write.databaseID,
+                        effectDelivery: .deferred
                     )
                     trackIDs.insert(entry.trackID)
                 } catch {
@@ -291,7 +295,11 @@ extension UpdateCoordinator {
                 }
             case .noFixNeeded:
                 do {
-                    _ = try await recordObservedChange(write.change, databaseID: write.databaseID)
+                    _ = try await recordObservedChange(
+                        write.change,
+                        databaseID: write.databaseID,
+                        effectDelivery: .deferred
+                    )
                 } catch {
                     firstFinalizationError = firstFinalizationError ?? error
                 }
@@ -301,6 +309,7 @@ extension UpdateCoordinator {
                 assertionFailure("Unexpected unconfirmed batch work outcome")
             }
         }
+        await effectDrain?.drainBatchEffects()
         return (trackIDs, firstFinalizationError)
     }
 }

@@ -11,6 +11,7 @@ actor SyncMockScriptClient: MusicAppReading {
     private let observedAt: @Sendable () -> Date
     private var fetchAllTrackIDsError: AppleScriptBridgeError?
     private var observationRequests: [LibraryObservationRequest] = []
+    private var metadataRequestIDs: [Set<MusicDatabaseTrackID>] = []
     private var trackQueue: [[String: Track]] = []
 
     init(observedAt: @escaping @Sendable () -> Date = { .distantPast }) {
@@ -45,6 +46,7 @@ actor SyncMockScriptClient: MusicAppReading {
             scope: request.scope
         )
         let requestedMetadataIDs = request.metadataLookupIDs(in: allIDs, admittedIDs: currentIDs)
+        metadataRequestIDs.append(Set(requestedMetadataIDs))
         let rows = requestedMetadataIDs.compactMap { databaseID -> LibraryTrackRow? in
             guard let track = observedTracks[databaseID.rawValue] else { return nil }
             return Self.observationRow(track, databaseID: databaseID)
@@ -78,6 +80,10 @@ actor SyncMockScriptClient: MusicAppReading {
 
     func recordedObservationRequests() -> [LibraryObservationRequest] {
         observationRequests
+    }
+
+    func recordedMetadataRequestIDs() -> [Set<MusicDatabaseTrackID>] {
+        metadataRequestIDs
     }
 
     private static func generation() throws -> LibraryGeneration {
@@ -155,6 +161,7 @@ actor SyncMockTrackStore: TrackStateStore {
     private var certificates: [ScopeCertificate] = []
     private var revision = MirrorRevision.initial
     private var conflictsRemaining = 0
+    private var pendingEffects: [PendingMirrorEffect] = []
 
     func initialize() async throws {}
 
@@ -199,6 +206,15 @@ actor SyncMockTrackStore: TrackStateStore {
             }
         }
         revision = nextRevision
+        let enqueuedEffects = update.effects.enumerated().map { sequence, effect in
+            PendingMirrorEffect(
+                id: UUID(),
+                revision: revision,
+                sequence: sequence,
+                effect: effect
+            )
+        }
+        pendingEffects.append(contentsOf: enqueuedEffects)
         return try MirrorCommitResult(
             revision: revision,
             snapshot: mirrorSnapshot(
@@ -206,8 +222,17 @@ actor SyncMockTrackStore: TrackStateStore {
                 tracks: storedTracks,
                 presentIDs: presentIDs,
                 certificates: certificates
-            )
+            ),
+            pendingEffectIDs: enqueuedEffects.map(\.id)
         )
+    }
+
+    func pendingMirrorEffects() async throws -> [PendingMirrorEffect] {
+        pendingEffects
+    }
+
+    func completeMirrorEffect(id: UUID) async throws {
+        pendingEffects.removeAll { $0.id == id }
     }
 
     func getTrack(byID id: String) async throws -> Track? {
@@ -350,6 +375,32 @@ actor SyncMockLibrarySnapshotService: LibrarySnapshotService {
     func failMetadataUpdates() {
         shouldFailMetadataUpdates = true
     }
+}
+
+actor SyncProjectionOutput: MirrorProjectionOutput {
+    private var refreshCount = 0
+
+    func refreshMirrorProjections() async throws {
+        refreshCount += 1
+    }
+
+    func numberOfRefreshes() -> Int {
+        refreshCount
+    }
+}
+
+func makeSyncEffectDrain(
+    store: SyncMockTrackStore,
+    cache: MockCacheService,
+    snapshotService: SyncMockLibrarySnapshotService,
+    projections: SyncProjectionOutput = SyncProjectionOutput()
+) -> MirrorEffectDrain {
+    MirrorEffectDrain(
+        store: store,
+        cache: cache,
+        snapshot: snapshotService,
+        projections: projections
+    )
 }
 
 private enum SyncSnapshotError: Error {

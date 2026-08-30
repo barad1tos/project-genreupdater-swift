@@ -1,8 +1,8 @@
 import Core
 import Foundation
-import Services
 import Testing
 @testable import Genre_Updater
+@testable import Services
 
 @Suite("Projection runtime library loading")
 @MainActor
@@ -306,6 +306,151 @@ struct ProjectionRuntimeLibraryTests {
         #expect(row.failed == 1)
     }
 
+    @Test("a superseding load prevents stale failure callbacks")
+    func dropsStaleFailureCallbacks() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let currentTrack = canonicalMirrorTrack(Core.Track(
+            id: "current",
+            name: "Current",
+            artist: "Clutch",
+            album: "Blast Tyrant"
+        ))
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(beforeLoad: {
+                throw MusicLibraryError.fetchFailed(detail: "stale mirror failure")
+            }),
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
+
+        var shouldSupersedeFailure = true
+        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
+            guard tracks.isEmpty, shouldSupersedeFailure else { return }
+            shouldSupersedeFailure = false
+            fixture.dependencies.invalidateLibraryLoads()
+            fixture.dependencies.configureLibraryPersistenceForTesting(
+                trackStore: MirrorTrackStoreStub(tracks: [currentTrack]),
+                librarySnapshotService: fixture.snapshotService,
+                runRecordStore: RunRecordStoreStub()
+            )
+            await fixture.dependencies.loadLibrary()
+        }
+        var mirrorFactApplications: [[String]] = []
+        fixture.dependencies.onMirrorFactsApplied = { tracks in
+            mirrorFactApplications.append(tracks.map(\.id))
+        }
+        var libraryLoadApplications: [[String]] = []
+        fixture.dependencies.onLibraryLoadApplied = { tracks in
+            libraryLoadApplications.append(tracks.map(\.id))
+        }
+
+        await fixture.dependencies.loadLibrary()
+
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["current"])
+        #expect(fixture.dependencies.libraryLoadError == nil)
+        #expect(mirrorFactApplications == [["current"]])
+        #expect(libraryLoadApplications == [["current"]])
+    }
+
+    @Test("an invalidated failure preserves existing facts")
+    func invalidatedFailureKeepsFacts() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let retainedTrack = canonicalMirrorTrack(Core.Track(
+            id: "retained",
+            name: "Retained",
+            artist: "Clutch",
+            album: "Blast Tyrant"
+        ))
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(tracks: [retainedTrack]),
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
+        await fixture.dependencies.loadLibrary()
+
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(beforeLoad: {
+                throw MusicLibraryError.fetchFailed(detail: "invalidated mirror failure")
+            }),
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
+        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
+            if tracks.isEmpty {
+                fixture.dependencies.invalidateLibraryLoads()
+            }
+        }
+        var mirrorFactApplications = 0
+        fixture.dependencies.onMirrorFactsApplied = { _ in mirrorFactApplications += 1 }
+        var libraryLoadApplications = 0
+        fixture.dependencies.onLibraryLoadApplied = { _ in libraryLoadApplications += 1 }
+
+        await fixture.dependencies.loadLibrary()
+
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["retained"])
+        #expect(fixture.dependencies.libraryLoadError == nil)
+        #expect(mirrorFactApplications == 0)
+        #expect(libraryLoadApplications == 0)
+    }
+
+    @Test("a superseding load during analytics drops stale failure facts")
+    func dropsPostAnalyticsFailure() async throws {
+        let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
+        let analyticsStore = BlockingAnalyticsStore()
+        var analyticsConfiguration = AnalyticsConfig()
+        analyticsConfiguration.enabled = true
+        let analytics = AnalyticsRecorder(
+            eventStore: analyticsStore,
+            configuration: analyticsConfiguration,
+            sessionID: UUID()
+        )
+        await analytics.initialize()
+        fixture.dependencies.installTestAnalyticsRecorder(analytics)
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(beforeLoad: {
+                throw MusicLibraryError.fetchFailed(detail: "stale analytics failure")
+            }),
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
+        var browseApplications: [[String]] = []
+        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
+            browseApplications.append(tracks.map(\.id))
+        }
+        var mirrorFactApplications: [[String]] = []
+        fixture.dependencies.onMirrorFactsApplied = { tracks in
+            mirrorFactApplications.append(tracks.map(\.id))
+        }
+        var libraryLoadApplications: [[String]] = []
+        fixture.dependencies.onLibraryLoadApplied = { tracks in
+            libraryLoadApplications.append(tracks.map(\.id))
+        }
+
+        let staleLoad = Task { await fixture.dependencies.loadLibrary() }
+        await analyticsStore.waitUntilAppendStarts()
+        fixture.dependencies.invalidateLibraryLoads()
+        let currentTrack = canonicalMirrorTrack(Core.Track(
+            id: "current",
+            name: "Current",
+            artist: "Clutch",
+            album: "Blast Tyrant"
+        ))
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: MirrorTrackStoreStub(tracks: [currentTrack]),
+            librarySnapshotService: fixture.snapshotService,
+            runRecordStore: RunRecordStoreStub()
+        )
+        await fixture.dependencies.loadLibrary()
+        await analyticsStore.releaseAppend()
+        await staleLoad.value
+
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["current"])
+        #expect(fixture.dependencies.libraryLoadError == nil)
+        #expect(browseApplications == [["current"]])
+        #expect(mirrorFactApplications == [["current"]])
+        #expect(libraryLoadApplications == [["current"]])
+    }
+
     @Test("a contaminated cache is ignored when the current mirror is canonical")
     func contaminatedCacheDoesNotBlockCurrentMirror() async throws {
         let fixture = try makeFixture(testArtists: [], runRecordStore: RunRecordStoreStub())
@@ -411,5 +556,41 @@ private actor LibraryReadGate {
     func release() {
         releaseContinuation?.resume()
         releaseContinuation = nil
+    }
+}
+
+private actor BlockingAnalyticsStore: AnalyticsEventStore {
+    private var shouldBlockNextAppend = true
+    private var appendContinuation: CheckedContinuation<Void, Never>?
+    private var appendStartedContinuation: CheckedContinuation<Void, Never>?
+    private var hasStartedAppend = false
+
+    func append(_: StoredAnalyticsEvent, retention _: AnalyticsRetentionPolicy) async {
+        guard shouldBlockNextAppend else { return }
+        shouldBlockNextAppend = false
+        hasStartedAppend = true
+        appendStartedContinuation?.resume()
+        appendStartedContinuation = nil
+        await withCheckedContinuation { appendContinuation = $0 }
+    }
+
+    func events(since _: Date?, sessionID _: UUID?) -> [StoredAnalyticsEvent] {
+        []
+    }
+
+    func migrateLegacyAnalytics(retention _: AnalyticsRetentionPolicy) {
+        // Intentionally empty: this in-memory test store has no legacy analytics state to migrate.
+    }
+
+    func waitUntilAppendStarts() async {
+        if hasStartedAppend {
+            return
+        }
+        await withCheckedContinuation { appendStartedContinuation = $0 }
+    }
+
+    func releaseAppend() {
+        appendContinuation?.resume()
+        appendContinuation = nil
     }
 }

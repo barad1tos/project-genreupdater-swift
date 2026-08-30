@@ -100,6 +100,11 @@ struct UpdateCoordinatorTests {
         let bridge = setup.scriptBridge ?? MusicAppTestAccess()
         let store = MockTrackStore()
         let cacheService = cache ?? MockCacheService()
+        let effectDrain = makeTestEffectDrain(
+            store: store,
+            cache: cacheService,
+            snapshot: setup.librarySnapshotService
+        )
         let undoDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("UpdateCoordinatorTests-\(UUID().uuidString)")
         let undo = UndoCoordinator(musicApp: bridge, directory: undoDir)
@@ -132,7 +137,8 @@ struct UpdateCoordinatorTests {
                 ),
                 undoCoordinator: undo,
                 idMapper: setup.idMapper,
-                librarySnapshotService: setup.librarySnapshotService
+                librarySnapshotService: setup.librarySnapshotService,
+                effectDrain: effectDrain
             ),
             genreDeterminator: GenreDeterminator(),
             yearDeterminator: YearDeterminator(),

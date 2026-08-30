@@ -23,6 +23,7 @@ public struct UpdateDependencies {
     let librarySnapshotService: (any LibrarySnapshotService)?
     let pendingVerificationService: (any PendingVerificationService)?
     let analytics: (any AnalyticsService)?
+    let effectDrain: MirrorEffectDrain?
 
     public init(
         apiOrchestrator: APIOrchestrator,
@@ -32,7 +33,8 @@ public struct UpdateDependencies {
         idMapper: (any TrackIDMapping)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         pendingVerificationService: (any PendingVerificationService)? = nil,
-        analytics: (any AnalyticsService)? = nil
+        analytics: (any AnalyticsService)? = nil,
+        effectDrain: MirrorEffectDrain? = nil
     ) {
         self.apiOrchestrator = apiOrchestrator
         self.writer = writer
@@ -42,6 +44,7 @@ public struct UpdateDependencies {
         self.librarySnapshotService = librarySnapshotService
         self.pendingVerificationService = pendingVerificationService
         self.analytics = analytics
+        self.effectDrain = effectDrain
     }
 
     public init(
@@ -52,7 +55,8 @@ public struct UpdateDependencies {
         undoCoordinator: UndoCoordinator,
         idMapper: (any TrackIDMapping)?,
         pendingVerificationService: (any PendingVerificationService)?,
-        analytics: (any AnalyticsService)? = nil
+        analytics: (any AnalyticsService)? = nil,
+        effectDrain: MirrorEffectDrain? = nil
     ) {
         self.init(
             apiOrchestrator: apiOrchestrator,
@@ -61,7 +65,8 @@ public struct UpdateDependencies {
             undoCoordinator: undoCoordinator,
             idMapper: idMapper,
             pendingVerificationService: pendingVerificationService,
-            analytics: analytics
+            analytics: analytics,
+            effectDrain: effectDrain
         )
     }
 }

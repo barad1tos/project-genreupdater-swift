@@ -193,13 +193,19 @@ public actor GRDBCacheService: PersistentCacheService, AnalyticsEventStore {
         return now.timeIntervalSince(lastGenericCleanupAt) >= cleanupInterval
     }
 
-    public func invalidate(key: String) async {
-        do {
-            try await dbWriter.write { database in
+    public func invalidate(key: String) async throws {
+        try await dbWriter.write { database in
+            _ = try GenericCacheRow.deleteOne(database, key: key)
+        }
+    }
+
+    public func invalidatePersistentValues(keyPrefix: String, keySuffixes: [String]) async throws {
+        guard !keyPrefix.isEmpty, !keySuffixes.isEmpty, keySuffixes.allSatisfy({ !$0.isEmpty }) else { return }
+        try await dbWriter.write { database in
+            let keys = try String.fetchAll(database, sql: "SELECT key FROM generic_cache")
+            for key in keys where key.hasPrefix(keyPrefix) && keySuffixes.contains(where: key.hasSuffix) {
                 _ = try GenericCacheRow.deleteOne(database, key: key)
             }
-        } catch {
-            log.error("Cache invalidate failed for key=\(key, privacy: .private): \(error, privacy: .private)")
         }
     }
 
@@ -313,13 +319,9 @@ public actor GRDBCacheService: PersistentCacheService, AnalyticsEventStore {
         }
     }
 
-    public func invalidateAlbum(artist: String, album: String) async {
-        do {
-            try await dbWriter.write { database in
-                try Self.deleteAlbumYearRows(database, artist: artist, album: album)
-            }
-        } catch {
-            log.error("invalidateAlbum failed: \(error, privacy: .public)")
+    public func invalidateAlbum(artist: String, album: String) async throws {
+        try await dbWriter.write { database in
+            try Self.deleteAlbumYearRows(database, artist: artist, album: album)
         }
     }
 
@@ -403,13 +405,9 @@ public actor GRDBCacheService: PersistentCacheService, AnalyticsEventStore {
         }
     }
 
-    public func invalidateCachedAPIResults(artist: String, album: String) async {
-        do {
-            try await dbWriter.write { database in
-                try Self.deleteAPIResultRows(database, artist: artist, album: album)
-            }
-        } catch {
-            log.error("invalidateCachedAPIResults failed: \(error, privacy: .public)")
+    public func invalidateCachedAPIResults(artist: String, album: String) async throws {
+        try await dbWriter.write { database in
+            try Self.deleteAPIResultRows(database, artist: artist, album: album)
         }
     }
 
