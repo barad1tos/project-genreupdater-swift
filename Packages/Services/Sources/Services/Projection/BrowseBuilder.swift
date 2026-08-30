@@ -89,21 +89,49 @@ public enum BrowseBuilder {
     }
 
     private struct ProcessingIndex {
-        let tracksByAlbum: [AlbumIdentity: [Track]]
-        let tracksByAlbumTitle: [AlbumIdentity: [String: [Track]]]
+        let canonical: TrackLookup
+        let aliases: TrackLookup
 
         init(tracks: [Track]) {
-            var albumTracks: [AlbumIdentity: [Track]] = [:]
-            var albumTitleTracks: [AlbumIdentity: [String: [Track]]] = [:]
+            var canonicalLookup = TrackLookup()
+            var aliasLookup = TrackLookup()
             for track in tracks {
-                let title = normalizeForMatching(track.name)
+                let canonicalAlbum = AlbumIdentity(track: track)
+                canonicalLookup.addTrack(track, to: canonicalAlbum)
                 for album in AlbumIdentity.lookupCandidates(for: track) {
-                    albumTracks[album, default: []].append(track)
-                    albumTitleTracks[album, default: [:]][title, default: []].append(track)
+                    guard album != canonicalAlbum else { continue }
+                    aliasLookup.addTrack(track, to: album)
                 }
             }
-            tracksByAlbum = albumTracks
-            tracksByAlbumTitle = albumTitleTracks
+            canonical = canonicalLookup
+            aliases = aliasLookup
+        }
+
+        func albumTracks(for album: AlbumIdentity) -> [Track] {
+            canonical.tracks(in: album) ?? aliases.tracks(in: album) ?? []
+        }
+
+        func titleTracks(for album: AlbumIdentity, title: String) -> [Track] {
+            canonical.tracks(named: title, in: album) ?? aliases.tracks(named: title, in: album) ?? []
+        }
+    }
+
+    private struct TrackLookup {
+        private var byAlbum: [AlbumIdentity: [Track]] = [:]
+        private var byAlbumTitle: [AlbumIdentity: [String: [Track]]] = [:]
+
+        mutating func addTrack(_ track: Track, to album: AlbumIdentity) {
+            let title = normalizeForMatching(track.name)
+            byAlbum[album, default: []].append(track)
+            byAlbumTitle[album, default: [:]][title, default: []].append(track)
+        }
+
+        func tracks(in album: AlbumIdentity) -> [Track]? {
+            byAlbum[album]
+        }
+
+        func tracks(named title: String, in album: AlbumIdentity) -> [Track]? {
+            byAlbumTitle[album]?[title]
         }
     }
 
@@ -139,7 +167,8 @@ public enum BrowseBuilder {
         let groups = Dictionary(grouping: identifiedCatalogTracks(in: catalogTracks)) { $0.identity }
         return groups.map { identity, members in
             let tracks = members.map(\.track)
-            let processingTracks = processingIndex.tracksByAlbum[identity] ?? []
+            let processingTracks = processingIndex.albumTracks(for: identity)
+            let previewTarget = makePreviewTarget(processingTracks)
             let counts = makeCounts(
                 catalogTracks: tracks,
                 processingTracks: processingTracks,
@@ -149,12 +178,14 @@ public enum BrowseBuilder {
                 id: identity.key,
                 title: identity.album,
                 artistName: identity.artist,
+                previewTarget: previewTarget,
                 genre: dominantValue(in: tracks.flatMap(\.genres)),
                 year: dominantValue(in: tracks.compactMap(\.dates.releaseYear)),
                 counts: counts,
                 action: makeAlbumAction(
                     albumID: identity.key,
                     processingTracks: processingTracks,
+                    previewTarget: previewTarget,
                     counts: counts,
                     input: input
                 )
@@ -177,6 +208,7 @@ public enum BrowseBuilder {
     private static func makeAlbumAction(
         albumID: String,
         processingTracks: [Track],
+        previewTarget: FixPlanAlbumTarget?,
         counts: BrowseNodeCounts,
         input: BrowseInput
     ) -> ChromeCommandDescriptor {
@@ -186,6 +218,8 @@ public enum BrowseBuilder {
             ProcessingAdmissionRejection.mirror(input.processing.readiness).localizedDescription
         } else if processingTracks.isEmpty {
             "Processing metadata isn’t available for this album yet."
+        } else if previewTarget == nil {
+            "Processing metadata is ambiguous for this album."
         } else if input.scope.source == .testArtists, counts.inScope == 0 {
             "Outside the current Test Artists scope."
         } else {
@@ -201,6 +235,15 @@ public enum BrowseBuilder {
         )
     }
 
+    private static func makePreviewTarget(_ tracks: [Track]) -> FixPlanAlbumTarget? {
+        guard let firstTrack = tracks.first else { return nil }
+        let identity = AlbumIdentity(track: firstTrack)
+        guard identity.isComplete,
+              tracks.dropFirst().allSatisfy({ AlbumIdentity(track: $0) == identity })
+        else { return nil }
+        return FixPlanAlbumTarget(artist: identity.artist, album: identity.album)
+    }
+
     private static func makeRow(
         for track: CatalogTrack,
         processingIndex: ProcessingIndex,
@@ -208,7 +251,7 @@ public enum BrowseBuilder {
     ) -> BrowseTrackRow {
         let album = catalogAlbumIdentity(track)
         let title = normalizeForMatching(track.title)
-        let matchingRows = processingIndex.tracksByAlbumTitle[album]?[title] ?? []
+        let matchingRows = processingIndex.titleTracks(for: album, title: title)
         let verifiedRow = matchingRows.count == 1 ? matchingRows[0] : nil
         return BrowseTrackRow(
             id: track.id.displayValue,

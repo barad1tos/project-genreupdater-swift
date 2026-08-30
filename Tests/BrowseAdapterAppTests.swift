@@ -310,9 +310,10 @@ struct BrowseHostPublishTests {
         #expect(await dependencies.projectionStore.currentBrowse().artists.first?.albums.first?.title == "Newer")
     }
 
-    @Test("the browse commands factory routes into preview production only")
-    func factoryRoutesToPreview() async throws {
+    @Test("the browse commands factory routes alias matches to the canonical preview target")
+    func factoryUsesCanonicalTarget() async throws {
         let dependencies = makeDependencies()
+        dependencies.config.development.testArtists = ["Guest Artist"]
         let recorder = ProducedTargetRecorder()
         dependencies.installTrackCountSource { 1 }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
@@ -327,15 +328,25 @@ struct BrowseHostPublishTests {
             }
         )))
 
-        let track = Track(
+        let processingTrack = Track(
             id: "t",
             name: "Song",
-            artist: "Clutch",
-            album: "Blast Tyrant",
+            artist: "Guest Artist",
+            album: "Compilation",
+            albumArtist: "Various Artists",
             appleScriptID: "as-1"
         )
-        installAdapterCatalog([track], on: dependencies)
-        let input = dependencies.makeBrowseInput(processing: makeAdapterProcessingFacts([track], on: dependencies))
+        let catalogTrack = Track(
+            id: "t",
+            name: "Song",
+            artist: "Guest Artist",
+            album: "Compilation",
+            appleScriptID: "as-1"
+        )
+        installAdapterCatalog([catalogTrack], on: dependencies)
+        let input = dependencies.makeBrowseInput(
+            processing: makeAdapterProcessingFacts([processingTrack], on: dependencies)
+        )
         let generation = await dependencies.claimBrowseInputGeneration()
         let published = await dependencies.publishBrowseProjection(
             BrowseBuilder.makeProjection(input: input),
@@ -356,7 +367,7 @@ struct BrowseHostPublishTests {
         // The dispatch reached fix-plan production — the preview-only
         // seam — carrying the album target; no write seam exists here.
         #expect(status == .noOp)
-        #expect(recorder.target == FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant"))
+        #expect(recorder.target == FixPlanAlbumTarget(artist: "Various Artists", album: "Compilation"))
     }
 
     @Test("makeSnapshot carries browse truth through")

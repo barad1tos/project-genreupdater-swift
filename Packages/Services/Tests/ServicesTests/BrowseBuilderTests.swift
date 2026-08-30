@@ -135,6 +135,67 @@ struct BrowseBuilderGroupingTests {
         let album = projection.artists[0].albums[0]
         #expect(album.counts.inScope == 1)
         #expect(album.counts.writable == 1)
+        #expect(album.previewTarget == FixPlanAlbumTarget(artist: "Various Artists", album: "Compilation"))
+        #expect(album.action.isEnabled)
+    }
+
+    @Test("an alias shared by distinct canonical albums stays disabled")
+    func ambiguousAliasStaysDisabled() {
+        let processingTracks = [
+            makeTrack(
+                name: "First Song",
+                artist: "Guest Artist",
+                album: "Compilation",
+                albumArtist: "Various Artists"
+            ),
+            makeTrack(
+                name: "Second Song",
+                artist: "Guest Artist",
+                album: "Compilation",
+                albumArtist: "Other Artists"
+            ),
+        ]
+        let catalogTrack = makeCatalogTrack(makeTrack(
+            name: "First Song",
+            artist: "Guest Artist",
+            album: "Compilation"
+        ))
+
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: processingTracks,
+            catalogTracks: [catalogTrack]
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.previewTarget == nil)
+        #expect(album.action.isEnabled == false)
+        #expect(album.action.disabledReason == "Processing metadata is ambiguous for this album.")
+    }
+
+    @Test("an exact canonical album outranks a neighboring alias")
+    func exactAlbumOutranksAlias() {
+        let canonicalTrack = makeTrack(
+            name: "Canonical Song",
+            artist: "Guest Artist",
+            album: "Compilation",
+            albumArtist: "Various Artists"
+        )
+        let aliasTrack = makeTrack(
+            name: "Neighbor Song",
+            artist: "Various Artists",
+            album: "Compilation",
+            albumArtist: "Other Artists"
+        )
+        let catalogTrack = makeCatalogTrack(canonicalTrack)
+
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [canonicalTrack, aliasTrack],
+            catalogTracks: [catalogTrack]
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.counts.inScope == 1)
+        #expect(album.previewTarget == FixPlanAlbumTarget(artist: "Various Artists", album: "Compilation"))
         #expect(album.action.isEnabled)
     }
 

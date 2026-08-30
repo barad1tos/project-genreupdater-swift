@@ -36,13 +36,14 @@ public struct BrowseNodeCounts: Equatable, Sendable {
     }
 }
 
-/// An album node keyed by the normalized `AlbumIdentity` key — the same
-/// alias-tolerant identity the write pipeline uses, so cross-surface
-/// references stay stable (ADR 0019).
+/// An album node keyed by the physical catalog's normalized album identity.
+/// `previewTarget` retains the independently verified canonical processing
+/// identity so presentation aliases never become processing-authority inputs.
 public struct BrowseAlbumNode: Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
     public let artistName: String
+    public let previewTarget: FixPlanAlbumTarget?
     public let genre: String?
     public let year: Int?
     public let counts: BrowseNodeCounts
@@ -54,6 +55,7 @@ public struct BrowseAlbumNode: Identifiable, Equatable, Sendable {
         id: String,
         title: String,
         artistName: String,
+        previewTarget: FixPlanAlbumTarget?,
         genre: String?,
         year: Int?,
         counts: BrowseNodeCounts,
@@ -62,6 +64,7 @@ public struct BrowseAlbumNode: Identifiable, Equatable, Sendable {
         self.id = id
         self.title = title
         self.artistName = artistName
+        self.previewTarget = previewTarget
         self.genre = genre
         self.year = year
         self.counts = counts
