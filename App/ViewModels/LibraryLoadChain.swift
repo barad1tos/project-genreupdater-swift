@@ -251,14 +251,16 @@ extension AppDependencies {
         guard libraryLoadGate.isCurrent(token) else { return }
         await recordLibraryLoad(startedAt: loadStart, outcome: .failed)
         guard libraryLoadGate.isCurrent(token) else { return }
-        libraryLoadError = LibraryLoadError.make(from: error)
-        libraryReadiness = .unavailable(MirrorFailure(
+        let loadError = LibraryLoadError.make(from: error)
+        let unavailableReadiness = MirrorReadiness.unavailable(MirrorFailure(
             category: .observation,
-            detail: libraryLoadError?.message ?? error.localizedDescription
+            detail: loadError.message
         ))
-        libraryTracks = []
         await applyBrowseTruthForLoad?([], .cachedMirror(scannedAt: nil), token)
         guard libraryLoadGate.isCurrent(token) else { return }
+        libraryLoadError = loadError
+        libraryReadiness = unavailableReadiness
+        libraryTracks = []
         onMirrorFactsApplied?([])
         onLibraryLoadApplied?([])
     }
