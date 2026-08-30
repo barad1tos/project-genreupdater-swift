@@ -28,8 +28,10 @@ struct CatalogDataStoreTests {
                     album: "Homogenic",
                     albumArtist: "Björk",
                     genres: ["Electronic", "Alternative"],
-                    releaseYear: 1997,
-                    dateAdded: Date(timeIntervalSince1970: 200)
+                    dates: CatalogDates(
+                        releaseYear: 1997,
+                        dateAdded: Date(timeIntervalSince1970: 200)
+                    )
                 ),
                 track(id: "new-1"),
             ],
@@ -104,8 +106,7 @@ struct CatalogDataStoreTests {
         album: String = "Album",
         albumArtist: String? = nil,
         genres: [String] = [],
-        releaseYear: Int? = nil,
-        dateAdded: Date? = nil
+        dates: CatalogDates = CatalogDates(releaseYear: nil, dateAdded: nil)
     ) -> CatalogTrack {
         guard let catalogID = CatalogTrackID(displayValue: id) else {
             fatalError("Catalog fixture IDs must be non-empty")
@@ -117,11 +118,13 @@ struct CatalogDataStoreTests {
             album: album,
             albumArtist: albumArtist,
             genres: genres,
-            dates: CatalogDates(releaseYear: releaseYear, dateAdded: dateAdded)
+            dates: dates
         )
     }
 
-    private func requireModelActor(_: some ModelActor) {}
+    private func requireModelActor(_: some ModelActor) {
+        // The generic constraint is the compile-time assertion; no runtime work is required.
+    }
 }
 
 private struct PersistentCatalogFixture {
