@@ -2,6 +2,8 @@ import Core
 import Foundation
 import Services
 
+private let activityProjectionLog = AppLogger.make(category: "activity-projection")
+
 /// Adapter grouping of the dependency-graph library facts (the load
 /// chain is their sole writer); kept below the parameter ceiling.
 struct ActivityLibraryFacts {
@@ -137,6 +139,29 @@ extension AppDependencies {
     /// Rebuilds activity from the cached facts plus current lifecycle.
     @discardableResult
     func republishActivityProjection() async -> ActivityProjection {
+        let reportEntries: [Core.ChangeLogEntry]
+        do {
+            reportEntries = try await loadActivityReportEntries()
+        } catch {
+            activityProjectionLog.error(
+                "Failed to load activity change history: \(error.localizedDescription, privacy: .private)"
+            )
+            reportEntries = []
+        }
+        return await publishActivityProjection(reportEntries: reportEntries)
+    }
+
+    @discardableResult
+    func republishActivityWithFreshHistory() async throws -> ActivityProjection {
+        try await publishActivityProjection(reportEntries: loadActivityReportEntries())
+    }
+
+    private func loadActivityReportEntries() async throws -> [Core.ChangeLogEntry] {
+        guard let changeLogStore else { return [] }
+        return try await changeLogStore.loadRecent(limit: ActivityReportFacts.entryLimit)
+    }
+
+    private func publishActivityProjection(reportEntries: [Core.ChangeLogEntry]) async -> ActivityProjection {
         let library = ActivityLibraryFacts(
             tracks: libraryTracks,
             metricsSnapshot: libraryMetrics,
@@ -157,10 +182,6 @@ extension AppDependencies {
         let queuedWrite = await queuedWriteSummary()
         let fixPlan = await projectionStore.fixPlanProjection()
         let reports = await projectionStore.reportsProjection()
-        let reportEntries = await (try? changeLogStore?.loadRecent(
-            limit: ActivityReportFacts.entryLimit
-        )) ?? []
-
         let input = ActivityInputBuilder.makeInput(from: ActivityInputContext(
             tracks: library.tracks,
             reportEntries: reportEntries,

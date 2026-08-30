@@ -109,6 +109,137 @@ struct ActivityInputBuilderTests {
         #expect(!recoveredProjection.operationalIssues.contains { $0.id == "mirror-effect-drain" })
     }
 
+    @Test("startup persistence wiring automatically replays pending projection effects")
+    @MainActor
+    func startupPersistenceWiringReplaysPendingEffects() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let seedStore = TrackDataStore(modelContainer: container)
+        try await seedStore.initialize()
+        let initial = try await seedStore.loadMirrorSnapshot()
+        _ = try await seedStore.commitMirror(MirrorCommit(
+            baseRevision: initial.revision,
+            inventoryChange: .preserve,
+            repairs: [],
+            upserts: [],
+            certificates: .preserve,
+            effects: [.refreshProjections]
+        ))
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in },
+            modelContainerFactory: { container }
+        )
+        _ = await dependencies.projectionStore.replaceFixPlanProjection(
+            .unavailable(message: "stale fixture")
+        )
+        _ = await dependencies.projectionStore.replaceReportsProjection(ReportsProjection(
+            revision: .initial,
+            runs: [],
+            skippedCorruptedCount: 1
+        ))
+
+        try await dependencies.initializePersistence(cacheConfiguration: dependencies.config)
+
+        let installedStore = try #require(dependencies.trackStore)
+        #expect(try await installedStore.pendingMirrorEffects().isEmpty)
+        #expect(await dependencies.projectionStore.fixPlanProjection().status == .empty)
+        #expect(await dependencies.projectionStore.reportsProjection().skippedCorruptedCount == 0)
+        #expect(await dependencies.projectionStore.activityProjection().revision != .initial)
+        #expect(await dependencies.projectionStore.currentChrome().revision != .initial)
+    }
+
+    @Test("projection refresh failure retains the durable effect and publishes an issue")
+    @MainActor
+    func projectionRefreshFailureRetainsEffect() async throws {
+        let fixture = try makeFixture(
+            testArtists: [],
+            runRecordStore: RunRecordStoreStub(reportsError: CocoaError(.fileReadCorruptFile))
+        )
+        let store = fixture.trackStore
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            runRecordStore: RunRecordStoreStub(reportsError: CocoaError(.fileReadCorruptFile)),
+            cache: cache
+        )
+        let initial = try await store.loadMirrorSnapshot()
+        _ = try await store.commitMirror(MirrorCommit(
+            baseRevision: initial.revision,
+            inventoryChange: .preserve,
+            repairs: [],
+            upserts: [],
+            certificates: .preserve,
+            effects: [.refreshProjections]
+        ))
+
+        await fixture.dependencies.mirrorEffectDrain?.drain()
+
+        #expect(try await store.pendingMirrorEffects().count == 1)
+        #expect(fixture.dependencies.mirrorEffectDrainIssue?.category == .temporaryUnavailable)
+        #expect(
+            await fixture.dependencies.projectionStore.activityProjection().operationalIssues
+                .contains { $0.id == "mirror-effect-drain" }
+        )
+    }
+
+    @Test("fix plan read failure retains the durable projection effect")
+    @MainActor
+    func fixPlanReadKeepsEffect() async throws {
+        let fixture = try makeFixture(testArtists: [])
+        let store = fixture.trackStore
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            runRecordStore: RunRecordStoreStub(),
+            fixPlanStore: FailingFixPlanStore(),
+            cache: cache
+        )
+        try await enqueueProjectionRefresh(in: store)
+
+        await fixture.dependencies.mirrorEffectDrain?.drain()
+
+        #expect(try await store.pendingMirrorEffects().count == 1)
+        #expect(fixture.dependencies.mirrorEffectDrainIssue?.category == .temporaryUnavailable)
+    }
+
+    @Test("activity history read failure retains the durable projection effect")
+    @MainActor
+    func historyReadKeepsEffect() async throws {
+        let fixture = try makeFixture(testArtists: [])
+        let store = fixture.trackStore
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            runRecordStore: RunRecordStoreStub(),
+            cache: cache
+        )
+        fixture.dependencies.installTestChangeLogStore(FailingChangeLogStore())
+        try await enqueueProjectionRefresh(in: store)
+
+        await fixture.dependencies.mirrorEffectDrain?.drain()
+
+        #expect(try await store.pendingMirrorEffects().count == 1)
+        #expect(fixture.dependencies.mirrorEffectDrainIssue?.category == .temporaryUnavailable)
+    }
+
+    @Test("corrupted mirror queue asks for repair instead of retry")
+    @MainActor
+    func corruptedMirrorQueueHasRepairIssue() async throws {
+        let fixture = try makeFixture(testArtists: [])
+        let reporter = AppMirrorEffectReporter(dependencies: fixture.dependencies)
+
+        await reporter.reportMirrorEffectFailure(MirrorEffectDrainFailure(
+            kind: .corruptedQueue,
+            detail: "Malformed persisted effect"
+        ))
+
+        #expect(fixture.dependencies.mirrorEffectDrainIssue?.category == .internalFailure)
+        #expect(fixture.dependencies.mirrorEffectDrainIssue?.nextAction?.contains("repair") == true)
+    }
+
     @Test("permission denied load error maps to permissionDenied library state")
     func mapsPermissionDenied() {
         let input = ActivityInputBuilder.makeInput(from: makeContext(
@@ -288,6 +419,18 @@ struct ActivityInputBuilderTests {
         Core.Track(id: id, name: "Track \(id)", artist: "Artist", album: "Album")
     }
 
+    private func enqueueProjectionRefresh(in store: any TrackStateStore) async throws {
+        let initial = try await store.loadMirrorSnapshot()
+        _ = try await store.commitMirror(MirrorCommit(
+            baseRevision: initial.revision,
+            inventoryChange: .preserve,
+            repairs: [],
+            upserts: [],
+            certificates: .preserve,
+            effects: [.refreshProjections]
+        ))
+    }
+
     private func makeContext(
         tracks: [Core.Track] = [],
         loadError: LibraryLoadError?,
@@ -348,4 +491,44 @@ struct ActivityInputBuilderTests {
             operationalIssues: []
         )
     }
+}
+
+private actor FailingFixPlanStore: FixPlanStore {
+    func savePlan(_: FixPlan, initialDecision _: FixPlanReviewDecision) async throws {}
+
+    func plan(id _: FixPlanID, revision _: FixPlanRevision) async throws -> FixPlan? {
+        nil
+    }
+
+    func latestPlan() async throws -> FixPlan? {
+        throw CocoaError(.fileReadCorruptFile)
+    }
+
+    func currentDecision(for _: FixPlanID) async throws -> FixPlanReviewDecision? {
+        nil
+    }
+
+    func recordDecision(_: FixPlanReviewDecision) async throws -> FixPlanDecisionWriteResult {
+        throw CocoaError(.fileWriteUnknown)
+    }
+
+    func deletePlans(notIn _: Set<FixPlanID>) async throws -> Int {
+        0
+    }
+}
+
+private actor FailingChangeLogStore: ChangeLogStore {
+    func saveEntries(_: [ChangeLogEntry]) async throws {}
+
+    func loadAll() async throws -> [ChangeLogEntry] {
+        throw CocoaError(.fileReadCorruptFile)
+    }
+
+    func loadRecent(limit _: Int) async throws -> [ChangeLogEntry] {
+        throw CocoaError(.fileReadCorruptFile)
+    }
+
+    func delete(entryID _: UUID) async throws {}
+
+    func deleteAll() async throws {}
 }

@@ -2,16 +2,32 @@ import Core
 import Foundation
 import OSLog
 
-/// App-owned output seam for rebuilding presentation state after mirror changes.
+/// App-owned output seam for rebuilding Fix Plan, Reports, Activity, and Chrome after mirror changes.
 public protocol MirrorProjectionOutput: Sendable {
-    /// Rebuilds every app-owned projection from the committed mirror state.
+    /// Rebuilds the mirror-dependent workflow projections currently owned by the app boundary.
     func refreshMirrorProjections() async throws
+}
+
+/// Classified delivery failure for an effect that remains durable for retry or repair.
+public struct MirrorEffectDrainFailure: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        case temporary
+        case corruptedQueue
+    }
+
+    public let kind: Kind
+    public let detail: String
+
+    public init(kind: Kind, detail: String) {
+        self.kind = kind
+        self.detail = detail
+    }
 }
 
 /// Publishes and clears the operator-visible state for deferred mirror effects.
 public protocol MirrorEffectDrainReporting: Sendable {
     /// Publishes a non-fatal delivery failure while its effect remains durable for retry.
-    func reportMirrorEffectFailure(_ detail: String) async
+    func reportMirrorEffectFailure(_ failure: MirrorEffectDrainFailure) async
     /// Clears a previously published failure after the pending queue converges.
     func clearMirrorEffectFailure() async
 }
@@ -24,6 +40,12 @@ public actor MirrorEffectDrain {
     private var projections: (any MirrorProjectionOutput)?
     private let reporter: (any MirrorEffectDrainReporting)?
     private let log = Logger(subsystem: "com.genreupdater", category: "MirrorEffectDrain")
+    private var isDraining = false
+    private var drainRequested = false
+    private var drainWaiters: [CheckedContinuation<Bool, Never>] = []
+    var hasQueuedDrainRequest: Bool {
+        !drainWaiters.isEmpty
+    }
 
     public init(
         store: any TrackStateStore,
@@ -52,10 +74,10 @@ public actor MirrorEffectDrain {
 
     /// Delivers every pending effect in the store's stable order.
     public func drain() async {
-        await deliverPendingEffects()
+        await requestDrain()
     }
 
-    /// Delivers the complete backlog after a commit, retaining its accepted effect IDs as operational evidence.
+    /// Delivers the complete backlog after a commit, using the new effect count for diagnostics.
     ///
     /// The IDs do not filter delivery; effects from older commits remain ahead of them in the store's stable order.
     ///
@@ -63,7 +85,38 @@ public actor MirrorEffectDrain {
     public func drain(newlyCommittedEffectIDs: [UUID]) async {
         let committedEffectCount = Set(newlyCommittedEffectIDs).count
         log.info("Draining mirror effects after a commit with \(committedEffectCount, privacy: .public) new intents")
-        await deliverPendingEffects(committedEffectCount: committedEffectCount)
+        await requestDrain(committedEffectCount: committedEffectCount)
+    }
+
+    private func requestDrain(committedEffectCount: Int? = nil) async {
+        guard !isDraining else {
+            drainRequested = true
+            let shouldTakeOver = await withCheckedContinuation { drainWaiters.append($0) }
+            guard shouldTakeOver else { return }
+            await runDrainLoop()
+            return
+        }
+
+        isDraining = true
+        await runDrainLoop(committedEffectCount: committedEffectCount)
+    }
+
+    private func runDrainLoop(committedEffectCount: Int? = nil) async {
+        var diagnosticCount = committedEffectCount
+        repeat {
+            drainRequested = false
+            await deliverPendingEffects(committedEffectCount: diagnosticCount)
+            diagnosticCount = nil
+            if Task.isCancelled, hasQueuedDrainRequest {
+                let nextLeader = drainWaiters.removeFirst()
+                nextLeader.resume(returning: true)
+                return
+            }
+        } while drainRequested
+        isDraining = false
+        let waiters = drainWaiters
+        drainWaiters.removeAll()
+        waiters.forEach { $0.resume(returning: false) }
     }
 
     private func deliverPendingEffects(committedEffectCount: Int? = nil) async {
@@ -71,16 +124,23 @@ public actor MirrorEffectDrain {
             try await drainPendingEffects()
             await reporter?.clearMirrorEffectFailure()
         } catch {
-            let detail = error.localizedDescription
+            let failure = Self.failure(from: error)
             if let committedEffectCount {
                 log.error(
-                    "Mirror effect delivery failed after a commit with \(committedEffectCount, privacy: .public) new intents: \(detail, privacy: .private)"
+                    "Mirror effect delivery failed after a commit with \(committedEffectCount, privacy: .public) new intents: \(failure.detail, privacy: .private)"
                 )
             } else {
-                log.error("Pending mirror effect delivery failed: \(detail, privacy: .private)")
+                log.error("Pending mirror effect delivery failed: \(failure.detail, privacy: .private)")
             }
-            await reporter?.reportMirrorEffectFailure(detail)
+            await reporter?.reportMirrorEffectFailure(failure)
         }
+    }
+
+    private static func failure(from error: any Error) -> MirrorEffectDrainFailure {
+        MirrorEffectDrainFailure(
+            kind: error is MirrorEffectPersistenceError ? .corruptedQueue : .temporary,
+            detail: error.localizedDescription
+        )
     }
 
     private func drainPendingEffects() async throws {

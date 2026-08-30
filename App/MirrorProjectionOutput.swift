@@ -14,10 +14,20 @@ final class AppMirrorProjectionOutput: MirrorProjectionOutput {
         guard let dependencies else {
             throw MirrorEffectDrainError.projectionOutputUnavailable
         }
-        _ = await dependencies.refreshFixPlanProjection()
-        await dependencies.refreshReportsProjection()
-        await dependencies.republishActivityProjection()
+        _ = try await dependencies.refreshFixPlanFromStore()
+        guard await dependencies.refreshReportsProjection() != nil else {
+            throw AppMirrorProjectionError.reportsUnavailable
+        }
+        _ = try await dependencies.republishActivityWithFreshHistory()
         await dependencies.refreshChromeProjection()
+    }
+}
+
+private enum AppMirrorProjectionError: LocalizedError {
+    case reportsUnavailable
+
+    var errorDescription: String? {
+        "Mirror-dependent reports could not be refreshed"
     }
 }
 
@@ -29,18 +39,12 @@ final class AppMirrorEffectReporter: MirrorEffectDrainReporting {
         self.dependencies = dependencies
     }
 
-    func reportMirrorEffectFailure(_ detail: String) async {
+    func reportMirrorEffectFailure(_ failure: MirrorEffectDrainFailure) async {
         guard let dependencies else { return }
-        dependencies.mirrorEffectDrainIssue = OperationalIssue(
-            id: "mirror-effect-drain",
-            category: .temporaryUnavailable,
-            summary: "Some library views may be stale",
-            technicalDetail: detail,
-            nextAction: "Try the library refresh again."
-        )
+        dependencies.mirrorEffectDrainIssue = Self.issue(for: failure)
         await dependencies.republishActivityProjection()
         AppLogger.make(category: "mirror-effects").error(
-            "Pending mirror effects could not be applied: \(detail, privacy: .public)"
+            "Pending mirror effects could not be applied: \(failure.detail, privacy: .private)"
         )
     }
 
@@ -48,6 +52,27 @@ final class AppMirrorEffectReporter: MirrorEffectDrainReporting {
         guard let dependencies, dependencies.mirrorEffectDrainIssue != nil else { return }
         dependencies.mirrorEffectDrainIssue = nil
         await dependencies.republishActivityProjection()
+    }
+
+    private static func issue(for failure: MirrorEffectDrainFailure) -> OperationalIssue {
+        switch failure.kind {
+        case .temporary:
+            OperationalIssue(
+                id: "mirror-effect-drain",
+                category: .temporaryUnavailable,
+                summary: "Some library views may be stale",
+                technicalDetail: failure.detail,
+                nextAction: "Try the library refresh again."
+            )
+        case .corruptedQueue:
+            OperationalIssue(
+                id: "mirror-effect-drain",
+                category: .internalFailure,
+                summary: "The library refresh queue needs repair",
+                technicalDetail: failure.detail,
+                nextAction: "Contact support to repair the local library database."
+            )
+        }
     }
 }
 

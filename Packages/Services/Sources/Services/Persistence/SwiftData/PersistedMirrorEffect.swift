@@ -84,13 +84,16 @@ extension StoreSchemaV8 {
 
 typealias PersistedMirrorEffect = StoreSchemaV8.PersistedMirrorEffect
 
-enum MirrorEffectPersistenceError: LocalizedError {
+enum MirrorEffectPersistenceError: LocalizedError, Equatable, Sendable {
+    case invalidAlbumIdentity(AlbumIdentity)
     case invalidKind(String)
     case missingAlbumIdentity(UUID)
     case missingEffect(UUID)
 
     var errorDescription: String? {
         switch self {
+        case let .invalidAlbumIdentity(identity):
+            "Mirror effect has incomplete album identity \(identity.key)"
         case let .invalidKind(kind):
             "Persisted mirror effect has invalid kind \(kind)"
         case let .missingAlbumIdentity(id):
@@ -102,8 +105,18 @@ enum MirrorEffectPersistenceError: LocalizedError {
 }
 
 extension TrackDataStore {
-    func enqueueMirrorEffects(_ effects: [MirrorEffect], revision: MirrorRevision) -> [UUID] {
-        effects.enumerated().map { sequence, effect in
+    func enqueueMirrorEffects(_ effects: [MirrorEffect], revision: MirrorRevision) throws -> [UUID] {
+        try effects.forEach { effect in
+            switch effect {
+            case let .invalidateAlbumYear(identity), let .invalidateAPIResults(identity):
+                guard identity.isComplete else {
+                    throw MirrorEffectPersistenceError.invalidAlbumIdentity(identity)
+                }
+            case .invalidateSnapshot, .refreshProjections:
+                break
+            }
+        }
+        return effects.enumerated().map { sequence, effect in
             let persisted = PersistedMirrorEffect(revision: revision, sequence: sequence, effect: effect)
             modelContext.insert(persisted)
             return persisted.effectID
@@ -134,14 +147,25 @@ extension TrackDataStore {
     }
 
     public func completeMirrorEffect(id: UUID) async throws {
-        let descriptor = FetchDescriptor<PersistedMirrorEffect>(
-            predicate: #Predicate { $0.effectID == id }
-        )
-        guard let effect = try modelContext.fetch(descriptor).first else {
-            throw MirrorEffectPersistenceError.missingEffect(id)
+        do {
+            try modelContext.transaction {
+                let descriptor = FetchDescriptor<PersistedMirrorEffect>(
+                    predicate: #Predicate { $0.effectID == id }
+                )
+                guard let effect = try modelContext.fetch(descriptor).first else {
+                    throw MirrorEffectPersistenceError.missingEffect(id)
+                }
+                guard effect.completedAt == nil else { return }
+                let completedDescriptor = FetchDescriptor<PersistedMirrorEffect>(
+                    predicate: #Predicate { $0.completedAt != nil }
+                )
+                try modelContext.fetch(completedDescriptor).forEach(modelContext.delete)
+                effect.completedAt = Date()
+                try modelContext.save()
+            }
+        } catch {
+            modelContext.rollback()
+            throw error
         }
-        guard effect.completedAt == nil else { return }
-        effect.completedAt = Date()
-        try modelContext.save()
     }
 }

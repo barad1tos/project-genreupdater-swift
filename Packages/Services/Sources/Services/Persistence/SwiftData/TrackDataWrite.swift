@@ -67,7 +67,7 @@ extension TrackDataStore {
                 try updateMember(for: change, track: updatedTrack, revision: nextRevision)
                 applyHistory(historyChange, entry: change, stored: storedHistory, track: persistedTrack)
                 committedRevision = try mirrorState.advanceRevision()
-                _ = enqueueMirrorEffects(
+                _ = try enqueueMirrorEffects(
                     MirrorEffect.forTrackTransition(from: currentTrack, to: updatedTrack),
                     revision: committedRevision
                 )

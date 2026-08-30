@@ -20,6 +20,7 @@ struct StoreSchemaMigrationTests {
     private static let deployedMembershipChecksum = "whynwE78EfLk6nFo6Pm4ZxQSXWggha8oemCvJY0LlPw="
     private static let deployedCoverageChecksum = "lCPA7P84tguSr6BvhsyyK+8Wzw49fLJgWhUikSppAIQ="
     private static let deployedV6Checksum = "RjRJxmJfhLjdHHhDRUvRjn2jqm3L/8ZpduaKKgTfRns="
+    private static let deployedV7Checksum = "rlZMfluVDEVAON7i25ASHKftyiB+kOiR6nxIjVb7Cm4="
     private static let recoveryChecksum = "i2Q0M3v/JLttbprhy5I8T0nCkA5O9AYoi9OSQRGpY2s="
     private static let runID = fixtureID("00000000-0000-0000-0000-000000000001")
     private static let workItemID = fixtureID("00000000-0000-0000-0000-000000000002")
@@ -122,6 +123,7 @@ struct StoreSchemaMigrationTests {
             context.insert(PersistedMirrorState(revisionValue: 12))
             try context.save()
         }
+        #expect(try storeChecksum(at: storeURL) == Self.deployedV7Checksum)
 
         let migrated = try migratedContainer(at: storeURL)
         let context = ModelContext(migrated)

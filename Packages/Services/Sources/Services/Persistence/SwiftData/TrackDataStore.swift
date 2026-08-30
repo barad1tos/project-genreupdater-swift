@@ -164,7 +164,7 @@ public actor TrackDataStore: TrackStateStore {
                     }
                 }
                 committedRevision = try mirrorState.advanceRevision()
-                pendingEffectIDs = enqueueMirrorEffects(commit.effects, revision: committedRevision)
+                pendingEffectIDs = try enqueueMirrorEffects(commit.effects, revision: committedRevision)
                 committedSnapshot = try makeMirrorSnapshot()
             }
         } catch {

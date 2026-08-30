@@ -281,6 +281,196 @@ struct MirrorEffectDrainTests {
         await task.value
         #expect(try await store.pendingMirrorEffects().map(\.id) == [effect.id])
     }
+
+    @Test("Concurrent drain requests execute each effect once")
+    func concurrentDrainRequestsAreSingleFlight() async throws {
+        let effect = PendingMirrorEffect(
+            id: UUID(),
+            revision: MirrorRevision(value: 10),
+            sequence: 0,
+            effect: .refreshProjections
+        )
+        let store = EffectStore(pending: [effect])
+        let projections = SingleFlightProjectionRecorder()
+        let reporter = EffectReporter()
+        let drain = MirrorEffectDrain(
+            store: store,
+            cache: EffectCache(),
+            snapshot: EffectSnapshot(),
+            projections: projections,
+            reporter: reporter
+        )
+        let first = Task { await drain.drain() }
+        await projections.waitUntilStarted()
+        let second = Task { await drain.drain() }
+        await drain.waitForQueuedRequest()
+
+        await projections.resume()
+        await first.value
+        await second.value
+
+        #expect(await projections.refreshCount == 1)
+        #expect(try await store.pendingMirrorEffects().isEmpty)
+        #expect(await reporter.failures.isEmpty)
+    }
+
+    @Test("A waiting drain takes over when the active caller is cancelled")
+    func cancelledLeaderHandsOff() async throws {
+        let effect = PendingMirrorEffect(
+            id: UUID(),
+            revision: MirrorRevision(value: 11),
+            sequence: 0,
+            effect: .refreshProjections
+        )
+        let store = EffectStore(pending: [effect])
+        let projections = SingleFlightProjectionRecorder()
+        let drain = MirrorEffectDrain(
+            store: store,
+            cache: EffectCache(),
+            snapshot: EffectSnapshot(),
+            projections: projections
+        )
+        let first = Task { await drain.drain() }
+        await projections.waitUntilStarted()
+        let second = Task { await drain.drain() }
+        await drain.waitForQueuedRequest()
+
+        first.cancel()
+        await projections.resume()
+        await first.value
+        await second.value
+
+        #expect(await projections.refreshCount == 2)
+        #expect(try await store.pendingMirrorEffects().isEmpty)
+    }
+
+    @Test("A queued drain retries a temporary failure and clears its report")
+    func queuedRetryClearsFailure() async throws {
+        let effect = PendingMirrorEffect(
+            id: UUID(),
+            revision: MirrorRevision(value: 12),
+            sequence: 0,
+            effect: .refreshProjections
+        )
+        let store = EffectStore(pending: [effect])
+        let projections = RetryProjectionRecorder()
+        let reporter = EffectReporter()
+        let drain = MirrorEffectDrain(
+            store: store,
+            cache: EffectCache(),
+            snapshot: EffectSnapshot(),
+            projections: projections,
+            reporter: reporter
+        )
+        let first = Task { await drain.drain() }
+        await projections.waitUntilStarted()
+        let second = Task { await drain.drain() }
+        await drain.waitForQueuedRequest()
+
+        await projections.resume()
+        await first.value
+        await second.value
+
+        #expect(await projections.refreshCount == 2)
+        #expect(try await store.pendingMirrorEffects().isEmpty)
+        #expect(await reporter.events == [.failure(.temporary), .clear])
+    }
+
+    @Test("Malformed album effects reject the whole mirror commit")
+    func malformedEffectRollsBack() async throws {
+        let store = try TrackDataStore.createInMemory()
+        try await store.initialize()
+        let initial = try await store.loadMirrorSnapshot()
+        let malformed = AlbumIdentity(artist: "", album: "Album")
+        let track = Track(
+            id: "new-track",
+            name: "New Track",
+            artist: "Artist",
+            album: "Album",
+            appleScriptID: "new-track"
+        )
+
+        await #expect(throws: MirrorEffectPersistenceError.self) {
+            _ = try await store.commitMirror(MirrorCommit(
+                baseRevision: initial.revision,
+                inventoryChange: replacementInventory(for: [track]),
+                repairs: [],
+                upserts: [track],
+                certificates: .invalidate(.membershipChanged),
+                effects: [.invalidateAlbumYear(malformed)]
+            ))
+        }
+
+        let afterFailure = try await store.loadMirrorSnapshot()
+        #expect(afterFailure.revision == initial.revision)
+        #expect(afterFailure.presentIDs.isEmpty)
+        #expect(try await store.getTrack(byID: track.id) == nil)
+        #expect(try await store.pendingMirrorEffects().isEmpty)
+
+        let valid = try await store.commitMirror(MirrorCommit(
+            baseRevision: afterFailure.revision,
+            inventoryChange: .preserve,
+            repairs: [],
+            upserts: [],
+            certificates: .preserve,
+            effects: [.invalidateSnapshot]
+        ))
+        let expectedRevision = try initial.revision.advanced()
+        #expect(valid.revision == expectedRevision)
+    }
+
+    @Test("Completed effect records stay bounded")
+    func completedEffectRecordsStayBounded() async throws {
+        let fixture = try PersistentEffectFixture()
+        defer { fixture.remove() }
+
+        do {
+            let store = try fixture.openStore()
+            let initial = try await store.loadMirrorSnapshot()
+            _ = try await store.commitMirror(MirrorCommit(
+                baseRevision: initial.revision,
+                inventoryChange: .preserve,
+                repairs: [],
+                upserts: [],
+                certificates: .preserve,
+                effects: [.invalidateSnapshot, .refreshProjections, .invalidateSnapshot]
+            ))
+            let drain = MirrorEffectDrain(
+                store: store,
+                cache: EffectCache(),
+                snapshot: EffectSnapshot(),
+                projections: ProjectionRecorder()
+            )
+            await drain.drain()
+        }
+
+        let container = try fixture.openContainer()
+        let context = ModelContext(container)
+        let records = try context.fetch(FetchDescriptor<PersistedMirrorEffect>())
+        #expect(records.count == 1)
+        #expect(records.first?.completedAt != nil)
+        #expect(try await TrackDataStore(modelContainer: container).pendingMirrorEffects().isEmpty)
+    }
+
+    @Test("Corrupted durable effects are reported as repair-required")
+    func corruptedEffectHasPermanentFailureKind() async {
+        let store = EffectStore(
+            pending: [],
+            readFailure: MirrorEffectPersistenceError.invalidKind("unknown")
+        )
+        let reporter = EffectReporter()
+        let drain = MirrorEffectDrain(
+            store: store,
+            cache: EffectCache(),
+            snapshot: EffectSnapshot(),
+            projections: ProjectionRecorder(),
+            reporter: reporter
+        )
+
+        await drain.drain()
+
+        #expect(await reporter.failures.map(\.kind) == [.corruptedQueue])
+    }
 }
 
 private struct PersistentEffectFixture {
@@ -294,7 +484,7 @@ private struct PersistentEffectFixture {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
-    func openStore() throws -> TrackDataStore {
+    func openContainer() throws -> ModelContainer {
         let schema = ModelContainerFactory.makeSchema()
         let configuration = ModelConfiguration(
             "GenreUpdater",
@@ -302,10 +492,14 @@ private struct PersistentEffectFixture {
             url: storeURL,
             cloudKitDatabase: .none
         )
-        return try TrackDataStore(modelContainer: ModelContainerFactory.create(
+        return try ModelContainerFactory.create(
             schema: schema,
             configuration: configuration
-        ))
+        )
+    }
+
+    func openStore() throws -> TrackDataStore {
+        try TrackDataStore(modelContainer: openContainer())
     }
 
     func remove() {
@@ -313,7 +507,7 @@ private struct PersistentEffectFixture {
     }
 }
 
-private enum EffectTargetFailure: Error {
+enum EffectTargetFailure: Error {
     case requested
 }
 
@@ -463,24 +657,22 @@ private actor ProjectionRecorder: MirrorProjectionOutput {
     }
 }
 
-private actor BlockingProjectionRecorder: MirrorProjectionOutput {
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var observers: [CheckedContinuation<Void, Never>] = []
-
-    func refreshMirrorProjections() async throws {
-        observers.forEach { $0.resume() }
-        observers.removeAll()
-        await withCheckedContinuation { continuation = $0 }
+private actor EffectReporter: MirrorEffectDrainReporting {
+    enum Event: Equatable {
+        case failure(MirrorEffectDrainFailure.Kind)
+        case clear
     }
 
-    func waitUntilStarted() async {
-        guard continuation == nil else { return }
-        await withCheckedContinuation { observers.append($0) }
+    private(set) var failures: [MirrorEffectDrainFailure] = []
+    private(set) var events: [Event] = []
+
+    func reportMirrorEffectFailure(_ failure: MirrorEffectDrainFailure) {
+        failures.append(failure)
+        events.append(.failure(failure.kind))
     }
 
-    func resume() {
-        continuation?.resume()
-        continuation = nil
+    func clearMirrorEffectFailure() {
+        events.append(.clear)
     }
 }
 
@@ -490,10 +682,16 @@ private actor EffectStore: TrackStateStore {
     private var completedIDs: [UUID] = []
     private var fullListReads = 0
     private var nextReads = 0
+    private let readFailure: MirrorEffectPersistenceError?
 
-    init(pending: [PendingMirrorEffect], completionFailures: Int = 0) {
+    init(
+        pending: [PendingMirrorEffect],
+        completionFailures: Int = 0,
+        readFailure: MirrorEffectPersistenceError? = nil
+    ) {
         self.pending = pending
         self.completionFailures = completionFailures
+        self.readFailure = readFailure
     }
 
     func initialize() async throws {}
@@ -531,6 +729,9 @@ private actor EffectStore: TrackStateStore {
 
     func nextPendingMirrorEffect() async throws -> PendingMirrorEffect? {
         nextReads += 1
+        if let readFailure {
+            throw readFailure
+        }
         return pending.first
     }
 

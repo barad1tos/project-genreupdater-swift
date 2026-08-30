@@ -134,7 +134,7 @@ final class AppDependencies {
     private(set) var pendingVerificationService: (any PendingVerificationService)?
     private(set) var cacheService: GRDBCacheService?
     private(set) var trackStore: (any TrackStateStore)?
-    private(set) var changeLogStore: ChangeLogDataStore?
+    private(set) var changeLogStore: (any ChangeLogStore)?
     private(set) var metricsSnapshotStore: MetricsSnapshotStore?
     private(set) var modelContainer: ModelContainer?
     private(set) var genreDeterminator: GenreDeterminator?
@@ -409,7 +409,7 @@ final class AppDependencies {
     // MARK: - Initialization Helpers
 
     /// Step 5: Set up SwiftData and GRDB persistence layers.
-    private func initializePersistence(cacheConfiguration: AppConfiguration) async throws {
+    func initializePersistence(cacheConfiguration: AppConfiguration) async throws {
         let container: ModelContainer
         if let existing = modelContainer {
             container = existing
@@ -595,10 +595,13 @@ final class AppDependencies {
         } catch {
             projection = .unavailable(message: error.localizedDescription)
         }
-        return await projectionStore.replaceFixPlanProjection(
-            projection,
-            inputGeneration: inputGeneration
-        )
+        return await projectionStore.replaceFixPlanProjection(projection, inputGeneration: inputGeneration)
+    }
+
+    func refreshFixPlanFromStore() async throws -> FixPlanProjection {
+        let inputGeneration = await projectionStore.nextFixPlanInputGeneration()
+        let projection = try await latestFixPlanProjection()
+        return await projectionStore.replaceFixPlanProjection(projection, inputGeneration: inputGeneration)
     }
 
     private func latestFixPlanProjection() async throws -> FixPlanProjection {
@@ -762,7 +765,7 @@ extension AppDependencies {
         }
     }
 
-    func installTestChangeLogStore(_ store: ChangeLogDataStore) {
+    func installTestChangeLogStore(_ store: any ChangeLogStore) {
         changeLogStore = store
     }
 
