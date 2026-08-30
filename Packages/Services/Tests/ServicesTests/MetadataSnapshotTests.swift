@@ -37,7 +37,7 @@ struct MetadataSnapshotTests {
         #expect(first.albumArtist == "Album Artist")
         #expect(first.genre == nil)
         #expect(first.year == nil)
-        #expect(first.trackStatus == "«constant ****kPre»")
+        #expect(first.trackStatus == "prerelease")
         #expect(first.kind == .prerelease)
         #expect(first.lastModified == nil)
         #expect(first.releaseYear == 2020)

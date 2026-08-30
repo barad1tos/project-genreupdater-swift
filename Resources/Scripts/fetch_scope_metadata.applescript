@@ -32,28 +32,36 @@ on run argv
             set albumArtistValues to album artist of trackReference
             set albumValues to album of trackReference
             set genreValues to genre of trackReference
-            set dateAddedValues to date added of trackReference
-            set modifiedValues to modification date of trackReference
-            set statusValues to cloud status of trackReference
+            set rawDateAddedValues to date added of trackReference
+            set rawModifiedValues to modification date of trackReference
+            set rawStatusValues to cloud status of trackReference
             set yearValues to year of trackReference
             try
-                set releaseDateValues to release date of trackReference
+                set rawReleaseDateValues to release date of trackReference
             on error
-                set releaseDateValues to my missing_values(snapshotCount)
+                set rawReleaseDateValues to my missing_values(snapshotCount)
             end try
         end tell
 
         set columns to {databaseIDs, nameValues, artistValues, albumArtistValues, albumValues, genreValues, ¬
-            dateAddedValues, modifiedValues, statusValues, yearValues, releaseDateValues}
+            rawDateAddedValues, rawModifiedValues, rawStatusValues, yearValues, rawReleaseDateValues}
         repeat with columnIndex from 1 to count of columns
             my require_count(item columnIndex of columns, snapshotCount, columnIndex)
         end repeat
         if my library_token(libraryPath) is not generation then return "RETRY:GENERATION"
 
-        set responseParts to {"METADATA", snapshotCount as text, generation}
-        repeat with metadataColumn in columns
-            set end of responseParts to my join_text(contents of metadataColumn, itemSeparator)
-        end repeat
+        set responseParts to {"METADATA", snapshotCount as text, generation, ¬
+            my join_text(databaseIDs, itemSeparator), ¬
+            my join_text(nameValues, itemSeparator), ¬
+            my join_text(artistValues, itemSeparator), ¬
+            my join_text(albumArtistValues, itemSeparator), ¬
+            my join_text(albumValues, itemSeparator), ¬
+            my join_text(genreValues, itemSeparator), ¬
+            my join_timestamps(rawDateAddedValues, itemSeparator), ¬
+            my join_timestamps(rawModifiedValues, itemSeparator), ¬
+            my join_text(rawStatusValues, itemSeparator), ¬
+            my join_text(yearValues, itemSeparator), ¬
+            my join_timestamps(rawReleaseDateValues, itemSeparator)}
         return my join_text(responseParts, columnSeparator)
     on error errorMessage
         return "ERROR:" & errorMessage
@@ -73,6 +81,15 @@ on missing_values(valueCount)
     end repeat
     return values
 end missing_values
+
+on join_timestamps(values, separator)
+    if (count of values) is 0 then return ""
+    set cocoaDates to current application's NSArray's arrayWithArray:values
+    set timestamps to cocoaDates's valueForKey:"timeIntervalSince1970"
+    set timestampTexts to timestamps's valueForKey:"stringValue"
+    set joinedText to timestampTexts's componentsJoinedByString:(separator & "unix:")
+    return "unix:" & (joinedText as text)
+end join_timestamps
 
 on resolve_path(configuredPath)
     set homePath to POSIX path of (path to home folder)

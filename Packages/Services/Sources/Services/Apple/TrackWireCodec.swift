@@ -49,7 +49,7 @@ enum TrackWireCodec {
             year: parseYear(optionalField(fields, at: 9)),
             dateAdded: optionalField(fields, at: 6).flatMap(parseDate),
             lastModified: optionalField(fields, at: 7).flatMap(parseDate),
-            trackStatus: optionalField(fields, at: 8),
+            trackStatus: parseStatus(optionalField(fields, at: 8)),
             releaseYear: parseReleaseYear(optionalField(fields, at: 10)),
             albumArtist: optionalField(fields, at: 3),
             appleScriptID: databaseID.rawValue
@@ -74,7 +74,18 @@ enum TrackWireCodec {
         return Calendar(identifier: .gregorian).component(.year, from: releaseDate)
     }
 
+    static func parseStatus(_ value: String?) -> String? {
+        guard let value else { return nil }
+        return normalizeTrackStatus(value)?.rawValue ?? value
+    }
+
     static func parseDate(_ value: String) -> Date? {
+        let unixPrefix = "unix:"
+        if value.hasPrefix(unixPrefix),
+           let interval = TimeInterval(value.dropFirst(unixPrefix.count)),
+           interval.isFinite {
+            return Date(timeIntervalSince1970: interval)
+        }
         if let date = DateFormatters.compact.date(from: value) {
             return date
         }

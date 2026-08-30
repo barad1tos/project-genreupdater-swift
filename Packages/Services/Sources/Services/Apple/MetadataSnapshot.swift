@@ -43,7 +43,7 @@ struct LibraryMetadataSnapshot: Equatable, Sendable {
             let genre = optionalText(columns[5][rowIndex])
             let dateAdded = optionalText(columns[6][rowIndex]).flatMap(TrackWireCodec.parseDate)
             let lastModified = optionalText(columns[7][rowIndex]).flatMap(TrackWireCodec.parseDate)
-            let status = optionalText(columns[8][rowIndex])
+            let status = TrackWireCodec.parseStatus(optionalText(columns[8][rowIndex]))
             let year = TrackWireCodec.parseYear(optionalText(columns[9][rowIndex]))
             let releaseYear = TrackWireCodec.parseReleaseYear(optionalText(columns[10][rowIndex]))
 

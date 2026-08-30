@@ -127,12 +127,10 @@ struct TrackIDScanTests {
     func preservesTimeoutAfterRestart() async {
         let calls = CensusCallLog()
         let scan = TrackIDScan(timeout: .seconds(1)) { _ in
-            switch await calls.record() {
-            case 1:
+            if await calls.record() == 1 {
                 return "RETRY:GENERATION"
-            default:
-                throw AppleScriptBridgeError.timeout(scriptName: "fetch_track_ids", duration: .seconds(1))
             }
+            throw AppleScriptBridgeError.timeout(scriptName: "fetch_track_ids", duration: .seconds(1))
         }
 
         do {

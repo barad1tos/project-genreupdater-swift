@@ -59,7 +59,7 @@ private func executeAppleScriptFile(_ scriptURL: URL, arguments: [String]) throw
     let process = Process()
     let output = Pipe()
     let errors = Pipe()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    process.executableURL = try executableURL(named: "osascript")
     process.arguments = [scriptURL.path] + arguments
     process.standardOutput = output
     process.standardError = errors
@@ -77,6 +77,17 @@ private func executeAppleScriptFile(_ scriptURL: URL, arguments: [String]) throw
         throw AppleScriptTestError.executionFailed("osascript returned non-UTF-8 output")
     }
     return result
+}
+
+private func executableURL(named name: String) throws -> URL {
+    let directories = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":") ?? []
+    for directory in directories {
+        let candidate = URL(fileURLWithPath: String(directory)).appendingPathComponent(name)
+        if FileManager.default.isExecutableFile(atPath: candidate.path) {
+            return candidate
+        }
+    }
+    throw AppleScriptTestError.executionFailed("\(name) is not available on PATH")
 }
 
 // MARK: - Test Error
@@ -287,8 +298,31 @@ final class AppleScriptIntegrationTests: XCTestCase {
         let output = try executeAppleScriptFile(scriptURL, arguments: [libraryURL.path, selectedArtist])
         let elapsed = startedAt.duration(to: clock.now)
         let snapshot = try LibraryMetadataSnapshot.decode(output)
+        let targetedScriptURL = repositoryRoot.appendingPathComponent("Resources/Scripts/fetch_tracks.applescript")
+        let targetedOutput = try executeAppleScriptFile(targetedScriptURL, arguments: [selectedArtist])
+        let targetedTracks = try TrackWireCodec.decodeRecords(targetedOutput, scriptName: "fetch_tracks")
+        let bulkTracksByID = Dictionary(
+            uniqueKeysWithValues: snapshot.tracks.compactMap { track in
+                track.databaseID.map { ($0, track) }
+            }
+        )
 
         XCTAssertEqual(Set(snapshot.tracks.compactMap(\.databaseID)), expectedIDs)
+        XCTAssertFalse(targetedTracks.isEmpty)
+        for targetedTrack in targetedTracks {
+            let databaseID = try XCTUnwrap(targetedTrack.databaseID)
+            let bulkTrack = try XCTUnwrap(bulkTracksByID[databaseID])
+            XCTAssertEqual(bulkTrack.name, targetedTrack.name)
+            XCTAssertEqual(bulkTrack.artist, targetedTrack.artist)
+            XCTAssertEqual(bulkTrack.albumArtist, targetedTrack.albumArtist)
+            XCTAssertEqual(bulkTrack.album, targetedTrack.album)
+            XCTAssertEqual(bulkTrack.genre, targetedTrack.genre)
+            XCTAssertEqual(bulkTrack.dateAdded, targetedTrack.dateAdded)
+            XCTAssertEqual(bulkTrack.lastModified, targetedTrack.lastModified)
+            XCTAssertEqual(bulkTrack.trackStatus, targetedTrack.trackStatus)
+            XCTAssertEqual(bulkTrack.year, targetedTrack.year)
+            XCTAssertEqual(bulkTrack.releaseYear, targetedTrack.releaseYear)
+        }
         XCTAssertLessThan(elapsed, .seconds(10), "Scoped metadata snapshot exceeded its local regression ceiling")
     }
 

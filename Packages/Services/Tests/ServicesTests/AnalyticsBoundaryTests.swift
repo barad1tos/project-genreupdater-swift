@@ -83,7 +83,7 @@ struct AnalyticsBoundaryTests {
         let analytics = InstrumentationAnalytics()
         let bridge = AppleScriptBridge(
             installer: ScriptInstaller(scriptsDirectory: directory, bundleScriptsDirectory: nil),
-            libraryPath: "/missing/Music Library.musiclibrary",
+            libraryPath: directory.appendingPathComponent("Missing Music Library.musiclibrary").path,
             analytics: analytics
         )
 
