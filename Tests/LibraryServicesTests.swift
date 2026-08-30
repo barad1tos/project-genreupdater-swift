@@ -95,8 +95,8 @@ struct LibraryServicesTests {
             runRecordStore: RunRecordStoreStub()
         )
         var browsedTrackIDs: [[String]] = []
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
-            browsedTrackIDs.append(tracks.map(\.id))
+        fixture.dependencies.applyBrowseTruth = { processing, _ in
+            browsedTrackIDs.append(processing.tracks.map(\.id))
         }
         var appliedTrackIDs: [[String]] = []
         fixture.dependencies.onLibraryLoadApplied = { tracks in

@@ -51,7 +51,7 @@ public actor MusicLibraryReader: MusicCatalogReading {
         log.info("Music library access authorized")
     }
 
-    public func loadCatalog(testArtists: [String] = []) async throws -> CatalogSnapshot {
+    public func loadCatalog() async throws -> CatalogSnapshot {
         if await !isAuthorized {
             try await requestAuthorization()
         }
@@ -61,10 +61,7 @@ public actor MusicLibraryReader: MusicCatalogReading {
 
         do {
             let metadata = try await source.loadTracks()
-            let snapshot = MusicKitCatalogAdapter.makeSnapshot(
-                from: metadata,
-                testArtists: testArtists
-            )
+            let snapshot = MusicKitCatalogAdapter.makeSnapshot(from: metadata)
             log.info("Fetched \(snapshot.tracks.count, privacy: .public) catalog tracks from MusicKit")
             return snapshot
         } catch is CancellationError {
@@ -73,9 +70,5 @@ public actor MusicLibraryReader: MusicCatalogReading {
             log.error("MusicKit catalog fetch failed: \(error.localizedDescription, privacy: .public)")
             throw MusicLibraryError.fetchFailed(detail: error.localizedDescription)
         }
-    }
-
-    public func trackCount() async throws -> Int {
-        try await source.trackCount()
     }
 }

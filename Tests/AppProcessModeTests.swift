@@ -61,8 +61,8 @@ struct AppProcessModeTests {
 
         #expect(await !dependencies.musicCatalog.isAuthorized)
         do {
-            let trackCount = try await dependencies.musicCatalog.trackCount()
-            Issue.record("Unit-test catalog reached the live library and returned \(trackCount) tracks")
+            let snapshot = try await dependencies.musicCatalog.loadCatalog()
+            Issue.record("Unit-test catalog reached the live library and returned \(snapshot.tracks.count) tracks")
         } catch let error as MusicLibraryError {
             guard case .musicAppNotAvailable = error else {
                 Issue.record("Expected an inactive unit-test catalog, got \(error)")

@@ -1,4 +1,5 @@
 import Core
+import CryptoKit
 import Foundation
 
 /// A non-empty MusicKit catalog identifier used only for presentation reads.
@@ -56,9 +57,81 @@ public struct CatalogDates: Equatable, Sendable {
 /// One in-memory presentation snapshot of the MusicKit song catalog.
 public struct CatalogSnapshot: Equatable, Sendable {
     public let tracks: [CatalogTrack]
+    public let capturedAt: Date
+    public let fingerprint: CatalogFingerprint
 
-    public init(tracks: [CatalogTrack]) {
+    public init(tracks: [CatalogTrack], capturedAt: Date = Date()) {
         self.tracks = tracks
+        self.capturedAt = capturedAt
+        fingerprint = CatalogFingerprint.make(tracks: tracks)
+    }
+}
+
+/// Provenance of the catalog snapshot currently used for presentation.
+public enum CatalogSnapshotSource: Equatable, Sendable {
+    case live
+    case persisted
+}
+
+/// Stable content identity for one complete MusicKit presentation snapshot.
+public struct CatalogFingerprint: Equatable, Hashable, Sendable {
+    public let rawValue: String
+
+    static func make(tracks: [CatalogTrack]) -> Self {
+        var payload = Data()
+        for track in tracks.sorted(by: { $0.id.displayValue < $1.id.displayValue }) {
+            append(track.id.displayValue, to: &payload)
+            append(track.title, to: &payload)
+            append(track.artist, to: &payload)
+            append(track.album, to: &payload)
+            append(track.albumArtist, to: &payload)
+            for genre in track.genres.sorted() {
+                append(genre, to: &payload)
+            }
+            append(track.genres.count, to: &payload)
+            append(track.dates.releaseYear, to: &payload)
+            append(track.dates.dateAdded?.timeIntervalSinceReferenceDate.bitPattern, to: &payload)
+        }
+        let digest = SHA256.hash(data: payload)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return Self(rawValue: digest)
+    }
+
+    private static func append(_ value: String?, to payload: inout Data) {
+        guard let value else {
+            payload.append(0)
+            return
+        }
+        payload.append(1)
+        let bytes = Data(value.utf8)
+        append(bytes.count, to: &payload)
+        payload.append(bytes)
+    }
+
+    private static func append(_ value: Int?, to payload: inout Data) {
+        guard let value else {
+            payload.append(0)
+            return
+        }
+        payload.append(1)
+        var encoded = Int64(value).bigEndian
+        withUnsafeBytes(of: &encoded) { payload.append(contentsOf: $0) }
+    }
+
+    private static func append(_ value: UInt64?, to payload: inout Data) {
+        guard let value else {
+            payload.append(0)
+            return
+        }
+        payload.append(1)
+        var encoded = value.bigEndian
+        withUnsafeBytes(of: &encoded) { payload.append(contentsOf: $0) }
+    }
+
+    private static func append(_ value: Int, to payload: inout Data) {
+        var encoded = UInt64(value).bigEndian
+        withUnsafeBytes(of: &encoded) { payload.append(contentsOf: $0) }
     }
 }
 
@@ -67,8 +140,7 @@ public protocol MusicCatalogReading: Actor {
     var isAuthorized: Bool { get async }
 
     func requestAuthorization() async throws
-    func loadCatalog(testArtists: [String]) async throws -> CatalogSnapshot
-    func trackCount() async throws -> Int
+    func loadCatalog() async throws -> CatalogSnapshot
 }
 
 /// Measures catalog loads when analytics is installed without changing catalog routing.
@@ -93,16 +165,12 @@ public actor MeasuredMusicCatalog: MusicCatalogReading {
         try await base.requestAuthorization()
     }
 
-    public func loadCatalog(testArtists: [String]) async throws -> CatalogSnapshot {
+    public func loadCatalog() async throws -> CatalogSnapshot {
         guard let analytics else {
-            return try await base.loadCatalog(testArtists: testArtists)
+            return try await base.loadCatalog()
         }
         return try await analytics.measure(.musicAppFetch) {
-            try await base.loadCatalog(testArtists: testArtists)
+            try await base.loadCatalog()
         }
-    }
-
-    public func trackCount() async throws -> Int {
-        try await base.trackCount()
     }
 }

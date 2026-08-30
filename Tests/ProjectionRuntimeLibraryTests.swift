@@ -35,8 +35,11 @@ struct ProjectionRuntimeLibraryTests {
             appliedCounts.append(tracks.count)
         }
         var browseApplications: [(count: Int, isCurrent: Bool)] = []
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, token in
-            browseApplications.append((tracks.count, fixture.dependencies.libraryLoadGate.isCurrent(token)))
+        fixture.dependencies.applyBrowseTruth = { processing, token in
+            browseApplications.append((
+                processing.tracks.count,
+                token.map(fixture.dependencies.libraryLoadGate.isCurrent) ?? true
+            ))
         }
 
         await fixture.dependencies.loadLibrary()
@@ -230,10 +233,8 @@ struct ProjectionRuntimeLibraryTests {
             librarySnapshotService: fixture.snapshotService,
             runRecordStore: RunRecordStoreStub()
         )
-        fixture.dependencies.applyBrowseTruthForLoad = { _, readSource, _ in
-            if case .cachedMirror = readSource {
-                fixture.dependencies.invalidateLibraryLoads()
-            }
+        fixture.dependencies.applyBrowseTruth = { _, _ in
+            fixture.dependencies.invalidateLibraryLoads()
         }
 
         await fixture.dependencies.loadLibrary()
@@ -324,8 +325,8 @@ struct ProjectionRuntimeLibraryTests {
         )
 
         var shouldSupersedeFailure = true
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
-            guard tracks.isEmpty, shouldSupersedeFailure else { return }
+        fixture.dependencies.applyBrowseTruth = { processing, _ in
+            guard processing.tracks.isEmpty, shouldSupersedeFailure else { return }
             shouldSupersedeFailure = false
             fixture.dependencies.invalidateLibraryLoads()
             fixture.dependencies.configureLibraryPersistenceForTesting(
@@ -375,8 +376,8 @@ struct ProjectionRuntimeLibraryTests {
             librarySnapshotService: fixture.snapshotService,
             runRecordStore: RunRecordStoreStub()
         )
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
-            if tracks.isEmpty {
+        fixture.dependencies.applyBrowseTruth = { processing, _ in
+            if processing.tracks.isEmpty {
                 fixture.dependencies.invalidateLibraryLoads()
             }
         }
@@ -414,8 +415,8 @@ struct ProjectionRuntimeLibraryTests {
             runRecordStore: RunRecordStoreStub()
         )
         var browseApplications: [[String]] = []
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
-            browseApplications.append(tracks.map(\.id))
+        fixture.dependencies.applyBrowseTruth = { processing, _ in
+            browseApplications.append(processing.tracks.map(\.id))
         }
         var mirrorFactApplications: [[String]] = []
         fixture.dependencies.onMirrorFactsApplied = { tracks in
@@ -473,8 +474,8 @@ struct ProjectionRuntimeLibraryTests {
             runRecordStore: RunRecordStoreStub()
         )
         var browsedTrackIDs: [[String]] = []
-        fixture.dependencies.applyBrowseTruthForLoad = { tracks, _, _ in
-            browsedTrackIDs.append(tracks.map(\.id))
+        fixture.dependencies.applyBrowseTruth = { processing, _ in
+            browsedTrackIDs.append(processing.tracks.map(\.id))
         }
 
         await fixture.dependencies.loadLibrary()

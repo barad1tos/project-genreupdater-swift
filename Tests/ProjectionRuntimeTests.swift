@@ -16,6 +16,28 @@ struct ProjectionRuntimeTests {
         )
     }
 
+    private func installCatalog(_ tracks: [Core.Track], on dependencies: AppDependencies) {
+        dependencies.catalogSnapshot = CatalogSnapshot(tracks: tracks.map { track in
+            guard let id = CatalogTrackID(displayValue: track.id) else {
+                preconditionFailure("Projection runtime fixture catalog IDs must be non-empty")
+            }
+            return CatalogTrack(
+                id: id,
+                title: track.name,
+                artist: track.artist,
+                album: track.album,
+                albumArtist: track.albumArtist,
+                genres: track.genre.map { [$0] } ?? [],
+                dates: CatalogDates(releaseYear: track.year, dateAdded: track.dateAdded)
+            )
+        })
+        dependencies.catalogSnapshotSource = .live
+    }
+
+    private func makeProcessingFacts(_ tracks: [Core.Track]) -> BrowseProcessingFacts {
+        BrowseProcessingFacts(tracks: tracks, readiness: .incomplete(.freshObservationRequired))
+    }
+
     private func makeLibraryFacts(tracks: [Core.Track]) -> ActivityLibraryFacts {
         ActivityLibraryFacts(
             tracks: tracks,
@@ -30,6 +52,7 @@ struct ProjectionRuntimeTests {
     func activityRefreshPublishes() async {
         let dependencies = makeDependencies()
         let track = Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")
+        installCatalog([track], on: dependencies)
 
         let published = await dependencies.refreshActivityProjection(
             library: makeLibraryFacts(tracks: [track]),
@@ -151,10 +174,10 @@ struct ProjectionRuntimeTests {
     func abortedBrowseRefreshPublishesNothing() async {
         let dependencies = makeDependencies()
         let track = Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")
+        installCatalog([track], on: dependencies)
 
         let result = await dependencies.refreshBrowseProjection(
-            tracks: [track],
-            readSource: .cachedMirror(scannedAt: nil),
+            processing: makeProcessingFacts([track]),
             isCurrent: { false }
         )
 
@@ -166,11 +189,9 @@ struct ProjectionRuntimeTests {
     func landedBrowseRefreshPairsRows() async {
         let dependencies = makeDependencies()
         let track = Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")
+        installCatalog([track], on: dependencies)
 
-        let result = await dependencies.refreshBrowseProjection(
-            tracks: [track],
-            readSource: .cachedMirror(scannedAt: nil)
-        )
+        let result = await dependencies.refreshBrowseProjection(processing: makeProcessingFacts([track]))
 
         #expect(result?.projection.artists.count == 1)
         #expect(result?.rowIndex?.count == 1)
@@ -328,11 +349,11 @@ struct ProjectionRuntimeTests {
     func supersededAfterPublishKeepsStore() async {
         let dependencies = makeDependencies()
         let track = Core.Track(id: "t", name: "Song", artist: "Clutch", album: "Blast Tyrant")
+        installCatalog([track], on: dependencies)
         let currentFlags = CurrentFlagSequence(values: [true, false])
 
         let result = await dependencies.refreshBrowseProjection(
-            tracks: [track],
-            readSource: .cachedMirror(scannedAt: nil),
+            processing: makeProcessingFacts([track]),
             isCurrent: { currentFlags.next() }
         )
 

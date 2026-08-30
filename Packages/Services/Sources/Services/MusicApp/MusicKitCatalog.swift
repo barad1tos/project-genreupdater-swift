@@ -18,7 +18,6 @@ protocol MusicKitCatalogSource: Actor {
 
     func requestAuthorization() async throws
     func loadTracks() async throws -> [MusicKitTrackMetadata]
-    func trackCount() async throws -> Int
 }
 
 actor MusicKitCatalogAdapter: MusicKitCatalogSource {
@@ -47,27 +46,13 @@ actor MusicKitCatalogAdapter: MusicKitCatalogSource {
         return response.items.map(Self.metadata)
     }
 
-    func trackCount() async throws -> Int {
-        let request = MusicLibraryRequest<Song>()
-        let response = try await request.response()
-        return response.items.count
-    }
-
-    static func makeSnapshot(
-        from metadata: [MusicKitTrackMetadata],
-        testArtists: [String]
-    ) -> CatalogSnapshot {
-        let allowedArtists = ArtistAllowList.normalized(testArtists)
+    static func makeSnapshot(from metadata: [MusicKitTrackMetadata]) -> CatalogSnapshot {
         var seenIDs = Set<CatalogTrackID>()
         var tracks: [CatalogTrack] = []
 
         for metadataRow in metadata {
             guard let track = makeTrack(from: metadataRow),
-                  seenIDs.insert(track.id).inserted,
-                  ArtistAllowList.containsNormalized(
-                      track.albumArtist ?? track.artist,
-                      in: allowedArtists
-                  )
+                  seenIDs.insert(track.id).inserted
             else { continue }
             tracks.append(track)
         }

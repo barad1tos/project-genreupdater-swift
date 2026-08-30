@@ -7,6 +7,10 @@ import Services
 /// host's track-landing sites until slice 10 moves assembly behind the
 /// backend.
 extension AppDependencies {
+    var browseProcessingFacts: BrowseProcessingFacts {
+        BrowseProcessingFacts(tracks: libraryTracks, readiness: libraryReadiness)
+    }
+
     /// The immutable scope browse truth is computed against (ADR 0020).
     /// Recaptured only when Test Artists change, so identical inputs
     /// keep an identical snapshot ID and the store's dedup holds.
@@ -26,16 +30,19 @@ extension AppDependencies {
         return fresh
     }
 
-    func makeBrowseInput(tracks: [Track], readSource: BrowseReadSource) async -> BrowseInput {
+    func makeBrowseInput(processing: BrowseProcessingFacts) -> BrowseInput {
         // Synchronous MainActor facts first, so the snapshot cannot tear
         // across the await below.
         let scope = currentBrowseScopeSnapshot()
         let previewUnavailableReason = isManualRunAvailable ? nil : "Services are still starting."
-        return await BrowseInput(
-            tracks: tracks,
+        return BrowseInput(
+            catalog: BrowseCatalogFacts(
+                snapshot: catalogSnapshot,
+                source: catalogSnapshotSource,
+                issue: catalogLoadIssue
+            ),
+            processing: processing,
             scope: scope,
-            physicalTrackCount: probedPhysicalTrackCount(),
-            readSource: readSource,
             previewUnavailableReason: previewUnavailableReason
         )
     }
@@ -62,12 +69,11 @@ extension AppDependencies {
     /// input actually produced. Returns nil when the load was
     /// superseded; rowIndex is nil when another claimant's content won.
     func refreshBrowseProjection(
-        tracks: [Track],
-        readSource: BrowseReadSource,
+        processing: BrowseProcessingFacts,
         isCurrent: () -> Bool = { true }
     ) async -> (projection: BrowseProjection, rowIndex: [String: [BrowseTrackRow]]?)? {
         let generation = await claimBrowseInputGeneration()
-        let input = await makeBrowseInput(tracks: tracks, readSource: readSource)
+        let input = makeBrowseInput(processing: processing)
         guard isCurrent() else { return nil }
         let built = BrowseBuilder.makeProjection(input: input)
         let published = await publishBrowseProjection(built, inputGeneration: generation)

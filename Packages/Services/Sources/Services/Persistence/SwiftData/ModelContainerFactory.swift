@@ -29,7 +29,7 @@ public enum ModelContainerFactory {
     }
 
     static func makeSchema() -> Schema {
-        Schema(versionedSchema: StoreSchemaV8.self)
+        Schema(versionedSchema: StoreSchemaV9.self)
     }
 
     static func create(schema: Schema, configuration: ModelConfiguration) throws -> ModelContainer {
@@ -43,7 +43,7 @@ public enum ModelContainerFactory {
                     try bootstrapRecoveryStore(configuration)
                 }
                 try prepareLegacyStore(configuration)
-                if try isV7Store(configuration) {
+                if try requiresMigrationPlan(configuration) {
                     return try ModelContainer(
                         for: schema,
                         migrationPlan: StoreSchemaMigrationPlan.self,
@@ -129,8 +129,11 @@ public enum ModelContainerFactory {
         try storedVersions(in: configuration).contains { legacyVersions.contains($0) }
     }
 
-    private static func isV7Store(_ configuration: ModelConfiguration) throws -> Bool {
-        try storedVersions(in: configuration).contains(StoreSchemaV7.versionIdentifier.description)
+    private static func requiresMigrationPlan(_ configuration: ModelConfiguration) throws -> Bool {
+        let versions = try storedVersions(in: configuration)
+        return [StoreSchemaV7.versionIdentifier, StoreSchemaV8.versionIdentifier]
+            .map(\.description)
+            .contains { versions.contains($0) }
     }
 
     private static func storedVersions(in configuration: ModelConfiguration) throws -> [String] {

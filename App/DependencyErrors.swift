@@ -1,4 +1,11 @@
+import Core
 import Foundation
+
+enum ConfigurationSaveResult: Equatable {
+    case saved
+    case invalid(ConfigurationValidationError)
+    case unavailable
+}
 
 enum DependencySetupError: LocalizedError {
     case missingModelContainer

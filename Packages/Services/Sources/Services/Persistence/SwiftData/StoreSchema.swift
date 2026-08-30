@@ -407,13 +407,24 @@ enum StoreSchemaV8: VersionedSchema {
     ]
 }
 
+enum StoreSchemaV9: VersionedSchema {
+    static let versionIdentifier = Schema.Version(9, 0, 0)
+
+    static let models: [any PersistentModel.Type] = StoreSchemaV8.models + [
+        PersistedCatalogState.self,
+        PersistedCatalogTrack.self,
+    ]
+}
+
 enum StoreSchemaMigrationPlan: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
         StoreSchemaV7.self,
         StoreSchemaV8.self,
+        StoreSchemaV9.self,
     ]
 
     static let stages: [MigrationStage] = [
         .lightweight(fromVersion: StoreSchemaV7.self, toVersion: StoreSchemaV8.self),
+        .lightweight(fromVersion: StoreSchemaV8.self, toVersion: StoreSchemaV9.self),
     ]
 }

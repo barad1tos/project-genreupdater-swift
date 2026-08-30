@@ -168,30 +168,6 @@ struct LibraryTrackLoaderTests {
         #expect(!load.readiness.isReady)
     }
 
-    @Test("Cache supplements metadata only for IDs confirmed by membership")
-    func cacheSupplementsPresentMembership() async throws {
-        let firstID = try #require(MusicDatabaseTrackID(rawValue: "DB-1"))
-        let secondID = try #require(MusicDatabaseTrackID(rawValue: "DB-2"))
-        let outsideScopeID = try #require(MusicDatabaseTrackID(rawValue: "DB-OTHER"))
-        let store = LoaderTrackStore(
-            tracks: [canonicalTrack(id: firstID.rawValue, artist: "Metallica")],
-            presentIDs: [firstID, secondID, outsideScopeID]
-        )
-        let cachedTracks = [
-            canonicalTrack(id: secondID.rawValue, artist: "Metallica"),
-            canonicalTrack(id: outsideScopeID.rawValue, artist: "Other"),
-            canonicalTrack(id: "DB-REMOVED", artist: "Metallica"),
-        ]
-
-        let load = try await LibraryTrackLoader.currentMirror(
-            store: store,
-            cachedTracks: cachedTracks,
-            requirement: requirement(testArtists: ["Metallica"])
-        )
-
-        #expect(load.tracks.map(\.id) == ["DB-1", "DB-2"])
-    }
-
     @Test("Full-library certificate readies only the exact full scope")
     func fullCertificateIsExact() async throws {
         let store = LoaderTrackStore(

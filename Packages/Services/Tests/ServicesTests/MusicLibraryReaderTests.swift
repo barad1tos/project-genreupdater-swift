@@ -57,8 +57,7 @@ struct MusicLibraryReaderTests {
             from: [
                 Self.metadata(id: "MK-1", title: "Battery"),
                 Self.metadata(id: "MK-1", title: "Battery (duplicate row)"),
-            ],
-            testArtists: []
+            ]
         )
 
         #expect(snapshot.tracks.count == 1)
@@ -71,15 +70,14 @@ struct MusicLibraryReaderTests {
             from: [
                 Self.metadata(id: "MK-1", title: "Battery"),
                 Self.metadata(id: "MK-2", title: "Battery"),
-            ],
-            testArtists: []
+            ]
         )
 
         #expect(snapshot.tracks.map(\.id.displayValue) == ["MK-1", "MK-2"])
     }
 
-    @Test("Test Artists filter one catalog enumeration in memory")
-    func enumeratesOnce() async throws {
+    @Test("Test Artists never narrow physical catalog acquisition")
+    func loadsEveryPhysicalCatalogRow() async throws {
         let source = CatalogSourceSpy(metadata: [
             Self.metadata(id: "MK-1", artist: "In Flames"),
             Self.metadata(id: "MK-2", artist: "Metallica"),
@@ -87,9 +85,9 @@ struct MusicLibraryReaderTests {
         ])
         let reader = MusicLibraryReader(source: source)
 
-        let snapshot = try await reader.loadCatalog(testArtists: ["In Flames", "Metallica"])
+        let snapshot = try await reader.loadCatalog()
 
-        #expect(snapshot.tracks.map(\.id.displayValue) == ["MK-1", "MK-2"])
+        #expect(snapshot.tracks.map(\.id.displayValue) == ["MK-1", "MK-2", "MK-3"])
         #expect(await source.loadCount() == 1)
     }
 
@@ -131,10 +129,6 @@ private actor CatalogSourceSpy: MusicKitCatalogSource {
     func loadTracks() async throws -> [MusicKitTrackMetadata] {
         loads += 1
         return metadata
-    }
-
-    func trackCount() async throws -> Int {
-        metadata.count
     }
 
     func loadCount() -> Int {

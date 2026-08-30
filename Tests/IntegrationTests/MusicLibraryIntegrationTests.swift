@@ -48,17 +48,17 @@ final class MusicLibraryIntegrationTests: XCTestCase {
     // MARK: - Catalog Tests
 
     func testCatalogIsNotEmpty() async throws {
-        let snapshot = try await reader.loadCatalog(testArtists: [])
+        let snapshot = try await reader.loadCatalog()
 
         XCTAssertFalse(
             snapshot.tracks.isEmpty,
-            "Expected at least 1 track in the Music library, but loadCatalog(testArtists:) returned empty. "
+            "Expected at least 1 track in the Music library, but loadCatalog() returned empty. "
                 + "Add at least one song to Music.app before running integration tests."
         )
     }
 
     func testCatalogFieldsAreValid() async throws {
-        let tracks = try await reader.loadCatalog(testArtists: []).tracks
+        let tracks = try await reader.loadCatalog().tracks
         try XCTSkipIf(tracks.isEmpty, "No tracks in library — cannot validate fields")
 
         for track in tracks.prefix(50) {
@@ -78,17 +78,17 @@ final class MusicLibraryIntegrationTests: XCTestCase {
     }
 
     func testPositiveCount() async throws {
-        let count = try await reader.trackCount()
+        let count = try await reader.loadCatalog().tracks.count
 
         XCTAssertGreaterThan(
             count,
             0,
-            "trackCount() should report at least one MusicKit library row"
+            "loadCatalog() should report at least one MusicKit library row"
         )
     }
 
     func testUniqueIDs() async throws {
-        let snapshot = try await reader.loadCatalog(testArtists: [])
+        let snapshot = try await reader.loadCatalog()
         let trackIDs = snapshot.tracks.map(\.id.displayValue)
         let uniqueTrackIDs = Set(trackIDs)
 

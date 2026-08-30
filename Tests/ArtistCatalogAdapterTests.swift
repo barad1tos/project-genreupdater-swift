@@ -65,7 +65,7 @@ struct ArtistCatalogAdapterTests {
                 ArtistCatalogEntry(name: "Бумбокс", trackCount: 1),
             ])
         }
-        #expect(await catalog.capturedScopes() == [[]])
+        #expect(await catalog.loadCount() == 1)
 
         await catalog.replaceTracks([
             catalogTrack(id: "BJORK-1", title: "Jóga", artist: "Björk", album: "Homogenic"),
@@ -84,7 +84,7 @@ struct ArtistCatalogAdapterTests {
             guard case let .available(entries) = feed.projection.state else { return false }
             return entries.map(\.name) == ["Björk", "In Flames", "Бумбокс"]
         }
-        #expect(await catalog.capturedScopes() == [[], []])
+        #expect(await catalog.loadCount() == 2)
     }
 
     @Test("cancellation preserves the last available catalog")
@@ -107,6 +107,35 @@ struct ArtistCatalogAdapterTests {
         let projectionAfterCancellation = try await currentArtistCatalog(in: dependencies.projectionStore)
 
         #expect(projectionAfterCancellation == availableProjection)
+    }
+
+    @Test("a MusicKit failure preserves the last committed physical catalog")
+    @MainActor
+    func preservesCommittedCatalogAfterFetchFailure() async throws {
+        let catalog = CatalogProbe(tracks: [
+            catalogTrack(id: "BJORK-1", title: "Jóga", artist: "Björk", album: "Homogenic"),
+        ])
+        let store = try CatalogDataStore(modelContainer: ModelContainerFactory.createInMemory())
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            musicCatalog: catalog
+        )
+        dependencies.configureLibraryPersistenceForTesting(catalogStore: store)
+
+        await dependencies.refreshArtistCatalog()
+        let committed = try await currentArtistCatalog(in: dependencies.projectionStore)
+        #expect(committed.state == .available([ArtistCatalogEntry(name: "Björk", trackCount: 1)]))
+
+        await catalog.replaceTracks([
+            catalogTrack(id: "CHER-1", title: "Believe", artist: "Cher", album: "Believe"),
+        ])
+        await catalog.replaceFailure(.fetchFailed)
+        await dependencies.refreshArtistCatalog()
+
+        let afterFailure = try await currentArtistCatalog(in: dependencies.projectionStore)
+        let persisted = try #require(try await store.loadSnapshot())
+        #expect(afterFailure == committed)
+        #expect(persisted.tracks.map(\.artist) == ["Björk"])
     }
 
     @Test(
@@ -139,11 +168,12 @@ struct ArtistCatalogAdapterTests {
         )
 
         try await dependencies.requestCatalogAccess()
-        let count = await dependencies.probedPhysicalTrackCount()
+        await dependencies.refreshArtistCatalog()
+        let count = dependencies.catalogSnapshot?.tracks.count
 
         #expect(await catalog.authorizationRequests() == 1)
         #expect(count == 1)
-        #expect(await catalog.capturedScopes().isEmpty)
+        #expect(await catalog.loadCount() == 1)
     }
 
     @MainActor
@@ -167,7 +197,7 @@ struct ArtistCatalogAdapterTests {
 private actor CatalogProbe: MusicCatalogReading {
     private var tracks: [CatalogTrack]
     private var failure: CatalogFailure
-    private var scopes: [[String]] = []
+    private var loads = 0
     private var authorizationRequestCount = 0
     private var isAuthorizationGranted: Bool
 
@@ -190,8 +220,8 @@ private actor CatalogProbe: MusicCatalogReading {
         isAuthorizationGranted = true
     }
 
-    func loadCatalog(testArtists: [String]) async throws -> CatalogSnapshot {
-        scopes.append(testArtists)
+    func loadCatalog() async throws -> CatalogSnapshot {
+        loads += 1
         switch failure {
         case .none:
             break
@@ -201,12 +231,10 @@ private actor CatalogProbe: MusicCatalogReading {
             throw MusicLibraryError.authorizationDenied
         case .authorizationRestricted:
             throw MusicLibraryError.authorizationRestricted
+        case .fetchFailed:
+            throw MusicLibraryError.fetchFailed(detail: "fixture failure")
         }
         return CatalogSnapshot(tracks: tracks)
-    }
-
-    func trackCount() async throws -> Int {
-        tracks.count
     }
 
     func replaceTracks(_ tracks: [CatalogTrack]) {
@@ -217,8 +245,8 @@ private actor CatalogProbe: MusicCatalogReading {
         self.failure = failure
     }
 
-    func capturedScopes() -> [[String]] {
-        scopes
+    func loadCount() -> Int {
+        loads
     }
 
     func authorizationRequests() -> Int {
@@ -231,6 +259,7 @@ enum CatalogFailure: Sendable {
     case cancellation
     case authorizationDenied
     case authorizationRestricted
+    case fetchFailed
 
     var localizedReason: String {
         switch self {
@@ -238,7 +267,7 @@ enum CatalogFailure: Sendable {
             MusicLibraryError.authorizationDenied.localizedDescription
         case .authorizationRestricted:
             MusicLibraryError.authorizationRestricted.localizedDescription
-        case .none, .cancellation:
+        case .none, .cancellation, .fetchFailed:
             preconditionFailure("The selected failure has no catalog issue")
         }
     }

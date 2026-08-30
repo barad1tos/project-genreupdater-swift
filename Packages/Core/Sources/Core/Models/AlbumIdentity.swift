@@ -123,12 +123,17 @@ public struct AlbumIdentity: Sendable, Hashable, Codable {
 
     /// Returns the preferred album-level artist for grouping and cache writes.
     public static func groupingArtist(for track: Track) -> String {
-        let albumArtist = track.albumArtist?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let albumArtist, !albumArtist.isEmpty {
-            return albumArtist
+        groupingArtist(artist: track.artist, albumArtist: track.albumArtist)
+    }
+
+    /// Returns the canonical grouping artist for source rows that are not processing `Track` values.
+    public static func groupingArtist(artist: String, albumArtist: String?) -> String {
+        let normalizedAlbumArtist = albumArtist?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalizedAlbumArtist, !normalizedAlbumArtist.isEmpty {
+            return normalizedAlbumArtist
         }
 
-        return explicitPrimaryArtist(track.artist)
+        return explicitPrimaryArtist(artist)
     }
 
     /// Returns the track artist with explicit feature suffixes removed.
