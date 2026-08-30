@@ -121,21 +121,16 @@ extension AppDependencies {
             throw LibraryLoadError.failed("Track store is unavailable")
         }
 
-        let scopedArtists = LibraryTrackLoader.scopedArtists(from: self)
         let previousTracks = libraryTracks
-        let loadStart = ContinuousClock.now
         let runtimeConfiguration = try LibrarySyncRuntimeConfiguration(configuration: config)
         let mirrorLoad = try await LibraryTrackLoader.currentMirror(
             store: trackStore,
             cachedTracks: previousTracks,
             requirement: runtimeConfiguration.processingRequirement
         )
-        let didApply = await applyCurrentMirrorLoad(
+        let didApply = await applyCommittedMirrorFacts(
             mirrorLoad,
-            token: token,
-            scopedArtists: scopedArtists,
-            previousTracks: previousTracks,
-            loadStart: loadStart
+            token: token
         )
         guard didApply else { throw CancellationError() }
         libraryLoadError = nil
@@ -210,6 +205,40 @@ extension AppDependencies {
             outcome: mirrorLoad.readiness.isReady ? .succeeded : .degraded
         )
         return libraryLoadGate.isCurrent(token)
+    }
+
+    private func applyCommittedMirrorFacts(
+        _ mirrorLoad: LibraryMirrorTrackLoad,
+        token: UInt64
+    ) async -> Bool {
+        guard libraryLoadGate.isCurrent(token) else { return false }
+        libraryReadiness = mirrorLoad.readiness
+        libraryTracks = mirrorLoad.tracks
+        await applyBrowseTruthForLoad?(mirrorLoad.tracks, .cachedMirror(scannedAt: nil), token)
+        guard libraryLoadGate.isCurrent(token) else { return false }
+        libraryMetrics = makeMirrorProjectionMetrics(from: mirrorLoad.tracks)
+        onLibraryLoadApplied?(mirrorLoad.tracks)
+        return libraryLoadGate.isCurrent(token)
+    }
+
+    private func makeMirrorProjectionMetrics(from tracks: [Track]) -> MetricsSnapshotValues? {
+        guard let currentValues = MetricsSnapshotValues.make(from: tracks) else { return nil }
+        guard let previousValues = libraryMetrics else { return currentValues }
+        return MetricsSnapshotValues(
+            totalTracks: currentValues.totalTracks,
+            tracksWithGenre: currentValues.tracksWithGenre,
+            tracksWithYear: currentValues.tracksWithYear,
+            tracksWithBoth: currentValues.tracksWithBoth,
+            tracksNeedingGenre: currentValues.tracksNeedingGenre,
+            tracksNeedingYear: currentValues.tracksNeedingYear,
+            protectedFileCount: currentValues.protectedFileCount,
+            recentlyAdded: currentValues.recentlyAdded,
+            timestamp: previousValues.timestamp,
+            previousTotalTracks: previousValues.previousTotalTracks,
+            previousTracksNeedingGenre: previousValues.previousTracksNeedingGenre,
+            previousTracksNeedingYear: previousValues.previousTracksNeedingYear,
+            previousRecentlyAdded: previousValues.previousRecentlyAdded
+        )
     }
 
     private func handleLibraryLoadFailure(

@@ -285,6 +285,62 @@ struct ActivityInputBuilderTests {
         #expect(try await store.pendingMirrorEffects().isEmpty)
     }
 
+    @Test("projection refresh retry preserves library-load bookkeeping")
+    @MainActor
+    func projectionRefreshRetryPreservesLoadBookkeeping() async throws {
+        let failingReports = RunRecordStoreStub(reportsError: CocoaError(.fileReadCorruptFile))
+        let fixture = try makeFixture(testArtists: [], runRecordStore: failingReports)
+        let store = fixture.trackStore
+        try await store.initialize()
+        let cache = try GRDBCacheService.createInMemory()
+        try await cache.initialize()
+        let metricsStore = try MetricsSnapshotStore(modelContainer: ModelContainerFactory.createInMemory())
+        await metricsStore.upsert(from: [track(id: "metrics-before")])
+        await metricsStore.upsert(from: [track(id: "metrics-current"), track(id: "metrics-current-2")])
+        let persistedMetrics = try #require(await metricsStore.loadLatest())
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            librarySnapshotService: fixture.snapshotService,
+            metricsSnapshotStore: metricsStore,
+            runRecordStore: failingReports,
+            cache: cache
+        )
+        var analyticsConfiguration = AnalyticsConfig()
+        analyticsConfiguration.enabled = true
+        let analytics = AnalyticsRecorder(store: cache, configuration: analyticsConfiguration)
+        await analytics.initialize()
+        fixture.dependencies.installTestAnalyticsRecorder(analytics)
+
+        let incrementalBaseline = track(id: "incremental-baseline")
+        fixture.dependencies.replacePreviousIncrementalScopeTracks([incrementalBaseline])
+        fixture.dependencies.libraryMetrics = persistedMetrics
+        fixture.dependencies.libraryTracks = [canonicalMirrorTrack(track(id: "stale-presentation"))]
+        try await store.seedMirror([track(id: "committed-mirror")])
+        try await enqueueProjectionRefresh(in: store)
+
+        await fixture.dependencies.mirrorEffectDrain?.drain()
+
+        #expect(try await store.pendingMirrorEffects().count == 1)
+        #expect(fixture.dependencies.previousIncrementalScopeTracks == [incrementalBaseline])
+        #expect(await metricsStore.loadLatest() == persistedMetrics)
+        #expect(await analytics.projection(for: .currentSession).summary.calls == 0)
+
+        fixture.dependencies.configureLibraryPersistenceForTesting(
+            trackStore: store,
+            librarySnapshotService: fixture.snapshotService,
+            metricsSnapshotStore: metricsStore,
+            runRecordStore: RunRecordStoreStub(),
+            cache: cache
+        )
+        await fixture.dependencies.mirrorEffectDrain?.drain()
+
+        #expect(try await store.pendingMirrorEffects().isEmpty)
+        #expect(fixture.dependencies.libraryTracks.map(\.id) == ["committed-mirror"])
+        #expect(fixture.dependencies.previousIncrementalScopeTracks == [incrementalBaseline])
+        #expect(await metricsStore.loadLatest() == persistedMetrics)
+        #expect(await analytics.projection(for: .currentSession).summary.calls == 0)
+    }
+
     @Test("corrupted mirror queue asks for repair instead of retry")
     @MainActor
     func corruptedMirrorQueueHasRepairIssue() async throws {
