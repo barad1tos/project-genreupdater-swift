@@ -113,6 +113,31 @@ struct BrowseBuilderGroupingTests {
         #expect(projection.artists[0].albums[0].counts.total == 2)
     }
 
+    @Test("catalog artist aliases retain processing authority when albumArtist differs")
+    func catalogAliasFindsTrack() {
+        let processingTrack = makeTrack(
+            name: "Guest Song",
+            artist: "Guest Artist",
+            album: "Compilation",
+            albumArtist: "Various Artists"
+        )
+        let catalogTrack = makeCatalogTrack(makeTrack(
+            name: "Guest Song",
+            artist: "Guest Artist",
+            album: "Compilation"
+        ))
+
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [processingTrack],
+            catalogTracks: [catalogTrack]
+        ))
+
+        let album = projection.artists[0].albums[0]
+        #expect(album.counts.inScope == 1)
+        #expect(album.counts.writable == 1)
+        #expect(album.action.isEnabled)
+    }
+
     @Test("case variants merge into one artist node with a stable id")
     func caseVariantsMerge() {
         let projection = BrowseBuilder.makeProjection(input: makeInput(tracks: [
@@ -516,6 +541,24 @@ struct BrowseBuilderTrackRowTests {
         #expect(something?.genre == "Rock")
         #expect(something?.year == 1969)
         #expect(getBack?.hasWriteIdentity == false && getBack?.isInScope == false)
+    }
+
+    @Test("row scope membership matches either track artist field")
+    func rowScopeMatchesTrackArtist() {
+        let track = makeTrack(
+            name: "Guest Song",
+            artist: "Guest Artist",
+            album: "Compilation",
+            albumArtist: "Various Artists"
+        )
+        let rows = BrowseBuilder.trackRows(
+            forAlbumID: AlbumIdentity(artist: "Various Artists", album: "Compilation").key,
+            input: makeInput(tracks: [track], testArtists: ["Guest Artist"])
+        )
+
+        #expect(rows.count == 1)
+        #expect(rows[0].isInScope)
+        #expect(rows[0].hasWriteIdentity)
     }
 
     @Test("an unknown album id returns no rows")

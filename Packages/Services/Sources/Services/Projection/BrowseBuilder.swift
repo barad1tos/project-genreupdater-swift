@@ -93,14 +93,17 @@ public enum BrowseBuilder {
         let tracksByAlbumTitle: [AlbumIdentity: [String: [Track]]]
 
         init(tracks: [Track]) {
-            tracksByAlbum = Dictionary(grouping: tracks) { AlbumIdentity(track: $0) }
-            var tracksByAlbumTitle: [AlbumIdentity: [String: [Track]]] = [:]
+            var albumTracks: [AlbumIdentity: [Track]] = [:]
+            var albumTitleTracks: [AlbumIdentity: [String: [Track]]] = [:]
             for track in tracks {
-                let album = AlbumIdentity(track: track)
                 let title = normalizeForMatching(track.name)
-                tracksByAlbumTitle[album, default: [:]][title, default: []].append(track)
+                for album in AlbumIdentity.lookupCandidates(for: track) {
+                    albumTracks[album, default: []].append(track)
+                    albumTitleTracks[album, default: [:]][title, default: []].append(track)
+                }
             }
-            self.tracksByAlbumTitle = tracksByAlbumTitle
+            tracksByAlbum = albumTracks
+            tracksByAlbumTitle = albumTitleTracks
         }
     }
 
@@ -222,12 +225,12 @@ public enum BrowseBuilder {
         case .fullLibrary:
             return true
         case .testArtists:
-            guard !scope.normalizedTestArtists.isEmpty,
-                  let effectiveArtist = ArtistAllowList.normalizedName(track.albumArtist ?? track.artist)
-            else { return false }
-            return scope.normalizedTestArtists.contains {
-                $0.localizedCaseInsensitiveCompare(effectiveArtist) == .orderedSame
-            }
+            guard !scope.normalizedTestArtists.isEmpty else { return false }
+            return ArtistAllowList.containsNormalized(
+                artist: track.artist,
+                albumArtist: track.albumArtist,
+                in: scope.normalizedTestArtists
+            )
         }
     }
 
