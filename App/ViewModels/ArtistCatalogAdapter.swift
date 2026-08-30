@@ -5,6 +5,8 @@ import Observation
 import Services
 
 private let artistCatalogLog = AppLogger.make(category: "artist-catalog")
+private let catalogPersistenceIssue = "Artists are current, but couldn’t be saved for the next launch."
+private let catalogRecoveryIssue = "Couldn’t refresh the Music catalog or load its saved snapshot."
 
 @MainActor
 @Observable
@@ -72,7 +74,7 @@ extension AppDependencies {
         guard catalogLoadGate.isCurrent(token) else { return .superseded }
         catalogSnapshot = result.snapshot
         catalogSnapshotSource = result.source
-        catalogLoadIssue = result.issue
+        catalogIssue = result.issue
         await projectionStore.replaceArtistCatalog(result.projection, inputGeneration: generation)
         guard catalogLoadGate.isCurrent(token) else { return .superseded }
         await refreshChromeProjection()
@@ -87,36 +89,65 @@ extension AppDependencies {
         do {
             let snapshot = try await musicCatalog.loadCatalog()
             guard catalogLoadGate.isCurrent(token) else { return .superseded }
-            try await catalogStore?.replaceSnapshot(snapshot)
+            let persistenceIssue = try await persistLiveCatalog(snapshot)
+            guard !Task.isCancelled else { return .cancelled }
             guard catalogLoadGate.isCurrent(token) else { return .superseded }
             return .loaded(ArtistCatalogRefreshResult(
                 snapshot: snapshot,
                 source: .live,
-                issue: nil,
-                projection: ArtistCatalogBuilder.makeProjection(tracks: snapshot.tracks)
+                issue: persistenceIssue,
+                projection: ArtistCatalogBuilder.makeProjection(
+                    tracks: snapshot.tracks,
+                    issue: persistenceIssue?.message
+                )
             ))
         } catch is CancellationError {
             return .cancelled
+        } catch let error as CatalogValidationError {
+            artistCatalogLog.error(
+                "Live artist catalog validation failed: \(error.localizedDescription, privacy: .private)"
+            )
+            return await preservedArtistCatalog(or: .refreshFailed(
+                message: "Couldn’t validate the Music catalog. Try again."
+            ))
         } catch let error as MusicLibraryError {
-            return await .loaded(resultForMusicLibraryError(error))
+            return await resultForMusicLibraryError(error)
         } catch {
             artistCatalogLog.error(
                 "Artist catalog refresh failed with an unexpected error: \(error.localizedDescription, privacy: .private)"
             )
-            return await .loaded(preservedArtistCatalog(or: "Couldn’t load artists. Try again."))
+            return await preservedArtistCatalog(or: .refreshFailed(
+                message: "Couldn’t load artists. Try again."
+            ))
         }
     }
 
-    private func resultForMusicLibraryError(_ error: MusicLibraryError) async -> ArtistCatalogRefreshResult {
+    private func persistLiveCatalog(_ snapshot: CatalogSnapshot) async throws -> CatalogIssue? {
+        do {
+            try await catalogStore?.replaceSnapshot(snapshot)
+            return nil
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as CatalogValidationError {
+            throw error
+        } catch {
+            artistCatalogLog.error(
+                "Fresh artist catalog persistence failed: \(error.localizedDescription, privacy: .private)"
+            )
+            return .persistenceFailed(message: catalogPersistenceIssue)
+        }
+    }
+
+    private func resultForMusicLibraryError(_ error: MusicLibraryError) async -> CatalogLoadOutcome {
         switch error {
         case .authorizationDenied, .authorizationRestricted:
-            return await preservedArtistCatalog(or: error.localizedDescription)
+            return await preservedArtistCatalog(or: .refreshFailed(message: error.localizedDescription))
         case let .fetchFailed(detail):
             artistCatalogLog.error("Artist catalog refresh failed during MusicKit fetch: \(detail, privacy: .private)")
-            return await preservedArtistCatalog(or: "Couldn’t load artists. Try again.")
+            return await preservedArtistCatalog(or: .refreshFailed(message: "Couldn’t load artists. Try again."))
         case .musicAppNotAvailable:
             artistCatalogLog.error("Artist catalog refresh failed because Music is unavailable")
-            return await preservedArtistCatalog(or: "Open Music, then try again.")
+            return await preservedArtistCatalog(or: .refreshFailed(message: "Open Music, then try again."))
         }
     }
 
@@ -124,41 +155,49 @@ extension AppDependencies {
         ArtistCatalogProjection(revision: .initial, state: .unavailable(reason: reason))
     }
 
-    private func preservedArtistCatalog(or unavailableReason: String) async -> ArtistCatalogRefreshResult {
+    private func preservedArtistCatalog(or issue: CatalogIssue) async -> CatalogLoadOutcome {
+        guard !Task.isCancelled else { return .cancelled }
         if let catalogSnapshot {
-            return ArtistCatalogRefreshResult(
+            return .loaded(ArtistCatalogRefreshResult(
                 snapshot: catalogSnapshot,
                 source: catalogSnapshotSource,
-                issue: unavailableReason,
+                issue: issue,
                 projection: ArtistCatalogBuilder.makeProjection(
                     tracks: catalogSnapshot.tracks,
-                    issue: unavailableReason
+                    issue: issue.message
                 )
-            )
+            ))
         }
         do {
             if let snapshot = try await catalogStore?.loadSnapshot() {
-                return ArtistCatalogRefreshResult(
+                return .loaded(ArtistCatalogRefreshResult(
                     snapshot: snapshot,
                     source: .persisted,
-                    issue: unavailableReason,
+                    issue: issue,
                     projection: ArtistCatalogBuilder.makeProjection(
                         tracks: snapshot.tracks,
-                        issue: unavailableReason
+                        issue: issue.message
                     )
-                )
+                ))
             }
+        } catch is CancellationError {
+            return .cancelled
         } catch {
             artistCatalogLog.error(
-                "Persisted artist catalog recovery failed: \(error.localizedDescription, privacy: .public)"
+                "Persisted artist catalog recovery failed: \(error.localizedDescription, privacy: .private)"
             )
+            return unavailableCatalog(issue: .recoveryFailed(message: catalogRecoveryIssue))
         }
-        return ArtistCatalogRefreshResult(
+        return unavailableCatalog(issue: issue)
+    }
+
+    private func unavailableCatalog(issue: CatalogIssue) -> CatalogLoadOutcome {
+        .loaded(ArtistCatalogRefreshResult(
             snapshot: nil,
             source: nil,
-            issue: unavailableReason,
-            projection: unavailableArtistCatalog(reason: unavailableReason)
-        )
+            issue: issue,
+            projection: unavailableArtistCatalog(reason: issue.message)
+        ))
     }
 }
 
@@ -171,6 +210,6 @@ private enum CatalogLoadOutcome {
 private struct ArtistCatalogRefreshResult {
     let snapshot: CatalogSnapshot?
     let source: CatalogSnapshotSource?
-    let issue: String?
+    let issue: CatalogIssue?
     let projection: ArtistCatalogProjection
 }

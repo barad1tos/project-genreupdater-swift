@@ -1,13 +1,25 @@
 import Foundation
 import SwiftData
 
+/// Persists complete physical Music catalog snapshots for recovery across launches.
+public protocol CatalogSnapshotStore: Sendable {
+    /// Replaces the durable snapshot atomically.
+    /// - Throws: `CatalogValidationError` when the snapshot is invalid,
+    ///   or a storage-specific error when persistence fails.
+    func replaceSnapshot(_ snapshot: CatalogSnapshot) async throws
+
+    /// Loads the last complete snapshot, or `nil` when none has been persisted.
+    /// - Throws: When the stored snapshot is incomplete or unreadable.
+    func loadSnapshot() async throws -> CatalogSnapshot?
+}
+
 @ModelActor
-public actor CatalogDataStore {
+public actor CatalogDataStore: CatalogSnapshotStore {
     public func replaceSnapshot(_ snapshot: CatalogSnapshot) async throws {
         try Task.checkCancellation()
         let duplicateIDs = Self.duplicateIDs(in: snapshot.tracks)
         guard duplicateIDs.isEmpty else {
-            throw CatalogStoreError.duplicateIDs(duplicateIDs)
+            throw CatalogValidationError.duplicateIDs(duplicateIDs)
         }
 
         do {
@@ -62,8 +74,18 @@ public actor CatalogDataStore {
     }
 }
 
-enum CatalogStoreError: LocalizedError, Equatable, Sendable {
+public enum CatalogValidationError: LocalizedError, Equatable, Sendable {
     case duplicateIDs([String])
+
+    public var errorDescription: String? {
+        switch self {
+        case let .duplicateIDs(ids):
+            "Catalog snapshot contains duplicate IDs: \(ids.joined(separator: ", "))"
+        }
+    }
+}
+
+enum CatalogStoreError: LocalizedError, Equatable, Sendable {
     case fingerprintMismatch(expected: String, actual: String)
     case invalidCatalogID(String)
     case invalidGenres(String)
@@ -71,8 +93,6 @@ enum CatalogStoreError: LocalizedError, Equatable, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case let .duplicateIDs(ids):
-            "Catalog snapshot contains duplicate IDs: \(ids.joined(separator: ", "))"
         case let .fingerprintMismatch(expected, actual):
             "Catalog snapshot fingerprint mismatch: expected \(expected), got \(actual)"
         case let .invalidCatalogID(id):

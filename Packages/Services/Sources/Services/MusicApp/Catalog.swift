@@ -73,6 +73,23 @@ public enum CatalogSnapshotSource: Equatable, Sendable {
     case persisted
 }
 
+/// A non-fatal problem attached to the catalog currently used for presentation.
+public enum CatalogIssue: Equatable, Sendable {
+    /// The live read failed, so the current snapshot may be stale or unavailable.
+    case refreshFailed(message: String)
+    /// The live read succeeded, but its snapshot could not be saved for a later launch.
+    case persistenceFailed(message: String)
+    /// The live read failed and the saved fallback could not be recovered.
+    case recoveryFailed(message: String)
+
+    public var message: String {
+        switch self {
+        case let .refreshFailed(message), let .persistenceFailed(message), let .recoveryFailed(message):
+            message
+        }
+    }
+}
+
 /// Stable content identity for one complete MusicKit presentation snapshot.
 public struct CatalogFingerprint: Equatable, Hashable, Sendable {
     public let rawValue: String

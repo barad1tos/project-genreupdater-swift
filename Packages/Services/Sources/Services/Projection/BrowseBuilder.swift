@@ -2,13 +2,14 @@ import Core
 import Foundation
 
 /// Physical MusicKit presentation facts. A missing snapshot is distinct from
-/// a committed empty catalog; the issue describes why live refresh failed.
+/// a committed empty catalog; the typed issue preserves refresh versus
+/// persistence semantics for operational guidance.
 public struct BrowseCatalogFacts: Equatable, Sendable {
     public let snapshot: CatalogSnapshot?
     public let source: CatalogSnapshotSource?
-    public let issue: String?
+    public let issue: CatalogIssue?
 
-    public init(snapshot: CatalogSnapshot?, source: CatalogSnapshotSource?, issue: String?) {
+    public init(snapshot: CatalogSnapshot?, source: CatalogSnapshotSource?, issue: CatalogIssue?) {
         self.snapshot = snapshot
         self.source = source
         self.issue = issue
@@ -289,15 +290,34 @@ public enum BrowseBuilder {
 
     private static func makeIssues(catalog: BrowseCatalogFacts) -> [OperationalIssue] {
         guard let issue = catalog.issue else { return [] }
-        return [OperationalIssue(
-            id: "browse.catalog-refresh",
-            category: .musicKitUnavailable,
-            summary: catalog.snapshot == nil
-                ? "The Music catalog is unavailable."
-                : "The Music catalog may be out of date.",
-            technicalDetail: issue,
-            nextAction: "Refresh the library to retry the Music catalog read."
-        )]
+        switch issue {
+        case let .refreshFailed(message):
+            return [OperationalIssue(
+                id: "browse.catalog-refresh",
+                category: .musicKitUnavailable,
+                summary: catalog.snapshot == nil
+                    ? "The Music catalog is unavailable."
+                    : "The Music catalog may be out of date.",
+                technicalDetail: message,
+                nextAction: "Refresh the library to retry the Music catalog read."
+            )]
+        case let .persistenceFailed(message):
+            return [OperationalIssue(
+                id: "browse.catalog-persistence",
+                category: .temporaryUnavailable,
+                summary: "The current Music catalog couldn’t be saved.",
+                technicalDetail: message,
+                nextAction: "Refresh the library to retry saving it."
+            )]
+        case let .recoveryFailed(message):
+            return [OperationalIssue(
+                id: "browse.catalog-recovery",
+                category: .internalFailure,
+                summary: "The saved Music catalog couldn’t be loaded.",
+                technicalDetail: message,
+                nextAction: "Refresh the library to rebuild the saved catalog."
+            )]
+        }
     }
 
     private static func dominantValue<Value: Hashable & Comparable>(in values: [Value]) -> Value? {

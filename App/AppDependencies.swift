@@ -94,7 +94,7 @@ final class AppDependencies {
     var libraryReadiness: MirrorReadiness = .incomplete(.freshObservationRequired)
     var catalogSnapshot: CatalogSnapshot?
     var catalogSnapshotSource: CatalogSnapshotSource?
-    var catalogLoadIssue: String?
+    var catalogIssue: CatalogIssue?
     var isLibraryReadyForUpdates: Bool {
         libraryReadiness.isReady
     }
@@ -132,7 +132,7 @@ final class AppDependencies {
     private(set) var apiOrchestrator: APIOrchestrator?
     private(set) var pendingVerificationService: (any PendingVerificationService)?
     private(set) var cacheService: GRDBCacheService?
-    private(set) var catalogStore: CatalogDataStore?
+    private(set) var catalogStore: (any CatalogSnapshotStore)?
     private(set) var trackStore: (any TrackStateStore)?
     private(set) var changeLogStore: (any ChangeLogStore)?
     private(set) var metricsSnapshotStore: MetricsSnapshotStore?
@@ -674,7 +674,7 @@ extension AppDependencies {
 
     func configureLibraryPersistenceForTesting(
         trackStore: (any TrackStateStore)? = nil,
-        catalogStore: CatalogDataStore? = nil,
+        catalogStore: (any CatalogSnapshotStore)? = nil,
         librarySnapshotService: (any LibrarySnapshotService)? = nil,
         metricsSnapshotStore: MetricsSnapshotStore? = nil,
         runRecordStore: (any RunRecordStore)? = nil,

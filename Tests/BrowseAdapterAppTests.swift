@@ -416,7 +416,7 @@ private func makeAdapterBrowseInput(
                 capturedAt: Date(timeIntervalSince1970: 100)
             ),
             source: .live,
-            issue: catalogIssue
+            issue: catalogIssue.map(CatalogIssue.refreshFailed(message:))
         ),
         processing: BrowseProcessingFacts(
             tracks: tracks,

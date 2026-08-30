@@ -60,7 +60,7 @@ struct CatalogDataStoreTests {
             capturedAt: Date(timeIntervalSince1970: 500)
         )
 
-        await #expect(throws: CatalogStoreError.duplicateIDs(["duplicate"])) {
+        await #expect(throws: CatalogValidationError.duplicateIDs(["duplicate"])) {
             try await store.replaceSnapshot(invalid)
         }
 

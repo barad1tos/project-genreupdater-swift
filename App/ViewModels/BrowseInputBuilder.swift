@@ -39,7 +39,7 @@ extension AppDependencies {
             catalog: BrowseCatalogFacts(
                 snapshot: catalogSnapshot,
                 source: catalogSnapshotSource,
-                issue: catalogLoadIssue
+                issue: catalogIssue
             ),
             processing: processing,
             scope: scope,

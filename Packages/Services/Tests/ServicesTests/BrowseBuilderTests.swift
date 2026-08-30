@@ -35,7 +35,7 @@ private func makeInput(
     catalogTracks: [CatalogTrack]? = nil,
     catalogSource: CatalogSnapshotSource = .live,
     capturedAt: Date = Date(timeIntervalSince1970: 100),
-    catalogIssue: String? = nil,
+    catalogIssue: CatalogIssue? = nil,
     readiness: MirrorReadiness? = nil,
     previewUnavailableReason: String? = nil
 ) -> BrowseInput {
@@ -378,12 +378,54 @@ struct BrowseBuilderScopeTests {
         let projection = BrowseBuilder.makeProjection(input: makeInput(
             tracks: [makeTrack(artist: "Björk", album: "Homogenic")],
             catalogSource: .persisted,
-            catalogIssue: "MusicKit fetch failed"
+            catalogIssue: .refreshFailed(message: "MusicKit fetch failed")
         ))
 
         #expect(projection.artists.map(\.name) == ["Björk"])
         #expect(projection.operationalIssues.first?.category == .musicKitUnavailable)
         #expect(projection.operationalIssues.first?.summary == "The Music catalog may be out of date.")
+    }
+
+    @Test("a missing catalog with a refresh issue reports unavailability")
+    func missingCatalogSurfacesIssue() {
+        let scope = ProcessingScopeSnapshot.capture(
+            requestedTestArtists: [],
+            knownTrackCount: 0,
+            createdAt: Date(timeIntervalSince1970: 100),
+            reason: "browse-test"
+        )
+        let projection = BrowseBuilder.makeProjection(input: BrowseInput(
+            catalog: BrowseCatalogFacts(
+                snapshot: nil,
+                source: nil,
+                issue: .refreshFailed(message: "MusicKit fetch failed")
+            ),
+            processing: BrowseProcessingFacts(
+                tracks: [],
+                readiness: readyReadiness(testArtists: [], trackCount: 0)
+            ),
+            scope: scope,
+            previewUnavailableReason: nil
+        ))
+
+        let issue = projection.operationalIssues.first
+        #expect(issue?.category == .musicKitUnavailable)
+        #expect(issue?.summary == "The Music catalog is unavailable.")
+        #expect(issue?.technicalDetail == "MusicKit fetch failed")
+    }
+
+    @Test("a live catalog persistence issue does not report stale content")
+    func keepsLiveCatalogCurrent() {
+        let projection = BrowseBuilder.makeProjection(input: makeInput(
+            tracks: [makeTrack(artist: "Björk", album: "Homogenic")],
+            catalogIssue: .persistenceFailed(message: "Catalog save failed")
+        ))
+
+        let issue = projection.operationalIssues.first
+        #expect(issue?.category == .temporaryUnavailable)
+        #expect(issue?.summary == "The current Music catalog couldn’t be saved.")
+        #expect(issue?.technicalDetail == "Catalog save failed")
+        #expect(issue?.nextAction == "Refresh the library to retry saving it.")
     }
 
     @Test("a testArtists snapshot with an empty list fails closed")
