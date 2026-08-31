@@ -7,8 +7,10 @@
 // - Music.app must be running
 // - Run locally only (not CI) — uses XCTSkipUnless for graceful degradation
 
+import Core
 import Foundation
 import XCTest
+@testable import Services
 
 // MARK: - Music.app Accessibility Helper
 
@@ -51,6 +53,41 @@ private func executeAppleScript(_ source: String) throws -> String? {
     }
 
     return result?.stringValue
+}
+
+private func executeAppleScriptFile(_ scriptURL: URL, arguments: [String]) throws -> String {
+    let process = Process()
+    let output = Pipe()
+    let errors = Pipe()
+    process.executableURL = try executableURL(named: "osascript")
+    process.arguments = [scriptURL.path] + arguments
+    process.standardOutput = output
+    process.standardError = errors
+    try process.run()
+    let stdout = output.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+
+    guard process.terminationStatus == 0 else {
+        let stderr = errors.fileHandleForReading.readDataToEndOfFile()
+        throw AppleScriptTestError.executionFailed(
+            String(data: stderr, encoding: .utf8) ?? "osascript exited with status \(process.terminationStatus)"
+        )
+    }
+    guard let result = String(data: stdout, encoding: .utf8) else {
+        throw AppleScriptTestError.executionFailed("osascript returned non-UTF-8 output")
+    }
+    return result
+}
+
+private func executableURL(named name: String) throws -> URL {
+    let directories = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":") ?? []
+    for directory in directories {
+        let candidate = URL(fileURLWithPath: String(directory)).appendingPathComponent(name)
+        if FileManager.default.isExecutableFile(atPath: candidate.path) {
+            return candidate
+        }
+    }
+    throw AppleScriptTestError.executionFailed("\(name) is not available on PATH")
 }
 
 // MARK: - Test Error
@@ -191,5 +228,161 @@ final class AppleScriptIntegrationTests: XCTestCase {
                 "Expected 3 pipe-separated fields (name, artist, album), got \(parts.count)"
             )
         }
+    }
+
+    @MainActor
+    func testTrackIDCensusMatchesDeclaredCount() throws {
+        let scriptURL = repositoryRoot.appendingPathComponent("Resources/Scripts/fetch_track_ids.applescript")
+        let libraryURL = try requireDefaultMusicLibrary()
+
+        let output = try executeAppleScriptFile(
+            scriptURL,
+            arguments: [libraryURL.path]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let liveCount = try XCTUnwrap(
+            executeAppleScript(#"tell application "Music" to return count of tracks of library playlist 1"#)
+                .flatMap(Int.init)
+        )
+        let fields = output.split(separator: ":", maxSplits: 3, omittingEmptySubsequences: false)
+        XCTAssertEqual(fields.first, "CENSUS", "The resource must emit the bulk census wire contract")
+        let declaredCount = try XCTUnwrap(fields.count == 4 ? Int(fields[1]) : nil)
+        let identifiers = fields[3].isEmpty
+            ? []
+            : fields[3].split(separator: ",", omittingEmptySubsequences: false)
+
+        XCTAssertEqual(
+            identifiers.count,
+            declaredCount,
+            "The census must contain every declared Music database ID"
+        )
+        XCTAssertEqual(
+            declaredCount,
+            liveCount,
+            "The census must cover the complete Music database membership"
+        )
+    }
+
+    @MainActor
+    func testLibraryIdentitySnapshotMatchesMusicLibrary() throws {
+        let scriptURL = repositoryRoot.appendingPathComponent(
+            "Resources/Scripts/fetch_library_identity.applescript"
+        )
+        let libraryURL = try requireDefaultMusicLibrary()
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+
+        let output = try executeAppleScriptFile(scriptURL, arguments: [libraryURL.path])
+        let elapsed = startedAt.duration(to: clock.now)
+        let snapshot = try LibraryIdentitySnapshot.decode(output)
+        let liveCount = try XCTUnwrap(
+            executeAppleScript(#"tell application "Music" to return count of tracks of library playlist 1"#)
+                .flatMap(Int.init)
+        )
+
+        XCTAssertEqual(snapshot.census.totalCount, liveCount)
+        XCTAssertEqual(snapshot.rows.count, liveCount)
+        XCTAssertEqual(snapshot.rows.map(\.databaseID), snapshot.census.ids)
+        XCTAssertLessThan(elapsed, .seconds(10), "Bulk identity snapshot exceeded its local regression ceiling")
+    }
+
+    @MainActor
+    func testScopedMetadataSnapshotMatchesSelectedArtist() throws {
+        let selectedArtist = "In Flames"
+        let expectedIDs = try musicDatabaseIDs(for: selectedArtist)
+        try XCTSkipUnless(!expectedIDs.isEmpty, "Selected integration-test artist is absent from Music.app")
+        let scriptURL = repositoryRoot.appendingPathComponent("Resources/Scripts/fetch_scope_metadata.applescript")
+        let libraryURL = try requireDefaultMusicLibrary()
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+
+        let output = try executeAppleScriptFile(scriptURL, arguments: [libraryURL.path, selectedArtist])
+        let elapsed = startedAt.duration(to: clock.now)
+        let snapshot = try LibraryMetadataSnapshot.decode(output)
+        let targetedScriptURL = repositoryRoot.appendingPathComponent("Resources/Scripts/fetch_tracks.applescript")
+        let targetedOutput = try executeAppleScriptFile(targetedScriptURL, arguments: [selectedArtist])
+        let targetedTracks = try TrackWireCodec.decodeRecords(targetedOutput, scriptName: "fetch_tracks")
+        let bulkTracksByID = Dictionary(
+            uniqueKeysWithValues: snapshot.tracks.compactMap { track in
+                track.databaseID.map { ($0, track) }
+            }
+        )
+
+        XCTAssertEqual(Set(snapshot.tracks.compactMap(\.databaseID)), expectedIDs)
+        XCTAssertFalse(targetedTracks.isEmpty)
+        for targetedTrack in targetedTracks {
+            let databaseID = try XCTUnwrap(targetedTrack.databaseID)
+            let bulkTrack = try XCTUnwrap(bulkTracksByID[databaseID])
+            XCTAssertEqual(bulkTrack.name, targetedTrack.name)
+            XCTAssertEqual(bulkTrack.artist, targetedTrack.artist)
+            XCTAssertEqual(bulkTrack.albumArtist, targetedTrack.albumArtist)
+            XCTAssertEqual(bulkTrack.album, targetedTrack.album)
+            XCTAssertEqual(bulkTrack.genre, targetedTrack.genre)
+            XCTAssertEqual(bulkTrack.dateAdded, targetedTrack.dateAdded)
+            XCTAssertEqual(bulkTrack.lastModified, targetedTrack.lastModified)
+            XCTAssertEqual(bulkTrack.trackStatus, targetedTrack.trackStatus)
+            XCTAssertEqual(bulkTrack.year, targetedTrack.year)
+            XCTAssertEqual(bulkTrack.releaseYear, targetedTrack.releaseYear)
+        }
+        XCTAssertLessThan(elapsed, .seconds(10), "Scoped metadata snapshot exceeded its local regression ceiling")
+    }
+
+    @MainActor
+    func testFullMetadataSnapshotMatchesMusicLibrary() throws {
+        let scriptURL = repositoryRoot.appendingPathComponent("Resources/Scripts/fetch_scope_metadata.applescript")
+        let libraryURL = try requireDefaultMusicLibrary()
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+
+        let output = try executeAppleScriptFile(scriptURL, arguments: [libraryURL.path, ""])
+        let elapsed = startedAt.duration(to: clock.now)
+        let snapshot = try LibraryMetadataSnapshot.decode(output)
+        let liveCount = try XCTUnwrap(
+            executeAppleScript(#"tell application "Music" to return count of tracks of library playlist 1"#)
+                .flatMap(Int.init)
+        )
+
+        XCTAssertEqual(snapshot.tracks.count, liveCount)
+        XCTAssertFalse(snapshot.generation.rawValue.isEmpty)
+        XCTAssertLessThan(elapsed, .seconds(10), "Full metadata snapshot exceeded its local regression ceiling")
+    }
+
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func requireDefaultMusicLibrary() throws -> URL {
+        let libraryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Music/Music/Music Library.musiclibrary")
+        try XCTSkipUnless(
+            FileManager.default.fileExists(atPath: libraryURL.appendingPathComponent("Library.musicdb").path),
+            "Default Music library database is unavailable"
+        )
+        return libraryURL
+    }
+
+    @MainActor
+    private func musicDatabaseIDs(for artist: String) throws -> Set<MusicDatabaseTrackID> {
+        let itemSeparator = String(UnicodeScalar(29))
+        let output = try XCTUnwrap(executeAppleScript("""
+        tell application "Music"
+            set trackReference to a reference to (every track of library playlist 1 whose \
+                (artist is "\(artist)") or (album artist is "\(artist)"))
+            set databaseIDs to id of trackReference
+        end tell
+        set oldDelimiters to AppleScript's text item delimiters
+        set AppleScript's text item delimiters to ASCII character 29
+        set resultText to databaseIDs as text
+        set AppleScript's text item delimiters to oldDelimiters
+        return resultText
+        """))
+        let rawIDs = output.isEmpty
+            ? []
+            : output.split(separator: Character(itemSeparator), omittingEmptySubsequences: false).map(String.init)
+        return try Set(rawIDs.map { rawID in
+            try XCTUnwrap(MusicDatabaseTrackID(rawValue: rawID))
+        })
     }
 }

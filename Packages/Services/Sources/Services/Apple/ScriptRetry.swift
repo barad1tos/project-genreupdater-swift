@@ -7,6 +7,8 @@ private let retryLog = AppLogger.make(category: "applescript.retry")
 extension AppleScriptBridge {
     static let scriptIntents: [String: ScriptIntent] = [
         "batch_update_tracks": .mutation,
+        "fetch_library_identity": .read,
+        "fetch_scope_metadata": .read,
         "fetch_track_ids": .read,
         "fetch_tracks": .read,
         "lookup_tracks": .read,

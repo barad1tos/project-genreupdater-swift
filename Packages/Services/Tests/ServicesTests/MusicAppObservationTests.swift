@@ -34,7 +34,7 @@ struct MusicAppObservationTests {
             previous: .verified(mirror)
         ))
 
-        #expect(await source.metadataRequests == [[secondID]])
+        #expect(await source.scopedMetadataRequestIDs == [[secondID]])
         #expect(observation.currentIDs == [firstID, secondID])
         #expect(observation.tracks.map(\.databaseID) == [secondID])
         #expect(observation.membership == .full)
@@ -63,7 +63,7 @@ struct MusicAppObservationTests {
             previous: .verified(mirror)
         ))
 
-        #expect(await source.metadataRequests == [[firstID, secondID]])
+        #expect(await source.scopedMetadataRequestIDs == [[firstID, secondID]])
         #expect(observation.tracks.map(\.databaseID) == [firstID, secondID])
         #expect(observation.metadata.isComplete)
     }
@@ -78,6 +78,10 @@ struct MusicAppObservationTests {
         let removedTrack = track(id: removedID, artist: "Target")
         let source = try ObservationSourceStub(
             censuses: [census([retainedID, newID], generation: generation)],
+            identities: [
+                retainedID: identity(id: retainedID, artist: "Target"),
+                newID: identity(id: newID, artist: "Target"),
+            ],
             tracks: [newID: track(id: newID, artist: "Target")]
         )
         let reader = MusicAppObserver(source: source)
@@ -101,8 +105,8 @@ struct MusicAppObservationTests {
             inventory: inventory
         ))
 
-        #expect(await source.identityRequests == [[newID]])
-        #expect(await source.metadataRequests.isEmpty)
+        #expect(await source.identitySnapshotRequestCount == 1)
+        #expect(await source.scopedMetadataRequests.isEmpty)
         #expect(observation.currentIDs == [retainedID, newID])
         #expect(observation.tracks.isEmpty)
         #expect(observation.membership == .scoped(unobservedIDs: []))
@@ -179,7 +183,7 @@ struct MusicAppObservationTests {
 
         let result = try await service.detectObservation().result
 
-        #expect(await source.metadataRequests == [[targetID]])
+        #expect(await source.scopedMetadataRequestIDs == [[targetID]])
         #expect(result.newTracks.map(\.id) == ["1"])
     }
 
@@ -201,6 +205,7 @@ struct MusicAppObservationTests {
             identities: [
                 targetID: identity(id: targetID, artist: "Target"),
                 outsideID: identity(id: outsideID, artist: "Other"),
+                knownOutsideID: identity(id: knownOutsideID, artist: "Other"),
             ],
             tracks: [targetID: track(id: targetID, artist: "Target")]
         )
@@ -212,8 +217,12 @@ struct MusicAppObservationTests {
             inventory: inventory
         ))
 
-        #expect(await source.identityRequests == [[targetID, outsideID]])
-        #expect(await source.metadataRequests == [[targetID]])
+        #expect(await source.censusRequestCount == 2)
+        #expect(await source.identitySnapshotRequestCount == 1)
+        let scopedMetadataRequests = await source.scopedMetadataRequests
+        #expect(scopedMetadataRequests.count == 1)
+        #expect(scopedMetadataRequests.first?.databaseIDs == [targetID])
+        #expect(scopedMetadataRequests.first?.scope.source == .testArtists)
         #expect(observation.currentIDs == [targetID])
         #expect(observation.identities.map(\.databaseID) == [targetID, outsideID])
         #expect(observation.identity.isComplete)
@@ -253,8 +262,9 @@ struct MusicAppObservationTests {
             inventory: inventory
         ))
 
-        #expect(await source.identityRequests.isEmpty)
-        #expect(await source.metadataRequests.isEmpty)
+        #expect(await source.censusRequestCount == 2)
+        #expect(await source.identitySnapshotRequestCount == 0)
+        #expect(await source.scopedMetadataRequests.isEmpty)
         #expect(observation.currentIDs == [targetID])
         #expect(observation.tracks.isEmpty)
         #expect(observation.identity.requestedIDs.isEmpty)
@@ -289,8 +299,8 @@ struct MusicAppObservationTests {
 
         #expect(firstResult.newTracks.map(\.id) == ["1"])
         #expect(!secondResult.hasChanges)
-        #expect(await source.identityRequests == [[targetID, outsideID]])
-        #expect(await source.metadataRequests == [[targetID]])
+        #expect(await source.identitySnapshotRequestCount == 1)
+        #expect(await source.scopedMetadataRequestIDs == [[targetID]])
         #expect(Set(snapshot.memberIdentities.keys) == [targetID, outsideID])
         #expect(snapshot.presentTracks.map(\.id) == ["1"])
         #expect(snapshot.readiness(for: configuration.processingRequirement) == .ready(certificate))
@@ -336,8 +346,8 @@ struct MusicAppObservationTests {
 
         #expect(result.newTracks.map(\.id) == ["3"])
         #expect(result.removedTrackIDs == ["2"])
-        #expect(await source.identityRequests == [[retainedID, removedID], [newID]])
-        #expect(await source.metadataRequests == [[retainedID], [newID]])
+        #expect(await source.identitySnapshotRequestCount == 2)
+        #expect(await source.scopedMetadataRequestIDs == [[retainedID], [newID]])
         guard case let .admitted(mirror) = admission else {
             Issue.record("Expected the Python-matched scoped delta to be admitted")
             return
@@ -371,8 +381,8 @@ struct MusicAppObservationTests {
         let snapshot = try await store.loadMirrorSnapshot()
         let admission = snapshot.admission(for: configuration.processingRequirement)
 
-        #expect(await source.identityRequests == [[databaseID], [databaseID]])
-        #expect(await source.metadataRequests == [[databaseID]])
+        #expect(await source.identitySnapshotRequestCount == 2)
+        #expect(await source.scopedMetadataRequestIDs == [[databaseID]])
         #expect(snapshot.memberIdentities[databaseID]?.artist == "Other")
         #expect(snapshot.presentTracks.first?.artist == "Target")
         guard case let .admitted(mirror) = admission else {
@@ -409,8 +419,8 @@ struct MusicAppObservationTests {
         let snapshot = try await store.loadMirrorSnapshot()
         let admission = snapshot.admission(for: configuration.processingRequirement)
 
-        #expect(await source.identityRequests == [[databaseID], [databaseID]])
-        #expect(await source.metadataRequests == [[databaseID]])
+        #expect(await source.identitySnapshotRequestCount == 2)
+        #expect(await source.scopedMetadataRequestIDs == [[databaseID]])
         #expect(snapshot.memberIdentities[databaseID]?.artist == "Target")
         guard case let .admitted(mirror) = admission else {
             Issue.record("Expected an admitted Test Artists mirror")
@@ -421,8 +431,8 @@ struct MusicAppObservationTests {
         #expect(mirror.tracks.first?.artist == "Target")
     }
 
-    @Test("Incomplete Test Artists identity persists evidence but cannot issue a certificate")
-    func incompleteIdentityFailsClosed() async throws {
+    @Test("Incomplete identity snapshot fails before mirror mutation")
+    func incompleteIdentitySnapshotFailsClosed() async throws {
         let targetID = try databaseID("1")
         let missingID = try databaseID("2")
         let generation = try libraryGeneration("G1")
@@ -439,14 +449,19 @@ struct MusicAppObservationTests {
             observer: MusicAppObserver(source: source)
         )
 
-        _ = try await service.synchronizeNow()
+        do {
+            _ = try await service.synchronizeNow()
+            Issue.record("Expected an incomplete identity snapshot to fail")
+        } catch MusicAppObservationError.identitySnapshotMismatch {
+            // Expected: a producer snapshot must cover its complete census.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
         let snapshot = try await store.loadMirrorSnapshot()
 
-        #expect(snapshot.presentIDs == [targetID, missingID])
-        #expect(Set(snapshot.memberIdentities.keys) == [targetID])
+        #expect(snapshot.presentIDs.isEmpty)
+        #expect(snapshot.memberIdentities.isEmpty)
         #expect(snapshot.certificates.isEmpty)
-        #expect(snapshot.readiness(for: configuration.processingRequirement) ==
-            .incomplete(.freshObservationRequired))
     }
 
     @Test("Duplicate identity rows reject the observation boundary")
@@ -505,8 +520,8 @@ struct MusicAppObservationTests {
 
         let observation = try await reader.observe(request())
 
-        #expect(await source.identityRequests.isEmpty)
-        #expect(await source.metadataRequests == [[firstID, secondID]])
+        #expect(await source.identitySnapshotRequestCount == 0)
+        #expect(await source.scopedMetadataRequestIDs == [[firstID, secondID]])
         #expect(observation.identities.map(\.databaseID) == [firstID, secondID])
         #expect(observation.identity.requestedIDs == [firstID, secondID])
         #expect(observation.identity.observedIDs == [firstID, secondID])
@@ -537,7 +552,7 @@ struct MusicAppObservationTests {
 
         let result = try await service.synchronizeNow(forceMetadataRefresh: true)
 
-        #expect(await source.metadataRequests.isEmpty)
+        #expect(await source.scopedMetadataRequests.isEmpty)
         #expect(result.removedTrackIDs.isEmpty)
         #expect(await store.storedTracks.map(\.id) == ["1"])
     }
@@ -557,7 +572,7 @@ struct MusicAppObservationTests {
         #expect(observation.tracks.isEmpty)
         #expect(observation.membership == .full)
         #expect(observation.metadata.isComplete)
-        #expect(await source.metadataRequests.isEmpty)
+        #expect(await source.scopedMetadataRequests.isEmpty)
     }
 
     @Test("Generation change after metadata prevents an observation result")
@@ -617,7 +632,7 @@ struct MusicAppObservationTests {
         await #expect(throws: ObservationTestError.censusFailed) {
             _ = try await reader.observe(request())
         }
-        #expect(await source.metadataRequests.isEmpty)
+        #expect(await source.scopedMetadataRequests.isEmpty)
     }
 
     private func request(
@@ -693,14 +708,21 @@ private enum ObservationTestError: Error, Equatable {
     case censusFailed
 }
 
+private struct ScopedMetadataRequest: Equatable, Sendable {
+    let databaseIDs: [MusicDatabaseTrackID]
+    let scope: ProcessingScopeSnapshot
+}
+
 private actor ObservationSourceStub: ObservationSource {
     private var censuses: [TrackIDCensus]
     private var identities: [MusicDatabaseTrackID: LibraryIdentityRow]
     private var tracks: [MusicDatabaseTrackID: Track]
+    private var latestCensus: TrackIDCensus?
     private let identityResponse: [LibraryIdentityRow]?
     private let censusError: ObservationTestError?
-    private(set) var identityRequests: [[MusicDatabaseTrackID]] = []
-    private(set) var metadataRequests: [[MusicDatabaseTrackID]] = []
+    private(set) var censusRequestCount = 0
+    private(set) var identitySnapshotRequestCount = 0
+    private(set) var scopedMetadataRequests: [ScopedMetadataRequest] = []
 
     init(
         censuses: [TrackIDCensus] = [],
@@ -723,12 +745,19 @@ private actor ObservationSourceStub: ObservationSource {
         self.censusError = censusError
     }
 
-    func fetchIdentity(for ids: [MusicDatabaseTrackID]) -> [LibraryIdentityRow] {
-        identityRequests.append(ids)
-        if let identityResponse {
-            return identityResponse
+    var scopedMetadataRequestIDs: [[MusicDatabaseTrackID]] {
+        scopedMetadataRequests.map(\.databaseIDs)
+    }
+
+    func fetchIdentitySnapshot() throws -> LibraryIdentitySnapshot {
+        identitySnapshotRequestCount += 1
+        guard let latestCensus else {
+            throw ObservationTestError.censusFailed
         }
-        return ids.compactMap { identities[$0] }
+        return LibraryIdentitySnapshot(
+            census: latestCensus,
+            rows: identityResponse ?? latestCensus.ids.compactMap { identities[$0] }
+        )
     }
 
     func replaceLibrary(
@@ -744,20 +773,23 @@ private actor ObservationSourceStub: ObservationSource {
     }
 
     func fetchCensus() throws -> TrackIDCensus {
+        censusRequestCount += 1
         if let censusError {
             throw censusError
         }
         guard !censuses.isEmpty else {
             throw ObservationTestError.censusFailed
         }
-        if censuses.count == 1 {
-            return censuses[0]
-        }
-        return censuses.removeFirst()
+        let census = censuses.count == 1 ? censuses[0] : censuses.removeFirst()
+        latestCensus = census
+        return census
     }
 
-    func fetchMetadata(for ids: [MusicDatabaseTrackID]) -> [Track] {
-        metadataRequests.append(ids)
-        return ids.compactMap { tracks[$0] }
+    func fetchProcessingMetadata(
+        for databaseIDs: [MusicDatabaseTrackID],
+        scope: ProcessingScopeSnapshot
+    ) -> [Track] {
+        scopedMetadataRequests.append(ScopedMetadataRequest(databaseIDs: databaseIDs, scope: scope))
+        return databaseIDs.compactMap { tracks[$0] }
     }
 }

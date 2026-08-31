@@ -40,11 +40,14 @@ actor DuplicateMetadataSource: ObservationSource {
         census
     }
 
-    func fetchIdentity(for _: [MusicDatabaseTrackID]) -> [LibraryIdentityRow] {
-        metadata.compactMap(identityRow)
+    func fetchIdentitySnapshot() throws -> LibraryIdentitySnapshot {
+        LibraryIdentitySnapshot(census: census, rows: metadata.compactMap(identityRow))
     }
 
-    func fetchMetadata(for _: [MusicDatabaseTrackID]) -> [Track] {
+    func fetchProcessingMetadata(
+        for _: [MusicDatabaseTrackID],
+        scope _: ProcessingScopeSnapshot
+    ) -> [Track] {
         metadata
     }
 }
@@ -62,16 +65,15 @@ actor StaticObservationSource: ObservationSource {
         census
     }
 
-    func fetchIdentity(for ids: [MusicDatabaseTrackID]) -> [LibraryIdentityRow] {
-        let requested = Set(ids)
-        return metadata.compactMap { track in
-            guard track.databaseID.map(requested.contains) == true else { return nil }
-            return identityRow(track)
-        }
+    func fetchIdentitySnapshot() throws -> LibraryIdentitySnapshot {
+        LibraryIdentitySnapshot(census: census, rows: metadata.compactMap(identityRow))
     }
 
-    func fetchMetadata(for ids: [MusicDatabaseTrackID]) -> [Track] {
-        let requested = Set(ids)
+    func fetchProcessingMetadata(
+        for databaseIDs: [MusicDatabaseTrackID],
+        scope _: ProcessingScopeSnapshot
+    ) -> [Track] {
+        let requested = Set(databaseIDs)
         return metadata.filter { track in
             track.databaseID.map(requested.contains) ?? false
         }

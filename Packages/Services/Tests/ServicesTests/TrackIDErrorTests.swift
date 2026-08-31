@@ -5,7 +5,7 @@ import Testing
 struct TrackIDErrorTests {
     @Test("Rejects invalid wire responses", arguments: InvalidResponse.cases)
     private func rejectsInvalidResponse(_ response: InvalidResponse) async {
-        let scan = TrackIDScan(batchSize: 2, timeout: .seconds(1)) { _, _, _ in
+        let scan = TrackIDScan(timeout: .seconds(1)) { _ in
             response.output
         }
 
@@ -36,22 +36,20 @@ private struct InvalidResponse: Sendable, CustomTestStringConvertible {
             error: .path
         ),
         Self(output: "INVALID", error: .parse),
-        Self(output: "BATCH:3:2:G1:A,B,C", error: .libraryChanged),
-        Self(output: "BATCH:2:2:G1:A", error: .parse),
-        Self(output: "BATCH:2:3::A,B", error: .parse),
+        Self(output: "CENSUS:-1:G1:", error: .parse),
+        Self(output: "CENSUS:2:G1:10", error: .parse),
+        Self(output: "CENSUS:2::10,20", error: .parse),
     ]
 }
 
 private enum ExpectedError: Sendable {
     case execution
-    case libraryChanged
     case path
     case parse
 
     func matches(_ error: AppleScriptBridgeError) -> Bool {
         switch (self, error) {
         case (.execution, .executionFailed),
-             (.libraryChanged, .libraryChanged),
              (.path, .invalidLibraryPath),
              (.parse, .parseError):
             true

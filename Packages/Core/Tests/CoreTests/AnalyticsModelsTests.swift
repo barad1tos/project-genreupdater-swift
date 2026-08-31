@@ -7,6 +7,10 @@ struct AnalyticsModelsTests {
     @Test("Operations keep stable persisted identities and categories")
     func operationIdentity() {
         #expect(AnalyticsOperation.libraryLoad.rawValue == "library.load")
+        #expect(AnalyticsOperation.appleScriptIdentitySnapshot.rawValue == "applescript.identity_snapshot")
+        #expect(AnalyticsOperation.appleScriptIdentitySnapshot.category == .appleScript)
+        #expect(AnalyticsOperation.appleScriptMetadataSnapshot.rawValue == "applescript.metadata_snapshot")
+        #expect(AnalyticsOperation.appleScriptMetadataSnapshot.category == .appleScript)
         #expect(AnalyticsOperation.discogsReleaseSearch.category == .provider)
         #expect(AnalyticsOperation.batchWrite.category == .write)
         #expect(AnalyticsOperation.displayName(for: "future.operation") == "Unknown operation")

@@ -12,6 +12,7 @@ public struct RootView<UpdateContent: View>: View {
     private let setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)?
     private let setMinimumConfidenceAction: ((Double) -> Bool)?
     private let setReleaseYearRestoreThresholdAction: ((Int) -> Bool)?
+    private let setBulkThresholdAction: ((Int) -> Bool)?
     private let setTestArtistsAction: ((ArtistScopeChange) -> ArtistScopeSaveResult)?
     private let setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)?
     private let setFastAnimationsAction: ((Bool) -> Bool)?
@@ -37,6 +38,7 @@ public struct RootView<UpdateContent: View>: View {
         setUpdateBehaviorAction: ((DesignUpdateBehavior) -> Bool)? = nil,
         setMinimumConfidenceAction: ((Double) -> Bool)? = nil,
         setReleaseYearRestoreThresholdAction: ((Int) -> Bool)? = nil,
+        setBulkThresholdAction: ((Int) -> Bool)? = nil,
         setTestArtistsAction: ((ArtistScopeChange) -> ArtistScopeSaveResult)? = nil,
         setAppearanceModeAction: ((DesignAppearanceMode) -> Bool)? = nil,
         setFastAnimationsAction: ((Bool) -> Bool)? = nil,
@@ -62,6 +64,7 @@ public struct RootView<UpdateContent: View>: View {
         self.setUpdateBehaviorAction = setUpdateBehaviorAction
         self.setMinimumConfidenceAction = setMinimumConfidenceAction
         self.setReleaseYearRestoreThresholdAction = setReleaseYearRestoreThresholdAction
+        self.setBulkThresholdAction = setBulkThresholdAction
         self.setTestArtistsAction = setTestArtistsAction
         self.setAppearanceModeAction = setAppearanceModeAction
         self.setFastAnimationsAction = setFastAnimationsAction
@@ -156,6 +159,7 @@ public struct RootView<UpdateContent: View>: View {
                 setUpdateBehaviorAction: setUpdateBehaviorAction,
                 setMinimumConfidenceAction: setMinimumConfidenceAction,
                 setReleaseYearRestoreThresholdAction: setReleaseYearRestoreThresholdAction,
+                setBulkThresholdAction: setBulkThresholdAction,
                 setTestArtistsAction: setTestArtistsAction,
                 setAppearanceModeAction: setAppearanceModeAction,
                 setFastAnimationsAction: setFastAnimationsAction

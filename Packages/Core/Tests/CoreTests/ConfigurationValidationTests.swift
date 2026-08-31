@@ -166,7 +166,6 @@ struct ConfigurationValidationTests {
         configuration.applescript.retry.jitterRange = 1
         configuration.applescript.retry.operationTimeoutSeconds = 0
         configuration.applescript.batchProcessing.idsBatchSize = 5000
-        configuration.applescript.batchProcessing.batchSize = 1
         configuration.experimental.maxBatchSize = 1
         configuration.databaseVerification.autoVerifyDays = 0
         configuration.databaseVerification.batchSize = 1
@@ -520,9 +519,6 @@ struct ConfigurationValidationTests {
             },
             minimumOne("applescript.batchProcessing.idsBatchSize", "0") {
                 $0.applescript.batchProcessing.idsBatchSize = 0
-            },
-            minimumOne("applescript.batchProcessing.batchSize", "0") {
-                $0.applescript.batchProcessing.batchSize = 0
             },
             minimumOne("experimental.maxBatchSize", "0") { $0.experimental.maxBatchSize = 0 },
             minimumZero("databaseVerification.autoVerifyDays", "-1") {

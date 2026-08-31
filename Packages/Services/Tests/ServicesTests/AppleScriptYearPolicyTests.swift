@@ -32,8 +32,8 @@ struct AppleScriptYearPolicyTests {
         let compiled = directory.appendingPathComponent("\(scriptName).scpt")
         try "\(handler)\nreturn my isYearAllowed(\(year), 2028)\n"
             .write(to: policySource, atomically: true, encoding: .utf8)
-        _ = try run(executableURL(named: "osacompile"), arguments: ["-o", compiled.path, policySource.path])
-        let output = try run(executableURL(named: "osascript"), arguments: [compiled.path])
+        _ = try run(resolveTestExecutable(named: "osacompile"), arguments: ["-o", compiled.path, policySource.path])
+        let output = try run(resolveTestExecutable(named: "osascript"), arguments: [compiled.path])
         return output.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
     }
 
@@ -74,17 +74,6 @@ struct AppleScriptYearPolicyTests {
         return String(source[start.lowerBound ..< end.upperBound])
     }
 
-    private func executableURL(named name: String) throws -> URL {
-        let directories = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":") ?? []
-        for directory in directories {
-            let candidate = URL(fileURLWithPath: String(directory)).appendingPathComponent(name)
-            if FileManager.default.isExecutableFile(atPath: candidate.path) {
-                return candidate
-            }
-        }
-        throw ScriptPolicyError(executable: name, detail: "executable is not available on PATH")
-    }
-
     private func run(_ executable: URL, arguments: [String]) throws -> String {
         let process = Process()
         let standardOutput = Pipe()
@@ -112,6 +101,17 @@ struct AppleScriptYearPolicyTests {
             url.deletingLastPathComponent()
         }
     }
+}
+
+func resolveTestExecutable(named name: String) throws -> URL {
+    let directories = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":") ?? []
+    for directory in directories {
+        let candidate = URL(fileURLWithPath: String(directory)).appendingPathComponent(name)
+        if FileManager.default.isExecutableFile(atPath: candidate.path) {
+            return candidate
+        }
+    }
+    throw ScriptPolicyError(executable: name, detail: "executable is not available on PATH")
 }
 
 private struct ScriptPolicyError: Error, CustomStringConvertible {

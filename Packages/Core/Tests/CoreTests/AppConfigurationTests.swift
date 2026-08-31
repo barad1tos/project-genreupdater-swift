@@ -454,7 +454,6 @@ struct AppConfigurationTests {
         #expect(decoded.applescript.retry.jitterRange == 0.4)
         #expect(decoded.applescript.retry.operationTimeoutSeconds == 45)
         #expect(decoded.applescript.batchProcessing.idsBatchSize == 44)
-        #expect(decoded.applescript.batchProcessing.batchSize == 55)
         #expect(decoded.yearRetrieval.preferredAPI == .discogs)
         #expect(decoded.yearRetrieval.apiAuth.discogsTokenReference == "${DISCOGS_TOKEN}")
         #expect(decoded.yearRetrieval.apiAuth.musicBrainzAppName == "GenreUpdaterTests/1.0")
@@ -785,47 +784,5 @@ struct AppConfigurationTests {
         #expect(BatchProcessingConfig.clampIDBatch(0) == 1)
         #expect(BatchProcessingConfig.clampIDBatch(200) == 200)
         #expect(BatchProcessingConfig.clampIDBatch(5000) == 1000)
-    }
-
-    // MARK: - AppleScriptTimeouts Custom Codable
-
-    @Test("AppleScriptTimeouts encodes Duration as seconds with 'Seconds' suffix keys")
-    func timeoutsEncodeAsSeconds() throws {
-        let timeouts = AppleScriptTimeouts()
-        let data = try JSONEncoder().encode(timeouts)
-        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-
-        #expect(json["defaultTimeoutSeconds"] as? Int == 3600)
-        #expect(json["fullLibraryFetchSeconds"] as? Int == 3600)
-        #expect(json["singleArtistFetchSeconds"] as? Int == 600)
-        #expect(json["batchUpdateSeconds"] as? Int == 1800)
-        #expect(json["idsBatchFetchSeconds"] as? Int == 120)
-    }
-
-    @Test("AppleScriptTimeouts decoding empty JSON uses all defaults")
-    func timeoutsDecodeEmptyJSON() throws {
-        let json = Data("{}".utf8)
-        let timeouts = try JSONDecoder().decode(AppleScriptTimeouts.self, from: json)
-
-        #expect(timeouts.defaultTimeout == .seconds(3600))
-        #expect(timeouts.fullLibraryFetch == .seconds(3600))
-        #expect(timeouts.singleArtistFetch == .seconds(600))
-        #expect(timeouts.batchUpdate == .seconds(1800))
-        #expect(timeouts.idsBatchFetch == .seconds(120))
-    }
-
-    @Test("AppleScriptTimeouts decoding partial JSON applies defaults for missing keys")
-    func timeoutsDecodePartialJSON() throws {
-        let jsonString = """
-        {"defaultTimeoutSeconds": 100}
-        """
-        let json = Data(jsonString.utf8)
-        let timeouts = try JSONDecoder().decode(AppleScriptTimeouts.self, from: json)
-
-        #expect(timeouts.defaultTimeout == .seconds(100))
-        #expect(timeouts.fullLibraryFetch == .seconds(3600))
-        #expect(timeouts.singleArtistFetch == .seconds(600))
-        #expect(timeouts.batchUpdate == .seconds(1800))
-        #expect(timeouts.idsBatchFetch == .seconds(120))
     }
 }

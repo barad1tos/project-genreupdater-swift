@@ -59,35 +59,24 @@ struct TrackWireCodecTests {
         #expect(track.releaseYear == nil)
     }
 
-    @Test("Decodes minimal identity without processing metadata")
-    func decodesIdentityRecord() throws {
-        let separator = String(TrackWireCodec.fieldSeparator)
-        let output = ["AS-123", "Track Artist", ""].joined(separator: separator)
-
-        let identity = try #require(TrackWireCodec.decodeIdentityRecords(
-            output,
-            scriptName: "lookup_tracks"
+    @Test("Canonicalizes unknown AppleScript status constants")
+    func canonicalizesUnknownStatusConstants() throws {
+        let track = try #require(TrackWireCodec.decodeRecords(
+            record(WireRecord(id: "AS-UNKNOWN", status: "«constant ****kNew»")),
+            scriptName: "fetch_tracks"
         ).first)
 
-        #expect(identity.databaseID.rawValue == "AS-123")
-        #expect(identity.artist == .value("Track Artist"))
-        #expect(identity.albumArtist == .absent)
+        #expect(track.trackStatus == "unknown")
     }
 
-    @Test("Rejects malformed identity records without exposing metadata")
-    func rejectsMalformedIdentityRecord() {
-        let secret = "SECRET_ARTIST"
-        let output = ["AS-123", secret].joined(separator: String(TrackWireCodec.fieldSeparator))
+    @Test("Preserves unknown text statuses")
+    func preservesUnknownTextStatuses() throws {
+        let track = try #require(TrackWireCodec.decodeRecords(
+            record(WireRecord(id: "AS-FUTURE", status: "archived")),
+            scriptName: "fetch_tracks"
+        ).first)
 
-        do {
-            _ = try TrackWireCodec.decodeIdentityRecords(output, scriptName: "lookup_tracks")
-            Issue.record("Expected a wire decode error")
-        } catch let error as TrackWireError {
-            #expect(!error.detail.contains(secret))
-            #expect(error.detail.contains("got 2"))
-        } catch {
-            Issue.record("Expected TrackWireError, got \(error)")
-        }
+        #expect(track.trackStatus == "archived")
     }
 
     private struct WireRecord {

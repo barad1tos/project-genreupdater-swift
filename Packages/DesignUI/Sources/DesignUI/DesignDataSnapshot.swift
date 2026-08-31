@@ -256,6 +256,17 @@ public struct DesignArtistScope: Equatable, Sendable {
     }
 }
 
+/// User-visible tuning for choosing between targeted and bulk Music.app metadata reads.
+public struct DesignMetadataReadSettings: Equatable, Sendable {
+    public let bulkThreshold: Int
+    public let bulkThresholdRange: ClosedRange<Int>
+
+    public init(bulkThreshold: Int, bulkThresholdRange: ClosedRange<Int>) {
+        self.bulkThreshold = bulkThreshold
+        self.bulkThresholdRange = bulkThresholdRange
+    }
+}
+
 public struct DesignSettingsSnapshot: Equatable, Sendable {
     /// Presentation-only facts grouped below the parameter ceiling.
     public struct Presentation: Equatable, Sendable {
@@ -280,6 +291,10 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         updateBehavior: .both,
         minimumConfidencePercent: 70,
         releaseYearRestoreThresholdYears: 5,
+        metadataReads: DesignMetadataReadSettings(
+            bulkThreshold: 25,
+            bulkThresholdRange: 1 ... 1000
+        ),
         artistScope: DesignArtistScope(
             settingsRevision: 0,
             selected: ["Aphex Twin", "Boards of Canada"],
@@ -295,6 +310,7 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
     public let updateBehavior: DesignUpdateBehavior
     public let minimumConfidencePercent: Double
     public let releaseYearRestoreThresholdYears: Int
+    public let metadataReads: DesignMetadataReadSettings
     public let artistScope: DesignArtistScope
     public let presentation: Presentation
     public let isPostWriteVerificationRequired: Bool
@@ -314,6 +330,7 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         updateBehavior: DesignUpdateBehavior,
         minimumConfidencePercent: Double,
         releaseYearRestoreThresholdYears: Int,
+        metadataReads: DesignMetadataReadSettings,
         artistScope: DesignArtistScope,
         presentation: Presentation = Presentation(),
         isPostWriteVerificationRequired: Bool,
@@ -322,6 +339,7 @@ public struct DesignSettingsSnapshot: Equatable, Sendable {
         self.updateBehavior = updateBehavior
         self.minimumConfidencePercent = minimumConfidencePercent
         self.releaseYearRestoreThresholdYears = releaseYearRestoreThresholdYears
+        self.metadataReads = metadataReads
         self.artistScope = artistScope
         self.presentation = presentation
         self.isPostWriteVerificationRequired = isPostWriteVerificationRequired

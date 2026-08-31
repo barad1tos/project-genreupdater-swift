@@ -3,8 +3,11 @@ import Foundation
 
 protocol ObservationSource: Actor {
     func fetchCensus() async throws -> TrackIDCensus
-    func fetchIdentity(for ids: [MusicDatabaseTrackID]) async throws -> [LibraryIdentityRow]
-    func fetchMetadata(for ids: [MusicDatabaseTrackID]) async throws -> [Track]
+    func fetchIdentitySnapshot() async throws -> LibraryIdentitySnapshot
+    func fetchProcessingMetadata(
+        for databaseIDs: [MusicDatabaseTrackID],
+        scope: ProcessingScopeSnapshot
+    ) async throws -> [Track]
 }
 
 extension AppleScriptBridge: ObservationSource {}
@@ -32,53 +35,72 @@ public actor MusicAppObserver: MusicAppReading {
     }
 
     public func observe(_ request: LibraryObservationRequest) async throws -> LibraryObservation {
-        let startedCensus = try await source.fetchCensus()
-        let censusIDs = Set(startedCensus.ids)
-        let identity = try await observeIdentity(censusIDs: startedCensus.ids, request: request)
-        let admittedIDs = request.inventory.admittedIDs(
-            censusIDs: censusIDs,
-            observed: identity.rowsByID,
-            scope: request.scope
-        )
-        let metadata = try await observeMetadata(
-            censusIDs: startedCensus.ids,
-            admittedIDs: admittedIDs,
-            request: request
-        )
-        let endedCensus = try await source.fetchCensus()
-
-        guard endedCensus.generation == startedCensus.generation else {
-            throw MusicAppObservationError.generationChanged(
-                started: startedCensus.generation,
-                ended: endedCensus.generation
+        do {
+            let startedCensus = try await source.fetchCensus()
+            let censusIDs = Set(startedCensus.ids)
+            let identity = try await observeIdentity(census: startedCensus, request: request)
+            let admittedIDs = request.inventory.admittedIDs(
+                censusIDs: censusIDs,
+                observed: identity.rowsByID,
+                scope: request.scope
             )
-        }
-        guard endedCensus == startedCensus else {
-            throw MusicAppObservationError.censusChanged
-        }
+            let metadata = try await observeMetadata(
+                censusIDs: startedCensus.ids,
+                admittedIDs: admittedIDs,
+                request: request
+            )
+            let endedCensus = try await source.fetchCensus()
 
-        return assembleObservation(
-            census: startedCensus,
-            identity: identity,
-            metadata: metadata,
-            admittedIDs: admittedIDs,
-            request: request
-        )
+            guard endedCensus.generation == startedCensus.generation else {
+                throw MusicAppObservationError.generationChanged(
+                    started: startedCensus.generation,
+                    ended: endedCensus.generation
+                )
+            }
+            guard endedCensus == startedCensus else {
+                throw MusicAppObservationError.censusChanged
+            }
+
+            return assembleObservation(
+                census: startedCensus,
+                identity: identity,
+                metadata: metadata,
+                admittedIDs: admittedIDs,
+                request: request
+            )
+        } catch let AppleScriptBridgeError.libraryChanged(detail) {
+            throw MusicAppObservationError.snapshotChanged(detail: detail)
+        }
     }
 
     private func observeIdentity(
-        censusIDs: [MusicDatabaseTrackID],
+        census: TrackIDCensus,
         request: LibraryObservationRequest
     ) async throws -> IdentityLane {
-        let requestedIdentityIDs = request.identityLookupIDs(in: censusIDs)
-        let sourceIdentities = requestedIdentityIDs.isEmpty
-            ? []
-            : try await source.fetchIdentity(for: requestedIdentityIDs)
-        let observedIdentities = try normalizeIdentities(
-            sourceIdentities,
-            requestedIDs: Set(requestedIdentityIDs)
-        )
-        return IdentityLane(requestedIDs: requestedIdentityIDs, rowsByID: observedIdentities)
+        let requestedIdentityIDs = request.identityLookupIDs(in: census.ids)
+        guard !requestedIdentityIDs.isEmpty else {
+            return IdentityLane(requestedIDs: [], rowsByID: [:])
+        }
+
+        let snapshot = try await source.fetchIdentitySnapshot()
+        guard snapshot.census.generation == census.generation else {
+            throw MusicAppObservationError.generationChanged(
+                started: census.generation,
+                ended: snapshot.census.generation
+            )
+        }
+        guard snapshot.census == census else {
+            throw MusicAppObservationError.censusChanged
+        }
+
+        let allRows = try normalizeIdentities(snapshot.rows, requestedIDs: Set(census.ids))
+        guard Set(allRows.keys) == Set(census.ids) else {
+            throw MusicAppObservationError.identitySnapshotMismatch
+        }
+        let requestedRows = requestedIdentityIDs.reduce(into: [MusicDatabaseTrackID: LibraryIdentityRow]()) {
+            $0[$1] = allRows[$1]
+        }
+        return IdentityLane(requestedIDs: requestedIdentityIDs, rowsByID: requestedRows)
     }
 
     private func observeMetadata(
@@ -89,7 +111,7 @@ public actor MusicAppObserver: MusicAppReading {
         let requestedMetadataIDs = request.metadataLookupIDs(in: censusIDs, admittedIDs: admittedIDs)
         let sourceTracks = requestedMetadataIDs.isEmpty
             ? []
-            : try await source.fetchMetadata(for: requestedMetadataIDs)
+            : try await source.fetchProcessingMetadata(for: requestedMetadataIDs, scope: request.scope)
         let rowsByID = try normalize(sourceTracks, requestedIDs: Set(requestedMetadataIDs))
         return MetadataLane(requestedIDs: requestedMetadataIDs, rowsByID: rowsByID)
     }
@@ -199,10 +221,14 @@ public actor MusicAppObserver: MusicAppReading {
             guard requestedIDs.contains(databaseID) else {
                 throw MusicAppObservationError.unexpectedMetadata(databaseID)
             }
-            guard rowsByID.updateValue(Self.row(from: track, databaseID: databaseID), forKey: databaseID) == nil
-            else {
-                throw MusicAppObservationError.duplicateMetadata(databaseID)
+            let row = Self.row(from: track, databaseID: databaseID)
+            if let existing = rowsByID[databaseID] {
+                guard existing == row else {
+                    throw MusicAppObservationError.conflictingMetadata(databaseID)
+                }
+                continue
             }
+            rowsByID[databaseID] = row
         }
         return rowsByID
     }

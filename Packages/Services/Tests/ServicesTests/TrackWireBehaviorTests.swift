@@ -124,6 +124,18 @@ struct TrackWireBehaviorTests {
         #expect(track?.releaseYear == nil)
     }
 
+    @Test("Raw AppleScript status constants become canonical status values")
+    func canonicalizeRawStatus() throws {
+        let fields = [
+            "12345", "Song", "Artist", "", "Album",
+            "", "", "", "«constant ****kSub»", "", "", "",
+        ]
+
+        let track = try #require(decode(fields.joined(separator: fs)))
+
+        #expect(track.trackStatus == "subscription")
+    }
+
     // MARK: - Field Order Verification
 
     @Test("Field order matches AppleScript serializeTrack output")
@@ -166,6 +178,20 @@ struct TrackWireBehaviorTests {
         #expect(addedComponents.year == 2024)
         #expect(addedComponents.month == 2)
         #expect(addedComponents.day == 21)
+    }
+
+    @Test("Parses locale-neutral Unix timestamp fields")
+    func parseUnixTimestamp() throws {
+        let fields = [
+            "1", "Song", "Artist", "", "Album",
+            "", "unix:1708523100", "unix:1709290800",
+            "", "", "unix:980985600", "",
+        ]
+        let track = try #require(decode(fields.joined(separator: fs)))
+
+        #expect(track.dateAdded != nil)
+        #expect(track.lastModified != nil)
+        #expect(track.releaseYear == 2001)
     }
 
     // MARK: - Year Parsing

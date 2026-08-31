@@ -1,46 +1,25 @@
 -- fetch_track_ids.applescript
--- Lightweight script that returns track IDs in bounded batches.
--- Used by Smart Delta to detect new/removed tracks without fetching full metadata.
+-- Returns one generation-fenced census of Music database track IDs.
+-- MusicKit does not expose this identity domain, so mirror membership uses this read-only primitive.
 
 use framework "Foundation"
 use scripting additions
 
 on run argv
     try
-        if (count of argv) < 3 then error "Batch offset, limit, and library path are required"
-        set batchOffset to (item 1 of argv) as integer
-        set batchLimit to (item 2 of argv) as integer
-        set libraryPath to my resolve_path(item 3 of argv)
-        if batchOffset < 1 then error "Batch offset must be at least 1"
-        if batchLimit < 1 then error "Batch limit must be at least 1"
+        if (count of argv) < 1 then error "Library path is required"
+        set libraryPath to my resolve_path(item 1 of argv)
         set generation to my library_token(libraryPath)
 
         tell application "Music"
             set libraryCount to (count of tracks of library playlist 1)
-            set trackIDs to {}
-            if libraryCount = 0 then
-                set endIndex to 0
-            else if batchOffset > libraryCount then
-                set endIndex to libraryCount
-            else
-                set endIndex to batchOffset + batchLimit - 1
-                if endIndex > libraryCount then set endIndex to libraryCount
-                set trackRef to a reference to (tracks batchOffset thru endIndex of library playlist 1)
-                set trackCount to count of trackRef
-                set idList to id of trackRef
-
-                repeat with index from 1 to trackCount
-                    set trackID to my item_or_missing(idList, index)
-                    if trackID is missing value then
-                        error "Missing track ID at library index " & ((batchOffset + index - 1) as text)
-                    end if
-                    set end of trackIDs to trackID
-                end repeat
-            end if
+            set idList to id of every track of library playlist 1
+            set censusCount to count of idList
+            if censusCount is not libraryCount then error "Track ID census count does not match Music library count"
         end tell
 
         if my library_token(libraryPath) is not generation then return "RETRY:GENERATION"
-        return "BATCH:" & endIndex & ":" & libraryCount & ":" & generation & ":" & my join_text(trackIDs, ",")
+        return "CENSUS:" & censusCount & ":" & generation & ":" & my join_text(idList, ",")
     on error errorMessage
         return "ERROR:" & errorMessage
     end try
@@ -80,19 +59,6 @@ on library_token(libraryPath)
     set databaseSize to databaseInfo's objectForKey:(current application's NSFileSize)
     return ((modifiedAt's timeIntervalSince1970()) as text) & "-" & (databaseSize as text)
 end library_token
-
-on item_or_missing(values, position)
-    try
-        if class of values is list then
-            if (count of values) >= position then return item position of values
-        else if position = 1 then
-            return values
-        end if
-    on error
-        return missing value
-    end try
-    return missing value
-end item_or_missing
 
 on join_text(values, separator)
     set oldDelimiters to AppleScript's text item delimiters

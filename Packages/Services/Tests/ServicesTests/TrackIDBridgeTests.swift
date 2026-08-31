@@ -15,12 +15,9 @@ struct TrackIDBridgeTests {
             libraryPath: "  ${HOME}/Music/Library.musiclibrary  "
         )
 
-        let arguments = try await bridge.trackIDArguments(
-            offset: 11,
-            limit: 200
-        )
+        let arguments = try await bridge.trackIDArguments()
 
-        #expect(arguments == ["11", "200", "${HOME}/Music/Library.musiclibrary"])
+        #expect(arguments == ["${HOME}/Music/Library.musiclibrary"])
     }
 
     @Test("Rejects a missing library path before script execution")
@@ -45,44 +42,38 @@ struct TrackIDBridgeTests {
         }
     }
 
-    @Test("Wires configured batches through one scan budget")
+    @Test("Wires one bulk census through the scan budget")
     func wiresScan() async throws {
-        var configuration = AppleScriptConfig()
-        configuration.batchProcessing.batchSize = 2
         let bridge = AppleScriptBridge(
             installer: ScriptInstaller(
                 scriptsDirectory: FileManager.default.temporaryDirectory,
                 bundleScriptsDirectory: nil
-            ),
-            config: configuration
+            )
         )
         let log = ScanRequestLog()
 
-        let census = try await bridge.scanTrackIDs(timeout: .seconds(1)) { offset, limit, remaining in
-            await log.fetch(offset: offset, limit: limit, remaining: remaining)
+        let census = try await bridge.scanTrackIDs(timeout: .seconds(1)) { remaining in
+            await log.fetch(remaining: remaining)
         }
 
         let requests = await log.requests
-        #expect(census.ids.map(\.rawValue) == ["A", "B", "C"])
+        #expect(census.ids.map(\.rawValue) == ["10", "20", "30"])
         #expect(census.totalCount == 3)
         #expect(census.generation.rawValue == "G1")
-        #expect(requests.map(\.offset) == [1, 3])
-        #expect(requests.map(\.limit) == [2, 2])
+        #expect(requests.count == 1)
         #expect(requests.allSatisfy { $0.remaining > .zero && $0.remaining <= .seconds(1) })
     }
 }
 
 private actor ScanRequestLog {
     struct Request: Sendable {
-        let offset: Int
-        let limit: Int
         let remaining: Duration
     }
 
     private(set) var requests: [Request] = []
 
-    func fetch(offset: Int, limit: Int, remaining: Duration) -> String? {
-        requests.append(Request(offset: offset, limit: limit, remaining: remaining))
-        return offset == 1 ? "BATCH:2:3:G1:A,B" : "BATCH:3:3:G1:C"
+    func fetch(remaining: Duration) -> String? {
+        requests.append(Request(remaining: remaining))
+        return "CENSUS:3:G1:10,20,30"
     }
 }
