@@ -35,38 +35,42 @@ public actor MusicAppObserver: MusicAppReading {
     }
 
     public func observe(_ request: LibraryObservationRequest) async throws -> LibraryObservation {
-        let startedCensus = try await source.fetchCensus()
-        let censusIDs = Set(startedCensus.ids)
-        let identity = try await observeIdentity(census: startedCensus, request: request)
-        let admittedIDs = request.inventory.admittedIDs(
-            censusIDs: censusIDs,
-            observed: identity.rowsByID,
-            scope: request.scope
-        )
-        let metadata = try await observeMetadata(
-            censusIDs: startedCensus.ids,
-            admittedIDs: admittedIDs,
-            request: request
-        )
-        let endedCensus = try await source.fetchCensus()
-
-        guard endedCensus.generation == startedCensus.generation else {
-            throw MusicAppObservationError.generationChanged(
-                started: startedCensus.generation,
-                ended: endedCensus.generation
+        do {
+            let startedCensus = try await source.fetchCensus()
+            let censusIDs = Set(startedCensus.ids)
+            let identity = try await observeIdentity(census: startedCensus, request: request)
+            let admittedIDs = request.inventory.admittedIDs(
+                censusIDs: censusIDs,
+                observed: identity.rowsByID,
+                scope: request.scope
             )
-        }
-        guard endedCensus == startedCensus else {
-            throw MusicAppObservationError.censusChanged
-        }
+            let metadata = try await observeMetadata(
+                censusIDs: startedCensus.ids,
+                admittedIDs: admittedIDs,
+                request: request
+            )
+            let endedCensus = try await source.fetchCensus()
 
-        return assembleObservation(
-            census: startedCensus,
-            identity: identity,
-            metadata: metadata,
-            admittedIDs: admittedIDs,
-            request: request
-        )
+            guard endedCensus.generation == startedCensus.generation else {
+                throw MusicAppObservationError.generationChanged(
+                    started: startedCensus.generation,
+                    ended: endedCensus.generation
+                )
+            }
+            guard endedCensus == startedCensus else {
+                throw MusicAppObservationError.censusChanged
+            }
+
+            return assembleObservation(
+                census: startedCensus,
+                identity: identity,
+                metadata: metadata,
+                admittedIDs: admittedIDs,
+                request: request
+            )
+        } catch let AppleScriptBridgeError.libraryChanged(detail) {
+            throw MusicAppObservationError.snapshotChanged(detail: detail)
+        }
     }
 
     private func observeIdentity(

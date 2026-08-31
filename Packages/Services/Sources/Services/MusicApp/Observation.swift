@@ -391,6 +391,7 @@ public struct LibraryObservation: Equatable, Sendable {
 enum MusicAppObservationError: Error, LocalizedError {
     case censusChanged
     case generationChanged(started: LibraryGeneration, ended: LibraryGeneration)
+    case snapshotChanged(detail: String)
     case conflictingMetadata(MusicDatabaseTrackID)
     case duplicateIdentity(MusicDatabaseTrackID)
     case unexpectedMetadata(MusicDatabaseTrackID)
@@ -404,6 +405,8 @@ enum MusicAppObservationError: Error, LocalizedError {
             "Music library census changed during metadata observation"
         case let .generationChanged(started, ended):
             "Music library generation changed during observation (\(started.rawValue) to \(ended.rawValue))"
+        case let .snapshotChanged(detail):
+            "Music library snapshot changed during observation: \(detail)"
         case let .conflictingMetadata(databaseID):
             "Metadata reads returned conflicting rows for database ID \(databaseID.rawValue)"
         case let .duplicateIdentity(databaseID):

@@ -246,6 +246,28 @@ struct LibrarySyncStateTests {
         #expect(result.newTracks.map(\.id) == ["1"])
     }
 
+    @Test("A changed bulk snapshot restarts the whole observation")
+    func retriesBulkSnapshotChange() async throws {
+        let store = SyncStateStore()
+        let delegate = SyncMockScriptClient()
+        let track = Track(id: "1", name: "Track", artist: "Artist", album: "Album")
+        await delegate.setLibrary(ids: ["1"], tracks: ["1": track])
+        let reader = TransientConflictReader(delegate: delegate, conflict: .snapshotChanged)
+        let service = LibrarySyncService(
+            trackStore: store,
+            runtimeConfiguration: LibrarySyncRuntimeConfiguration(
+                mirrorRetryPolicy: MirrorRetryPolicy(retryLimit: 1, delay: .zero)
+            ),
+            observer: reader
+        )
+
+        let result = try await service.synchronizeNow()
+
+        #expect(await reader.attemptCount == 2)
+        #expect(await store.commitCount == 1)
+        #expect(result.newTracks.map(\.id) == ["1"])
+    }
+
     @Test("A verified write fences an in-flight synchronization")
     func appliedWriteFencesSynchronization() async throws {
         let container = try ModelContainerFactory.createInMemory()
@@ -377,13 +399,24 @@ private actor GatedSyncReader: MusicAppReading {
 }
 
 private actor TransientConflictReader: MusicAppReading {
+    enum Conflict {
+        case censusChanged
+        case snapshotChanged
+    }
+
     private let delegate: SyncMockScriptClient
     private let firstAttemptGate: SyncStateGate?
+    private let conflict: Conflict
     private(set) var attemptCount = 0
 
-    init(delegate: SyncMockScriptClient, firstAttemptGate: SyncStateGate? = nil) {
+    init(
+        delegate: SyncMockScriptClient,
+        firstAttemptGate: SyncStateGate? = nil,
+        conflict: Conflict = .censusChanged
+    ) {
         self.delegate = delegate
         self.firstAttemptGate = firstAttemptGate
+        self.conflict = conflict
     }
 
     func observe(_ request: LibraryObservationRequest) async throws -> LibraryObservation {
@@ -392,7 +425,12 @@ private actor TransientConflictReader: MusicAppReading {
             if let firstAttemptGate {
                 await firstAttemptGate.wait()
             }
-            throw MusicAppObservationError.censusChanged
+            switch conflict {
+            case .censusChanged:
+                throw MusicAppObservationError.censusChanged
+            case .snapshotChanged:
+                throw MusicAppObservationError.snapshotChanged(detail: "Bulk snapshot changed")
+            }
         }
         return try await delegate.observe(request)
     }

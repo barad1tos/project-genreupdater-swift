@@ -259,7 +259,7 @@ public actor LibrarySyncService {
             return true
         }
         switch error as? MusicAppObservationError {
-        case .censusChanged, .generationChanged:
+        case .censusChanged, .generationChanged, .snapshotChanged:
             return true
         case .conflictingMetadata, .duplicateIdentity, .unexpectedMetadata, .unexpectedIdentity,
              .unresolvedMetadataIdentity, .identitySnapshotMismatch, .none:
