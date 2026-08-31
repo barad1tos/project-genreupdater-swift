@@ -13,6 +13,15 @@ struct AppleScriptMetadataPolicyTests {
         #expect(source.contains("my join_timestamps(rawReleaseDateValues, itemSeparator)"))
     }
 
+    @Test("Bulk snapshots fail closed when the release-date column cannot be read")
+    func surfacesReleaseDateColumnFailures() throws {
+        let source = try loadScriptSource("fetch_scope_metadata")
+
+        #expect(source.contains("set rawReleaseDateValues to release date of trackReference"))
+        #expect(!source.contains("set rawReleaseDateValues to my missing_values(snapshotCount)"))
+        #expect(!source.contains("on missing_values(valueCount)"))
+    }
+
     @Test("Native timestamp columns decode without locale-dependent text")
     func decodesNativeTimestampColumn() throws {
         let timestamp = try evaluateTimestampColumn()

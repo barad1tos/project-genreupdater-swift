@@ -36,11 +36,7 @@ on run argv
             set rawModifiedValues to modification date of trackReference
             set rawStatusValues to cloud status of trackReference
             set yearValues to year of trackReference
-            try
-                set rawReleaseDateValues to release date of trackReference
-            on error
-                set rawReleaseDateValues to my missing_values(snapshotCount)
-            end try
+            set rawReleaseDateValues to release date of trackReference
         end tell
 
         set columns to {databaseIDs, nameValues, artistValues, albumArtistValues, albumValues, genreValues, ¬
@@ -73,14 +69,6 @@ on require_count(values, expectedCount, columnIndex)
         error "Metadata column " & columnIndex & " count does not match selected track count"
     end if
 end require_count
-
-on missing_values(valueCount)
-    set values to {}
-    repeat valueCount times
-        set end of values to missing value
-    end repeat
-    return values
-end missing_values
 
 on join_timestamps(values, separator)
     if (count of values) is 0 then return ""
