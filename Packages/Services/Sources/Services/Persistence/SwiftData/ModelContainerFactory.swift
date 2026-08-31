@@ -29,7 +29,7 @@ public enum ModelContainerFactory {
     }
 
     static func makeSchema() -> Schema {
-        Schema(versionedSchema: StoreSchemaV9.self)
+        Schema(versionedSchema: StoreSchemaV10.self)
     }
 
     static func create(schema: Schema, configuration: ModelConfiguration) throws -> ModelContainer {
@@ -131,7 +131,7 @@ public enum ModelContainerFactory {
 
     private static func requiresMigrationPlan(_ configuration: ModelConfiguration) throws -> Bool {
         let versions = try storedVersions(in: configuration)
-        return [StoreSchemaV7.versionIdentifier, StoreSchemaV8.versionIdentifier]
+        return [StoreSchemaV7.versionIdentifier, StoreSchemaV8.versionIdentifier, StoreSchemaV9.versionIdentifier]
             .map(\.description)
             .contains { versions.contains($0) }
     }

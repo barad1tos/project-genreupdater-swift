@@ -273,15 +273,12 @@ public actor LibrarySyncService {
             throw LibrarySyncObservationError.invalidObservation(detail: "synchronization was not prepared")
         }
         try Task.checkCancellation()
-        let syncRecord = try makeSyncRecord(
-            for: detection,
-            startedAt: input.startedAt,
-            preparedAt: currentDate()
-        )
+        let syncRecord = try makeSyncRecord(for: detection, startedAt: input.startedAt, preparedAt: currentDate())
         let projected = detection.result
         let effects = makeSyncEffects(
             from: projected,
             storedByID: detection.previousTracks,
+            retiredAliasTracks: detection.retiredAliasTracks,
             hasMirrorMaintenance: !detection.repairs.isEmpty || !detection.retiredAliasIDs.isEmpty
         )
         let commitResult = try await trackStore.commitMirror(MirrorCommit(
@@ -314,7 +311,8 @@ public actor LibrarySyncService {
             currentTracks: committedSnapshot.presentTracks
         )
         await removeResolvedPrereleasePendingEntries(
-            removedTracks: result.removedTrackIDs.compactMap { detection.previousTracks[$0] },
+            removedTracks: result.removedTrackIDs.compactMap { detection.previousTracks[$0] }
+                + detection.retiredAliasTracks,
             currentTracks: committedSnapshot.presentTracks
         )
         if committedDetection.didCompleteForceRefresh {
@@ -416,6 +414,7 @@ public actor LibrarySyncService {
     private func makeSyncEffects(
         from result: SyncResult,
         storedByID: [String: Track],
+        retiredAliasTracks: [Track],
         hasMirrorMaintenance: Bool
     ) -> [MirrorEffect] {
         makeMirrorEffects(
@@ -425,6 +424,7 @@ public actor LibrarySyncService {
                 modifiedTracks: result.modifiedTracks,
                 identityChangedTracks: result.identityChangedTracks,
                 removedTrackIDs: result.removedTrackIDs,
+                retiredAliasTracks: retiredAliasTracks,
                 storedByID: storedByID
             )
         )
@@ -450,6 +450,7 @@ public actor LibrarySyncService {
         modifiedTracks: [Track] = [],
         identityChangedTracks: [Track] = [],
         removedTrackIDs: [String] = [],
+        retiredAliasTracks: [Track] = [],
         storedByID: [String: Track]
     ) -> [(artist: String, album: String)] {
         var candidates: [(artist: String, album: String)] = []
@@ -473,6 +474,7 @@ public actor LibrarySyncService {
         let removedIDSet = Set(removedTrackIDs)
         let removedTracks = storedByID.values.filter { removedIDSet.contains($0.id) }
         candidates.append(contentsOf: cacheInvalidationTargets(removedTracks: removedTracks))
+        candidates.append(contentsOf: cacheInvalidationTargets(removedTracks: retiredAliasTracks))
 
         return normalizedCacheInvalidationTargets(candidates)
     }

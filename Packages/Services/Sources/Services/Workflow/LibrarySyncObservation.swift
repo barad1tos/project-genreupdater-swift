@@ -29,6 +29,7 @@ struct SyncDetection {
     let inventoryChange: InventoryChange
     let repairs: [TrackMirrorRepair]
     let retiredAliasIDs: [String]
+    let retiredAliasTracks: [Track]
     let upserts: [Track]
     let previousTracks: [String: Track]
     let didCompleteForceRefresh: Bool
@@ -178,6 +179,8 @@ extension LibrarySyncService {
         context: DetectionContext
     ) throws -> SyncDetection {
         let repair = try planRepair(legacyTracks: context.repairCandidates, observation: observation)
+        let retiredIDs = Set(repair.retiredAliasIDs)
+        let retiredAliasTracks = context.repairCandidates.filter { retiredIDs.contains($0.id) }
         var mirrorBaseline = context.canonicalStored
         mirrorBaseline.merge(repair.baseline) { existing, _ in existing }
         let classification = try reconcile(
@@ -186,10 +189,7 @@ extension LibrarySyncService {
             scopedStoredIDs: Set(context.scopedByID.keys).union(repair.baseline.keys),
             configuration: context.configuration
         )
-        let ordinaryUpserts = upsertsExcludingRepairs(
-            classification.upserts,
-            repairedIDs: Set(repair.baseline.keys)
-        )
+        let ordinaryUpserts = upsertsExcludingRepairs(classification.upserts, repairedIDs: Set(repair.baseline.keys))
         var projectedMirror = mirrorBaseline
         for track in ordinaryUpserts {
             guard let databaseID = track.databaseID else { continue }
@@ -227,6 +227,7 @@ extension LibrarySyncService {
             inventoryChange: inventoryTransition,
             repairs: repair.repairs,
             retiredAliasIDs: repair.retiredAliasIDs,
+            retiredAliasTracks: retiredAliasTracks,
             upserts: ordinaryUpserts,
             previousTracks: Dictionary(uniqueKeysWithValues: mirrorBaseline.map {
                 ($0.key.rawValue, $0.value)

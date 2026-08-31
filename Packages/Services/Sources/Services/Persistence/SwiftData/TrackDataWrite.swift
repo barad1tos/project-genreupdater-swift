@@ -35,7 +35,8 @@ extension TrackDataStore {
         do {
             try modelContext.transaction {
                 let mirrorState = try mirrorStateForWrite()
-                committedRevision = mirrorState.revision
+                let baselineRevision = mirrorState.revision
+                committedRevision = baselineRevision
                 let storedHistory = try historyEntry(for: change, history: historyChange)
                 try validateHistory(storedHistory, against: change, history: historyChange)
                 let persistedTrack = try fetchTrack(id: change.trackID)
@@ -67,9 +68,11 @@ extension TrackDataStore {
                 try updateMember(for: change, track: updatedTrack, revision: nextRevision)
                 applyHistory(historyChange, entry: change, stored: storedHistory, track: persistedTrack)
                 committedRevision = try mirrorState.advanceRevision()
-                _ = try enqueueMirrorEffects(
-                    MirrorEffect.forTrackTransition(from: currentTrack, to: updatedTrack),
-                    revision: committedRevision
+                let effects = MirrorEffect.forTrackTransition(from: currentTrack, to: updatedTrack)
+                _ = try stageMirrorEffects(
+                    effects,
+                    revision: committedRevision,
+                    baseline: baselineRevision
                 )
             }
         } catch {

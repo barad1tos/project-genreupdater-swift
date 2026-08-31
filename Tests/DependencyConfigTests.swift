@@ -557,7 +557,10 @@ struct DependencyConfigTests {
             hasDiscogsAccess: true
         )))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
+        let trackStore = try TrackDataStore.createInMemory()
+        try await trackStore.initialize()
         dependencies.configureLibraryPersistenceForTesting(
+            trackStore: trackStore,
             fixPlanStore: StoredFixPlanStore(plan: plan, decision: decision)
         )
 
@@ -594,7 +597,10 @@ struct DependencyConfigTests {
             albumTarget: FixPlanAlbumTarget(artist: "Clutch", album: "Blast Tyrant")
         )))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
+        let trackStore = try TrackDataStore.createInMemory()
+        try await trackStore.initialize()
         dependencies.configureLibraryPersistenceForTesting(
+            trackStore: trackStore,
             fixPlanStore: StoredFixPlanStore(plan: plan, decision: decision)
         )
 

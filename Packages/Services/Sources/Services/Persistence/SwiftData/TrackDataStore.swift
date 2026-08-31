@@ -40,8 +40,10 @@ public actor TrackDataStore: TrackStateStore {
             member.memberIdentity().map { ($0.databaseID, $0) }
         })
         let state = try fetchMirrorState()
+        let contentRevision = try fetchContentRevision()?.revision ?? state?.revision ?? .initial
         return try TrackMirrorSnapshot(
             revision: state?.revision ?? .initial,
+            contentRevision: contentRevision,
             membershipStamp: MembershipFingerprint.make(ids: presentIDs),
             presentIDs: Set(presentIDs),
             memberIdentities: memberIdentities,
@@ -164,7 +166,11 @@ public actor TrackDataStore: TrackStateStore {
                     }
                 }
                 committedRevision = try mirrorState.advanceRevision()
-                pendingEffectIDs = try enqueueMirrorEffects(commit.effects, revision: committedRevision)
+                pendingEffectIDs = try stageMirrorEffects(
+                    commit.effects,
+                    revision: committedRevision,
+                    baseline: commit.baseRevision
+                )
                 committedSnapshot = try makeMirrorSnapshot()
             }
         } catch {
@@ -172,13 +178,7 @@ public actor TrackDataStore: TrackStateStore {
             throw error
         }
 
-        log.info(
-            "Applied mirror repairs: \(commit.repairs.count, privacy: .public); retired aliases: \(commit.retiredAliasIDs.count, privacy: .public)"
-        )
-        log
-            .info(
-                "Applied mirror upserts: \(commit.upserts.count, privacy: .public); membership additions: \(membershipDelta.added, privacy: .public); tombstones: \(membershipDelta.removed, privacy: .public); resurrections: \(membershipDelta.resurrected, privacy: .public)"
-            )
+        logMirrorCommit(commit, membership: membershipDelta)
         guard let committedSnapshot else {
             throw TrackStoreError.invalidSyncRecord
         }
@@ -186,6 +186,15 @@ public actor TrackDataStore: TrackStateStore {
             revision: committedRevision,
             snapshot: committedSnapshot,
             pendingEffectIDs: pendingEffectIDs
+        )
+    }
+
+    private func logMirrorCommit(_ commit: MirrorCommit, membership: MembershipDelta) {
+        log.info(
+            "Applied mirror repairs: \(commit.repairs.count, privacy: .public); retired aliases: \(commit.retiredAliasIDs.count, privacy: .public)"
+        )
+        log.info(
+            "Applied mirror upserts: \(commit.upserts.count, privacy: .public); membership additions: \(membership.added, privacy: .public); tombstones: \(membership.removed, privacy: .public); resurrections: \(membership.resurrected, privacy: .public)"
         )
     }
 
@@ -283,13 +292,20 @@ public actor TrackDataStore: TrackStateStore {
     }
 
     private func initializeMirrorState() throws -> Int {
-        if try fetchMirrorState() != nil {
-            return try modelContext.fetchCount(FetchDescriptor<PersistedScopeCertificate>())
+        let mirrorState: PersistedMirrorState
+        if let storedState = try fetchMirrorState() {
+            mirrorState = storedState
+        } else {
+            let newState = PersistedMirrorState()
+            modelContext.insert(newState)
+            mirrorState = newState
         }
 
-        modelContext.insert(PersistedMirrorState())
+        if try fetchContentRevision() == nil {
+            modelContext.insert(PersistedContentRevision(revisionValue: mirrorState.revision.value))
+        }
         try modelContext.save()
-        return 0
+        return try modelContext.fetchCount(FetchDescriptor<PersistedScopeCertificate>())
     }
 
     func fetchMirrorState() throws -> PersistedMirrorState? {

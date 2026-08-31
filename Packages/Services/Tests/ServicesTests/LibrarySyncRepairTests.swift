@@ -147,7 +147,46 @@ struct LibrarySyncRepairTests {
         let update = try #require(await fixture.store.updates.first)
         #expect(await fixture.store.stored.map(\.id) == ["103401"])
         #expect(await fixture.store.updates.count == 1)
-        #expect(update.effects == [.invalidateSnapshot, .refreshProjections])
+        let retiredIdentity = AlbumIdentity(artist: "Artist", album: "Album")
+        #expect(update.effects == [
+            .invalidateAlbumYear(retiredIdentity),
+            .invalidateAPIResults(retiredIdentity),
+            .invalidateSnapshot,
+            .refreshProjections,
+        ])
+    }
+
+    @Test("Retiring a prerelease alias clears its pending verification entry")
+    func retiredAliasClearsPrereleasePendingEntry() async throws {
+        let pending = PendingVerificationProbe(
+            entry: PendingAlbumEntry(
+                id: "retired-prerelease",
+                artist: "Retired Artist",
+                album: "Retired Album",
+                reason: "prerelease"
+            ),
+            isVerificationNeeded: true
+        )
+        let retiredAlias = Track(
+            id: "legacy-alias",
+            name: "Retired Song",
+            artist: "Retired Artist",
+            album: "Retired Album",
+            trackStatus: TrackKind.prerelease.rawValue
+        )
+        let fixture = try makeFixture(
+            stored: [retiredAlias, canonicalTrack(id: "103401", name: "Current Song")],
+            currentIDs: ["103401"],
+            rows: [row(id: "103401", name: "Current Song")],
+            pendingVerification: pending
+        )
+
+        _ = try await fixture.service.synchronizeNow()
+
+        let removals = await pending.removedAlbums
+        #expect(removals.count == 1)
+        #expect(removals.first?.artist == "Retired Artist")
+        #expect(removals.first?.album == "Retired Album")
     }
 
     @Test("Incomplete metadata preserves a census-present legacy alias")
@@ -422,7 +461,8 @@ struct LibrarySyncRepairTests {
         currentIDs: [String],
         rows: [LibraryTrackRow],
         testArtists: [String] = [],
-        membership: MembershipCompleteness = .full
+        membership: MembershipCompleteness = .full,
+        pendingVerification: (any PendingVerificationService)? = nil
     ) throws -> RepairFixture {
         let ids = try databaseIDs(currentIDs)
         let reader = try RepairObservationReader(template: RepairObservationTemplate(
@@ -437,6 +477,7 @@ struct LibrarySyncRepairTests {
             .appendingPathComponent("LibrarySyncRepairTests-\(UUID().uuidString)", isDirectory: true)
         let service = LibrarySyncService(
             trackStore: store,
+            pendingVerificationService: pendingVerification,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 logsBaseDirectory: logsDirectory.path,
                 testArtists: testArtists

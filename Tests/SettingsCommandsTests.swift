@@ -268,7 +268,7 @@ struct SettingsCommandsTests {
     }
 
     @Test("a fingerprint-relevant change marks the current plan stale")
-    func fingerprintChangeMarksPlanStale() async {
+    func fingerprintChangeMarksPlanStale() async throws {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
             configurationSaver: { _ in
@@ -288,12 +288,16 @@ struct SettingsCommandsTests {
             at: Date(timeIntervalSince1970: 100),
             hasDiscogsAccess: dependencies.isDiscogsAccessAvailable ?? false
         )
-        let plan = makeSettingsProbePlan(configuration: planConfig)
+        let plan = makeSettingsProbePlan(configuration: planConfig, mirrorRevision: .initial)
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 101))
+        let trackStore = try TrackDataStore.createInMemory()
+        try await trackStore.initialize()
         dependencies.configureLibraryPersistenceForTesting(
+            trackStore: trackStore,
             fixPlanStore: MemoryFixPlanStore(plan: plan, decision: decision)
         )
         let baseline = await dependencies.refreshFixPlanProjection()
+        #expect(baseline.status == .ready)
         #expect(baseline.stalenessReasons.isEmpty)
         var edited = dependencies.config
         edited.cleaning.editionMarkers.append("Deluxe Probe Edition")
@@ -306,7 +310,7 @@ struct SettingsCommandsTests {
     }
 
     @Test("a presentation-only change leaves the plan projection untouched")
-    func presentationChangeLeavesPlanUntouched() async {
+    func presentationChangeLeavesPlanUntouched() async throws {
         let dependencies = AppDependencies(
             configurationLoader: { AppConfiguration() },
             configurationSaver: { _ in
@@ -326,12 +330,16 @@ struct SettingsCommandsTests {
             at: Date(timeIntervalSince1970: 100),
             hasDiscogsAccess: dependencies.isDiscogsAccessAvailable ?? false
         )
-        let plan = makeSettingsProbePlan(configuration: planConfig)
+        let plan = makeSettingsProbePlan(configuration: planConfig, mirrorRevision: .initial)
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 101))
+        let trackStore = try TrackDataStore.createInMemory()
+        try await trackStore.initialize()
         dependencies.configureLibraryPersistenceForTesting(
+            trackStore: trackStore,
             fixPlanStore: MemoryFixPlanStore(plan: plan, decision: decision)
         )
         let baseline = await dependencies.refreshFixPlanProjection()
+        #expect(baseline.status == .ready)
         #expect(baseline.stalenessReasons.isEmpty)
         var edited = dependencies.config
         edited.analytics.enabled.toggle()
@@ -453,14 +461,17 @@ private final class FailureGate: @unchecked Sendable {
 private struct SaveProbeFailure: Error {}
 
 @MainActor
-private func makeSettingsProbePlan(configuration: FixPlanConfig) -> FixPlan {
+private func makeSettingsProbePlan(
+    configuration: FixPlanConfig,
+    mirrorRevision: MirrorRevision
+) -> FixPlan {
     let item = makeCommandItem(id: "00000000-0000-0000-0000-000000000901", type: .genreUpdate)
     let scope = ProcessingScopeSnapshot.capture(
         requestedTestArtists: [],
         knownTrackCount: nil,
         createdAt: Date(timeIntervalSince1970: 100),
         reason: "settings-command-test"
-    )
+    ).binding(revision: mirrorRevision, certificateID: nil)
     return FixPlan(restoring: .init(
         id: FixPlanID(),
         revision: .initial,

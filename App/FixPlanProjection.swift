@@ -10,7 +10,7 @@ extension AppDependencies {
             let latest = try await latestFixPlanProjection()
             projection = try await visibleFixPlanProjection(
                 latest.projection,
-                createdAt: latest.createdAt,
+                sourceMirrorRevision: latest.sourceMirrorRevision,
                 after: lifecycle
             )
         } catch {
@@ -26,10 +26,10 @@ extension AppDependencies {
 
     private func visibleFixPlanProjection(
         _ projection: FixPlanProjection,
-        createdAt: Date?,
+        sourceMirrorRevision: MirrorRevision?,
         after lifecycle: RunLifecycleSnapshot?
     ) async throws -> FixPlanProjection {
-        guard projection.status != .unavailable else { return projection }
+        guard projection.status == .ready || projection.status == .stale else { return projection }
 
         if let lifecycle,
            lifecycle.syncResult?.hasMirrorChanges == true,
@@ -37,19 +37,22 @@ extension AppDependencies {
             return .empty()
         }
 
-        guard let createdAt, let runRecordStore else { return projection }
-        let laterRuns = try await runRecordStore.reports(matching: RunReportQuery(startedAfter: createdAt))
-        guard laterRuns.skippedCorruptedCount == 0 else {
-            throw FixPlanProjectionLoadError.corruptedRunHistory
+        guard let sourceMirrorRevision else {
+            throw FixPlanProjectionLoadError.unboundPlan
         }
-        guard laterRuns.records.contains(where: { $0.syncSummary?.hasMirrorChanges == true }) else {
-            return projection
+        guard let trackStore else {
+            throw FixPlanProjectionLoadError.mirrorUnavailable
         }
+        let mirror = try await trackStore.loadMirrorSnapshot()
+        guard sourceMirrorRevision < mirror.contentRevision else { return projection }
 
         return .empty()
     }
 
-    private func latestFixPlanProjection() async throws -> (projection: FixPlanProjection, createdAt: Date?) {
+    private func latestFixPlanProjection() async throws -> (
+        projection: FixPlanProjection,
+        sourceMirrorRevision: MirrorRevision?
+    ) {
         guard let fixPlanStore else {
             return (.empty(), nil)
         }
@@ -59,7 +62,7 @@ extension AppDependencies {
         guard let decision = try await fixPlanStore.currentDecision(for: plan.id) else {
             return (
                 .unavailable(message: "Review decision is missing for fix plan \(plan.id.rawValue.uuidString)"),
-                plan.createdAt
+                plan.scope.mirrorRevision
             )
         }
 
@@ -88,15 +91,21 @@ extension AppDependencies {
                     currentConfiguration: currentConfiguration
                 )
             ),
-            plan.createdAt
+            plan.scope.mirrorRevision
         )
     }
 }
 
 private enum FixPlanProjectionLoadError: LocalizedError {
-    case corruptedRunHistory
+    case mirrorUnavailable
+    case unboundPlan
 
     var errorDescription: String? {
-        "Fix plan freshness could not be verified because newer run history is corrupted."
+        switch self {
+        case .mirrorUnavailable:
+            "Fix plan freshness could not be verified because the library mirror is unavailable."
+        case .unboundPlan:
+            "Fix plan freshness could not be verified because the plan is not bound to a library revision."
+        }
     }
 }

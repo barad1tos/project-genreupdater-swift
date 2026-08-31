@@ -156,6 +156,8 @@ public struct ScopeCertificate: Codable, Equatable, Hashable, Sendable {
 /// One coherent read of current library membership, repair input, and scope evidence.
 public struct TrackMirrorSnapshot: Equatable, Sendable {
     public let revision: MirrorRevision
+    /// Latest mirror revision that changed user-facing projections.
+    public let contentRevision: MirrorRevision
     public let membershipStamp: MembershipStamp
     public let presentIDs: Set<MusicDatabaseTrackID>
     public let memberIdentities: [MusicDatabaseTrackID: MemberIdentity]
@@ -165,6 +167,7 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
 
     public init(
         revision: MirrorRevision,
+        contentRevision: MirrorRevision? = nil,
         membershipStamp: MembershipStamp,
         presentIDs: Set<MusicDatabaseTrackID>,
         memberIdentities: [MusicDatabaseTrackID: MemberIdentity] = [:],
@@ -173,6 +176,7 @@ public struct TrackMirrorSnapshot: Equatable, Sendable {
         certificates: [ScopeCertificate]
     ) {
         self.revision = revision
+        self.contentRevision = contentRevision ?? revision
         self.membershipStamp = membershipStamp
         self.presentIDs = presentIDs
         self.memberIdentities = memberIdentities

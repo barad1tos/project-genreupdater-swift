@@ -13,7 +13,10 @@ struct FixPlanProjectionLifecycleTests {
         let plan = try #require(try makePlan(dependencies: dependencies))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
         let planStore = StoredFixPlanStore(plan: plan, decision: decision)
-        dependencies.configureLibraryPersistenceForTesting(fixPlanStore: planStore)
+        try await dependencies.configureLibraryPersistenceForTesting(
+            trackStore: makeTrackStore(),
+            fixPlanStore: planStore
+        )
         _ = await dependencies.refreshFixPlanProjection()
 
         await dependencies.publishLifecycleBoundary(makeLifecycle(
@@ -34,16 +37,8 @@ struct FixPlanProjectionLifecycleTests {
         let plan = try #require(try makePlan(dependencies: dependencies))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
         let planStore = StoredFixPlanStore(plan: plan, decision: decision)
-        let changedRun = makeRunRecord(
-            runID: RunID(),
-            startedAt: Date(timeIntervalSince1970: 1_800_000_200),
-            syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 1)
-        )
-        dependencies.configureLibraryPersistenceForTesting(
-            runRecordStore: RunRecordStoreStub(reportPage: RunReportPage(
-                records: [changedRun],
-                skippedCorruptedCount: 0
-            )),
+        try await dependencies.configureLibraryPersistenceForTesting(
+            trackStore: makeTrackStore(contentChanges: 1, noOpCommits: 1),
             fixPlanStore: planStore
         )
         _ = await dependencies.refreshFixPlanProjection()
@@ -66,7 +61,8 @@ struct FixPlanProjectionLifecycleTests {
         let dependencies = makeDependencies()
         let plan = try #require(try makePlan(dependencies: dependencies))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
-        dependencies.configureLibraryPersistenceForTesting(
+        try await dependencies.configureLibraryPersistenceForTesting(
+            trackStore: makeTrackStore(),
             fixPlanStore: StoredFixPlanStore(plan: plan, decision: decision)
         )
 
@@ -90,17 +86,8 @@ struct FixPlanProjectionLifecycleTests {
         let plan = try #require(try makePlan(dependencies: dependencies))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
         let planStore = StoredFixPlanStore(plan: plan, decision: decision)
-        let changedRun = makeRunRecord(
-            runID: RunID(),
-            startedAt: Date(timeIntervalSince1970: 1_800_000_200),
-            intent: .observeLibrary,
-            syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 1)
-        )
-        dependencies.configureLibraryPersistenceForTesting(
-            runRecordStore: RunRecordStoreStub(reportPage: RunReportPage(
-                records: [changedRun],
-                skippedCorruptedCount: 0
-            )),
+        try await dependencies.configureLibraryPersistenceForTesting(
+            trackStore: makeTrackStore(contentChanges: 1),
             fixPlanStore: planStore
         )
 
@@ -116,24 +103,8 @@ struct FixPlanProjectionLifecycleTests {
         let plan = try #require(try makePlan(dependencies: dependencies))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
         let planStore = StoredFixPlanStore(plan: plan, decision: decision)
-        let maintenanceRun = makeRunRecord(
-            runID: RunID(),
-            startedAt: Date(timeIntervalSince1970: 1_800_000_200),
-            intent: .previewFixes,
-            syncSummary: ActivitySyncSummary(
-                new: 0,
-                modified: 0,
-                identityChanged: 0,
-                refreshed: 0,
-                removed: 0,
-                mirrorMaintenanceCount: 1
-            )
-        )
-        dependencies.configureLibraryPersistenceForTesting(
-            runRecordStore: RunRecordStoreStub(reportPage: RunReportPage(
-                records: [maintenanceRun],
-                skippedCorruptedCount: 0
-            )),
+        try await dependencies.configureLibraryPersistenceForTesting(
+            trackStore: makeTrackStore(contentChanges: 1),
             fixPlanStore: planStore
         )
 
@@ -148,16 +119,8 @@ struct FixPlanProjectionLifecycleTests {
         let dependencies = makeDependencies()
         let plan = try #require(try makePlan(dependencies: dependencies))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
-        let sourceRun = makeRunRecord(
-            runID: plan.sourceRunID,
-            startedAt: Date(timeIntervalSince1970: 1_800_000_000),
-            syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 1)
-        )
-        dependencies.configureLibraryPersistenceForTesting(
-            runRecordStore: RunRecordStoreStub(reportPage: RunReportPage(
-                records: [sourceRun],
-                skippedCorruptedCount: 0
-            )),
+        try await dependencies.configureLibraryPersistenceForTesting(
+            trackStore: makeTrackStore(),
             fixPlanStore: StoredFixPlanStore(plan: plan, decision: decision)
         )
 
@@ -174,6 +137,34 @@ struct FixPlanProjectionLifecycleTests {
                 // Configuration persistence is outside these projection lifecycle tests.
             }
         )
+    }
+
+    private func makeTrackStore(contentChanges: Int = 0, noOpCommits: Int = 0) async throws -> TrackDataStore {
+        let store = try TrackDataStore.createInMemory()
+        try await store.initialize()
+        var revision = MirrorRevision.initial
+        for _ in 0 ..< contentChanges {
+            let result = try await store.commitMirror(MirrorCommit(
+                baseRevision: revision,
+                inventoryChange: .preserve,
+                repairs: [],
+                upserts: [],
+                certificates: .preserve,
+                effects: [.refreshProjections]
+            ))
+            revision = result.revision
+        }
+        for _ in 0 ..< noOpCommits {
+            let result = try await store.commitMirror(MirrorCommit(
+                baseRevision: revision,
+                inventoryChange: .preserve,
+                repairs: [],
+                upserts: [],
+                certificates: .preserve
+            ))
+            revision = result.revision
+        }
+        return store
     }
 
     private func makePlan(dependencies: AppDependencies) throws -> FixPlan? {
@@ -202,27 +193,6 @@ struct FixPlanProjectionLifecycleTests {
             ),
             startedAt: startedAt,
             phase: phase
-        )
-    }
-
-    private func makeRunRecord(
-        runID: RunID,
-        startedAt: Date,
-        intent: RunIntent = .previewFixes,
-        syncSummary: ActivitySyncSummary
-    ) -> RunRecord {
-        let lifecycle = makeLifecycle(
-            phase: .active(.created),
-            intent: intent,
-            runID: runID,
-            startedAt: startedAt
-        )
-        return RunRecord(
-            lifecycle: lifecycle,
-            transitions: [RunLifecycleTransition(state: .completedNoOp, timestamp: startedAt)],
-            syncSummary: syncSummary,
-            failureMessage: nil,
-            finishedAt: startedAt.addingTimeInterval(10)
         )
     }
 }
