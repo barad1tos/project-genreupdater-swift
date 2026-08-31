@@ -316,12 +316,33 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
             var tracks = [Core.Track]()
             for artist in artists {
                 let snapshot = try await fetchBulkMetadata(artist: artist)
-                tracks.append(contentsOf: snapshot.tracks.filter { track in
-                    track.databaseID.map(requestedIDs.contains) ?? false
-                })
+                tracks.append(contentsOf: snapshot.tracks)
             }
-            return tracks
+            return try await Self.fillMissingScopedMetadata(
+                requestedIDs: databaseIDs,
+                snapshotTracks: tracks
+            ) { missingIDs in
+                try await self.fetchMetadata(for: missingIDs)
+            }
         }
+    }
+
+    static func fillMissingScopedMetadata(
+        requestedIDs: [MusicDatabaseTrackID],
+        snapshotTracks: [Core.Track],
+        targetedFetch: @Sendable ([MusicDatabaseTrackID]) async throws -> [Core.Track]
+    ) async throws -> [Core.Track] {
+        let requestedIDSet = Set(requestedIDs)
+        let scopedTracks = snapshotTracks.filter { track in
+            track.databaseID.map(requestedIDSet.contains) ?? false
+        }
+        let observedIDs = Set(scopedTracks.compactMap(\.databaseID))
+        var missingIDSet = requestedIDSet.subtracting(observedIDs)
+        let missingIDs = requestedIDs.filter { missingIDSet.remove($0) != nil }
+        guard !missingIDs.isEmpty else { return scopedTracks }
+
+        let missingTracks = try await targetedFetch(missingIDs)
+        return scopedTracks + missingTracks
     }
 
     public func fetchMetadata(for databaseIDs: [MusicDatabaseTrackID]) async throws -> [Core.Track] {

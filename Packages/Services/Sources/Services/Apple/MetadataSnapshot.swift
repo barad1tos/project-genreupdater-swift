@@ -36,8 +36,8 @@ struct LibraryMetadataSnapshot: Equatable, Sendable {
             guard seenIDs.insert(databaseID).inserted else {
                 throw parseError("Metadata snapshot contains a duplicate database ID")
             }
-            let name = columns[1][rowIndex]
-            let artist = columns[2][rowIndex]
+            let name = optionalText(columns[1][rowIndex]) ?? ""
+            let artist = optionalText(columns[2][rowIndex]) ?? ""
             let albumArtist = optionalText(columns[3][rowIndex])
             let album = optionalText(columns[4][rowIndex]) ?? ""
             let genre = optionalText(columns[5][rowIndex])

@@ -125,6 +125,23 @@ struct MetadataSnapshotTests {
         #expect(track.artist.isEmpty)
     }
 
+    @Test("Missing required text matches targeted row normalization")
+    func normalizesMissingRequiredText() throws {
+        let output = wire(
+            count: 1,
+            generation: "G1",
+            columns: [
+                ["10"], ["missing value"], ["MISSING VALUE"], [""], ["Album"], [""],
+                [""], [""], [""], [""], [""],
+            ]
+        )
+
+        let track = try #require(LibraryMetadataSnapshot.decode(output).tracks.first)
+
+        #expect(track.name.isEmpty)
+        #expect(track.artist.isEmpty)
+    }
+
     @Test("Rejects duplicate database IDs")
     func rejectsDuplicateIDs() {
         let output = wire(
