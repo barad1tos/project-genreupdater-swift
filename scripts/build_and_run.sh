@@ -9,11 +9,11 @@ PROCESS_NAME="Genre Updater"
 LOG_SUBSYSTEM_PREFIX="com.genreupdater"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DERIVED_DATA_PATH="$ROOT_DIR/.build/xcode"
-APP_BUNDLE="$DERIVED_DATA_PATH/Build/Products/Debug/$APP_NAME.app"
+RUN_BUILD_ROOT="${RUN_BUILD_ROOT:-$ROOT_DIR/.build/run}"
+APP_BUNDLE="$RUN_BUILD_ROOT/Build/Products/Debug/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 SOURCE_ENTITLEMENTS="$ROOT_DIR/App/GenreUpdater.entitlements"
-LOCAL_ENTITLEMENTS="$DERIVED_DATA_PATH/GenreUpdater.local.entitlements"
+LOCAL_ENTITLEMENTS="$RUN_BUILD_ROOT/GenreUpdater.local.entitlements"
 
 usage() {
   cat >&2 <<USAGE
@@ -36,7 +36,7 @@ build_app() {
     -project "$ROOT_DIR/$PROJECT_NAME.xcodeproj" \
     -scheme "$SCHEME" \
     -destination "$destination_spec" \
-    -derivedDataPath "$DERIVED_DATA_PATH" \
+    -derivedDataPath "$RUN_BUILD_ROOT" \
     CODE_SIGN_IDENTITY=- \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGNING_ALLOWED=NO
