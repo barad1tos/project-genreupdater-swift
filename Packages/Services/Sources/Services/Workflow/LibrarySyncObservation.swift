@@ -470,7 +470,9 @@ extension LibrarySyncService {
                 }
                 repairTargets[sourceID] = databaseID
             }
-            let retiredAliasIDs = resolution.ambiguous.keys.sorted() + resolution.unresolved
+            let retiredAliasIDs = hasCompleteMetadata(observation) && observation.identity.isComplete
+                ? resolution.ambiguous.keys.sorted() + resolution.unresolved
+                : []
             return try makeMirrorRepair(
                 legacyTracks: legacyTracks,
                 observedRows: observedRows,

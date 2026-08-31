@@ -145,6 +145,21 @@ struct LibrarySyncRepairTests {
         #expect(update.effects == [.invalidateSnapshot, .refreshProjections])
     }
 
+    @Test("Incomplete metadata preserves a census-present legacy alias")
+    func preservesAliasOnPartialRead() async throws {
+        let fixture = try makeFixture(
+            stored: [legacyTrack(sourceID: "MK1", databaseID: "AS1")],
+            currentIDs: ["AS1"],
+            rows: []
+        )
+
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(update.retiredAliasIDs.isEmpty)
+        #expect(await fixture.store.stored.map(\.id) == ["MK1"])
+    }
+
     @Test("Unique metadata identity repairs an artistless legacy row")
     func repairsArtistlessTrack() async throws {
         let legacy = legacyTrack(sourceID: "MK1", databaseID: nil, artist: "")
