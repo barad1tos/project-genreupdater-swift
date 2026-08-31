@@ -567,12 +567,6 @@ struct WriteAdmissionTests {
         #expect(newRecoveryID != recoveryID)
         try await processor.clearRecovery(batchID: newRecoveryID)
 
-        let secondCall = ScriptCall(
-            name: "update_property",
-            intent: .mutation,
-            deadline: ContinuousClock().now.advanced(by: .seconds(1)),
-            timeout: .seconds(1)
-        )
         _ = try await processor.performRecoverableWrite(
             trackCount: 1,
             features: WriteFeatureRequirements(mutation: nil),
@@ -582,7 +576,13 @@ struct WriteAdmissionTests {
                 partialTrackIDs: { _ in [] }
             ),
             operation: {
-                try await ScriptDispatch.run(secondCall, limiter: nil, gate: gate) { finish in
+                let secondCall = ScriptCall(
+                    name: "update_property",
+                    intent: .mutation,
+                    deadline: ContinuousClock().now.advanced(by: .seconds(1)),
+                    timeout: .seconds(1)
+                )
+                return try await ScriptDispatch.run(secondCall, limiter: nil, gate: gate) { finish in
                     dispatches.append("second")
                     finish(.success("done"))
                 }
