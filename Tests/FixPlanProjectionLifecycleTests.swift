@@ -137,7 +137,9 @@ struct FixPlanProjectionLifecycleTests {
     private func makeDependencies() -> AppDependencies {
         AppDependencies(
             configurationLoader: { AppConfiguration() },
-            configurationSaver: { _ in }
+            configurationSaver: { _ in
+                // Configuration persistence is outside these projection lifecycle tests.
+            }
         )
     }
 
