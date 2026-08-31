@@ -548,17 +548,16 @@ struct ActivityCommands {
                 message: copy.queued,
                 refreshedActivityProjection: projection
             )
-        case let .completed(snapshot):
-            // Read-only view refresh; metadata writes remain gated by the observe-only run.
+        case .completed:
+            // Refresh projections after the preview pipeline; the run itself never writes Music metadata.
             await reloadLibrary(true)
             let projection = await refreshActivityProjection()
-            let changeCount = snapshot.syncResult?.changeCount ?? 0
             return .accepted(
-                message: copy.completedMessage(changeCount: changeCount),
+                message: copy.completedMessage(candidateFixCount: projection.deltaCount),
                 refreshedActivityProjection: projection
             )
         case .completedNoOp:
-            // Read-only view refresh; metadata writes remain gated by the observe-only run.
+            // Refresh projections after the preview pipeline; the run itself never writes Music metadata.
             await reloadLibrary(true)
             let projection = await refreshActivityProjection()
             return .noOp(
@@ -618,7 +617,7 @@ struct ActivityCommands {
                 queued: "Manual check queued after current run.",
                 unavailable: "Manual check is no longer available.",
                 cancelled: "Manual check cancelled.",
-                noChanges: "No library changes detected.",
+                noChanges: "No candidate fixes found.",
                 failedSummary: "Manual check failed",
                 failedIssueID: "manual-check-failed",
                 completed: .standard
@@ -630,7 +629,7 @@ struct ActivityCommands {
                 queued: "Library check queued after current run.",
                 unavailable: "Library check is no longer available.",
                 cancelled: "Library check cancelled · writes remain held.",
-                noChanges: "No library changes detected · writes remain held.",
+                noChanges: "No candidate fixes found · writes remain held.",
                 failedSummary: "Library check failed",
                 failedIssueID: "library-check-failed",
                 completed: .libraryCheck
@@ -652,8 +651,8 @@ struct ActivityCommands {
             "\(failedSummary)."
         }
 
-        func completedMessage(changeCount: Int) -> String {
-            completed.message(changeCount: changeCount)
+        func completedMessage(candidateFixCount: Int) -> String {
+            completed.message(candidateFixCount: candidateFixCount)
         }
     }
 
@@ -661,13 +660,13 @@ struct ActivityCommands {
         case standard
         case libraryCheck
 
-        func message(changeCount: Int) -> String {
-            let changeLabel = changeCount == 1 ? "change" : "changes"
+        func message(candidateFixCount: Int) -> String {
+            let fixLabel = candidateFixCount == 1 ? "fix" : "fixes"
             switch self {
             case .standard:
-                return "Library delta detected · analyzing \(changeCount) \(changeLabel)."
+                return "Found \(candidateFixCount) candidate \(fixLabel)."
             case .libraryCheck:
-                return "Library check found \(changeCount) \(changeLabel) · writes remain held."
+                return "Found \(candidateFixCount) candidate \(fixLabel) · writes remain held."
             }
         }
     }

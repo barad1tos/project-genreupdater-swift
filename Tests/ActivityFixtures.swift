@@ -10,7 +10,8 @@ enum ActivityFixtures {
 
     static func makeManualProjection(
         revision: ProjectionRevision,
-        isEnabled: Bool
+        isEnabled: Bool,
+        deltaCount: Int = 0
     ) -> ActivityProjection {
         ActivityProjection(
             revision: revision,
@@ -28,7 +29,7 @@ enum ActivityFixtures {
             healthFacts: .empty,
             pendingVerification: nil,
             reportFacts: .empty,
-            deltaCount: 0,
+            deltaCount: deltaCount,
             interventionCount: 0,
             protectedCount: 0,
             failedWriteCount: 0,
@@ -51,7 +52,8 @@ enum ActivityFixtures {
     static func makeRecoveryProjection(
         revision: ProjectionRevision,
         runID: String = recoveryRunIDString,
-        isSecondaryEnabled: Bool = true
+        isSecondaryEnabled: Bool = true,
+        deltaCount: Int = 0
     ) -> ActivityProjection {
         ActivityProjection(
             revision: revision,
@@ -69,7 +71,7 @@ enum ActivityFixtures {
             healthFacts: .empty,
             pendingVerification: nil,
             reportFacts: .empty,
-            deltaCount: 0,
+            deltaCount: deltaCount,
             interventionCount: 0,
             protectedCount: 0,
             failedWriteCount: 0,

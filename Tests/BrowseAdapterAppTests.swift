@@ -318,7 +318,7 @@ struct BrowseHostPublishTests {
         dependencies.installTrackCountSource { 1 }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
-            synchronizePreview: { scope, _ in SyncResult().committed(to: scope) },
+            synchronizePreview: { scope, _, _ in SyncResult().committed(to: scope) },
             persistRunRecord: { _ in
                 // Persistence is outside this wiring pin.
             },

@@ -16,6 +16,11 @@ public enum RunTrigger: String, Codable, Equatable, Sendable {
     case backgroundSync
     case fileSystemEvent
     case recovery
+
+    /// An explicit user check must re-evaluate the complete captured scope from authoritative inputs.
+    public var usesAuthoritativeInputs: Bool {
+        self == .manualCheck
+    }
 }
 
 public enum RunIntent: String, Codable, Equatable, Sendable {

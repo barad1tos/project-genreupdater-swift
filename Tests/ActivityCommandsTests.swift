@@ -47,7 +47,7 @@ struct ActivityCommandsTests {
         let result = await commands.handle(.runManually())
 
         #expect(result.status == .noOp)
-        #expect(result.message == "No library changes detected.")
+        #expect(result.message == "No candidate fixes found.")
         #expect(harness.submitRunCallCount == 1)
         #expect(harness.reloadCallCount == 1)
         #expect(harness.refreshCallCount == 2)
@@ -391,7 +391,7 @@ struct ActivityCommandsTests {
         let result = await commands.handle(.runManually())
 
         #expect(result.status == .noOp)
-        #expect(result.message == "No library changes detected · writes remain held.")
+        #expect(result.message == "No candidate fixes found · writes remain held.")
         #expect((harness.submitRunCallCount, harness.reloadCallCount, harness.refreshCallCount) == (1, 1, 2))
     }
 
@@ -418,18 +418,21 @@ struct ActivityCommandsTests {
 
         let result = await commands.handle(.runManually())
 
-        #expect(result.message == "No library changes detected · writes remain held.")
+        #expect(result.message == "No candidate fixes found · writes remain held.")
         #expect(harness.submitRunCallCount == 1)
     }
 
-    @Test("library check reports recovery-held changes")
-    func reportsHeldChanges() async {
+    @Test("library check reports recovery-held candidate fixes")
+    func reportsHeldCandidateFixes() async {
         let syncResult = SyncResult(
             newTracks: [track(id: "NEW")],
             modifiedTracks: [track(id: "MODIFIED")]
         )
         let harness = ActivityFixtures.Harness(
-            projection: ActivityFixtures.makeRecoveryProjection(revision: ProjectionRevision(2)),
+            projection: ActivityFixtures.makeRecoveryProjection(
+                revision: ProjectionRevision(2),
+                deltaCount: 7
+            ),
             runResult: .completed(ActivityFixtures.lifecycle(phase: .finished(
                 .completed(syncResult),
                 finishedAt: ActivityFixtures.finishDate
@@ -440,7 +443,7 @@ struct ActivityCommandsTests {
         let result = await commands.handle(.runManually())
 
         #expect(result.status == .accepted)
-        #expect(result.message == "Library check found 2 changes · writes remain held.")
+        #expect(result.message == "Found 7 candidate fixes · writes remain held.")
         #expect(harness.submitRunCallCount == 1)
         #expect(harness.reloadCallCount == 1)
     }
@@ -496,13 +499,13 @@ struct ActivityCommandsTests {
         let result = await commands.handle(.runManually())
 
         #expect(result.status == .noOp)
-        #expect(result.message == "No library changes detected.")
+        #expect(result.message == "No candidate fixes found.")
         #expect(harness.submitRunCallCount == 1)
         #expect(harness.reloadCallCount == 1)
     }
 
-    @Test("completed run counts all delta arrays")
-    func completedRunCountsAllDeltaArrays() async {
+    @Test("completed run reports pipeline output instead of mirror delta")
+    func completedRunReportsPipelineOutput() async {
         let syncResult = SyncResult(
             newTracks: [track(id: "NEW")],
             modifiedTracks: [track(id: "MODIFIED")],
@@ -511,6 +514,11 @@ struct ActivityCommandsTests {
             removedTrackIDs: ["REMOVED"]
         )
         let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeManualProjection(
+                revision: ProjectionRevision(2),
+                isEnabled: true,
+                deltaCount: 515
+            ),
             runResult: .completed(ActivityFixtures.lifecycle(phase: .finished(
                 .completed(syncResult),
                 finishedAt: ActivityFixtures.finishDate
@@ -521,7 +529,7 @@ struct ActivityCommandsTests {
         let result = await commands.handle(.runManually())
 
         #expect(result.status == .accepted)
-        #expect(result.message == "Library delta detected · analyzing 5 changes.")
+        #expect(result.message == "Found 515 candidate fixes.")
         #expect(harness.submitRunCallCount == 1)
         #expect(harness.reloadCallCount == 1)
     }

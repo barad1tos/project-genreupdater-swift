@@ -5,12 +5,16 @@ import Testing
 
 actor MusicAppTestObserver: MusicAppReading {
     private let tracks: [Track]
+    private let observedAt: Date
+    private var requests: [LibraryObservationRequest] = []
 
-    init(tracks: [Track]) {
+    init(tracks: [Track], observedAt: Date = Date()) {
         self.tracks = tracks
+        self.observedAt = observedAt
     }
 
     func observe(_ request: LibraryObservationRequest) throws -> LibraryObservation {
+        requests.append(request)
         let generation = try #require(LibraryGeneration(sourceValue: "root-test"))
         let tracksByID = Dictionary(uniqueKeysWithValues: tracks.compactMap { track in
             track.databaseID.map { ($0, track) }
@@ -49,7 +53,7 @@ actor MusicAppTestObserver: MusicAppReading {
                 censusIDs: censusIDs,
                 currentIDs: currentIDs,
                 scope: request.scope,
-                observedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                observedAt: observedAt,
                 generation: generation
             ),
             coverage: LibraryObservationCoverage(
@@ -65,6 +69,10 @@ actor MusicAppTestObserver: MusicAppReading {
                 issues: []
             )
         )
+    }
+
+    func recordedObservationRequests() -> [LibraryObservationRequest] {
+        requests
     }
 
     private func row(_ track: Track, databaseID: MusicDatabaseTrackID) -> LibraryTrackRow {

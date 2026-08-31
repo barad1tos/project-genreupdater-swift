@@ -198,6 +198,7 @@ extension AppDependencies {
         let configuration = captureFixPlanConfig(
             at: Date(),
             hasDiscogsAccess: discogsAccess.isEnabled,
+            forceYearLookup: trigger.usesAuthoritativeInputs,
             albumTarget: albumTarget
         )
         let knownTrackCount = await currentKnownTrackCount()
