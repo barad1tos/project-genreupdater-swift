@@ -99,7 +99,9 @@ jobs:
         timeout-minutes: 5
 
       - name: Build Services tests with coverage
-        run: swift build --package-path Packages/Services --build-tests --enable-code-coverage
+        run: >-
+          swift build --package-path Packages/Services --build-tests
+          --enable-code-coverage --disable-automatic-resolution
         timeout-minutes: ${{ fromJSON(env.SERVICES_BUILD_TIMEOUT) }}
 
       - name: Test Services
