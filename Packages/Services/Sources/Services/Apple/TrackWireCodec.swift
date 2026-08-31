@@ -76,7 +76,13 @@ enum TrackWireCodec {
 
     static func parseStatus(_ value: String?) -> String? {
         guard let value else { return nil }
-        return normalizeTrackStatus(value)?.rawValue ?? value
+        if let normalizedStatus = normalizeTrackStatus(value) {
+            return normalizedStatus.rawValue
+        }
+        if value.range(of: "constant", options: .caseInsensitive) != nil {
+            return "unknown"
+        }
+        return value
     }
 
     static func parseDate(_ value: String) -> Date? {

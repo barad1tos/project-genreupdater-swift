@@ -59,6 +59,26 @@ struct TrackWireCodecTests {
         #expect(track.releaseYear == nil)
     }
 
+    @Test("Canonicalizes unknown AppleScript status constants")
+    func canonicalizesUnknownStatusConstants() throws {
+        let track = try #require(TrackWireCodec.decodeRecords(
+            record(WireRecord(id: "AS-UNKNOWN", status: "«constant ****kNew»")),
+            scriptName: "fetch_tracks"
+        ).first)
+
+        #expect(track.trackStatus == "unknown")
+    }
+
+    @Test("Preserves unknown text statuses")
+    func preservesUnknownTextStatuses() throws {
+        let track = try #require(TrackWireCodec.decodeRecords(
+            record(WireRecord(id: "AS-FUTURE", status: "archived")),
+            scriptName: "fetch_tracks"
+        ).first)
+
+        #expect(track.trackStatus == "archived")
+    }
+
     private struct WireRecord {
         let id: String
         var name = "Song"
