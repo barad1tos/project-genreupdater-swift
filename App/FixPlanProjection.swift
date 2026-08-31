@@ -76,9 +76,9 @@ extension AppDependencies {
         let currentConfiguration = captureFixPlanConfig(
             at: now,
             hasDiscogsAccess: isDiscogsAccessAvailable ?? plan.configuration.hasDiscogsAccess,
-            // The album target is the plan's identity, not a live setting:
-            // staleness must compare the rest of the configuration against
-            // the same target, or every targeted plan is instantly stale.
+            // Run-scoped inputs are part of the plan identity, not live settings.
+            // Reconstructing them from defaults would make the plan instantly stale.
+            forceYearLookup: plan.configuration.forceYearLookup,
             albumTarget: plan.configuration.albumTarget
         )
         return (

@@ -610,6 +610,33 @@ struct DependencyConfigTests {
         #expect(projection.stalenessReasons.isEmpty)
     }
 
+    @Test("A manual fix plan stays fresh under its authoritative input policy")
+    func manualPlanStaysFresh() async throws {
+        let dependencies = AppDependencies(
+            configurationLoader: { AppConfiguration() },
+            configurationSaver: { _ in
+                // This test reads a stored fix plan without mutating app configuration.
+            }
+        )
+        let plan = try #require(try makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
+            at: Date(timeIntervalSince1970: 1_800_000_100),
+            hasDiscogsAccess: true,
+            forceYearLookup: true
+        )))
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
+        let trackStore = try TrackDataStore.createInMemory()
+        try await trackStore.initialize()
+        dependencies.configureLibraryPersistenceForTesting(
+            trackStore: trackStore,
+            fixPlanStore: StoredFixPlanStore(plan: plan, decision: decision)
+        )
+
+        let projection = await dependencies.refreshFixPlanProjection()
+
+        #expect(projection.status == .ready)
+        #expect(projection.stalenessReasons.isEmpty)
+    }
+
     @Test("Missing fix plan store keeps projection empty")
     func emptyFixPlanWithoutStore() async {
         let dependencies = AppDependencies(

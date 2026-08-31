@@ -45,9 +45,9 @@ private func structuralRepairCases(
         (MirrorCommit(
             baseRevision: revision,
             inventoryChange: .preserve,
-            repairs: [],
+            repairs: [TrackMirrorRepair(sourceIDs: ["legacy"], target: target)],
             retiredAliasIDs: ["target"],
-            upserts: [target],
+            upserts: [],
             certificates: .invalidate(.incompleteObservation)
         ), .identityOverlap(ids: [testDatabaseID("target")])),
     ]

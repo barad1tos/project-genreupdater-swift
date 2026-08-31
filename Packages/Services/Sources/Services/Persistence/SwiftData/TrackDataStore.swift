@@ -254,13 +254,21 @@ public actor TrackDataStore: TrackStateStore {
             try Self.applyRepair(repair, state: storedState, history: history, modelContext: modelContext)
         }
         for aliasID in plan.retiredAliasIDs {
+            if let databaseID = MusicDatabaseTrackID(rawValue: aliasID),
+               plan.canonicalizedAliasIDs.contains(databaseID) {
+                continue
+            }
             guard let alias = storedState.byID[aliasID] else {
                 throw TrackStoreError.missingSource(id: aliasID)
             }
             modelContext.delete(alias)
         }
         for (track, databaseID) in zip(upserts, plan.upsertIDs) {
-            if let persistedTrack = storedState.canonicalByID[databaseID] {
+            let persistedTrack = storedState.canonicalByID[databaseID]
+                ?? (plan.canonicalizedAliasIDs.contains(databaseID)
+                    ? storedState.byID[databaseID.rawValue]
+                    : nil)
+            if let persistedTrack {
                 persistedTrack.updateMirror(from: track, databaseID: databaseID)
             } else {
                 modelContext.insert(PersistedTrack(mirror: track, databaseID: databaseID))
@@ -433,6 +441,7 @@ public actor TrackDataStore: TrackStateStore {
     private struct MirrorPlan {
         let repairs: [ValidatedRepair]
         let retiredAliasIDs: [String]
+        let canonicalizedAliasIDs: Set<MusicDatabaseTrackID>
         let upsertIDs: [MusicDatabaseTrackID]
         let inventory: ValidatedInventoryChange
     }
@@ -486,6 +495,8 @@ public actor TrackDataStore: TrackStateStore {
         return MirrorPlan(
             repairs: repairs,
             retiredAliasIDs: retiredAliasIDs,
+            canonicalizedAliasIDs: Set(retiredAliasIDs.compactMap(MusicDatabaseTrackID.init(rawValue:)))
+                .intersection(upsertIDs),
             upsertIDs: upsertIDs,
             inventory: inventory
         )
@@ -608,7 +619,6 @@ public actor TrackDataStore: TrackStateStore {
         let retiredIDs = Set(retiredAliasIDs.compactMap(MusicDatabaseTrackID.init(rawValue:)))
         let overlaps = targets.intersection(upsertSet)
             .union(retiredIDs.intersection(targets))
-            .union(retiredIDs.intersection(upsertSet))
         return overlaps.sorted { $0.rawValue < $1.rawValue }
     }
 
@@ -651,13 +661,13 @@ public actor TrackDataStore: TrackStateStore {
         }
 
         let operationIDs = Set(plan.upsertIDs).union(plan.repairs.map(\.targetID))
-        let repairedSameIDs = Set(plan.repairs.compactMap { repair in
+        let canonicalizedSameIDs = Set(plan.repairs.compactMap { repair in
             repair.sourceIDs.contains(repair.targetID.rawValue) ? repair.targetID : nil
-        })
+        }).union(plan.canonicalizedAliasIDs)
         let canonicalByID = try indexCanonicalTracks(
             tracks,
             operationIDs: operationIDs,
-            repairedSameIDs: repairedSameIDs
+            canonicalizedSameIDs: canonicalizedSameIDs
         )
         return StoredMirrorState(byID: byID, canonicalByID: canonicalByID)
     }
@@ -697,14 +707,14 @@ public actor TrackDataStore: TrackStateStore {
     private static func indexCanonicalTracks(
         _ tracks: [PersistedTrack],
         operationIDs: Set<MusicDatabaseTrackID>,
-        repairedSameIDs: Set<MusicDatabaseTrackID>
+        canonicalizedSameIDs: Set<MusicDatabaseTrackID>
     ) throws -> [MusicDatabaseTrackID: PersistedTrack] {
         var canonicalByID: [MusicDatabaseTrackID: PersistedTrack] = [:]
         var collisions = Set<MusicDatabaseTrackID>()
         for track in tracks {
             guard let databaseID = MusicDatabaseTrackID(rawValue: track.trackID) else { continue }
             guard track.appleScriptID == track.trackID else {
-                if operationIDs.contains(databaseID), !repairedSameIDs.contains(databaseID) {
+                if operationIDs.contains(databaseID), !canonicalizedSameIDs.contains(databaseID) {
                     collisions.insert(databaseID)
                 }
                 continue

@@ -253,6 +253,37 @@ struct TrackAliasRepairTests {
         #expect(tracks.first { $0.id == "updated" }?.name == "New")
     }
 
+    @Test("A same-ID evidence-free alias canonicalizes in place during upsert")
+    func canonicalizesSameIDAliasDuringUpsert() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let context = ModelContext(container)
+        let alias = PersistedTrack(
+            trackID: "canonical", name: "Legacy", artist: "Artist", album: "Album"
+        )
+        context.insert(alias)
+        try context.save()
+        let persistentID = alias.persistentModelID
+        let store = TrackDataStore(modelContainer: container)
+
+        try await store.commitMirror(MirrorCommit(
+            baseRevision: .initial,
+            inventoryChange: replacementInventory(for: [testDatabaseID("canonical")]),
+            repairs: [],
+            retiredAliasIDs: ["canonical"],
+            upserts: [mirrorTrack(id: "canonical", name: "Current")],
+            certificates: .invalidate(.membershipChanged)
+        ))
+
+        let verification = ModelContext(container)
+        let tracks = try verification.fetch(FetchDescriptor<PersistedTrack>())
+        let canonical = try #require(tracks.first)
+        #expect(tracks.count == 1)
+        #expect(canonical.persistentModelID == persistentID)
+        #expect(canonical.trackID == "canonical")
+        #expect(canonical.appleScriptID == "canonical")
+        #expect(canonical.name == "Current")
+    }
+
     private func mirrorTrack(id: String, name: String = "Test Song") -> Track {
         Track(
             id: id,
