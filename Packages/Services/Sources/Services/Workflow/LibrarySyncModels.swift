@@ -14,6 +14,8 @@ public struct SyncResult: Sendable, Equatable {
     /// Tracks whose display metadata changed without managed metadata or album identity changes.
     public let refreshedTracks: [Track]
     public let removedTrackIDs: [String]
+    /// Canonical mirror rows repaired or retired without a user-visible library delta.
+    public let mirrorMaintenanceCount: Int
     public let scope: ProcessingScopeSnapshot?
 
     public var changeCount: Int {
@@ -28,12 +30,18 @@ public struct SyncResult: Sendable, Equatable {
         changeCount > 0
     }
 
+    /// Whether this synchronization changed canonical mirror truth, including invisible alias maintenance.
+    public var hasMirrorChanges: Bool {
+        hasChanges || mirrorMaintenanceCount > 0
+    }
+
     public init(
         newTracks: [Track] = [],
         modifiedTracks: [Track] = [],
         identityChangedTracks: [Track] = [],
         refreshedTracks: [Track] = [],
         removedTrackIDs: [String] = [],
+        mirrorMaintenanceCount: Int = 0,
         scope: ProcessingScopeSnapshot? = nil
     ) {
         self.newTracks = newTracks
@@ -41,6 +49,7 @@ public struct SyncResult: Sendable, Equatable {
         self.identityChangedTracks = identityChangedTracks
         self.refreshedTracks = refreshedTracks
         self.removedTrackIDs = removedTrackIDs
+        self.mirrorMaintenanceCount = mirrorMaintenanceCount
         self.scope = scope
     }
 }

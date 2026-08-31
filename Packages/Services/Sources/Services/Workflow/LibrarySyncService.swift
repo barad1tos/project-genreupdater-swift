@@ -356,6 +356,9 @@ public actor LibrarySyncService {
             identityChangedTracks: identityChangedTracks,
             refreshedTracks: refreshedTracks,
             removedTrackIDs: projected.removedTrackIDs,
+            mirrorMaintenanceCount: detection.repairs.reduce(0) { count, repair in
+                count + repair.sourceIDs.count
+            } + detection.retiredAliasIDs.count,
             scope: detection.scope.binding(
                 revision: snapshot.revision,
                 certificateID: detection.syncEvidence.certificateID

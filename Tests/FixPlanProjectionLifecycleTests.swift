@@ -7,8 +7,8 @@ import Testing
 @Suite("Fix plan projection lifecycle")
 @MainActor
 struct FixPlanProjectionLifecycleTests {
-    @Test("a changed no-op preview does not resurrect an older fix plan")
-    func changedNoOpHidesOlderPlan() async throws {
+    @Test("a maintenance-only observation does not resurrect an older fix plan")
+    func maintenanceOnlyObservationHidesOlderPlan() async throws {
         let dependencies = makeDependencies()
         let plan = try #require(try makePlan(dependencies: dependencies))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
@@ -18,10 +18,10 @@ struct FixPlanProjectionLifecycleTests {
 
         await dependencies.publishLifecycleBoundary(makeLifecycle(
             phase: .finished(
-                .completedNoOp(SyncResult(removedTrackIDs: ["legacy-alias"])),
+                .completedNoOp(SyncResult(mirrorMaintenanceCount: 1)),
                 finishedAt: Date(timeIntervalSince1970: 200)
             ),
-            intent: .previewFixes
+            intent: .observeLibrary
         ))
 
         #expect(await dependencies.projectionStore.fixPlanProjection().status == .empty)
@@ -51,8 +51,8 @@ struct FixPlanProjectionLifecycleTests {
         #expect(projection.sourceRunID == plan.sourceRunID)
     }
 
-    @Test("relaunch does not resurrect a plan superseded by mirror changes")
-    func relaunchHidesStalePlan() async throws {
+    @Test("relaunch does not resurrect a plan after a later observation changes the mirror")
+    func relaunchHidesPlanAfterObservationChange() async throws {
         let dependencies = makeDependencies()
         let plan = try #require(try makePlan(dependencies: dependencies))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
@@ -60,11 +60,45 @@ struct FixPlanProjectionLifecycleTests {
         let changedRun = makeRunRecord(
             runID: RunID(),
             startedAt: Date(timeIntervalSince1970: 1_800_000_200),
+            intent: .observeLibrary,
             syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 1)
         )
         dependencies.configureLibraryPersistenceForTesting(
             runRecordStore: RunRecordStoreStub(reportPage: RunReportPage(
                 records: [changedRun],
+                skippedCorruptedCount: 0
+            )),
+            fixPlanStore: planStore
+        )
+
+        let projection = await dependencies.refreshFixPlanProjection()
+
+        #expect(projection.status == .empty)
+        #expect(try await planStore.latestPlan() == plan)
+    }
+
+    @Test("relaunch does not resurrect a plan after mirror maintenance")
+    func relaunchHidesPlanAfterMirrorMaintenance() async throws {
+        let dependencies = makeDependencies()
+        let plan = try #require(try makePlan(dependencies: dependencies))
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
+        let planStore = StoredFixPlanStore(plan: plan, decision: decision)
+        let maintenanceRun = makeRunRecord(
+            runID: RunID(),
+            startedAt: Date(timeIntervalSince1970: 1_800_000_200),
+            intent: .previewFixes,
+            syncSummary: ActivitySyncSummary(
+                new: 0,
+                modified: 0,
+                identityChanged: 0,
+                refreshed: 0,
+                removed: 0,
+                mirrorMaintenanceCount: 1
+            )
+        )
+        dependencies.configureLibraryPersistenceForTesting(
+            runRecordStore: RunRecordStoreStub(reportPage: RunReportPage(
+                records: [maintenanceRun],
                 skippedCorruptedCount: 0
             )),
             fixPlanStore: planStore
@@ -139,11 +173,12 @@ struct FixPlanProjectionLifecycleTests {
     private func makeRunRecord(
         runID: RunID,
         startedAt: Date,
+        intent: RunIntent = .previewFixes,
         syncSummary: ActivitySyncSummary
     ) -> RunRecord {
         let lifecycle = makeLifecycle(
             phase: .active(.created),
-            intent: .previewFixes,
+            intent: intent,
             runID: runID,
             startedAt: startedAt
         )

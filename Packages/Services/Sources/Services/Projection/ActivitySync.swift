@@ -6,21 +6,34 @@ public struct ActivitySyncSummary: Codable, Equatable, Sendable {
     public let identityChanged: Int
     public let refreshed: Int
     public let removed: Int
+    public let mirrorMaintenanceCount: Int
 
     public var changeCount: Int {
         new + modified + identityChanged + refreshed + removed
+    }
+
+    public var hasMirrorChanges: Bool {
+        changeCount > 0 || mirrorMaintenanceCount > 0
     }
 
     var resultDetail: String {
         changeCount == 0 ? "No library changes detected" : "\(changeCount.formatted()) library changes detected"
     }
 
-    public init(new: Int, modified: Int, identityChanged: Int, refreshed: Int, removed: Int) {
+    public init(
+        new: Int,
+        modified: Int,
+        identityChanged: Int,
+        refreshed: Int,
+        removed: Int,
+        mirrorMaintenanceCount: Int = 0
+    ) {
         self.new = new
         self.modified = modified
         self.identityChanged = identityChanged
         self.refreshed = refreshed
         self.removed = removed
+        self.mirrorMaintenanceCount = mirrorMaintenanceCount
     }
 
     public init(result: SyncResult) {
@@ -29,7 +42,24 @@ public struct ActivitySyncSummary: Codable, Equatable, Sendable {
             modified: result.modifiedTracks.count,
             identityChanged: result.identityChangedTracks.count,
             refreshed: result.refreshedTracks.count,
-            removed: result.removedTrackIDs.count
+            removed: result.removedTrackIDs.count,
+            mirrorMaintenanceCount: result.mirrorMaintenanceCount
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case new, modified, identityChanged, refreshed, removed, mirrorMaintenanceCount
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            new: container.decode(Int.self, forKey: .new),
+            modified: container.decode(Int.self, forKey: .modified),
+            identityChanged: container.decode(Int.self, forKey: .identityChanged),
+            refreshed: container.decode(Int.self, forKey: .refreshed),
+            removed: container.decode(Int.self, forKey: .removed),
+            mirrorMaintenanceCount: container.decodeIfPresent(Int.self, forKey: .mirrorMaintenanceCount) ?? 0
         )
     }
 }

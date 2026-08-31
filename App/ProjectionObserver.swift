@@ -43,7 +43,7 @@ extension AppDependencies {
         // reports truth, so it must publish after them or a headless
         // terminal boundary leaves activity a boundary stale.
         if !lifecycle.isActive {
-            if lifecycle.intent == .previewFixes {
+            if lifecycle.intent == .previewFixes || lifecycle.syncResult?.hasMirrorChanges == true {
                 _ = await refreshFixPlanProjection(for: lifecycle)
             }
             await refreshReportsProjection()

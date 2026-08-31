@@ -285,7 +285,10 @@ public actor RunRecordDataStore: RunRecordStore {
             throw RunRecordPersistenceError.corruptedField(name: "workItems", runID: persisted.runID)
         }
 
-        let syncSummary = decodeSyncSummary(from: persisted)
+        let syncSummary = decodeSyncSummary(
+            from: persisted,
+            mirrorMaintenanceCount: payload.mirrorMaintenanceCount
+        )
 
         return RunRecord(
             persisted: persisted,

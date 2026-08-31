@@ -32,22 +32,18 @@ extension AppDependencies {
         guard projection.status != .unavailable else { return projection }
 
         if let lifecycle {
-            guard lifecycle.intent == .previewFixes,
-                  lifecycle.syncResult?.hasChanges == true,
+            guard lifecycle.syncResult?.hasMirrorChanges == true,
                   projection.sourceRunID != lifecycle.runID
             else { return projection }
             return .empty()
         }
 
         guard let createdAt, let runRecordStore else { return projection }
-        let laterPreviews = try await runRecordStore.reports(matching: RunReportQuery(
-            startedAfter: createdAt,
-            intent: .previewFixes
-        ))
-        guard laterPreviews.skippedCorruptedCount == 0 else {
+        let laterRuns = try await runRecordStore.reports(matching: RunReportQuery(startedAfter: createdAt))
+        guard laterRuns.skippedCorruptedCount == 0 else {
             throw FixPlanProjectionLoadError.corruptedRunHistory
         }
-        guard laterPreviews.records.contains(where: { ($0.syncSummary?.changeCount ?? 0) > 0 }) else {
+        guard laterRuns.records.contains(where: { $0.syncSummary?.hasMirrorChanges == true }) else {
             return projection
         }
 

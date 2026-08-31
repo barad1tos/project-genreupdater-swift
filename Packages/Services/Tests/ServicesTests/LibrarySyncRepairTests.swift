@@ -15,13 +15,15 @@ struct LibrarySyncRepairTests {
             rows: [row(id: "AS1")]
         )
 
-        _ = try await fixture.service.synchronizeNow()
+        let result = try await fixture.service.synchronizeNow()
 
         let request = try #require(await fixture.reader.requests.first)
         #expect(request.refresh == .force)
         let update = try #require(await fixture.store.updates.first)
         let repair = try #require(update.repairs.first)
         #expect(update.repairs.count == 1)
+        #expect(result.mirrorMaintenanceCount == 1)
+        #expect(result.hasMirrorChanges)
         #expect(repair.sourceIDs == ["MK1"])
         #expect(repair.target.id == "AS1")
         #expect(repair.target.appleScriptID == "AS1")
@@ -58,9 +60,12 @@ struct LibrarySyncRepairTests {
             rows: [row(id: "103401", name: "Wicked Game")]
         )
 
-        _ = try await fixture.service.synchronizeNow()
+        let result = try await fixture.service.synchronizeNow()
 
         let update = try #require(await fixture.store.updates.first)
+        #expect(result.changeCount == 0)
+        #expect(result.mirrorMaintenanceCount == 2)
+        #expect(result.hasMirrorChanges)
         #expect(await fixture.store.stored.map(\.id) == ["103401"])
         #expect(await fixture.store.updates.count == 1)
         #expect(update.effects == [.invalidateSnapshot, .refreshProjections])
