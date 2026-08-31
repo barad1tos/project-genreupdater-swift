@@ -44,7 +44,7 @@ extension AppDependencies {
         // terminal boundary leaves activity a boundary stale.
         if !lifecycle.isActive {
             if lifecycle.intent == .previewFixes {
-                _ = await refreshFixPlanProjection()
+                _ = await refreshFixPlanProjection(for: lifecycle)
             }
             await refreshReportsProjection()
         }

@@ -185,9 +185,9 @@ struct ActivityInputBuilderTests {
         )
     }
 
-    @Test("fix plan read failure retains the durable projection effect")
+    @Test("mirror projection refresh does not read fix plan history")
     @MainActor
-    func fixPlanReadKeepsEffect() async throws {
+    func mirrorRefreshSkipsPlanHistoryRead() async throws {
         let fixture = try makeFixture(testArtists: [])
         let store = fixture.trackStore
         let cache = try GRDBCacheService.createInMemory()
@@ -202,8 +202,8 @@ struct ActivityInputBuilderTests {
 
         await fixture.dependencies.mirrorEffectDrain?.drain()
 
-        #expect(try await store.pendingMirrorEffects().count == 1)
-        #expect(fixture.dependencies.mirrorEffectDrainIssue?.category == .temporaryUnavailable)
+        #expect(try await store.pendingMirrorEffects().isEmpty)
+        #expect(fixture.dependencies.mirrorEffectDrainIssue == nil)
     }
 
     @Test("activity history read failure retains the durable projection effect")
