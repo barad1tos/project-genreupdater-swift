@@ -17,6 +17,7 @@ struct ActivityCommands {
     ) async throws -> Void
     let queueManualReload: (RunID) -> Void
     let reloadLibrary: (_ forceRefresh: Bool) async -> Void
+    let refreshFixPlanProjection: () async -> Void
     let refreshActivityProjection: () async -> ActivityProjection
     let runRecoveryPreflight: (RunID) async -> RecoveryPreflightOutcome
     let currentFixPlanID: () -> String?
@@ -549,17 +550,13 @@ struct ActivityCommands {
                 refreshedActivityProjection: projection
             )
         case .completed:
-            // Refresh projections after the preview pipeline; the run itself never writes Music metadata.
-            await reloadLibrary(true)
-            let projection = await refreshActivityProjection()
+            let projection = await refreshRunProjection()
             return .accepted(
                 message: copy.completedMessage(candidateFixCount: projection.deltaCount),
                 refreshedActivityProjection: projection
             )
         case .completedNoOp:
-            // Refresh projections after the preview pipeline; the run itself never writes Music metadata.
-            await reloadLibrary(true)
-            let projection = await refreshActivityProjection()
+            let projection = await refreshRunProjection()
             return .noOp(
                 message: copy.noChanges,
                 refreshedActivityProjection: projection
@@ -593,6 +590,13 @@ struct ActivityCommands {
                 refreshedActivityProjection: projection
             )
         }
+    }
+
+    private func refreshRunProjection() async -> ActivityProjection {
+        // The preview pipeline never writes Music metadata, but it may replace or clear the stored fix plan.
+        await reloadLibrary(true)
+        await refreshFixPlanProjection()
+        return await refreshActivityProjection()
     }
 
     private func manualRecoveryResult(summary: String, detail: String) async -> UserCommandResult {

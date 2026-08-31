@@ -534,6 +534,31 @@ struct ActivityCommandsTests {
         #expect(harness.reloadCallCount == 1)
     }
 
+    @Test("completed run refreshes the fix plan before reporting candidate count")
+    func usesFreshPlanCount() async {
+        let harness = ActivityFixtures.Harness(
+            projection: ActivityFixtures.makeManualProjection(
+                revision: ProjectionRevision(2),
+                isEnabled: true,
+                deltaCount: 3
+            ),
+            refreshedProjection: ActivityFixtures.makeManualProjection(
+                revision: ProjectionRevision(3),
+                isEnabled: true,
+                deltaCount: 7
+            ),
+            runResult: .completed(ActivityFixtures.lifecycle(phase: .finished(
+                .completed(SyncResult(modifiedTracks: [track(id: "MODIFIED")])),
+                finishedAt: ActivityFixtures.finishDate
+            )))
+        )
+
+        let result = await harness.makeCommands().handle(.runManually())
+
+        #expect(result.message == "Found 7 candidate fixes.")
+        #expect(harness.planRefreshCount == 1)
+    }
+
     @Test("failed run returns requires attention")
     func failedRunReturnsRequiresAttention() async {
         let harness = ActivityFixtures.Harness(runResult: .failed(ActivityFixtures.lifecycle(phase: .finished(

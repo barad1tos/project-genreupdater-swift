@@ -1,6 +1,7 @@
 import Core
 import Foundation
 import Services
+import SwiftData
 import Testing
 @testable import Genre_Updater
 
@@ -80,31 +81,17 @@ struct FixPlanProjectionLifecycleTests {
         #expect(projection.sourceRunID == plan.sourceRunID)
     }
 
-    @Test("relaunch does not resurrect a plan after a later observation changes the mirror")
-    func relaunchHidesPlanAfterObservationChange() async throws {
+    @Test(
+        "relaunch does not resurrect a plan after mirror content changes",
+        arguments: MirrorContentChange.allCases
+    )
+    func relaunchHidesSupersededPlan(_ contentChange: MirrorContentChange) async throws {
         let dependencies = makeDependencies()
         let plan = try #require(try makePlan(dependencies: dependencies))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
         let planStore = StoredFixPlanStore(plan: plan, decision: decision)
         try await dependencies.configureLibraryPersistenceForTesting(
-            trackStore: makeTrackStore(contentChanges: 1),
-            fixPlanStore: planStore
-        )
-
-        let projection = await dependencies.refreshFixPlanProjection()
-
-        #expect(projection.status == .empty)
-        #expect(try await planStore.latestPlan() == plan)
-    }
-
-    @Test("relaunch does not resurrect a plan after mirror maintenance")
-    func relaunchHidesPlanAfterMirrorMaintenance() async throws {
-        let dependencies = makeDependencies()
-        let plan = try #require(try makePlan(dependencies: dependencies))
-        let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
-        let planStore = StoredFixPlanStore(plan: plan, decision: decision)
-        try await dependencies.configureLibraryPersistenceForTesting(
-            trackStore: makeTrackStore(contentChanges: 1),
+            trackStore: makeTrackStore(contentChange: contentChange),
             fixPlanStore: planStore
         )
 
@@ -139,8 +126,26 @@ struct FixPlanProjectionLifecycleTests {
         )
     }
 
-    private func makeTrackStore(contentChanges: Int = 0, noOpCommits: Int = 0) async throws -> TrackDataStore {
-        let store = try TrackDataStore.createInMemory()
+    private func makeTrackStore(
+        contentChanges: Int = 0,
+        noOpCommits: Int = 0,
+        contentChange: MirrorContentChange? = nil
+    ) async throws -> TrackDataStore {
+        let store: TrackDataStore
+        if contentChange == .maintenance {
+            let container = try ModelContainerFactory.createInMemory()
+            let context = ModelContext(container)
+            context.insert(PersistedTrack(
+                trackID: "legacy",
+                name: "Track",
+                artist: "Artist",
+                album: "Album"
+            ))
+            try context.save()
+            store = TrackDataStore(modelContainer: container)
+        } else {
+            store = try TrackDataStore.createInMemory()
+        }
         try await store.initialize()
         var revision = MirrorRevision.initial
         for _ in 0 ..< contentChanges {
@@ -163,6 +168,9 @@ struct FixPlanProjectionLifecycleTests {
                 certificates: .preserve
             ))
             revision = result.revision
+        }
+        if let contentChange {
+            revision = try await contentChange.apply(to: store, baseRevision: revision)
         }
         return store
     }
@@ -193,6 +201,54 @@ struct FixPlanProjectionLifecycleTests {
             ),
             startedAt: startedAt,
             phase: phase
+        )
+    }
+}
+
+enum MirrorContentChange: CaseIterable, CustomTestStringConvertible, Sendable {
+    case observation
+    case maintenance
+
+    var testDescription: String {
+        switch self {
+        case .observation: "observation"
+        case .maintenance: "maintenance"
+        }
+    }
+
+    func apply(to store: TrackDataStore, baseRevision: MirrorRevision) async throws -> MirrorRevision {
+        switch self {
+        case .observation:
+            try await store.commitMirror(MirrorCommit(
+                baseRevision: baseRevision,
+                inventoryChange: .preserve,
+                repairs: [],
+                upserts: [Self.track(id: "observed")],
+                certificates: .invalidate(.incompleteObservation),
+                effects: [.refreshProjections]
+            )).revision
+        case .maintenance:
+            try await store.commitMirror(MirrorCommit(
+                baseRevision: baseRevision,
+                inventoryChange: .preserve,
+                repairs: [TrackMirrorRepair(
+                    sourceIDs: ["legacy"],
+                    target: Self.track(id: "canonical")
+                )],
+                upserts: [],
+                certificates: .invalidate(.incompleteObservation),
+                effects: [.refreshProjections]
+            )).revision
+        }
+    }
+
+    private static func track(id: String) -> Core.Track {
+        Core.Track(
+            id: id,
+            name: "Track",
+            artist: "Artist",
+            album: "Album",
+            appleScriptID: id
         )
     }
 }

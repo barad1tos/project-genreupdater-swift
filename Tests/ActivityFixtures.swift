@@ -110,6 +110,7 @@ enum ActivityFixtures {
         var isRunOrchestratorAvailable: Bool
         var submitRunCallCount = 0
         var reloadCallCount = 0
+        var planRefreshCount = 0
         var refreshCallCount = 0
         var preflightRunIDs: [RunID] = []
         var queuedReloadBarriers: [RunID] = []
@@ -125,6 +126,7 @@ enum ActivityFixtures {
         var dismissalError: Error?
 
         private var projection: ActivityProjection
+        private let refreshedProjection: ActivityProjection?
         private let preflightOutcome: RecoveryPreflightOutcome?
         private let runResult: RunSubmissionResult
         private let runError: Error?
@@ -133,6 +135,7 @@ enum ActivityFixtures {
         init(
             currentRevision: ProjectionRevision = ProjectionRevision(1),
             projection: ActivityProjection? = nil,
+            refreshedProjection: ActivityProjection? = nil,
             isRunOrchestratorAvailable: Bool = true,
             preflightOutcome: RecoveryPreflightOutcome? = nil,
             runResult: RunSubmissionResult? = nil,
@@ -140,6 +143,7 @@ enum ActivityFixtures {
             releaseOutcome: QueuedWriteRelease = .empty
         ) {
             self.projection = projection ?? makeManualProjection(revision: currentRevision, isEnabled: true)
+            self.refreshedProjection = refreshedProjection
             self.isRunOrchestratorAvailable = isRunOrchestratorAvailable
             self.preflightOutcome = preflightOutcome
             self.runResult = runResult ?? .completedNoOp(lifecycle(
@@ -180,6 +184,12 @@ enum ActivityFixtures {
                 reloadLibrary: { forceRefresh in
                     if forceRefresh {
                         self.reloadCallCount += 1
+                    }
+                },
+                refreshFixPlanProjection: {
+                    self.planRefreshCount += 1
+                    if let updatedProjection = self.refreshedProjection {
+                        self.projection = updatedProjection
                     }
                 },
                 refreshActivityProjection: {

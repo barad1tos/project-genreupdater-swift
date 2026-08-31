@@ -68,7 +68,13 @@ struct LibrarySyncRepairTests {
         #expect(result.hasMirrorChanges)
         #expect(await fixture.store.stored.map(\.id) == ["103401"])
         #expect(await fixture.store.updates.count == 1)
-        #expect(update.effects == [.invalidateSnapshot, .refreshProjections])
+        let repairedIdentity = AlbumIdentity(artist: "Artist", album: "Album")
+        #expect(update.effects == [
+            .invalidateAlbumYear(repairedIdentity),
+            .invalidateAPIResults(repairedIdentity),
+            .invalidateSnapshot,
+            .refreshProjections,
+        ])
     }
 
     @Test("A manual sync atomically converges aliases in the persisted mirror")
@@ -129,6 +135,62 @@ struct LibrarySyncRepairTests {
         #expect(entries.count == 1)
         #expect(entries.first?.trackID == databaseID.rawValue)
         #expect(entries.first?.track?.trackID == databaseID.rawValue)
+    }
+
+    @Test("Grouped repairs invalidate and clear every source album identity")
+    func groupedRepairsInvalidateSources() async throws {
+        let pending = PendingVerificationProbe(entries: [
+            PendingAlbumEntry(
+                id: "first-source",
+                artist: "First Artist",
+                album: "First Album",
+                reason: "prerelease"
+            ),
+            PendingAlbumEntry(
+                id: "second-source",
+                artist: "Second Artist",
+                album: "Second Album",
+                reason: "prerelease"
+            ),
+        ], isVerificationNeeded: true)
+        let fixture = try makeFixture(
+            stored: [
+                legacyTrack(
+                    sourceID: "MK1",
+                    databaseID: "AS1",
+                    artist: "First Artist",
+                    album: "First Album",
+                    trackStatus: TrackKind.prerelease.rawValue
+                ),
+                legacyTrack(
+                    sourceID: "MK2",
+                    databaseID: "AS1",
+                    artist: "Second Artist",
+                    album: "Second Album",
+                    trackStatus: TrackKind.prerelease.rawValue
+                ),
+            ],
+            currentIDs: ["AS1"],
+            rows: [row(id: "AS1", artist: "Current Artist", album: "Current Album")],
+            pendingVerification: pending
+        )
+
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        let invalidatedIdentities = update.effects.compactMap { effect -> AlbumIdentity? in
+            guard case let .invalidateAlbumYear(identity) = effect else { return nil }
+            return identity
+        }
+        #expect(Set(invalidatedIdentities).isSuperset(of: Set([
+            AlbumIdentity(artist: "First Artist", album: "First Album"),
+            AlbumIdentity(artist: "Second Artist", album: "Second Album"),
+        ])))
+        let removals = await pending.removedAlbums
+        #expect(Set(removals.map { AlbumIdentity(artist: $0.artist, album: $0.album) }) == Set([
+            AlbumIdentity(artist: "First Artist", album: "First Album"),
+            AlbumIdentity(artist: "Second Artist", album: "Second Album"),
+        ]))
     }
 
     @Test("A complete observation retires a removed evidence-free MusicKit alias")
@@ -517,15 +579,18 @@ struct LibrarySyncRepairTests {
         databaseID: String?,
         name: String = "Song",
         artist: String = "Artist",
-        originalArtist: String? = nil
+        album: String = "Album",
+        originalArtist: String? = nil,
+        trackStatus: String? = nil
     ) -> Track {
         Track(
             id: sourceID,
             name: name,
             artist: artist,
-            album: "Album",
+            album: album,
             genre: "Rock",
             year: 1999,
+            trackStatus: trackStatus,
             originalArtist: originalArtist,
             yearBeforeMGU: 1998,
             yearSetByMGU: 1999,
