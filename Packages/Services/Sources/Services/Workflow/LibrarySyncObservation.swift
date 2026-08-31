@@ -527,7 +527,10 @@ extension LibrarySyncService {
         let sourceIDs = Set(legacyTracks.map(\.id))
         for sourceID in repairTargets.keys.sorted() {
             guard let targetID = repairTargets[sourceID] else { continue }
-            let collidesWithLegacy = targetID.rawValue != sourceID && sourceIDs.contains(targetID.rawValue)
+            let isTargetOccupantIncluded = repairTargets[targetID.rawValue] == targetID
+            let collidesWithLegacy = targetID.rawValue != sourceID
+                && sourceIDs.contains(targetID.rawValue)
+                && !isTargetOccupantIncluded
             guard !collidesWithLegacy else {
                 throw LibrarySyncObservationError.repairTargetCollision(
                     sourceID: sourceID,

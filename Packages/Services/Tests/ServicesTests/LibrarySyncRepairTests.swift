@@ -248,6 +248,24 @@ struct LibrarySyncRepairTests {
         #expect(update.retiredAliasIDs.isEmpty)
     }
 
+    @Test("A same-ID legacy row converges with aliases for its target")
+    func groupsSameIDLegacyTarget() async throws {
+        let fixture = try makeFixture(
+            stored: [
+                legacyTrack(sourceID: "AS1", databaseID: nil),
+                legacyTrack(sourceID: "MK1", databaseID: "AS1"),
+            ],
+            currentIDs: ["AS1"],
+            rows: [row(id: "AS1")]
+        )
+
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(update.repairs.map(\.sourceIDs) == [["AS1", "MK1"]])
+        #expect(await fixture.store.stored.map(\.id) == ["AS1"])
+    }
+
     @Test("Scoped sync preserves legacy rows outside its artist scope")
     func preservesOutsideScopeLegacyRows() async throws {
         let target = canonicalTrack(id: "A", artist: "Target")
