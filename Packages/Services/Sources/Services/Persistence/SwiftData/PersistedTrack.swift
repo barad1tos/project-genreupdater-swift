@@ -176,23 +176,23 @@ extension PersistedTrack {
     func mergeRepair(
         _ sources: [PersistedTrack],
         with track: Core.Track,
-        databaseID: MusicDatabaseTrackID,
-        sourceIDs: [String]
+        databaseID: MusicDatabaseTrackID
     ) throws {
         let isCanonicalTarget = isCanonical(databaseID: databaseID)
         let aliases = sources.filter { !isCanonicalTarget || $0 !== self }
         let evidenceTracks = isCanonicalTarget ? [self] + aliases : aliases
-        let aliasOriginalArtist = try Self.consistentEvidence(
-            aliases.map(\.originalArtist), field: "originalArtist", sourceIDs: sourceIDs
+        let evidenceTrackIDs = evidenceTracks.map(\.trackID)
+        let consistentOriginalArtist = try Self.consistentEvidence(
+            evidenceTracks.map(\.originalArtist), field: "originalArtist", sourceIDs: evidenceTrackIDs
         )
-        let aliasOriginalAlbum = try Self.consistentEvidence(
-            aliases.map(\.originalAlbum), field: "originalAlbum", sourceIDs: sourceIDs
+        let consistentOriginalAlbum = try Self.consistentEvidence(
+            evidenceTracks.map(\.originalAlbum), field: "originalAlbum", sourceIDs: evidenceTrackIDs
         )
-        let aliasYearBeforeMGU = try Self.consistentEvidence(
-            aliases.map(\.yearBeforeMGU), field: "yearBeforeMGU", sourceIDs: sourceIDs
+        let consistentYearBeforeMGU = try Self.consistentEvidence(
+            evidenceTracks.map(\.yearBeforeMGU), field: "yearBeforeMGU", sourceIDs: evidenceTrackIDs
         )
-        let aliasYearSetByMGU = try Self.consistentEvidence(
-            aliases.map(\.yearSetByMGU), field: "yearSetByMGU", sourceIDs: sourceIDs
+        let consistentYearSetByMGU = try Self.consistentEvidence(
+            evidenceTracks.map(\.yearSetByMGU), field: "yearSetByMGU", sourceIDs: evidenceTrackIDs
         )
         let aliasLastError = aliases
             .sorted { lhs, rhs in
@@ -210,10 +210,10 @@ extension PersistedTrack {
         yearUpdated = evidenceTracks.contains(where: \.yearUpdated)
         processedDate = evidenceTracks.compactMap(\.processedDate).max()
         lastError = isCanonicalTarget ? lastError ?? aliasLastError : aliasLastError
-        originalArtist = isCanonicalTarget ? originalArtist ?? aliasOriginalArtist : aliasOriginalArtist
-        originalAlbum = isCanonicalTarget ? originalAlbum ?? aliasOriginalAlbum : aliasOriginalAlbum
-        yearBeforeMGU = isCanonicalTarget ? yearBeforeMGU ?? aliasYearBeforeMGU : aliasYearBeforeMGU
-        yearSetByMGU = isCanonicalTarget ? yearSetByMGU ?? aliasYearSetByMGU : aliasYearSetByMGU
+        originalArtist = consistentOriginalArtist
+        originalAlbum = consistentOriginalAlbum
+        yearBeforeMGU = consistentYearBeforeMGU
+        yearSetByMGU = consistentYearSetByMGU
     }
 
     var hasDurableProcessingEvidence: Bool {

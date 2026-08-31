@@ -152,6 +152,42 @@ struct TrackAliasRepairTests {
         #expect(try verification.fetchCount(FetchDescriptor<PersistedTrack>()) == 2)
     }
 
+    @Test("Canonical recovery evidence participates in grouped repair validation")
+    func rejectsCanonicalEvidenceConflict() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let context = ModelContext(container)
+        context.insert(PersistedTrack(
+            trackID: "canonical", appleScriptID: "canonical", name: "Song", artist: "Artist", album: "Album",
+            originalArtist: "Canonical Artist"
+        ))
+        context.insert(PersistedTrack(
+            trackID: "alias", name: "Song", artist: "Artist", album: "Album",
+            originalArtist: "Alias Artist"
+        ))
+        try context.save()
+        let store = TrackDataStore(modelContainer: container)
+
+        await #expect(throws: TrackStoreError.conflictingRepairEvidence(
+            field: "originalArtist",
+            sourceIDs: ["alias", "canonical"]
+        )) {
+            try await store.commitMirror(MirrorCommit(
+                baseRevision: .initial,
+                inventoryChange: replacementInventory(for: [testDatabaseID("canonical")]),
+                repairs: [TrackMirrorRepair(
+                    sourceIDs: ["alias"],
+                    target: mirrorTrack(id: "canonical")
+                )],
+                upserts: [],
+                certificates: .invalidate(.membershipChanged)
+            ))
+        }
+
+        let verification = ModelContext(container)
+        let tracks = try verification.fetch(FetchDescriptor<PersistedTrack>())
+        #expect(Set(tracks.map(\.trackID)) == ["alias", "canonical"])
+    }
+
     @Test("A partially missing alias group fails before merging")
     func rejectsPartialAliasGroup() async throws {
         let container = try ModelContainerFactory.createInMemory()

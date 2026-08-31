@@ -682,8 +682,7 @@ public actor TrackDataStore: TrackStateStore {
         try persistedTrack.mergeRepair(
             sources,
             with: repair.track,
-            databaseID: repair.targetID,
-            sourceIDs: repair.sourceIDs
+            databaseID: repair.targetID
         )
         for entry in sourceHistory {
             entry.trackID = repair.targetID.rawValue

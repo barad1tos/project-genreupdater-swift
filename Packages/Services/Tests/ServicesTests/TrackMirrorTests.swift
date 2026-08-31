@@ -735,7 +735,7 @@ struct TrackMirrorTests {
             )
             let legacy = PersistedTrack(
                 trackID: "legacy", appleScriptID: "canonical", name: "Legacy", artist: "Artist", album: "Album",
-                genreUpdated: true, originalArtist: "Original"
+                genreUpdated: true, originalArtist: "Stored Artist"
             )
             let entry = PersistedChangeLogEntry(
                 entryID: entryID, timestamp: .now, changeTypeRaw: ChangeType.artistRename.rawValue,
