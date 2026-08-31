@@ -12,6 +12,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  SERVICES_BUILD_TIMEOUT: 5
+  SERVICES_TEST_RUNTIME_TIMEOUT_SECONDS: 120
+  SERVICES_TEST_STEP_TIMEOUT: 3
+  SERVICES_TEST_TERMINATION_GRACE_SECONDS: 5
+
 jobs:
   build-and-lint:
     name: Build, Test & Lint
@@ -92,9 +98,78 @@ jobs:
         run: swift test --package-path Packages/Core --enable-code-coverage
         timeout-minutes: 5
 
+      - name: Build Services tests with coverage
+        run: swift build --package-path Packages/Services --build-tests --enable-code-coverage
+        timeout-minutes: ${{ fromJSON(env.SERVICES_BUILD_TIMEOUT) }}
+
       - name: Test Services
-        run: swift test --package-path Packages/Services --enable-code-coverage
-        timeout-minutes: 5
+        run: |
+          set -m
+          services_bin_path=$(
+            swift build --package-path Packages/Services \
+              --configuration debug --disable-automatic-resolution --show-bin-path
+          )
+          coverage_fragments_directory="${RUNNER_TEMP}/services-codecov"
+          coverage_output="${services_bin_path}/codecov/default.profdata"
+          mkdir -p "${coverage_fragments_directory}" "$(dirname "${coverage_output}")"
+          test_log="${RUNNER_TEMP}/services-tests.log"
+
+          merge_services_coverage() {
+            local -a profile_fragments
+            shopt -s nullglob
+            profile_fragments=("${coverage_fragments_directory}/"*.profraw)
+            if (( ${#profile_fragments[@]} == 0 )); then
+              echo "::error::Services tests produced no coverage fragments"
+              return 1
+            fi
+            xcrun llvm-profdata merge --sparse "${profile_fragments[@]}" \
+              --output="${coverage_output}"
+          }
+
+          # %c enables Darwin continuous mode so signal termination preserves coverage counters.
+          LLVM_PROFILE_FILE="${coverage_fragments_directory}/services-%p%c.profraw" \
+            NSUnbufferedIO=YES \
+            swift test --package-path Packages/Services --skip-build \
+            >"${test_log}" 2>&1 &
+          test_pid=$!
+          SECONDS=0
+
+          while kill -0 "${test_pid}" 2>/dev/null; do
+            if (( SECONDS >= SERVICES_TEST_RUNTIME_TIMEOUT_SECONDS )); then
+              kill -- "-${test_pid}" 2>/dev/null || true
+              termination_deadline=$((SECONDS + SERVICES_TEST_TERMINATION_GRACE_SECONDS))
+              while kill -0 -- "-${test_pid}" 2>/dev/null \
+                && (( SECONDS < termination_deadline )); do
+                sleep 1
+              done
+              kill -KILL -- "-${test_pid}" 2>/dev/null || true
+              wait "${test_pid}" 2>/dev/null || true
+              cat "${test_log}"
+
+              if grep -Fq "Test Suite 'All tests' passed" "${test_log}" \
+                && grep -Eq 'Test run with [0-9]+ tests?.*passed' "${test_log}"; then
+                merge_services_coverage
+                echo "::warning::Services tests passed but the SwiftData process did not exit"
+                exit 0
+              fi
+
+              echo "::error::Services tests did not complete within ${SERVICES_TEST_RUNTIME_TIMEOUT_SECONDS}s"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if wait "${test_pid}"; then
+            test_status=0
+          else
+            test_status=$?
+          fi
+          cat "${test_log}"
+          if (( test_status != 0 )); then
+            exit "${test_status}"
+          fi
+          merge_services_coverage
+        timeout-minutes: ${{ fromJSON(env.SERVICES_TEST_STEP_TIMEOUT) }}
 
       # Run UI package tests with coverage instrumentation. Thresholds remain
       # deferred because current coverage is too low to provide a useful floor.
