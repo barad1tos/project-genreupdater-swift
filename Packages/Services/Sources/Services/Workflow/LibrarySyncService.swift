@@ -279,12 +279,17 @@ public actor LibrarySyncService {
             preparedAt: currentDate()
         )
         let projected = detection.result
-        let effects = makeSyncEffects(from: projected, storedByID: detection.previousTracks)
+        let effects = makeSyncEffects(
+            from: projected,
+            storedByID: detection.previousTracks,
+            hasMirrorMaintenance: !detection.repairs.isEmpty || !detection.retiredAliasIDs.isEmpty
+        )
         let commitResult = try await trackStore.commitMirror(MirrorCommit(
             baseRevision: detection.baseRevision,
             observation: detection.observationID,
             inventoryChange: detection.inventoryChange,
             repairs: detection.repairs,
+            retiredAliasIDs: detection.retiredAliasIDs,
             upserts: detection.upserts,
             certificates: detection.certificateChange,
             effects: effects,
@@ -405,9 +410,13 @@ public actor LibrarySyncService {
         )
     }
 
-    private func makeSyncEffects(from result: SyncResult, storedByID: [String: Track]) -> [MirrorEffect] {
+    private func makeSyncEffects(
+        from result: SyncResult,
+        storedByID: [String: Track],
+        hasMirrorMaintenance: Bool
+    ) -> [MirrorEffect] {
         makeMirrorEffects(
-            hasLibraryChanges: result.hasChanges,
+            hasLibraryChanges: result.hasChanges || hasMirrorMaintenance,
             targets: cacheInvalidationTargets(
                 newTracks: result.newTracks,
                 modifiedTracks: result.modifiedTracks,

@@ -173,21 +173,66 @@ extension PersistedTrack {
             && releaseYear == MusicAppYear.normalized(track.releaseYear)
     }
 
-    func repairMirror(with track: Core.Track, databaseID: MusicDatabaseTrackID) {
+    func mergeRepair(
+        _ sources: [PersistedTrack],
+        with track: Core.Track,
+        databaseID: MusicDatabaseTrackID,
+        sourceIDs: [String]
+    ) throws {
+        let isCanonicalTarget = isCanonical(databaseID: databaseID)
+        let aliases = sources.filter { !isCanonicalTarget || $0 !== self }
+        let evidenceTracks = isCanonicalTarget ? [self] + aliases : aliases
+        let aliasOriginalArtist = try Self.consistentEvidence(
+            aliases.map(\.originalArtist), field: "originalArtist", sourceIDs: sourceIDs
+        )
+        let aliasOriginalAlbum = try Self.consistentEvidence(
+            aliases.map(\.originalAlbum), field: "originalAlbum", sourceIDs: sourceIDs
+        )
+        let aliasYearBeforeMGU = try Self.consistentEvidence(
+            aliases.map(\.yearBeforeMGU), field: "yearBeforeMGU", sourceIDs: sourceIDs
+        )
+        let aliasYearSetByMGU = try Self.consistentEvidence(
+            aliases.map(\.yearSetByMGU), field: "yearSetByMGU", sourceIDs: sourceIDs
+        )
+        let aliasLastError = aliases
+            .sorted { lhs, rhs in
+                if lhs.processedDate == rhs.processedDate {
+                    return lhs.trackID < rhs.trackID
+                }
+                return (lhs.processedDate ?? .distantPast) > (rhs.processedDate ?? .distantPast)
+            }
+            .compactMap(\.lastError)
+            .first
+
         trackID = databaseID.rawValue
         updateMirror(from: track, databaseID: databaseID)
+        genreUpdated = evidenceTracks.contains(where: \.genreUpdated)
+        yearUpdated = evidenceTracks.contains(where: \.yearUpdated)
+        processedDate = evidenceTracks.compactMap(\.processedDate).max()
+        lastError = isCanonicalTarget ? lastError ?? aliasLastError : aliasLastError
+        originalArtist = isCanonicalTarget ? originalArtist ?? aliasOriginalArtist : aliasOriginalArtist
+        originalAlbum = isCanonicalTarget ? originalAlbum ?? aliasOriginalAlbum : aliasOriginalAlbum
+        yearBeforeMGU = isCanonicalTarget ? yearBeforeMGU ?? aliasYearBeforeMGU : aliasYearBeforeMGU
+        yearSetByMGU = isCanonicalTarget ? yearSetByMGU ?? aliasYearSetByMGU : aliasYearSetByMGU
     }
 
-    func mergeRepair(_ source: PersistedTrack, with track: Core.Track, databaseID: MusicDatabaseTrackID) {
-        updateMirror(from: track, databaseID: databaseID)
-        genreUpdated = genreUpdated || source.genreUpdated
-        yearUpdated = yearUpdated || source.yearUpdated
-        processedDate = [processedDate, source.processedDate].compactMap(\.self).max()
-        lastError = lastError ?? source.lastError
-        originalArtist = originalArtist ?? source.originalArtist
-        originalAlbum = originalAlbum ?? source.originalAlbum
-        yearBeforeMGU = yearBeforeMGU ?? source.yearBeforeMGU
-        yearSetByMGU = yearSetByMGU ?? source.yearSetByMGU
+    var hasDurableProcessingEvidence: Bool {
+        genreUpdated || yearUpdated || processedDate != nil || lastError != nil
+            || originalArtist != nil || originalAlbum != nil
+            || yearBeforeMGU != nil || yearSetByMGU != nil
+    }
+
+    private static func consistentEvidence<Value: Equatable>(
+        _ values: [Value?],
+        field: String,
+        sourceIDs: [String]
+    ) throws -> Value? {
+        let present = values.compactMap(\.self)
+        guard let first = present.first else { return nil }
+        guard present.dropFirst().allSatisfy({ $0 == first }) else {
+            throw TrackStoreError.conflictingRepairEvidence(field: field, sourceIDs: sourceIDs.sorted())
+        }
+        return first
     }
 
     func isCanonical(databaseID: MusicDatabaseTrackID) -> Bool {

@@ -35,6 +35,9 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
     case emptySource
     case duplicateRepairSources(ids: [String])
     case duplicateRepairTargets(ids: [MusicDatabaseTrackID])
+    case nonLegacyRepairSources(ids: [String])
+    case unsafeAliasRetirement(ids: [String])
+    case conflictingRepairEvidence(field: String, sourceIDs: [String])
     case redundantRepair(id: MusicDatabaseTrackID)
     case missingSource(id: String)
     case targetExists(id: MusicDatabaseTrackID)
@@ -68,6 +71,12 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
             "Track mirror update contains duplicate repair sources: \(ids.joined(separator: ", "))"
         case let .duplicateRepairTargets(ids):
             "Track mirror update contains duplicate repair targets: \(ids.map(\.rawValue).joined(separator: ", "))"
+        case let .nonLegacyRepairSources(ids):
+            "Track mirror repair sources are already canonical: \(ids.joined(separator: ", "))"
+        case let .unsafeAliasRetirement(ids):
+            "Track mirror aliases contain durable evidence and cannot be retired: \(ids.joined(separator: ", "))"
+        case let .conflictingRepairEvidence(field, sourceIDs):
+            "Track mirror aliases disagree on \(field): \(sourceIDs.joined(separator: ", "))"
         case let .redundantRepair(id):
             "Track mirror repair target \(id.rawValue) is already canonical"
         case let .missingSource(id):
@@ -108,13 +117,13 @@ public enum TrackStoreError: LocalizedError, Sendable, Equatable {
     }
 }
 
-/// Repairs one legacy persisted row to its authoritative Music database identity.
+/// Repairs legacy persisted aliases to one authoritative Music database identity.
 public struct TrackMirrorRepair: Sendable {
-    public let sourceID: String
+    public let sourceIDs: [String]
     public let target: Track
 
-    public init(sourceID: String, target: Track) {
-        self.sourceID = sourceID
+    public init(sourceIDs: [String], target: Track) {
+        self.sourceIDs = sourceIDs
         self.target = target
     }
 }

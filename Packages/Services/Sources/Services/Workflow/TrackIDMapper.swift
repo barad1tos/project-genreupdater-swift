@@ -163,6 +163,42 @@ public actor TrackIDMapper: TrackIDMapping {
         )
     }
 
+    /// Resolves historical aliases independently so multiple legacy IDs may select the same unique Music database row.
+    /// Exact album identity wins; name-and-artist matching is used only when the exact key has no candidate.
+    static func resolveAliases(
+        sourceTracks: [Track],
+        targetTracks: [Track]
+    ) -> TrackIDResolution {
+        let targetsByID = Dictionary(uniqueKeysWithValues: targetTracks.map { ($0.id, $0) })
+        let exactIndex = candidateIndex(targetTracks, keys: normalizedKeys)
+        let fallbackIndex = candidateIndex(targetTracks, keys: nameArtistKeys)
+        var matches: [String: Track] = [:]
+        var ambiguous: [String: [String]] = [:]
+        var unresolved: [String] = []
+
+        for source in sourceTracks {
+            let exactCandidates = candidateIDs(for: source, in: exactIndex, keys: normalizedKeys)
+            let candidateIDs = exactCandidates.isEmpty
+                ? candidateIDs(for: source, in: fallbackIndex, keys: nameArtistKeys)
+                : exactCandidates
+            if candidateIDs.count == 1,
+               let targetID = candidateIDs.first,
+               let target = targetsByID[targetID] {
+                matches[source.id] = target
+            } else if candidateIDs.isEmpty {
+                unresolved.append(source.id)
+            } else {
+                ambiguous[source.id] = candidateIDs
+            }
+        }
+
+        return TrackIDResolution(
+            matches: matches,
+            ambiguous: ambiguous,
+            unresolved: unresolved.sorted()
+        )
+    }
+
     private static func candidateIndex(_ targets: [Track]) -> [String: Set<String>] {
         var candidateIndex: [String: Set<String>] = [:]
         for target in targets {
@@ -172,6 +208,29 @@ public actor TrackIDMapper: TrackIDMapping {
             }
         }
         return candidateIndex
+    }
+
+    private static func candidateIndex(
+        _ targets: [Track],
+        keys: (Track) -> [String]
+    ) -> [String: Set<String>] {
+        var index: [String: Set<String>] = [:]
+        for target in targets {
+            for key in keys(target) {
+                index[key, default: []].insert(target.id)
+            }
+        }
+        return index
+    }
+
+    private static func candidateIDs(
+        for source: Track,
+        in index: [String: Set<String>],
+        keys: (Track) -> [String]
+    ) -> [String] {
+        keys(source).reduce(into: Set<String>()) { result, key in
+            result.formUnion(index[key, default: []])
+        }.sorted()
     }
 
     /// Builds a MusicKit→AppleScript mapping by matching tracks on the keys produced
