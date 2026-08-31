@@ -24,28 +24,36 @@ struct LibraryMetadataSnapshot: Equatable, Sendable {
             throw parseError("Malformed metadata snapshot response")
         }
 
-        let columns = try fields.dropFirst(3).enumerated().map { columnIndex, column in
-            try decodeColumn(column, expectedCount: declaredCount, columnIndex: columnIndex)
-        }
+        let databaseIDs = try decodeColumn(fields[3], expectedCount: declaredCount, columnIndex: 0)
+        let names = try decodeTextColumn(fields[4], expectedCount: declaredCount, columnIndex: 1)
+        let artists = try decodeTextColumn(fields[5], expectedCount: declaredCount, columnIndex: 2)
+        let albumArtists = try decodeTextColumn(fields[6], expectedCount: declaredCount, columnIndex: 3)
+        let albums = try decodeTextColumn(fields[7], expectedCount: declaredCount, columnIndex: 4)
+        let genres = try decodeTextColumn(fields[8], expectedCount: declaredCount, columnIndex: 5)
+        let datesAdded = try decodeColumn(fields[9], expectedCount: declaredCount, columnIndex: 6)
+        let modificationDates = try decodeColumn(fields[10], expectedCount: declaredCount, columnIndex: 7)
+        let statuses = try decodeColumn(fields[11], expectedCount: declaredCount, columnIndex: 8)
+        let years = try decodeColumn(fields[12], expectedCount: declaredCount, columnIndex: 9)
+        let releaseDates = try decodeColumn(fields[13], expectedCount: declaredCount, columnIndex: 10)
         var tracks = [Core.Track]()
         var seenIDs = Set<MusicDatabaseTrackID>()
         tracks.reserveCapacity(declaredCount)
 
         for rowIndex in 0 ..< declaredCount {
-            let databaseID = try decodeDatabaseID(columns[0][rowIndex])
+            let databaseID = try decodeDatabaseID(databaseIDs[rowIndex])
             guard seenIDs.insert(databaseID).inserted else {
                 throw parseError("Metadata snapshot contains a duplicate database ID")
             }
-            let name = optionalText(columns[1][rowIndex]) ?? ""
-            let artist = optionalText(columns[2][rowIndex]) ?? ""
-            let albumArtist = optionalText(columns[3][rowIndex])
-            let album = optionalText(columns[4][rowIndex]) ?? ""
-            let genre = optionalText(columns[5][rowIndex])
-            let dateAdded = optionalText(columns[6][rowIndex]).flatMap(TrackWireCodec.parseDate)
-            let lastModified = optionalText(columns[7][rowIndex]).flatMap(TrackWireCodec.parseDate)
-            let status = TrackWireCodec.parseStatus(optionalText(columns[8][rowIndex]))
-            let year = TrackWireCodec.parseYear(optionalText(columns[9][rowIndex]))
-            let releaseYear = TrackWireCodec.parseReleaseYear(optionalText(columns[10][rowIndex]))
+            let name = optionalText(names[rowIndex]) ?? ""
+            let artist = optionalText(artists[rowIndex]) ?? ""
+            let albumArtist = optionalText(albumArtists[rowIndex])
+            let album = optionalText(albums[rowIndex]) ?? ""
+            let genre = optionalText(genres[rowIndex])
+            let dateAdded = optionalText(datesAdded[rowIndex]).flatMap(TrackWireCodec.parseDate)
+            let lastModified = optionalText(modificationDates[rowIndex]).flatMap(TrackWireCodec.parseDate)
+            let status = TrackWireCodec.parseStatus(optionalText(statuses[rowIndex]))
+            let year = TrackWireCodec.parseYear(optionalText(years[rowIndex]))
+            let releaseYear = TrackWireCodec.parseReleaseYear(optionalText(releaseDates[rowIndex]))
 
             tracks.append(Core.Track(
                 id: databaseID.rawValue,
@@ -80,6 +88,24 @@ struct LibraryMetadataSnapshot: Equatable, Sendable {
         return values
     }
 
+    private static func decodeTextColumn(
+        _ column: Substring,
+        expectedCount: Int,
+        columnIndex: Int
+    ) throws -> [String?] {
+        do {
+            let values = try JSONDecoder().decode([String?].self, from: Data(column.utf8))
+            guard values.count == expectedCount else {
+                throw parseError("Metadata column \(columnIndex + 1) count does not match its declared count")
+            }
+            return values
+        } catch let error as AppleScriptBridgeError {
+            throw error
+        } catch {
+            throw parseError("Metadata column \(columnIndex + 1) is not valid JSON text")
+        }
+    }
+
     private static func decodeDatabaseID(_ rawValue: String) throws -> MusicDatabaseTrackID {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard UInt64(value) != nil, let databaseID = MusicDatabaseTrackID(rawValue: value) else {
@@ -88,11 +114,10 @@ struct LibraryMetadataSnapshot: Equatable, Sendable {
         return databaseID
     }
 
-    private static func optionalText(_ rawValue: String) -> String? {
+    private static func optionalText(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
         let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty, normalized.caseInsensitiveCompare("missing value") != .orderedSame else {
-            return nil
-        }
+        guard !normalized.isEmpty else { return nil }
         return rawValue
     }
 

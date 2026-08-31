@@ -1,4 +1,5 @@
 import Core
+import Foundation
 import Testing
 @testable import Services
 
@@ -9,12 +10,12 @@ struct IdentitySnapshotTests {
 
     @Test("Decodes and deterministically sorts a complete columnar snapshot")
     func decodesCompleteSnapshot() throws {
-        let output = wire(
+        let output = try wire(
             count: 3,
             generation: "G1",
             ids: ["20", "10", "30"],
             artists: ["Second", "First", "Third"],
-            albumArtists: ["", "Various Artists", "missing value"]
+            albumArtists: ["", "Various Artists", nil]
         )
 
         let snapshot = try LibraryIdentitySnapshot.decode(output)
@@ -30,7 +31,7 @@ struct IdentitySnapshotTests {
     @Test("Accepts a stable empty snapshot")
     func acceptsEmptySnapshot() throws {
         let snapshot = try LibraryIdentitySnapshot.decode(
-            ["IDENTITY", "0", "G1", "", "", ""].joined(separator: columnSeparator)
+            ["IDENTITY", "0", "G1", "", "[]", "[]"].joined(separator: columnSeparator)
         )
 
         #expect(snapshot.census.totalCount == 0)
@@ -49,6 +50,22 @@ struct IdentitySnapshotTests {
         ))
 
         #expect(snapshot.rows.first?.artist == .value("ERROR: Artist"))
+    }
+
+    @Test("Distinguishes absent identity from literal missing value")
+    func distinguishesAbsentFromLiteralMissingValue() throws {
+        let snapshot = try LibraryIdentitySnapshot.decode(wire(
+            count: 2,
+            generation: "G1",
+            ids: ["10", "20"],
+            artists: [nil, "Missing Value"],
+            albumArtists: ["MISSING VALUE", nil]
+        ))
+
+        #expect(snapshot.rows[0].artist == .absent)
+        #expect(snapshot.rows[0].albumArtist == .value("MISSING VALUE"))
+        #expect(snapshot.rows[1].artist == .value("Missing Value"))
+        #expect(snapshot.rows[1].albumArtist == .absent)
     }
 
     @Test("Rejects malformed or incomplete snapshot envelopes", arguments: [
@@ -89,17 +106,25 @@ struct IdentitySnapshotTests {
         count: Int,
         generation: String,
         ids: [String],
-        artists: [String],
-        albumArtists: [String]
-    ) -> String {
-        [
+        artists: [String?],
+        albumArtists: [String?]
+    ) throws -> String {
+        try [
             "IDENTITY",
             String(count),
             generation,
             ids.joined(separator: itemSeparator),
-            artists.joined(separator: itemSeparator),
-            albumArtists.joined(separator: itemSeparator),
+            jsonColumn(artists),
+            jsonColumn(albumArtists),
         ].joined(separator: columnSeparator)
+    }
+
+    private func jsonColumn(_ values: [String?]) throws -> String {
+        let data = try JSONEncoder().encode(values)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw FixtureError.invalidUTF8
+        }
+        return text
     }
 
     private func expectParseError(_ output: String) {
@@ -115,5 +140,9 @@ struct IdentitySnapshotTests {
         } catch {
             Issue.record("Expected AppleScriptBridgeError, got \(error)")
         }
+    }
+
+    private enum FixtureError: Error {
+        case invalidUTF8
     }
 }

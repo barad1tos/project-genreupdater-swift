@@ -23,10 +23,15 @@ struct AppleScriptMetadataPolicyTests {
         #expect(TrackWireCodec.parseReleaseYear(timestamp) == 2024)
     }
 
+    @Test("Text columns distinguish absent values from literal metadata")
+    func preservesLiteralMissingValueText() throws {
+        let output = try evaluateTextColumn()
+        let values = try JSONDecoder().decode([String?].self, from: Data(output.utf8))
+
+        #expect(values == [nil, "Missing Value", ""])
+    }
+
     private func evaluateTimestampColumn() throws -> String {
-        let scriptName = "fetch_scope_metadata"
-        let source = try loadScriptSource(scriptName)
-        let timestampHandler = try extractHandler(named: "join_timestamps", in: source, scriptName: scriptName)
         let fixture = """
         set fixtureDate to current date
         set year of fixtureDate to 2024
@@ -38,12 +43,26 @@ struct AppleScriptMetadataPolicyTests {
         set seconds of fixtureDate to 6
         return my join_timestamps({fixtureDate}, "|")
         """
+        return try evaluateHandler(named: "join_timestamps", fixture: fixture)
+    }
+
+    private func evaluateTextColumn() throws -> String {
+        try evaluateHandler(
+            named: "json_text",
+            fixture: "return my json_text({missing value, \"Missing Value\", \"\"})"
+        )
+    }
+
+    private func evaluateHandler(named handlerName: String, fixture: String) throws -> String {
+        let scriptName = "fetch_scope_metadata"
+        let source = try loadScriptSource(scriptName)
+        let handler = try extractHandler(named: handlerName, in: source, scriptName: scriptName)
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AppleScriptMetadataPolicyTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let scriptURL = directory.appendingPathComponent("\(scriptName)-metadata-policy.applescript")
-        try "use framework \"Foundation\"\nuse scripting additions\n\n\(timestampHandler)\n\n\(fixture)\n"
+        try "use framework \"Foundation\"\nuse scripting additions\n\n\(handler)\n\n\(fixture)\n"
             .write(to: scriptURL, atomically: true, encoding: .utf8)
 
         let process = Process()

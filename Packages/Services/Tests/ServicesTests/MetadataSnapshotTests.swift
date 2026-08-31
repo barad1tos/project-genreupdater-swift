@@ -1,4 +1,5 @@
 import Core
+import Foundation
 import Testing
 @testable import Services
 
@@ -9,7 +10,7 @@ struct MetadataSnapshotTests {
 
     @Test("Decodes complete raw metadata with row-compatible normalization")
     func decodesCompleteMetadata() throws {
-        let output = wire(
+        let output = try wire(
             count: 2,
             generation: "G1",
             columns: [
@@ -49,7 +50,7 @@ struct MetadataSnapshotTests {
 
     @Test("Malformed optional dates remain absent like the row codec")
     func preservesMalformedOptionalDateSemantics() throws {
-        let output = wire(
+        let output = try wire(
             count: 1,
             generation: "G1",
             columns: [
@@ -67,8 +68,11 @@ struct MetadataSnapshotTests {
 
     @Test("Accepts a stable empty metadata snapshot")
     func acceptsEmptySnapshot() throws {
-        let output = (["METADATA", "0", "G1"] + Array(repeating: "", count: 11))
-            .joined(separator: columnSeparator)
+        let output = try wire(
+            count: 0,
+            generation: "G1",
+            columns: Array(repeating: [], count: 11)
+        )
 
         let snapshot = try LibraryMetadataSnapshot.decode(output)
 
@@ -78,7 +82,7 @@ struct MetadataSnapshotTests {
 
     @Test("Preserves an ERROR prefix inside track metadata")
     func preservesErrorTextInMetadata() throws {
-        let output = wire(
+        let output = try wire(
             count: 1,
             generation: "G1",
             columns: [
@@ -110,7 +114,7 @@ struct MetadataSnapshotTests {
 
     @Test("Preserves empty text for observation-level absence handling")
     func preservesEmptyRequiredText() throws {
-        let output = wire(
+        let output = try wire(
             count: 1,
             generation: "G1",
             columns: [
@@ -125,26 +129,46 @@ struct MetadataSnapshotTests {
         #expect(track.artist.isEmpty)
     }
 
-    @Test("Missing required text matches targeted row normalization")
-    func normalizesMissingRequiredText() throws {
-        let output = wire(
+    @Test("Distinguishes absent metadata from literal missing value")
+    func distinguishesAbsentFromLiteralMissingValue() throws {
+        let output = try wire(
             count: 1,
             generation: "G1",
             columns: [
-                ["10"], ["missing value"], ["MISSING VALUE"], [""], ["Album"], [""],
+                ["10"], ["Missing Value"], ["MISSING VALUE"], [nil], ["Missing Value"], [nil],
                 [""], [""], [""], [""], [""],
             ]
         )
 
         let track = try #require(LibraryMetadataSnapshot.decode(output).tracks.first)
 
-        #expect(track.name.isEmpty)
-        #expect(track.artist.isEmpty)
+        #expect(track.name == "Missing Value")
+        #expect(track.artist == "MISSING VALUE")
+        #expect(track.albumArtist == nil)
+        #expect(track.album == "Missing Value")
+        #expect(track.genre == nil)
+    }
+
+    @Test("Preserves wire separators inside metadata text")
+    func preservesWireSeparatorsInsideText() throws {
+        let name = "Control \(columnSeparator) and \(itemSeparator)"
+        let output = try wire(
+            count: 1,
+            generation: "G1",
+            columns: [
+                ["10"], [name], ["Artist"], [nil], ["Album"], [nil],
+                [""], [""], [""], [""], [""],
+            ]
+        )
+
+        let track = try #require(LibraryMetadataSnapshot.decode(output).tracks.first)
+
+        #expect(track.name == name)
     }
 
     @Test("Rejects duplicate database IDs")
-    func rejectsDuplicateIDs() {
-        let output = wire(
+    func rejectsDuplicateIDs() throws {
+        let output = try wire(
             count: 2,
             generation: "G1",
             columns: [
@@ -172,8 +196,26 @@ struct MetadataSnapshotTests {
         }
     }
 
-    private func wire(count: Int, generation: String, columns: [[String]]) -> String {
-        (["METADATA", String(count), generation] + columns.map { $0.joined(separator: itemSeparator) })
+    private func wire(count: Int, generation: String, columns: [[String?]]) throws -> String {
+        let encodedColumns = try columns.enumerated().map { columnIndex, values in
+            if 1 ... 5 ~= columnIndex {
+                return try jsonColumn(values)
+            }
+            return values.map { $0 ?? "" }.joined(separator: itemSeparator)
+        }
+        return (["METADATA", String(count), generation] + encodedColumns)
             .joined(separator: columnSeparator)
+    }
+
+    private func jsonColumn(_ values: [String?]) throws -> String {
+        let data = try JSONEncoder().encode(values)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw FixtureError.invalidUTF8
+        }
+        return text
+    }
+
+    private enum FixtureError: Error {
+        case invalidUTF8
     }
 }

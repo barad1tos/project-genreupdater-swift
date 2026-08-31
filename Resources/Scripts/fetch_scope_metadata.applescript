@@ -52,11 +52,11 @@ on run argv
 
         set responseParts to {"METADATA", snapshotCount as text, generation, ¬
             my join_text(databaseIDs, itemSeparator), ¬
-            my join_text(nameValues, itemSeparator), ¬
-            my join_text(artistValues, itemSeparator), ¬
-            my join_text(albumArtistValues, itemSeparator), ¬
-            my join_text(albumValues, itemSeparator), ¬
-            my join_text(genreValues, itemSeparator), ¬
+            my json_text(nameValues), ¬
+            my json_text(artistValues), ¬
+            my json_text(albumArtistValues), ¬
+            my json_text(albumValues), ¬
+            my json_text(genreValues), ¬
             my join_timestamps(rawDateAddedValues, itemSeparator), ¬
             my join_timestamps(rawModifiedValues, itemSeparator), ¬
             my join_text(rawStatusValues, itemSeparator), ¬
@@ -90,6 +90,14 @@ on join_timestamps(values, separator)
     set joinedText to timestampTexts's componentsJoinedByString:(separator & "unix:")
     return "unix:" & (joinedText as text)
 end join_timestamps
+
+on json_text(values)
+    set jsonData to current application's NSJSONSerialization's dataWithJSONObject:values options:0 |error|:(missing value)
+    if jsonData is missing value then error "Could not serialize metadata text column"
+    set jsonText to current application's NSString's alloc()'s initWithData:jsonData encoding:(current application's NSUTF8StringEncoding)
+    if jsonText is missing value then error "Could not encode metadata text column"
+    return jsonText as text
+end json_text
 
 on resolve_path(configuredPath)
     set homePath to POSIX path of (path to home folder)

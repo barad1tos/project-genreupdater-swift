@@ -27,8 +27,8 @@ on run argv
 
         return "IDENTITY" & columnSeparator & snapshotCount & columnSeparator & generation & columnSeparator & ¬
             my join_text(databaseIDs, itemSeparator) & columnSeparator & ¬
-            my join_text(artistValues, itemSeparator) & columnSeparator & ¬
-            my join_text(albumArtistValues, itemSeparator)
+            my json_text(artistValues) & columnSeparator & ¬
+            my json_text(albumArtistValues)
     on error errorMessage
         return "ERROR:" & errorMessage
     end try
@@ -62,6 +62,14 @@ on library_token(libraryPath)
     set databaseSize to databaseInfo's objectForKey:(current application's NSFileSize)
     return ((modifiedAt's timeIntervalSince1970()) as text) & "-" & (databaseSize as text)
 end library_token
+
+on json_text(values)
+    set jsonData to current application's NSJSONSerialization's dataWithJSONObject:values options:0 |error|:(missing value)
+    if jsonData is missing value then error "Could not serialize identity text column"
+    set jsonText to current application's NSString's alloc()'s initWithData:jsonData encoding:(current application's NSUTF8StringEncoding)
+    if jsonText is missing value then error "Could not encode identity text column"
+    return jsonText as text
+end json_text
 
 on join_text(values, separator)
     set oldDelimiters to AppleScript's text item delimiters

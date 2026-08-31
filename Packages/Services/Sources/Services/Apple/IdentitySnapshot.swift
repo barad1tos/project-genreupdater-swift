@@ -24,8 +24,8 @@ struct LibraryIdentitySnapshot: Equatable, Sendable {
         }
 
         let rawIDs = try decodeColumn(fields[3], expectedCount: declaredCount, name: "database IDs")
-        let artists = try decodeColumn(fields[4], expectedCount: declaredCount, name: "artists")
-        let albumArtists = try decodeColumn(fields[5], expectedCount: declaredCount, name: "album artists")
+        let artists = try decodeTextColumn(fields[4], expectedCount: declaredCount, name: "artists")
+        let albumArtists = try decodeTextColumn(fields[5], expectedCount: declaredCount, name: "album artists")
 
         var rows = [LibraryIdentityRow]()
         rows.reserveCapacity(declaredCount)
@@ -66,11 +66,28 @@ struct LibraryIdentitySnapshot: Equatable, Sendable {
         return values
     }
 
-    private static func observedText(_ rawValue: String) -> Observed<String> {
-        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, value.caseInsensitiveCompare("missing value") != .orderedSame else {
-            return .absent
+    private static func decodeTextColumn(
+        _ column: Substring,
+        expectedCount: Int,
+        name: String
+    ) throws -> [String?] {
+        do {
+            let values = try JSONDecoder().decode([String?].self, from: Data(column.utf8))
+            guard values.count == expectedCount else {
+                throw parseError("Identity snapshot \(name) column count does not match its declared count")
+            }
+            return values
+        } catch let error as AppleScriptBridgeError {
+            throw error
+        } catch {
+            throw parseError("Identity snapshot \(name) column is not valid JSON text")
         }
+    }
+
+    private static func observedText(_ rawValue: String?) -> Observed<String> {
+        guard let rawValue else { return .absent }
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return .absent }
         return .value(value)
     }
 
