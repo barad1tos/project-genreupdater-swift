@@ -28,6 +28,39 @@ struct FixPlanProjectionLifecycleTests {
         #expect(try await planStore.latestPlan() == plan)
     }
 
+    @Test("a no-op terminal keeps a historically superseded plan hidden")
+    func noOpKeepsPlanHidden() async throws {
+        let dependencies = makeDependencies()
+        let plan = try #require(try makePlan(dependencies: dependencies))
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
+        let planStore = StoredFixPlanStore(plan: plan, decision: decision)
+        let changedRun = makeRunRecord(
+            runID: RunID(),
+            startedAt: Date(timeIntervalSince1970: 1_800_000_200),
+            syncSummary: ActivitySyncSummary(new: 0, modified: 0, identityChanged: 0, refreshed: 0, removed: 1)
+        )
+        dependencies.configureLibraryPersistenceForTesting(
+            runRecordStore: RunRecordStoreStub(reportPage: RunReportPage(
+                records: [changedRun],
+                skippedCorruptedCount: 0
+            )),
+            fixPlanStore: planStore
+        )
+        _ = await dependencies.refreshFixPlanProjection()
+
+        await dependencies.publishLifecycleBoundary(makeLifecycle(
+            phase: .finished(
+                .completedNoOp(SyncResult()),
+                finishedAt: Date(timeIntervalSince1970: 1_800_000_300)
+            ),
+            intent: .previewFixes,
+            startedAt: Date(timeIntervalSince1970: 1_800_000_290)
+        ))
+
+        #expect(await dependencies.projectionStore.fixPlanProjection().status == .empty)
+        #expect(try await planStore.latestPlan() == plan)
+    }
+
     @Test("a changed preview publishes the fix plan produced by that run")
     func changedPreviewPublishesPlan() async throws {
         let dependencies = makeDependencies()

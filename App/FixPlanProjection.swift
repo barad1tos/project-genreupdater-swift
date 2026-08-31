@@ -31,10 +31,9 @@ extension AppDependencies {
     ) async throws -> FixPlanProjection {
         guard projection.status != .unavailable else { return projection }
 
-        if let lifecycle {
-            guard lifecycle.syncResult?.hasMirrorChanges == true,
-                  projection.sourceRunID != lifecycle.runID
-            else { return projection }
+        if let lifecycle,
+           lifecycle.syncResult?.hasMirrorChanges == true,
+           projection.sourceRunID != lifecycle.runID {
             return .empty()
         }
 
