@@ -313,11 +313,12 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
                 track.databaseID.map(requestedIDs.contains) ?? false
             }
         case let .artistSnapshots(artists):
-            var tracks = [Core.Track]()
+            var snapshots = [LibraryMetadataSnapshot]()
             for artist in artists {
                 let snapshot = try await fetchBulkMetadata(artist: artist)
-                tracks.append(contentsOf: snapshot.tracks)
+                snapshots.append(snapshot)
             }
+            let tracks = try Self.mergeScopedMetadataSnapshots(snapshots)
             return try await Self.fillMissingScopedMetadata(
                 requestedIDs: databaseIDs,
                 snapshotTracks: tracks
@@ -325,6 +326,16 @@ public actor AppleScriptBridge: MusicAppIdentifying, MusicAppMutating, MusicAppV
                 try await self.fetchMetadata(for: missingIDs)
             }
         }
+    }
+
+    static func mergeScopedMetadataSnapshots(_ snapshots: [LibraryMetadataSnapshot]) throws -> [Core.Track] {
+        guard let generation = snapshots.first?.generation else { return [] }
+        guard snapshots.allSatisfy({ $0.generation == generation }) else {
+            throw AppleScriptBridgeError.libraryChanged(
+                detail: "Music library generation changed between artist metadata snapshots"
+            )
+        }
+        return snapshots.flatMap(\.tracks)
     }
 
     static func fillMissingScopedMetadata(
