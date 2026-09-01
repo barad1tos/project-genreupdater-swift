@@ -73,6 +73,9 @@ extension AppDependencies {
             reloadLibrary: { [weak self] forceRefresh in
                 await self?.loadLibrary(forceRefresh: forceRefresh)
             },
+            refreshFixPlanProjection: { [weak self] in
+                _ = await self?.refreshFixPlanProjection()
+            },
             refreshActivityProjection: { [weak self] in
                 await self?.republishActivityProjection() ?? .empty()
             },

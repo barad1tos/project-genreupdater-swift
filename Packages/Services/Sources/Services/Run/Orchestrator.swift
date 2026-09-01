@@ -302,10 +302,14 @@ public actor RunOrchestrator {
                 failureMessage: nil
             )
         case let .previewFixes(configuration):
-            let syncResult: SyncResult = if let synchronizePreview = dependencies.synchronizePreview {
-                try await synchronizePreview(lifecycle.scope, configuration)
+            let syncResult: SyncResult
+            if let synchronizePreview = dependencies.synchronizePreview {
+                let refreshPolicy: MetadataRefreshPolicy = request.trigger.usesAuthoritativeInputs
+                    ? .force
+                    : .fast
+                syncResult = try await synchronizePreview(lifecycle.scope, configuration, refreshPolicy)
             } else {
-                try await dependencies.synchronizeLibrary(lifecycle.scope)
+                syncResult = try await dependencies.synchronizeLibrary(lifecycle.scope)
             }
             let committed = try await persistCommittedScope(from: lifecycle, syncResult: syncResult)
             guard let produceFixPlan = dependencies.produceFixPlan else {

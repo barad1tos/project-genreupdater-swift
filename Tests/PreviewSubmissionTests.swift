@@ -19,7 +19,7 @@ struct PreviewSubmissionTests {
         dependencies.installTrackCountSource { 1 }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
-            synchronizePreview: { scope, configuration in
+            synchronizePreview: { scope, configuration, _ in
                 await probe.recordSync(scope: scope, configuration: configuration)
                 return SyncResult().committed(to: scope)
             },
@@ -37,6 +37,8 @@ struct PreviewSubmissionTests {
         #expect(result.lifecycle?.configuration?.automation == .hybrid)
         #expect(await probe.configuration != nil)
         #expect(await probe.syncConfiguration != nil)
+        #expect(await probe.configuration?.forceYearLookup == true)
+        #expect(await probe.syncConfiguration?.forceYearLookup == true)
     }
 
     @Test("Submission captures configuration before its first suspension")
@@ -59,7 +61,7 @@ struct PreviewSubmissionTests {
         }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
-            synchronizePreview: { scope, configuration in
+            synchronizePreview: { scope, configuration, _ in
                 await probe.recordSync(scope: scope, configuration: configuration)
                 return SyncResult().committed(to: scope)
             },
@@ -114,7 +116,7 @@ struct PreviewSubmissionTests {
         dependencies.installTrackCountSource { 1 }
         await dependencies.installTestOrchestrator(RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
-            synchronizePreview: { scope, configuration in
+            synchronizePreview: { scope, configuration, _ in
                 await probe.recordSync(scope: scope, configuration: configuration)
                 return SyncResult().committed(to: scope)
             },

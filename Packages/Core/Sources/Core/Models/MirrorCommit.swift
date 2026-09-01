@@ -277,6 +277,7 @@ public struct MirrorCommit: Sendable {
     public let observation: ObservationID
     public let inventoryChange: InventoryChange
     public let repairs: [TrackMirrorRepair]
+    public let retiredAliasIDs: [String]
     public let upserts: [Track]
     public let certificates: CertificateChange
     public let effects: [MirrorEffect]
@@ -288,6 +289,7 @@ public struct MirrorCommit: Sendable {
         observation: ObservationID = ObservationID(),
         inventoryChange: InventoryChange,
         repairs: [TrackMirrorRepair],
+        retiredAliasIDs: [String] = [],
         upserts: [Track],
         certificates: CertificateChange,
         effects: [MirrorEffect] = [],
@@ -298,6 +300,7 @@ public struct MirrorCommit: Sendable {
         self.observation = observation
         self.inventoryChange = inventoryChange
         self.repairs = repairs
+        self.retiredAliasIDs = retiredAliasIDs
         self.upserts = upserts
         self.certificates = certificates
         self.effects = effects

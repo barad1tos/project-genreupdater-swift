@@ -18,12 +18,15 @@ extension RunRecordDataStore {
         let filtersState = !stateFilter.isEmpty
         let triggerFilter = query.trigger?.rawValue ?? ""
         let filtersTrigger = !triggerFilter.isEmpty
+        let intentFilter = query.intent?.rawValue ?? ""
+        let filtersIntent = !intentFilter.isEmpty
 
         var descriptor = FetchDescriptor<PersistedRunRecord>(
             predicate: #Predicate { row in
                 row.startedAt >= after && row.startedAt <= before
                     && (!filtersState || stateFilter.contains(row.stateRaw))
                     && (!filtersTrigger || row.triggerRaw == triggerFilter)
+                    && (!filtersIntent || row.intentRaw == intentFilter)
             },
             sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
         )

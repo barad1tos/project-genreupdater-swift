@@ -15,14 +15,16 @@ struct LibrarySyncRepairTests {
             rows: [row(id: "AS1")]
         )
 
-        _ = try await fixture.service.synchronizeNow()
+        let result = try await fixture.service.synchronizeNow()
 
         let request = try #require(await fixture.reader.requests.first)
         #expect(request.refresh == .force)
         let update = try #require(await fixture.store.updates.first)
         let repair = try #require(update.repairs.first)
         #expect(update.repairs.count == 1)
-        #expect(repair.sourceID == "MK1")
+        #expect(result.mirrorMaintenanceCount == 1)
+        #expect(result.hasMirrorChanges)
+        #expect(repair.sourceIDs == ["MK1"])
         #expect(repair.target.id == "AS1")
         #expect(repair.target.appleScriptID == "AS1")
         #expect(repair.target.originalArtist == "Before")
@@ -42,8 +44,258 @@ struct LibrarySyncRepairTests {
         _ = try await fixture.service.synchronizeNow()
 
         let update = try #require(await fixture.store.updates.first)
-        #expect(update.repairs.map(\.sourceID) == ["MK1"])
+        #expect(update.repairs.map(\.sourceIDs) == [["MK1"]])
         #expect(update.repairs.map(\.target.id) == ["AS1"])
+    }
+
+    @Test("A manual sync converges duplicate MusicKit aliases onto one Music database track")
+    func convergesDuplicateAliases() async throws {
+        let fixture = try makeFixture(
+            stored: [
+                legacyTrack(sourceID: "-1041391495849775059", databaseID: nil, name: "Wicked Game"),
+                legacyTrack(sourceID: "i.b15B0L9fqNNzE1", databaseID: nil, name: "Wicked Game"),
+                canonicalTrack(id: "103401", name: "Wicked Game"),
+            ],
+            currentIDs: ["103401"],
+            rows: [row(id: "103401", name: "Wicked Game")]
+        )
+
+        let result = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(result.changeCount == 0)
+        #expect(result.mirrorMaintenanceCount == 2)
+        #expect(result.hasMirrorChanges)
+        #expect(await fixture.store.stored.map(\.id) == ["103401"])
+        #expect(await fixture.store.updates.count == 1)
+        let repairedIdentity = AlbumIdentity(artist: "Artist", album: "Album")
+        #expect(update.effects == [
+            .invalidateAlbumYear(repairedIdentity),
+            .invalidateAPIResults(repairedIdentity),
+            .invalidateSnapshot,
+            .refreshProjections,
+        ])
+    }
+
+    @Test("A manual sync atomically converges aliases in the persisted mirror")
+    func convergesStoredAliases() async throws {
+        let container = try ModelContainerFactory.createInMemory()
+        let context = ModelContext(container)
+        let canonical = PersistedTrack(
+            trackID: "103401", appleScriptID: "103401", name: "Wicked Game", artist: "In Flames",
+            album: "Down, Wicked & No Good", genreUpdated: true
+        )
+        let numericAlias = PersistedTrack(
+            trackID: "-1041391495849775059", name: "Wicked Game", artist: "In Flames",
+            album: "Down, Wicked & No Good", yearUpdated: true, originalAlbum: "Down, Wicked & No Good"
+        )
+        let libraryAlias = PersistedTrack(
+            trackID: "i.b15B0L9fqNNzE1", name: "Wicked Game", artist: "In Flames",
+            album: "Down, Wicked & No Good", originalAlbum: "Down, Wicked & No Good"
+        )
+        let history = PersistedChangeLogEntry(
+            entryID: UUID(), timestamp: .now, changeTypeRaw: ChangeType.yearUpdate.rawValue,
+            trackID: numericAlias.trackID, artist: "In Flames", trackName: "Wicked Game",
+            albumName: "Down, Wicked & No Good"
+        )
+        history.track = numericAlias
+        context.insert(canonical)
+        context.insert(numericAlias)
+        context.insert(libraryAlias)
+        context.insert(history)
+        try context.save()
+
+        let databaseID = try databaseID("103401")
+        let reader = try RepairObservationReader(template: RepairObservationTemplate(
+            rows: [row(
+                id: databaseID.rawValue,
+                name: "Wicked Game",
+                artist: "In Flames",
+                album: "Down, Wicked & No Good"
+            )],
+            censusIDs: [databaseID],
+            currentIDs: [databaseID],
+            membership: .full,
+            generation: #require(LibraryGeneration(sourceValue: "repair-generation"))
+        ))
+        let store = TrackDataStore(modelContainer: container)
+        let service = LibrarySyncService(trackStore: store, observer: reader)
+
+        _ = try await service.synchronizeNow()
+
+        let verification = ModelContext(container)
+        let tracks = try verification.fetch(FetchDescriptor<PersistedTrack>())
+        let entries = try verification.fetch(FetchDescriptor<PersistedChangeLogEntry>())
+        let track = try #require(tracks.first)
+        #expect(tracks.count == 1)
+        #expect(track.trackID == databaseID.rawValue)
+        #expect(track.genreUpdated)
+        #expect(track.yearUpdated)
+        #expect(track.originalAlbum == "Down, Wicked & No Good")
+        #expect(entries.count == 1)
+        #expect(entries.first?.trackID == databaseID.rawValue)
+        #expect(entries.first?.track?.trackID == databaseID.rawValue)
+    }
+
+    @Test("Grouped repairs invalidate and clear every source album identity")
+    func groupedRepairsInvalidateSources() async throws {
+        let pending = PendingVerificationProbe(entries: [
+            PendingAlbumEntry(
+                id: "first-source",
+                artist: "First Artist",
+                album: "First Album",
+                reason: "prerelease"
+            ),
+            PendingAlbumEntry(
+                id: "second-source",
+                artist: "Second Artist",
+                album: "Second Album",
+                reason: "prerelease"
+            ),
+        ], isVerificationNeeded: true)
+        let fixture = try makeFixture(
+            stored: [
+                legacyTrack(
+                    sourceID: "MK1",
+                    databaseID: "AS1",
+                    artist: "First Artist",
+                    album: "First Album",
+                    trackStatus: TrackKind.prerelease.rawValue
+                ),
+                legacyTrack(
+                    sourceID: "MK2",
+                    databaseID: "AS1",
+                    artist: "Second Artist",
+                    album: "Second Album",
+                    trackStatus: TrackKind.prerelease.rawValue
+                ),
+            ],
+            currentIDs: ["AS1"],
+            rows: [row(id: "AS1", artist: "Current Artist", album: "Current Album")],
+            pendingVerification: pending
+        )
+
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        let invalidatedIdentities = update.effects.compactMap { effect -> AlbumIdentity? in
+            guard case let .invalidateAlbumYear(identity) = effect else { return nil }
+            return identity
+        }
+        #expect(Set(invalidatedIdentities).isSuperset(of: Set([
+            AlbumIdentity(artist: "First Artist", album: "First Album"),
+            AlbumIdentity(artist: "Second Artist", album: "Second Album"),
+        ])))
+        let removals = await pending.removedAlbums
+        #expect(Set(removals.map { AlbumIdentity(artist: $0.artist, album: $0.album) }) == Set([
+            AlbumIdentity(artist: "First Artist", album: "First Album"),
+            AlbumIdentity(artist: "Second Artist", album: "Second Album"),
+        ]))
+    }
+
+    @Test("A complete observation retires a removed evidence-free MusicKit alias")
+    func retiresRemovedLegacyAlias() async throws {
+        let fixture = try makeFixture(
+            stored: [
+                legacyTrack(sourceID: "i.WmLzgRkcDNNqGE", databaseID: nil, name: "The Great Deceiver"),
+                canonicalTrack(id: "103401", name: "Wicked Game"),
+            ],
+            currentIDs: ["103401"],
+            rows: [row(id: "103401", name: "Wicked Game")]
+        )
+
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(await fixture.store.stored.map(\.id) == ["103401"])
+        #expect(await fixture.store.updates.count == 1)
+        let retiredIdentity = AlbumIdentity(artist: "Artist", album: "Album")
+        #expect(update.effects == [
+            .invalidateAlbumYear(retiredIdentity),
+            .invalidateAPIResults(retiredIdentity),
+            .invalidateSnapshot,
+            .refreshProjections,
+        ])
+    }
+
+    @Test("Retiring a prerelease alias clears its pending verification entry")
+    func retiredAliasClearsPrereleasePendingEntry() async throws {
+        let pending = PendingVerificationProbe(
+            entry: PendingAlbumEntry(
+                id: "retired-prerelease",
+                artist: "Retired Artist",
+                album: "Retired Album",
+                reason: "prerelease"
+            ),
+            isVerificationNeeded: true
+        )
+        let retiredAlias = Track(
+            id: "legacy-alias",
+            name: "Retired Song",
+            artist: "Retired Artist",
+            album: "Retired Album",
+            trackStatus: TrackKind.prerelease.rawValue
+        )
+        let fixture = try makeFixture(
+            stored: [retiredAlias, canonicalTrack(id: "103401", name: "Current Song")],
+            currentIDs: ["103401"],
+            rows: [row(id: "103401", name: "Current Song")],
+            pendingVerification: pending
+        )
+
+        _ = try await fixture.service.synchronizeNow()
+
+        let removals = await pending.removedAlbums
+        #expect(removals.count == 1)
+        #expect(removals.first?.artist == "Retired Artist")
+        #expect(removals.first?.album == "Retired Album")
+    }
+
+    @Test("Incomplete metadata preserves a census-present legacy alias")
+    func preservesAliasOnPartialRead() async throws {
+        let fixture = try makeFixture(
+            stored: [legacyTrack(sourceID: "MK1", databaseID: "AS1")],
+            currentIDs: ["AS1"],
+            rows: []
+        )
+
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(update.retiredAliasIDs.isEmpty)
+        #expect(await fixture.store.stored.map(\.id) == ["MK1"])
+    }
+
+    @Test("Incomplete candidate metadata cannot prove a unique alias repair")
+    func preservesPartialAlias() async throws {
+        let fixture = try makeFixture(
+            stored: [legacyTrack(sourceID: "MK1", databaseID: nil)],
+            currentIDs: ["AS1", "AS2"],
+            rows: [row(id: "AS1")]
+        )
+        _ = try await fixture.service.synchronizeNow()
+        let update = try #require(await fixture.store.updates.first)
+        #expect(update.repairs.isEmpty)
+        #expect(update.retiredAliasIDs.isEmpty)
+        #expect(await fixture.store.stored.map(\.id).sorted() == ["AS1", "MK1"])
+    }
+
+    @Test("Scoped metadata coverage cannot retire an unresolved legacy alias")
+    func preservesScopedAlias() async throws {
+        let legacy = legacyTrack(sourceID: "MK-OUT", databaseID: nil, artist: "Target")
+        let fixture = try makeFixture(
+            stored: [legacy],
+            currentIDs: ["AS1"],
+            rows: [row(id: "AS1", name: "Different", artist: "Target")],
+            testArtists: ["Target"],
+            membership: .scoped(unobservedIDs: [])
+        )
+
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(update.retiredAliasIDs.isEmpty)
+        #expect(await fixture.store.stored.map(\.id) == ["AS1", "MK-OUT"])
     }
 
     @Test("Unique metadata identity repairs an artistless legacy row")
@@ -58,45 +310,42 @@ struct LibrarySyncRepairTests {
         _ = try await fixture.service.synchronizeNow()
 
         let update = try #require(await fixture.store.updates.first)
-        #expect(update.repairs.map(\.sourceID) == ["MK1"])
+        #expect(update.repairs.map(\.sourceIDs) == [["MK1"]])
         #expect(update.repairs.map(\.target.id) == ["AS1"])
     }
 
-    @Test("Ambiguous metadata identity fails closed")
-    func rejectsAmbiguousFallback() async throws {
+    @Test("An evidence-free ambiguous alias is retired for store validation")
+    func retiresAmbiguousFallback() async throws {
         let fixture = try makeFixture(
             stored: [legacyTrack(sourceID: "MK1", databaseID: nil)],
             currentIDs: ["AS1", "AS2"],
             rows: [row(id: "AS2"), row(id: "AS1")]
         )
 
-        await #expect(throws: LibrarySyncObservationError.ambiguousLegacyIdentity(
-            sourceID: "MK1",
-            candidateIDs: ["AS1", "AS2"]
-        )) {
-            _ = try await fixture.service.synchronizeNow()
-        }
-        #expect(await fixture.store.updates.isEmpty)
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(update.repairs.isEmpty)
+        #expect(update.retiredAliasIDs == ["MK1"])
     }
 
-    @Test("Unresolved metadata identity fails closed")
-    func rejectsUnresolvedFallback() async throws {
+    @Test("An evidence-free unresolved alias is retired for store validation")
+    func retiresUnresolvedFallback() async throws {
         let fixture = try makeFixture(
             stored: [legacyTrack(sourceID: "MK1", databaseID: nil)],
             currentIDs: ["AS1"],
             rows: [row(id: "AS1", name: "Different")]
         )
 
-        await #expect(throws: LibrarySyncObservationError.unresolvedLegacyIdentities(
-            sourceIDs: ["MK1"]
-        )) {
-            _ = try await fixture.service.synchronizeNow()
-        }
-        #expect(await fixture.store.updates.isEmpty)
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(update.repairs.isEmpty)
+        #expect(update.retiredAliasIDs == ["MK1"])
     }
 
-    @Test("Unresolved artistless legacy identity fails closed")
-    func rejectsArtistlessMismatch() async throws {
+    @Test("An evidence-free unresolved artistless alias is retired for store validation")
+    func retiresArtistlessMismatch() async throws {
         let legacy = legacyTrack(
             sourceID: "MK1",
             databaseID: nil,
@@ -109,12 +358,11 @@ struct LibrarySyncRepairTests {
             rows: [row(id: "AS1", name: "Different Song", artist: "")]
         )
 
-        await #expect(throws: LibrarySyncObservationError.unresolvedLegacyIdentities(
-            sourceIDs: ["MK1"]
-        )) {
-            _ = try await fixture.service.synchronizeNow()
-        }
-        #expect(await fixture.store.updates.isEmpty)
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(update.repairs.isEmpty)
+        #expect(update.retiredAliasIDs == ["MK1"])
     }
 
     @Test("Canonical row converges a legacy repair")
@@ -134,8 +382,8 @@ struct LibrarySyncRepairTests {
         #expect(await fixture.store.updates.count == 1)
     }
 
-    @Test("Two legacy rows cannot claim one repair target")
-    func rejectsDuplicateRepairTarget() async throws {
+    @Test("Two legacy aliases converge onto one repair target")
+    func groupsDuplicateRepairTarget() async throws {
         let fixture = try makeFixture(
             stored: [
                 legacyTrack(sourceID: "MK2", databaseID: "AS1"),
@@ -145,13 +393,30 @@ struct LibrarySyncRepairTests {
             rows: [row(id: "AS1")]
         )
 
-        await #expect(throws: LibrarySyncObservationError.duplicateRepairTarget(
-            targetID: "AS1",
-            sourceIDs: ["MK1", "MK2"]
-        )) {
-            _ = try await fixture.service.synchronizeNow()
-        }
-        #expect(await fixture.store.updates.isEmpty)
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(update.repairs.map(\.sourceIDs) == [["MK1", "MK2"]])
+        #expect(update.repairs.map(\.target.id) == ["AS1"])
+        #expect(update.retiredAliasIDs.isEmpty)
+    }
+
+    @Test("A same-ID legacy row converges with aliases for its target")
+    func groupsSameIDLegacyTarget() async throws {
+        let fixture = try makeFixture(
+            stored: [
+                legacyTrack(sourceID: "AS1", databaseID: nil, name: "Stale Song"),
+                legacyTrack(sourceID: "MK1", databaseID: "AS1"),
+            ],
+            currentIDs: ["AS1"],
+            rows: [row(id: "AS1")]
+        )
+
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(update.repairs.map(\.sourceIDs) == [["AS1", "MK1"]])
+        #expect(await fixture.store.stored.map(\.id) == ["AS1"])
     }
 
     @Test("Scoped sync preserves legacy rows outside its artist scope")
@@ -280,7 +545,7 @@ struct LibrarySyncRepairTests {
         #expect(result.removedTrackIDs == ["REMOVED"])
         let update = try #require(await fixture.store.updates.first)
         #expect(await fixture.store.updates.count == 1)
-        #expect(update.repairs.map(\.sourceID) == ["MK1"])
+        #expect(update.repairs.map(\.sourceIDs) == [["MK1"]])
         #expect(update.upserts.map(\.id) == ["NEW"])
         #expect(inventoryIDs(update.inventoryChange)?.map(\.rawValue) == ["AS1", "NEW"])
     }
@@ -290,7 +555,8 @@ struct LibrarySyncRepairTests {
         currentIDs: [String],
         rows: [LibraryTrackRow],
         testArtists: [String] = [],
-        membership: MembershipCompleteness = .full
+        membership: MembershipCompleteness = .full,
+        pendingVerification: (any PendingVerificationService)? = nil
     ) throws -> RepairFixture {
         let ids = try databaseIDs(currentIDs)
         let reader = try RepairObservationReader(template: RepairObservationTemplate(
@@ -305,6 +571,7 @@ struct LibrarySyncRepairTests {
             .appendingPathComponent("LibrarySyncRepairTests-\(UUID().uuidString)", isDirectory: true)
         let service = LibrarySyncService(
             trackStore: store,
+            pendingVerificationService: pendingVerification,
             runtimeConfiguration: LibrarySyncRuntimeConfiguration(
                 logsBaseDirectory: logsDirectory.path,
                 testArtists: testArtists
@@ -344,15 +611,18 @@ struct LibrarySyncRepairTests {
         databaseID: String?,
         name: String = "Song",
         artist: String = "Artist",
-        originalArtist: String? = nil
+        album: String = "Album",
+        originalArtist: String? = nil,
+        trackStatus: String? = nil
     ) -> Track {
         Track(
             id: sourceID,
             name: name,
             artist: artist,
-            album: "Album",
+            album: album,
             genre: "Rock",
             year: 1999,
+            trackStatus: trackStatus,
             originalArtist: originalArtist,
             yearBeforeMGU: 1998,
             yearSetByMGU: 1999,
@@ -473,13 +743,14 @@ private actor RepairMirrorStore: TrackStateStore {
         let nextRevision = try revision.advanced()
         updates.append(update)
         for repair in update.repairs {
-            stored.removeAll { $0.id == repair.sourceID }
+            stored.removeAll { repair.sourceIDs.contains($0.id) }
             if let index = stored.firstIndex(where: { $0.id == repair.target.id }) {
                 stored[index] = repair.target
             } else {
                 stored.append(repair.target)
             }
         }
+        stored.removeAll { update.retiredAliasIDs.contains($0.id) }
         applyInventory(update.inventoryChange, to: &stored)
         for track in update.upserts {
             stored.removeAll { $0.id == track.id }

@@ -36,7 +36,8 @@ extension RunOrchestrator {
         public let synchronizeLibrary: @Sendable (ProcessingScopeSnapshot) async throws -> SyncResult
         public let synchronizePreview: (@Sendable (
             ProcessingScopeSnapshot,
-            FixPlanConfig
+            FixPlanConfig,
+            MetadataRefreshPolicy
         ) async throws -> SyncResult)?
         public let persistRunRecord: @Sendable (RunRecord) async throws -> Void
         public let produceFixPlan: (@Sendable (
@@ -69,7 +70,8 @@ extension RunOrchestrator {
             synchronizeLibrary: @escaping @Sendable (ProcessingScopeSnapshot) async throws -> SyncResult,
             synchronizePreview: (@Sendable (
                 ProcessingScopeSnapshot,
-                FixPlanConfig
+                FixPlanConfig,
+                MetadataRefreshPolicy
             ) async throws -> SyncResult)? = nil,
             persistRunRecord: @escaping @Sendable (RunRecord) async throws -> Void,
             produceFixPlan: (@Sendable (

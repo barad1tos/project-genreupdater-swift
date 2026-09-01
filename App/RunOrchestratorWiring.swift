@@ -143,14 +143,15 @@ extension AppDependencies {
         let runtime = runtimeFactory ?? makeRunRuntime()
         let synchronizePreview: (@Sendable (
             ProcessingScopeSnapshot,
-            FixPlanConfig
+            FixPlanConfig,
+            MetadataRefreshPolicy
         ) async throws -> SyncResult)? = if let runtime {
-            { scope, configuration in
+            { scope, configuration, refreshPolicy in
                 let syncService = try await runtime.makeSync(
                     configuration: configuration,
                     scope: scope
                 )
-                return try await syncService.synchronizeNow()
+                return try await syncService.synchronizeNow(forceMetadataRefresh: refreshPolicy == .force)
             }
         } else {
             nil

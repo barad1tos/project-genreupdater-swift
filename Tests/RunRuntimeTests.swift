@@ -7,6 +7,72 @@ import Testing
 @Suite("Run write runtime")
 @MainActor
 struct RunRuntimeTests {
+    @Test("Manual Run re-reads authoritative metadata and converges idempotently")
+    func manualRunIsIdempotent() async throws {
+        var configuration = AppConfiguration()
+        configuration.runtime.dryRun = true
+        configuration.processing.defaultUpdateBehavior = .genreOnly
+        configuration.genreUpdate.overrideExisting = true
+        configuration.cleaning.genreMappings = ["Rock": "Metal"]
+        configuration.yearRetrieval.enabled = false
+
+        let storedTrack = Track(
+            id: "AS-1",
+            name: "Track 1",
+            artist: "In Flames",
+            album: "Battles",
+            genre: "Metal",
+            year: 2016,
+            dateAdded: Date(timeIntervalSince1970: 50),
+            trackStatus: TrackKind.subscription.rawValue,
+            appleScriptID: "AS-1"
+        )
+        let liveTrack = Track(
+            id: "AS-1",
+            name: "Track 1",
+            artist: "In Flames",
+            album: "Battles",
+            genre: "Rock",
+            year: 2019,
+            dateAdded: Date(timeIntervalSince1970: 50),
+            trackStatus: TrackKind.subscription.rawValue,
+            appleScriptID: "AS-1"
+        )
+        let fixture = try await makeCompositionFixture(
+            configuration: configuration,
+            track: storedTrack,
+            observedTrack: liveTrack
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let initialRevision = try await fixture.store.loadMirrorSnapshot().revision
+        let firstResult = try await fixture.dependencies.submitManualRun()
+        let convergedRevision = try await fixture.store.loadMirrorSnapshot().revision
+        let convergedTrack = try #require(await fixture.store.getTrack(byID: storedTrack.id))
+        #expect(firstResult.lifecycle?.configuration?.mode == .preview)
+        #expect(firstResult.lifecycle?.failureMessage == nil)
+        #expect(convergedTrack.genre == "Rock")
+        let firstPlan = try #require(try await fixture.planStore.latestPlan())
+        let secondResult = try await fixture.dependencies.submitManualRun()
+        let secondPlan = try #require(try await fixture.planStore.latestPlan())
+
+        let requests = await fixture.observer.recordedObservationRequests()
+        let persistedTrack = try #require(await fixture.store.getTrack(byID: storedTrack.id))
+        #expect(requests.map(\.refresh) == [.force, .force])
+        #expect(persistedTrack.year == 2019)
+        #expect(convergedRevision != initialRevision)
+        #expect(firstResult.lifecycle?.state == .completed)
+        #expect(secondResult.lifecycle?.failureMessage == nil)
+        #expect(secondResult.lifecycle?.state == .completed)
+        #expect(firstPlan.sourceRunID == firstResult.lifecycle?.runID)
+        #expect(secondPlan.sourceRunID == secondResult.lifecycle?.runID)
+        #expect(firstPlan.id != secondPlan.id)
+        #expect(firstPlan.items.map(PlanItemOutcome.init) == secondPlan.items.map(PlanItemOutcome.init))
+        #expect(firstPlan.items.map(\.changeType) == [.genreUpdate])
+        #expect(firstPlan.items.map(\.oldValue) == ["Rock"])
+        #expect(firstPlan.items.map(\.newValue) == ["Metal"])
+    }
+
     @Test("headless scheduled auto-fix uses the app composition end to end")
     func headlessAutoFixUsesAppComposition() async throws {
         var configuration = AppConfiguration()
@@ -36,10 +102,13 @@ struct RunRuntimeTests {
         await fixture.dependencies.submitScheduledProcessing()
 
         let records = try await fixture.runStore.loadAll().filter { $0.finishedAt != nil }
+        let plan = try #require(try await fixture.planStore.latestPlan())
         #expect(records.map(\.intent) == [.writeFixes, .previewFixes])
         #expect(records.first?.configuration?.writeAuthority == .automaticPlan)
+        #expect(plan.configuration.forceYearLookup == false)
         #expect(records.first?.writeSummary?.applied == 1)
         #expect(await fixture.script.storedTrack(id: track.id)?.genre == "Metal")
+        #expect(await fixture.observer.recordedObservationRequests().map(\.refresh) == [.fast])
         #expect(await fixture.tracker.getLastRunTimestamp() != nil)
         #expect(fixture.dependencies.lastIncrementalRunTimestamp != nil)
     }
@@ -323,6 +392,8 @@ private struct CompositionFixture {
     let directory: URL
     let runtime: RunRuntimeFactory
     let store: TrackDataStore
+    let observer: MusicAppTestObserver
+    let planStore: FixPlanDataStore
 
     @MainActor
     func proposedChanges(configuration: AppConfiguration) async throws -> [ProposedChange] {
@@ -351,6 +422,24 @@ private struct CompositionFixture {
             planConfiguration.determinationOptions,
             YearRunScope()
         )
+    }
+}
+
+private struct PlanItemOutcome: Equatable {
+    let readID: String
+    let changeType: ChangeType
+    let oldValue: String?
+    let newValue: String?
+    let confidence: Int
+    let source: String
+
+    init(_ item: FixPlanItem) {
+        readID = item.identity.readID
+        changeType = item.changeType
+        oldValue = item.oldValue
+        newValue = item.newValue
+        confidence = item.confidence
+        source = item.source
     }
 }
 
@@ -390,7 +479,8 @@ private struct CompositionServices {
 @MainActor
 private func makeCompositionFixture(
     configuration: AppConfiguration,
-    track: Track
+    track: Track,
+    observedTrack: Track? = nil
 ) async throws -> CompositionFixture {
     let dependencies = AppDependencies(
         configurationLoader: { configuration },
@@ -398,6 +488,7 @@ private func makeCompositionFixture(
     )
     let services = try await makeCompositionServices(
         track: track,
+        observedTrack: observedTrack,
         discogsAccess: dependencies.discogsAccessStore
     )
     let directory = FileManager.default.temporaryDirectory
@@ -445,16 +536,20 @@ private func makeCompositionFixture(
         tracker: tracker,
         directory: directory,
         runtime: services.runtime,
-        store: services.store
+        store: services.store,
+        observer: services.observer,
+        planStore: services.planStore
     )
 }
 
 @MainActor
 private func makeCompositionServices(
     track: Track,
+    observedTrack: Track? = nil,
     discogsAccess: DiscogsAccessStore
 ) async throws -> CompositionServices {
-    let script = RuntimeScriptSpy(track: track)
+    let authoritativeTrack = observedTrack ?? track
+    let script = RuntimeScriptSpy(track: authoritativeTrack)
     let container = try ModelContainerFactory.createInMemory()
     let store = TrackDataStore(modelContainer: container)
     try await store.initialize()
@@ -465,7 +560,7 @@ private func makeCompositionServices(
     await mapper.seedKnownMappings([(musicKitTrack: track, appleScriptTrack: track)])
     return CompositionServices(
         script: script,
-        observer: MusicAppTestObserver(tracks: [track]),
+        observer: MusicAppTestObserver(tracks: [authoritativeTrack]),
         store: store,
         planStore: FixPlanDataStore(modelContainer: container),
         runStore: RunRecordDataStore(modelContainer: container),

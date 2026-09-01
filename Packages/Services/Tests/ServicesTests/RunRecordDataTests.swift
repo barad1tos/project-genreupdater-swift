@@ -565,7 +565,8 @@ struct RunRecordDataTests {
             startedAt: Date(timeIntervalSince1970: 300),
             finishedAt: Date(timeIntervalSince1970: 301),
             state: .completed,
-            syncSummary: ActivitySyncSummary(new: 1, modified: 0, identityChanged: 0, refreshed: 0, removed: 0)
+            syncSummary: ActivitySyncSummary(new: 1, modified: 0, identityChanged: 0, refreshed: 0, removed: 0),
+            input: RunRecordInput(intent: .previewFixes)
         ))
 
         let all = try await store.reports(matching: RunReportQuery())
@@ -584,6 +585,9 @@ struct RunRecordDataTests {
 
         let failedOnly = try await store.reports(matching: RunReportQuery(states: [.failed]))
         #expect(failedOnly.records.map(\.state) == [.failed])
+
+        let previewOnly = try await store.reports(matching: RunReportQuery(intent: .previewFixes))
+        #expect(previewOnly.records.map(\.startedAt) == [Date(timeIntervalSince1970: 300)])
 
         let limited = try await store.reports(matching: RunReportQuery(limit: 2))
         #expect(limited.records.count == 2)

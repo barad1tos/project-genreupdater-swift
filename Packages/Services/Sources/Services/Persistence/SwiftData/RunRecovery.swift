@@ -192,6 +192,7 @@ extension RunRecordDataStore {
             recoveryID: recoveryID,
             continuesRunID: continuesRunID,
             writeSummary: payload?.writeSummary ?? fallback?.writeSummary,
+            mirrorMaintenanceCount: payload?.mirrorMaintenanceCount ?? fallback?.mirrorMaintenanceCount ?? 0,
             preservingVersion: payload?.version ?? fallback?.version
         ))
         row.failureMessage = Self.corruptedRecoveryMessage(
@@ -239,6 +240,7 @@ extension RunRecordDataStore {
             recoveryID: recoveryID,
             continuesRunID: continuesRunID,
             writeSummary: payload?.writeSummary ?? fallback?.writeSummary,
+            mirrorMaintenanceCount: payload?.mirrorMaintenanceCount ?? fallback?.mirrorMaintenanceCount ?? 0,
             preservingVersion: payload?.version ?? fallback?.version
         ))
         row.finishedAt = max(storedFinish ?? finishedAt, terminalTime)

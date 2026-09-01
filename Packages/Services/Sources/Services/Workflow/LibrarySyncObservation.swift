@@ -4,9 +4,7 @@ import Foundation
 enum LibrarySyncObservationError: Error, Equatable, LocalizedError, Sendable {
     case nonCanonicalMirror(trackID: String)
     case invalidObservation(detail: String)
-    case ambiguousLegacyIdentity(sourceID: String, candidateIDs: [String])
     case unresolvedLegacyIdentities(sourceIDs: [String])
-    case duplicateRepairTarget(targetID: String, sourceIDs: [String])
     case repairTargetCollision(sourceID: String, targetID: String)
 
     var errorDescription: String? {
@@ -15,12 +13,8 @@ enum LibrarySyncObservationError: Error, Equatable, LocalizedError, Sendable {
             "Stored track \(trackID) does not have canonical Music database identity"
         case let .invalidObservation(detail):
             "Music.app observation is inconsistent: \(detail)"
-        case let .ambiguousLegacyIdentity(sourceID, candidateIDs):
-            "Stored track \(sourceID) ambiguously matches Music database IDs: \(candidateIDs.joined(separator: ", "))"
         case let .unresolvedLegacyIdentities(sourceIDs):
             "Stored tracks have no unique current Music database identity: \(sourceIDs.joined(separator: ", "))"
-        case let .duplicateRepairTarget(targetID, sourceIDs):
-            "Stored tracks \(sourceIDs.joined(separator: ", ")) claim the same Music database ID \(targetID)"
         case let .repairTargetCollision(sourceID, targetID):
             "Stored track \(sourceID) cannot repair to occupied Music database ID \(targetID)"
         }
@@ -34,6 +28,8 @@ struct SyncDetection {
     let certificateChange: CertificateChange
     let inventoryChange: InventoryChange
     let repairs: [TrackMirrorRepair]
+    let retiredAliasIDs: [String]
+    let removedAliasTracks: [Track]
     let upserts: [Track]
     let previousTracks: [String: Track]
     let didCompleteForceRefresh: Bool
@@ -183,6 +179,8 @@ extension LibrarySyncService {
         context: DetectionContext
     ) throws -> SyncDetection {
         let repair = try planRepair(legacyTracks: context.repairCandidates, observation: observation)
+        let removedAliasIDs = Set(repair.retiredAliasIDs + repair.repairs.flatMap(\.sourceIDs))
+        let removedAliasTracks = context.repairCandidates.filter { removedAliasIDs.contains($0.id) }
         var mirrorBaseline = context.canonicalStored
         mirrorBaseline.merge(repair.baseline) { existing, _ in existing }
         let classification = try reconcile(
@@ -191,10 +189,7 @@ extension LibrarySyncService {
             scopedStoredIDs: Set(context.scopedByID.keys).union(repair.baseline.keys),
             configuration: context.configuration
         )
-        let ordinaryUpserts = upsertsExcludingRepairs(
-            classification.upserts,
-            repairedIDs: Set(repair.baseline.keys)
-        )
+        let ordinaryUpserts = upsertsExcludingRepairs(classification.upserts, repairedIDs: Set(repair.baseline.keys))
         var projectedMirror = mirrorBaseline
         for track in ordinaryUpserts {
             guard let databaseID = track.databaseID else { continue }
@@ -211,7 +206,7 @@ extension LibrarySyncService {
             baseRevision: context.snapshot.revision,
             previousReadiness: context.readiness,
             certifiedIDs: certifiedIDs,
-            hasTrackMutations: !repair.repairs.isEmpty || !ordinaryUpserts.isEmpty,
+            hasTrackMutations: !repair.repairs.isEmpty || !repair.retiredAliasIDs.isEmpty || !ordinaryUpserts.isEmpty,
             configuration: context.configuration
         ))
         let inventoryTransition = try inventoryChange(
@@ -231,6 +226,8 @@ extension LibrarySyncService {
             certificateChange: certificateTransition,
             inventoryChange: inventoryTransition,
             repairs: repair.repairs,
+            retiredAliasIDs: repair.retiredAliasIDs,
+            removedAliasTracks: removedAliasTracks,
             upserts: ordinaryUpserts,
             previousTracks: Dictionary(uniqueKeysWithValues: mirrorBaseline.map {
                 ($0.key.rawValue, $0.value)
@@ -439,6 +436,7 @@ extension LibrarySyncService {
 
     private struct MirrorRepair {
         let repairs: [TrackMirrorRepair]
+        let retiredAliasIDs: [String]
         let baseline: [MusicDatabaseTrackID: Track]
     }
 
@@ -447,7 +445,7 @@ extension LibrarySyncService {
         observation: LibraryObservation
     ) throws -> MirrorRepair {
         guard !legacyTracks.isEmpty else {
-            return MirrorRepair(repairs: [], baseline: [:])
+            return MirrorRepair(repairs: [], retiredAliasIDs: [], baseline: [:])
         }
 
         let observedRows = Dictionary(uniqueKeysWithValues: observation.tracks.map { ($0.databaseID, $0) })
@@ -456,81 +454,92 @@ extension LibrarySyncService {
         for legacy in legacyTracks.sorted(by: { $0.id < $1.id }) {
             if let directID = legacy.databaseID, observedRows[directID] != nil {
                 repairTargets[legacy.id] = directID
+            } else if legacy.databaseID == nil, let targetID = MusicDatabaseTrackID(rawValue: legacy.id),
+                      observedRows[targetID] != nil {
+                repairTargets[legacy.id] = targetID
             } else {
                 unresolvedTracks.append(legacy)
             }
         }
-
         if !unresolvedTracks.isEmpty {
-            let observedTracks = try observation.tracks.map { try track(from: $0, preserving: nil) }
-            let resolution = TrackIDMapper.resolve(
+            let hasAuthoritativeCandidates = observation.scope.source == .fullLibrary
+                && hasCompleteMembership(observation) && observation.identity.isComplete
+                && hasCompleteMetadata(observation)
+            let observedTracks = hasAuthoritativeCandidates
+                ? try observation.tracks.map { try track(from: $0, preserving: nil) }
+                : []
+            let resolution = TrackIDMapper.resolveAliases(
                 sourceTracks: unresolvedTracks,
                 targetTracks: observedTracks
             )
-            if let sourceID = resolution.ambiguous.keys.min(),
-               let candidateIDs = resolution.ambiguous[sourceID] {
-                throw LibrarySyncObservationError.ambiguousLegacyIdentity(
-                    sourceID: sourceID,
-                    candidateIDs: candidateIDs
-                )
-            }
-            guard resolution.unresolved.isEmpty else {
-                throw LibrarySyncObservationError.unresolvedLegacyIdentities(
-                    sourceIDs: resolution.unresolved
-                )
-            }
             for (sourceID, target) in resolution.matches {
                 guard let databaseID = target.databaseID else {
                     throw LibrarySyncObservationError.unresolvedLegacyIdentities(sourceIDs: [sourceID])
                 }
                 repairTargets[sourceID] = databaseID
             }
+            let retiredAliasIDs = hasAuthoritativeCandidates
+                ? resolution.ambiguous.keys.sorted() + resolution.unresolved
+                : []
+            return try makeMirrorRepair(
+                legacyTracks: legacyTracks,
+                observedRows: observedRows,
+                repairTargets: repairTargets,
+                retiredAliasIDs: retiredAliasIDs
+            )
         }
-
-        try validateRepairTargets(
+        return try makeMirrorRepair(
+            legacyTracks: legacyTracks,
+            observedRows: observedRows,
             repairTargets: repairTargets,
-            legacyTracks: legacyTracks
+            retiredAliasIDs: []
         )
+    }
 
+    private func makeMirrorRepair(
+        legacyTracks: [Track],
+        observedRows: [MusicDatabaseTrackID: LibraryTrackRow],
+        repairTargets: [String: MusicDatabaseTrackID],
+        retiredAliasIDs: [String]
+    ) throws -> MirrorRepair {
+        try validateRepairTargets(repairTargets: repairTargets, legacyTracks: legacyTracks)
+        let legacyByID = Dictionary(uniqueKeysWithValues: legacyTracks.map { ($0.id, $0) })
+        var groupedSources: [MusicDatabaseTrackID: [String]] = [:]
+        for (sourceID, targetID) in repairTargets {
+            groupedSources[targetID, default: []].append(sourceID)
+        }
         var repairs: [TrackMirrorRepair] = []
         var baseline: [MusicDatabaseTrackID: Track] = [:]
-        for legacy in legacyTracks.sorted(by: { $0.id < $1.id }) {
-            guard let targetID = repairTargets[legacy.id],
+        for targetID in groupedSources.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+            let sourceIDs = groupedSources[targetID, default: []].sorted()
+            guard let sourceID = sourceIDs.first,
+                  let legacy = legacyByID[sourceID],
                   let row = observedRows[targetID]
             else {
-                throw LibrarySyncObservationError.unresolvedLegacyIdentities(sourceIDs: [legacy.id])
+                throw LibrarySyncObservationError.unresolvedLegacyIdentities(sourceIDs: sourceIDs)
             }
             let target = try track(from: row, preserving: legacy)
             baseline[targetID] = reidentified(legacy, as: targetID)
-            repairs.append(TrackMirrorRepair(sourceID: legacy.id, target: target))
+            repairs.append(TrackMirrorRepair(sourceIDs: sourceIDs, target: target))
         }
-        return MirrorRepair(repairs: repairs, baseline: baseline)
+        return MirrorRepair(
+            repairs: repairs,
+            retiredAliasIDs: retiredAliasIDs.sorted(),
+            baseline: baseline
+        )
     }
 
     private func validateRepairTargets(
         repairTargets: [String: MusicDatabaseTrackID],
         legacyTracks: [Track]
     ) throws {
-        var repairClaims: [MusicDatabaseTrackID: [String]] = [:]
-        for (sourceID, targetID) in repairTargets {
-            repairClaims[targetID, default: []].append(sourceID)
-        }
-        if let duplicate = repairClaims
-            .compactMap({ target, sources -> (MusicDatabaseTrackID, [String])? in
-                guard sources.count > 1 else { return nil }
-                return (target, sources.sorted())
-            })
-            .min(by: { $0.0.rawValue < $1.0.rawValue }) {
-            throw LibrarySyncObservationError.duplicateRepairTarget(
-                targetID: duplicate.0.rawValue,
-                sourceIDs: duplicate.1
-            )
-        }
-
         let sourceIDs = Set(legacyTracks.map(\.id))
         for sourceID in repairTargets.keys.sorted() {
             guard let targetID = repairTargets[sourceID] else { continue }
-            let collidesWithLegacy = targetID.rawValue != sourceID && sourceIDs.contains(targetID.rawValue)
+            let isTargetOccupantIncluded = repairTargets[targetID.rawValue] == targetID
+            let collidesWithLegacy = targetID.rawValue != sourceID
+                && sourceIDs.contains(targetID.rawValue)
+                && !isTargetOccupantIncluded
             guard !collidesWithLegacy else {
                 throw LibrarySyncObservationError.repairTargetCollision(
                     sourceID: sourceID,

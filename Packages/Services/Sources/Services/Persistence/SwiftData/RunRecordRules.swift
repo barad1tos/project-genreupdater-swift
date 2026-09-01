@@ -60,7 +60,10 @@ extension RunRecordDataStore {
         }
     }
 
-    func decodeSyncSummary(from persisted: PersistedRunRecord) -> ActivitySyncSummary? {
+    func decodeSyncSummary(
+        from persisted: PersistedRunRecord,
+        mirrorMaintenanceCount: Int
+    ) -> ActivitySyncSummary? {
         guard let new = persisted.syncNewCount,
               let modified = persisted.syncModifiedCount,
               let identityChanged = persisted.syncIdentityChangedCount,
@@ -73,7 +76,8 @@ extension RunRecordDataStore {
             modified: modified,
             identityChanged: identityChanged,
             refreshed: refreshed,
-            removed: removed
+            removed: removed,
+            mirrorMaintenanceCount: mirrorMaintenanceCount
         )
     }
 

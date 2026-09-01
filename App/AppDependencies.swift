@@ -588,62 +588,6 @@ final class AppDependencies {
         return checkpoint
     }
 
-    func refreshFixPlanProjection() async -> FixPlanProjection {
-        let inputGeneration = await projectionStore.nextFixPlanInputGeneration()
-        let projection: FixPlanProjection
-        do {
-            projection = try await latestFixPlanProjection()
-        } catch {
-            projection = .unavailable(message: error.localizedDescription)
-        }
-        return await projectionStore.replaceFixPlanProjection(projection, inputGeneration: inputGeneration)
-    }
-
-    func refreshFixPlanFromStore() async throws -> FixPlanProjection {
-        let inputGeneration = await projectionStore.nextFixPlanInputGeneration()
-        let projection = try await latestFixPlanProjection()
-        return await projectionStore.replaceFixPlanProjection(projection, inputGeneration: inputGeneration)
-    }
-
-    private func latestFixPlanProjection() async throws -> FixPlanProjection {
-        guard let fixPlanStore else {
-            return .empty()
-        }
-        guard let plan = try await fixPlanStore.latestPlan() else {
-            return .empty()
-        }
-        guard let decision = try await fixPlanStore.currentDecision(for: plan.id) else {
-            return .unavailable(
-                message: "Review decision is missing for fix plan \(plan.id.rawValue.uuidString)"
-            )
-        }
-
-        let now = Date()
-        let currentScope = ProcessingScopeSnapshot.capture(
-            requestedTestArtists: config.development.testArtists,
-            knownTrackCount: nil,
-            createdAt: now,
-            reason: "fixPlanProjectionRefresh"
-        )
-        let currentConfiguration = captureFixPlanConfig(
-            at: now,
-            hasDiscogsAccess: isDiscogsAccessAvailable ?? plan.configuration.hasDiscogsAccess,
-            // The album target is the plan's identity, not a live setting:
-            // staleness must compare the rest of the configuration against
-            // the same target, or every targeted plan is instantly stale.
-            albumTarget: plan.configuration.albumTarget
-        )
-        return FixPlanProjector.makeProjection(
-            plan: plan,
-            decision: decision,
-            staleness: FixPlanStaleness.evaluate(
-                plan: plan,
-                currentScope: currentScope,
-                currentConfiguration: currentConfiguration
-            )
-        )
-    }
-
     func runHistoryLimit() -> Int {
         config.reporting.runHistoryLimit
     }

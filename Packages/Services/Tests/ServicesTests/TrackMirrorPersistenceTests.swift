@@ -58,7 +58,7 @@ struct TrackMirrorPersistenceTests {
         #expect(snapshot.certificates.isEmpty)
     }
 
-    @Test("Mirror revision advances across commits and survives relaunch")
+    @Test("Mirror and content revisions survive relaunch independently")
     func revisionPersists() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TrackMirrorRevision-\(UUID().uuidString)", isDirectory: true)
@@ -75,7 +75,8 @@ struct TrackMirrorPersistenceTests {
                 inventoryChange: replacementInventory(for: initialTracks),
                 repairs: [],
                 upserts: initialTracks,
-                certificates: .invalidate(.membershipChanged)
+                certificates: .invalidate(.membershipChanged),
+                effects: [.refreshProjections]
             ))
             let second = try await store.commitMirror(MirrorCommit(
                 baseRevision: first.revision,
@@ -94,6 +95,7 @@ struct TrackMirrorPersistenceTests {
             try await relaunched.initialize()
             expectedSnapshot = try await relaunched.loadMirrorSnapshot()
             #expect(expectedSnapshot.revision == MirrorRevision(value: 2))
+            #expect(expectedSnapshot.contentRevision == MirrorRevision(value: 1))
             #expect(expectedSnapshot.certificates.isEmpty)
 
             await #expect(throws: MirrorRevisionConflict(
@@ -117,6 +119,32 @@ struct TrackMirrorPersistenceTests {
         let reopened = try TrackDataStore(modelContainer: makeContainer(at: url))
         try await reopened.initialize()
         #expect(try await reopened.loadMirrorSnapshot() == expectedSnapshot)
+    }
+
+    @Test("Projection content revision advances only for content-changing effects")
+    func contentRevisionTracksProjectionChanges() async throws {
+        let store = try TrackDataStore(modelContainer: ModelContainerFactory.createInMemory())
+        try await store.initialize()
+
+        let changed = try await store.commitMirror(MirrorCommit(
+            baseRevision: .initial,
+            inventoryChange: .preserve,
+            repairs: [],
+            upserts: [],
+            certificates: .preserve,
+            effects: [.refreshProjections]
+        ))
+        let unchanged = try await store.commitMirror(MirrorCommit(
+            baseRevision: changed.revision,
+            inventoryChange: .preserve,
+            repairs: [],
+            upserts: [],
+            certificates: .preserve
+        ))
+
+        #expect(changed.snapshot.contentRevision == changed.revision)
+        #expect(unchanged.snapshot.revision == MirrorRevision(value: 2))
+        #expect(unchanged.snapshot.contentRevision == changed.revision)
     }
 
     @Test("A mirror commit returns the exact snapshot accepted by its transaction")

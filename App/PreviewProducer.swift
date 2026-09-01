@@ -9,11 +9,12 @@ extension AppDependencies {
     func captureFixPlanConfig(
         at date: Date,
         hasDiscogsAccess: Bool,
+        forceYearLookup: Bool = false,
         albumTarget: FixPlanAlbumTarget? = nil
     ) -> FixPlanConfig {
         FixPlanConfig.capture(
             configuration: config,
-            options: previewRunOptions(),
+            options: previewRunOptions(forceYearLookup: forceYearLookup),
             capturedAt: date,
             discogsCredentialRevision: DiscogsClient.credentialRevision,
             hasDiscogsAccess: hasDiscogsAccess,
@@ -74,12 +75,13 @@ extension AppDependencies {
         }
     }
 
-    func previewRunOptions() -> UpdateOptions {
+    func previewRunOptions(forceYearLookup: Bool = false) -> UpdateOptions {
         let selection = config.processing.defaultUpdateBehavior.enabledTargets
         return PreviewRunOptions.make(
             configuration: config,
             updateGenre: selection.updateGenre,
-            updateYear: selection.updateYear
+            updateYear: selection.updateYear,
+            forceYearLookup: forceYearLookup
         )
     }
 }

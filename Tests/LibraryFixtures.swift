@@ -528,6 +528,9 @@ actor RunRecordStoreStub: RunRecordStore {
         if let trigger = query.trigger, record.trigger != trigger {
             return false
         }
+        if let intent = query.intent, record.intent != intent {
+            return false
+        }
         return true
     }
 }

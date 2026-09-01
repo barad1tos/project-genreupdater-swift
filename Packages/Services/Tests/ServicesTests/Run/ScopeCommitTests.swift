@@ -44,7 +44,7 @@ struct ScopeCommitTests {
         )
         let orchestrator = RunOrchestrator(dependencies: .init(
             synchronizeLibrary: { scope in SyncResult().committed(to: scope) },
-            synchronizePreview: { scope, _ in
+            synchronizePreview: { scope, _, _ in
                 SyncResult(scope: scope.binding(
                     revision: MirrorRevision(value: 11),
                     certificateID: UUID(uuidString: "00000000-0000-0000-0000-000000000011")

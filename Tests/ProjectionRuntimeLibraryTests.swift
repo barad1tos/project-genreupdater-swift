@@ -13,8 +13,8 @@ struct ProjectionRuntimeLibraryTests {
         case unavailable
     }
 
-    @Test("projection refresh reloads the physical catalog before publishing the committed mirror")
-    func refreshReloadsCatalog() async throws {
+    @Test("mirror projection refresh leaves the physical catalog to its own load chain")
+    func mirrorRefreshPreservesCatalog() async throws {
         let catalog = CatalogProbe(tracks: [
             catalogTrack(id: "OLD", title: "Old Song", artist: "Old Artist", album: "Old Album"),
         ])
@@ -44,47 +44,39 @@ struct ProjectionRuntimeLibraryTests {
 
         await dependencies.mirrorEffectDrain?.drain()
 
-        #expect(await catalog.loadCount() == 2)
-        #expect(dependencies.catalogSnapshot?.tracks.map(\.title) == ["New Song"])
-        let browse = await dependencies.projectionStore.currentBrowse()
-        #expect(browse.artists.map(\.name) == ["New Artist"])
+        #expect(await catalog.loadCount() == 1)
+        #expect(dependencies.catalogSnapshot?.tracks.map(\.title) == ["Old Song"])
         #expect(try await store.pendingMirrorEffects().isEmpty)
     }
 
-    @Test("a superseded catalog refresh retains the durable mirror effect")
-    func supersededRefreshRetainsEffect() async throws {
-        let catalog = CatalogProbe(tracks: [
-            catalogTrack(id: "OLD", title: "Old Song", artist: "Old Artist", album: "Old Album"),
-        ])
+    @Test("mirror projection refresh clears the active plan without deleting its history")
+    func mirrorRefreshClearsActivePlan() async throws {
         let store = try TrackDataStore.createInMemory()
         try await store.initialize()
         let cache = try GRDBCacheService.createInMemory()
         try await cache.initialize()
-        let dependencies = AppDependencies(
-            configurationLoader: { AppConfiguration() },
-            musicCatalog: catalog
-        )
+        let dependencies = AppDependencies(configurationLoader: { AppConfiguration() })
+        let plan = try #require(try makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
+            at: Date(timeIntervalSince1970: 1_800_000_100),
+            hasDiscogsAccess: true
+        )))
+        let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
+        let planStore = StoredFixPlanStore(plan: plan, decision: decision)
         dependencies.configureLibraryPersistenceForTesting(
             trackStore: store,
             runRecordStore: RunRecordStoreStub(),
+            fixPlanStore: planStore,
             cache: cache
         )
-        await dependencies.refreshArtistCatalog()
-        await catalog.blockNextLoad()
+        _ = await dependencies.refreshFixPlanProjection()
+        #expect(await dependencies.projectionStore.fixPlanProjection().status == .ready)
         try await enqueueProjectionRefresh(in: store)
 
-        let drain = Task { await dependencies.mirrorEffectDrain?.drain() }
-        await catalog.waitUntilBlockedLoadStarts()
-        await catalog.replaceTracks([
-            catalogTrack(id: "NEW", title: "New Song", artist: "New Artist", album: "New Album"),
-        ])
-        await dependencies.refreshArtistCatalog()
-        await catalog.releaseBlockedLoad()
-        await drain.value
+        await dependencies.mirrorEffectDrain?.drain()
 
-        #expect(dependencies.catalogSnapshot?.tracks.map(\.title) == ["New Song"])
-        #expect(try await store.pendingMirrorEffects().count == 1)
-        #expect(dependencies.mirrorEffectDrainIssue?.category == .temporaryUnavailable)
+        #expect(await dependencies.projectionStore.fixPlanProjection().status == .empty)
+        #expect(try await planStore.latestPlan() == plan)
+        #expect(try await store.pendingMirrorEffects().isEmpty)
     }
 
     @Test("the backend load chain publishes library facts headlessly")

@@ -6,6 +6,26 @@ import Testing
 
 @Suite("Run payload persistence")
 struct RunPayloadTests {
+    @Test("legacy sync summaries decode without mirror maintenance")
+    func decodesLegacySyncSummary() throws {
+        let data = Data(#"{"new":1,"modified":2,"identityChanged":3,"refreshed":4,"removed":5}"#.utf8)
+
+        let summary = try JSONDecoder().decode(ActivitySyncSummary.self, from: data)
+
+        #expect(summary.changeCount == 15)
+        #expect(summary.mirrorMaintenanceCount == 0)
+        #expect(summary.hasMirrorChanges)
+    }
+
+    @Test("recovery payload preserves mirror maintenance evidence")
+    func recoveryPayloadPreservesMirrorMaintenance() throws {
+        let data = Data(#"{"version":4,"transitions":[],"workItems":[],"mirrorMaintenanceCount":2}"#.utf8)
+
+        let payload = try JSONDecoder().decode(RecoveryPayload.self, from: data)
+
+        #expect(payload.mirrorMaintenanceCount == 2)
+    }
+
     @Test("upsert inserts and loadAll round-trips all fields")
     func roundTripsAllFields() async throws {
         let store = try makeRunStore()
@@ -19,7 +39,14 @@ struct RunPayloadTests {
             startedAt: Date(timeIntervalSince1970: 100),
             finishedAt: Date(timeIntervalSince1970: 104),
             state: .completed,
-            syncSummary: ActivitySyncSummary(new: 2, modified: 1, identityChanged: 0, refreshed: 1, removed: 3),
+            syncSummary: ActivitySyncSummary(
+                new: 2,
+                modified: 1,
+                identityChanged: 0,
+                refreshed: 1,
+                removed: 3,
+                mirrorMaintenanceCount: 2
+            ),
             input: RunRecordInput(
                 intent: .writeFixes,
                 writeTarget: writeTarget,

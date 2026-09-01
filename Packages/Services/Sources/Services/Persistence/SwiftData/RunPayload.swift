@@ -37,6 +37,7 @@ struct RunRecordPayload: Codable {
     let recoveryID: UUID?
     let continuesRunID: RunID?
     let writeSummary: RunWriteSummary?
+    let mirrorMaintenanceCount: Int
 
     init(record: RunRecord, preservingVersion storedVersion: Int? = nil) {
         version = Self.recordVersion(
@@ -50,6 +51,7 @@ struct RunRecordPayload: Codable {
         recoveryID = record.recoveryID
         continuesRunID = record.continuesRunID
         writeSummary = record.writeSummary
+        mirrorMaintenanceCount = record.syncSummary?.mirrorMaintenanceCount ?? 0
     }
 
     /// Rebuilds a payload from parts; the schema version is derived from the
@@ -63,6 +65,7 @@ struct RunRecordPayload: Codable {
         recoveryID: UUID?,
         continuesRunID: RunID?,
         writeSummary: RunWriteSummary?,
+        mirrorMaintenanceCount: Int = 0,
         preservingVersion storedVersion: Int? = nil
     ) {
         version = Self.recoveryVersion(
@@ -77,6 +80,7 @@ struct RunRecordPayload: Codable {
         self.recoveryID = recoveryID
         self.continuesRunID = continuesRunID
         self.writeSummary = writeSummary
+        self.mirrorMaintenanceCount = mirrorMaintenanceCount
     }
 
     private static func recordVersion(
@@ -107,6 +111,7 @@ struct RunRecordPayload: Codable {
     private enum CodingKeys: String, CodingKey {
         case version, transitions, workItems, configuration, writeTarget, recoveryID, writeSummary
         case continuesRunID
+        case mirrorMaintenanceCount
     }
 
     init(from decoder: any Decoder) throws {
@@ -136,6 +141,7 @@ struct RunRecordPayload: Codable {
         recoveryID = try container.decodeIfPresent(UUID.self, forKey: .recoveryID)
         continuesRunID = try container.decodeIfPresent(RunID.self, forKey: .continuesRunID)
         writeSummary = try container.decodeIfPresent(RunWriteSummary.self, forKey: .writeSummary)
+        mirrorMaintenanceCount = try container.decodeIfPresent(Int.self, forKey: .mirrorMaintenanceCount) ?? 0
     }
 }
 
@@ -157,12 +163,14 @@ struct RecoveryPayload: Decodable {
     let recoveryID: UUID?
     let continuesRunID: RunID?
     let writeSummary: RunWriteSummary?
+    let mirrorMaintenanceCount: Int?
     let hasMalformedItems: Bool
     let isWriteRecoveryRequired: Bool
 
     private enum CodingKeys: String, CodingKey {
         case version, transitions, workItems, configuration, writeTarget, recoveryID, writeSummary
         case continuesRunID
+        case mirrorMaintenanceCount
     }
 
     init(from decoder: any Decoder) throws {
@@ -175,6 +183,7 @@ struct RecoveryPayload: Decodable {
         let recoveryIDField = Self.decode(UUID.self, forKey: .recoveryID, from: container)
         let continuesRunIDField = Self.decode(RunID.self, forKey: .continuesRunID, from: container)
         let writeSummaryField = Self.decode(RunWriteSummary.self, forKey: .writeSummary, from: container)
+        let mirrorMaintenanceField = Self.decode(Int.self, forKey: .mirrorMaintenanceCount, from: container)
 
         let decodedVersion = versionField.value
         let decodedConfiguration = configurationField.value
@@ -194,6 +203,7 @@ struct RecoveryPayload: Decodable {
         recoveryID = recoveryIDField.value
         continuesRunID = continuesRunIDField.value
         writeSummary = writeSummaryField.value
+        mirrorMaintenanceCount = mirrorMaintenanceField.value
 
         hasMalformedItems = (supportsWorkItems && (workItemsField.value == nil || workItemsField.isMalformed))
             || hasUnknownItemAudit
@@ -205,6 +215,7 @@ struct RecoveryPayload: Decodable {
             || recoveryIDField.isMalformed
             || continuesRunIDField.isMalformed
             || writeSummaryField.isMalformed
+            || mirrorMaintenanceField.isMalformed
         let hasInvalidVersion = decodedVersion.map {
             $0 < RunRecordPayload.legacyVersion || $0 > RunRecordPayload.currentVersion
         } ?? true

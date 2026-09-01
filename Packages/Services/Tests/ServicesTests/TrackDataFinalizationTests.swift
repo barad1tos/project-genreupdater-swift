@@ -86,8 +86,10 @@ extension TrackDataTests {
         let revision = try await store.commitObservedChange(change)
 
         let storedTrack = try #require(try await store.getTrack(byID: "T001"))
+        let snapshot = try await store.loadMirrorSnapshot()
         let history = try context.fetch(FetchDescriptor<PersistedChangeLogEntry>())
         #expect(revision == MirrorRevision(value: 2))
+        #expect(snapshot.contentRevision == revision)
         #expect(storedTrack.appleScriptID == "T001")
         #expect(storedTrack.yearBeforeMGU == nil)
         #expect(history.isEmpty)

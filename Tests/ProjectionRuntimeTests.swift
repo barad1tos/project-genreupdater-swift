@@ -281,12 +281,15 @@ struct ProjectionRuntimeTests {
     @Test("a terminal preview boundary refreshes the fix plan")
     func previewTerminalRefreshesFixPlan() async throws {
         let dependencies = makeDependencies()
+        let trackStore = try TrackDataStore.createInMemory()
+        try await trackStore.initialize()
         let plan = try #require(try makeStoredFixPlan(configuration: dependencies.captureFixPlanConfig(
             at: Date(timeIntervalSince1970: 1_800_000_100),
             hasDiscogsAccess: true
         )))
         let decision = FixPlanReviewer.initialDecision(for: plan, at: Date(timeIntervalSince1970: 1_800_000_101))
         dependencies.configureLibraryPersistenceForTesting(
+            trackStore: trackStore,
             fixPlanStore: StoredFixPlanStore(plan: plan, decision: decision)
         )
         let baseline = await dependencies.projectionStore.fixPlanProjection().revision
@@ -296,7 +299,9 @@ struct ProjectionRuntimeTests {
             intent: .previewFixes
         ))
 
-        #expect(await dependencies.projectionStore.fixPlanProjection().revision != baseline)
+        let projection = await dependencies.projectionStore.fixPlanProjection()
+        #expect(projection.status == .ready)
+        #expect(projection.revision != baseline)
     }
 
     @Test("chrome falls back to the orchestrator probe before the observer runs")

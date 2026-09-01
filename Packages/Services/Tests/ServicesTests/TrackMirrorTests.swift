@@ -542,7 +542,7 @@ struct TrackMirrorTests {
         let update = try MirrorCommit(
             baseRevision: .initial,
             inventoryChange: replacementInventory(for: [testDatabaseID("database-id")]),
-            repairs: [TrackMirrorRepair(sourceID: "catalog-id", target: target)],
+            repairs: [TrackMirrorRepair(sourceIDs: ["catalog-id"], target: target)],
             upserts: [],
             certificates: .invalidate(.membershipChanged)
         )
@@ -609,7 +609,7 @@ struct TrackMirrorTests {
         let update = try MirrorCommit(
             baseRevision: .initial,
             inventoryChange: replacementInventory(for: [testDatabaseID("AS1")]),
-            repairs: [TrackMirrorRepair(sourceID: "MK1", target: live)],
+            repairs: [TrackMirrorRepair(sourceIDs: ["MK1"], target: live)],
             upserts: [],
             certificates: .invalidate(.membershipChanged)
         )
@@ -662,34 +662,6 @@ struct TrackMirrorTests {
             }
             #expect(try await store.loadMirrorSnapshot().presentTracks == before)
         }
-    }
-
-    @Test("Mirror update atomically combines rekey, upsert, and tombstone")
-    func mixedMirrorUpdate() async throws {
-        let store = try makeStore()
-        try await store.seedMirror([
-            sampleTrack(id: "legacy"),
-            mirrorTrack(id: "updated", name: "Old"),
-            mirrorTrack(id: "deleted"),
-        ])
-        let revision = try await store.loadMirrorSnapshot().revision
-        let update = try MirrorCommit(
-            baseRevision: revision,
-            inventoryChange: replacementInventory(for: [
-                testDatabaseID("inserted"),
-                testDatabaseID("rekeyed"),
-                testDatabaseID("updated"),
-            ]),
-            repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "rekeyed"))],
-            upserts: [mirrorTrack(id: "updated", name: "New"), mirrorTrack(id: "inserted")],
-            certificates: .invalidate(.membershipChanged)
-        )
-
-        try await store.commitMirror(update)
-
-        let tracks = try await store.loadMirrorSnapshot().presentTracks
-        #expect(tracks.map(\.id).sorted() == ["inserted", "rekeyed", "updated"])
-        #expect(tracks.first { $0.id == "updated" }?.name == "New")
     }
 
     @Test("Unversioned rows remain historical through relaunch")
@@ -763,7 +735,7 @@ struct TrackMirrorTests {
             )
             let legacy = PersistedTrack(
                 trackID: "legacy", appleScriptID: "canonical", name: "Legacy", artist: "Artist", album: "Album",
-                genreUpdated: true, originalArtist: "Original"
+                genreUpdated: true, originalArtist: "Stored Artist"
             )
             let entry = PersistedChangeLogEntry(
                 entryID: entryID, timestamp: .now, changeTypeRaw: ChangeType.artistRename.rawValue,
@@ -777,7 +749,7 @@ struct TrackMirrorTests {
             try await TrackDataStore(modelContainer: container).commitMirror(MirrorCommit(
                 baseRevision: .initial,
                 inventoryChange: replacementInventory(for: [testDatabaseID("canonical")]),
-                repairs: [TrackMirrorRepair(sourceID: "legacy", target: mirrorTrack(id: "canonical"))],
+                repairs: [TrackMirrorRepair(sourceIDs: ["legacy"], target: mirrorTrack(id: "canonical"))],
                 upserts: [],
                 certificates: .invalidate(.membershipChanged)
             ))

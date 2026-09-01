@@ -17,6 +17,7 @@ struct ActivityCommands {
     ) async throws -> Void
     let queueManualReload: (RunID) -> Void
     let reloadLibrary: (_ forceRefresh: Bool) async -> Void
+    let refreshFixPlanProjection: () async -> Void
     let refreshActivityProjection: () async -> ActivityProjection
     let runRecoveryPreflight: (RunID) async -> RecoveryPreflightOutcome
     let currentFixPlanID: () -> String?
@@ -548,19 +549,14 @@ struct ActivityCommands {
                 message: copy.queued,
                 refreshedActivityProjection: projection
             )
-        case let .completed(snapshot):
-            // Read-only view refresh; metadata writes remain gated by the observe-only run.
-            await reloadLibrary(true)
-            let projection = await refreshActivityProjection()
-            let changeCount = snapshot.syncResult?.changeCount ?? 0
+        case .completed:
+            let projection = await refreshRunProjection()
             return .accepted(
-                message: copy.completedMessage(changeCount: changeCount),
+                message: copy.completedMessage(candidateFixCount: projection.deltaCount),
                 refreshedActivityProjection: projection
             )
         case .completedNoOp:
-            // Read-only view refresh; metadata writes remain gated by the observe-only run.
-            await reloadLibrary(true)
-            let projection = await refreshActivityProjection()
+            let projection = await refreshRunProjection()
             return .noOp(
                 message: copy.noChanges,
                 refreshedActivityProjection: projection
@@ -596,6 +592,13 @@ struct ActivityCommands {
         }
     }
 
+    private func refreshRunProjection() async -> ActivityProjection {
+        // The preview pipeline never writes Music metadata, but it may replace or clear the stored fix plan.
+        await reloadLibrary(true)
+        await refreshFixPlanProjection()
+        return await refreshActivityProjection()
+    }
+
     private func manualRecoveryResult(summary: String, detail: String) async -> UserCommandResult {
         let projection = await refreshActivityProjection()
         return .blockedByRecovery(
@@ -618,7 +621,7 @@ struct ActivityCommands {
                 queued: "Manual check queued after current run.",
                 unavailable: "Manual check is no longer available.",
                 cancelled: "Manual check cancelled.",
-                noChanges: "No library changes detected.",
+                noChanges: "No candidate fixes found.",
                 failedSummary: "Manual check failed",
                 failedIssueID: "manual-check-failed",
                 completed: .standard
@@ -630,7 +633,7 @@ struct ActivityCommands {
                 queued: "Library check queued after current run.",
                 unavailable: "Library check is no longer available.",
                 cancelled: "Library check cancelled · writes remain held.",
-                noChanges: "No library changes detected · writes remain held.",
+                noChanges: "No candidate fixes found · writes remain held.",
                 failedSummary: "Library check failed",
                 failedIssueID: "library-check-failed",
                 completed: .libraryCheck
@@ -652,8 +655,8 @@ struct ActivityCommands {
             "\(failedSummary)."
         }
 
-        func completedMessage(changeCount: Int) -> String {
-            completed.message(changeCount: changeCount)
+        func completedMessage(candidateFixCount: Int) -> String {
+            completed.message(candidateFixCount: candidateFixCount)
         }
     }
 
@@ -661,13 +664,13 @@ struct ActivityCommands {
         case standard
         case libraryCheck
 
-        func message(changeCount: Int) -> String {
-            let changeLabel = changeCount == 1 ? "change" : "changes"
+        func message(candidateFixCount: Int) -> String {
+            let fixLabel = candidateFixCount == 1 ? "fix" : "fixes"
             switch self {
             case .standard:
-                return "Library delta detected · analyzing \(changeCount) \(changeLabel)."
+                return "Found \(candidateFixCount) candidate \(fixLabel)."
             case .libraryCheck:
-                return "Library check found \(changeCount) \(changeLabel) · writes remain held."
+                return "Found \(candidateFixCount) candidate \(fixLabel) · writes remain held."
             }
         }
     }

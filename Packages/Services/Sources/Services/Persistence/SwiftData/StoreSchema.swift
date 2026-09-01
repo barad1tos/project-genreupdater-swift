@@ -416,15 +416,25 @@ enum StoreSchemaV9: VersionedSchema {
     ]
 }
 
+enum StoreSchemaV10: VersionedSchema {
+    static let versionIdentifier = Schema.Version(10, 0, 0)
+
+    static let models: [any PersistentModel.Type] = StoreSchemaV9.models + [
+        PersistedContentRevision.self,
+    ]
+}
+
 enum StoreSchemaMigrationPlan: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
         StoreSchemaV7.self,
         StoreSchemaV8.self,
         StoreSchemaV9.self,
+        StoreSchemaV10.self,
     ]
 
     static let stages: [MigrationStage] = [
         .lightweight(fromVersion: StoreSchemaV7.self, toVersion: StoreSchemaV8.self),
         .lightweight(fromVersion: StoreSchemaV8.self, toVersion: StoreSchemaV9.self),
+        .lightweight(fromVersion: StoreSchemaV9.self, toVersion: StoreSchemaV10.self),
     ]
 }

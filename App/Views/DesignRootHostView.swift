@@ -937,6 +937,9 @@ extension DesignRootHostView {
             reloadLibrary: { forceRefresh in
                 await dependencies.loadLibrary(forceRefresh: forceRefresh)
             },
+            refreshFixPlanProjection: {
+                _ = await refreshFixPlanProjection()
+            },
             refreshActivityProjection: {
                 await refreshActivityProjection()
             },
