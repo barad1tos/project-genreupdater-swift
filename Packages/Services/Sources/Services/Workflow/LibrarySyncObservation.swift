@@ -461,9 +461,13 @@ extension LibrarySyncService {
                 unresolvedTracks.append(legacy)
             }
         }
-
         if !unresolvedTracks.isEmpty {
-            let observedTracks = try observation.tracks.map { try track(from: $0, preserving: nil) }
+            let hasAuthoritativeCandidates = observation.scope.source == .fullLibrary
+                && hasCompleteMembership(observation) && observation.identity.isComplete
+                && hasCompleteMetadata(observation)
+            let observedTracks = hasAuthoritativeCandidates
+                ? try observation.tracks.map { try track(from: $0, preserving: nil) }
+                : []
             let resolution = TrackIDMapper.resolveAliases(
                 sourceTracks: unresolvedTracks,
                 targetTracks: observedTracks
@@ -474,10 +478,7 @@ extension LibrarySyncService {
                 }
                 repairTargets[sourceID] = databaseID
             }
-            let retiredAliasIDs = observation.scope.source == .fullLibrary
-                && hasCompleteMembership(observation)
-                && observation.identity.isComplete
-                && hasCompleteMetadata(observation)
+            let retiredAliasIDs = hasAuthoritativeCandidates
                 ? resolution.ambiguous.keys.sorted() + resolution.unresolved
                 : []
             return try makeMirrorRepair(
@@ -487,7 +488,6 @@ extension LibrarySyncService {
                 retiredAliasIDs: retiredAliasIDs
             )
         }
-
         return try makeMirrorRepair(
             legacyTracks: legacyTracks,
             observedRows: observedRows,
