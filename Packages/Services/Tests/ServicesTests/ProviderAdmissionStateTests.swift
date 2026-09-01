@@ -61,6 +61,35 @@ struct ProviderAdmissionStateTests {
         #expect(await order.names == ["first", "third"])
     }
 
+    @Test("Cancellation while queued removes the operation and preserves permit accounting")
+    func cancelsQueuedOperation() async throws {
+        let enqueueProbe = AdmissionEnqueueProbe()
+        let order = AdmissionOrderProbe()
+        let firstGate = AdmissionOperationGate()
+        let admission = ProviderAdmission(
+            limit: 1,
+            hooks: (didEnqueue: { enqueueProbe.record() }, afterGrant: nil)
+        )
+
+        let first = operationTask(admission, name: "first", order: order, gate: firstGate)
+        #expect(await order.waitForCount(1))
+        let cancelled = operationTask(admission, name: "cancelled", order: order)
+        #expect(await enqueueProbe.waitForCount(1))
+        let third = operationTask(admission, name: "third", order: order)
+        #expect(await enqueueProbe.waitForCount(2))
+
+        cancelled.cancel()
+        await #expect(throws: CancellationError.self) {
+            _ = try await taskValue(cancelled, timeout: AdmissionTestTiming.coordinationTimeout)
+        }
+        await firstGate.open()
+        try await awaitOperations([first, third])
+
+        let fourth = operationTask(admission, name: "fourth", order: order)
+        try await awaitOperations([fourth])
+        #expect(await order.names == ["first", "third", "fourth"])
+    }
+
     @Test("Queued work receives a fresh execution timeout after admission")
     func freshTimeoutAfterAdmission() async throws {
         let enqueueProbe = AdmissionEnqueueProbe()
@@ -70,7 +99,7 @@ struct ProviderAdmissionStateTests {
             limit: 1,
             hooks: (didEnqueue: { enqueueProbe.record() }, afterGrant: nil)
         )
-        let timeout = Duration.milliseconds(200)
+        let timeout = Duration.milliseconds(400)
 
         let first = Task {
             try await admission.execute(timeout: AdmissionTestTiming.coordinationTimeout) {
@@ -82,13 +111,13 @@ struct ProviderAdmissionStateTests {
         let second = Task {
             try await admission.execute(timeout: timeout) {
                 await order.record("second")
-                try await Task.sleep(for: .milliseconds(120))
+                try await Task.sleep(for: .milliseconds(250))
                 return "completed"
             }
         }
 
         #expect(await enqueueProbe.waitForCount(1))
-        try await Task.sleep(for: .milliseconds(120))
+        try await Task.sleep(for: .milliseconds(250))
         await firstGate.open()
 
         let result = try await taskValue(second, timeout: AdmissionTestTiming.coordinationTimeout)

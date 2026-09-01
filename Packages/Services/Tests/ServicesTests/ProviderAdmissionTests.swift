@@ -5,6 +5,40 @@ import Testing
 
 @Suite("APIOrchestrator — global provider admission")
 struct ProviderAdmissionTests {
+    @Test("Candidate and direct-year lookups fan out to all providers concurrently")
+    func runsAllProviders() async {
+        let probe = ProviderCallProbe()
+        let service = ProbedProviderService(probe: probe)
+        let orchestrator = makeAPIOrchestrator(
+            musicBrainz: service,
+            discogs: service,
+            appleMusic: service
+        ) {
+            $0.maxConcurrentSourceCalls = 6
+            $0.timeout = .seconds(2)
+        }
+
+        async let candidates: Void = {
+            _ = await orchestrator.getReleaseCandidates(
+                artist: "Candidate Artist",
+                album: "Candidate Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }()
+        async let year: Void = {
+            _ = await orchestrator.getAlbumYear(
+                artist: "Year Artist",
+                album: "Year Album",
+                currentLibraryYear: nil,
+                earliestTrackAddedYear: nil
+            )
+        }()
+
+        _ = await (candidates, year)
+        #expect(await probe.maximumActiveCalls == 6)
+    }
+
     @Test("Candidate and direct-year lookups share one concurrency budget")
     func sharesConcurrencyBudget() async {
         let probe = ProviderCallProbe()
@@ -82,6 +116,12 @@ struct ProviderAdmissionTests {
         await stall.release()
         _ = try? await secondLookup.value
         #expect(await stall.waitForCompletions(1))
+
+        let thirdLookup = providerLookup(orchestrator, lookup: lookup, artist: "Third")
+        #expect(await stall.waitForCalls(2))
+        await stall.release()
+        _ = try? await thirdLookup.value
+        #expect(await stall.waitForCompletions(2))
     }
 
     @Test(

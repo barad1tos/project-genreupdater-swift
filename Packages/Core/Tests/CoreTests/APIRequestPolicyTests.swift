@@ -28,6 +28,15 @@ struct APIRequestPolicyTests {
         #expect(migrated.concurrentAlbums == 4)
         #expect(migrated.concurrentProviderCalls == 4)
 
+        let explicit = try JSONDecoder().decode(
+            APIRateLimits.self,
+            from: Data(
+                #"{"concurrentAPICalls":4,"concurrentAlbums":3,"concurrentProviderCalls":9}"#.utf8
+            )
+        )
+        #expect(explicit.concurrentAlbums == 3)
+        #expect(explicit.concurrentProviderCalls == 9)
+
         var tuned = YearRetrievalConfig()
         tuned.rateLimits.itunesRequestsPerSecond = 7.5
         tuned.rateLimits.concurrentAlbums = 3
@@ -74,6 +83,26 @@ struct APIRequestPolicyTests {
         #expect(reloaded.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond == 0)
         #expect(APIRateLimits.musicBrainzRate(0) == 1)
         #expect(APIRateLimits.musicBrainzRate(2.5) == 2.5)
+    }
+
+    @Test("Live configuration migrates the legacy concurrency budget for both scheduling layers")
+    func migratesLegacyConcurrency() throws {
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("genreupdater-legacy-api-concurrency-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: configURL) }
+        let legacyJSON = Data(
+            #"{"year_retrieval":{"rate_limits":{"concurrent_api_calls":4}}}"#.utf8
+        )
+        try legacyJSON.write(to: configURL, options: .atomic)
+
+        let loaded = try AppConfiguration.load(from: configURL)
+        try loaded.save(to: configURL)
+        let reloaded = try AppConfiguration.load(from: configURL)
+
+        #expect(loaded.yearRetrieval.rateLimits.concurrentAlbums == 4)
+        #expect(loaded.yearRetrieval.rateLimits.concurrentProviderCalls == 4)
+        #expect(reloaded.yearRetrieval.rateLimits.concurrentAlbums == 4)
+        #expect(reloaded.yearRetrieval.rateLimits.concurrentProviderCalls == 4)
     }
 
     @Test("New provider policy fields reject unsafe persisted values", arguments: PolicyFault.allCases)
