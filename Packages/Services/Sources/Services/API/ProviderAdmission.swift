@@ -63,14 +63,7 @@ actor ProviderAdmission {
             let id = UUID()
             try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
-                    let timeoutTask = Task {
-                        do {
-                            try await Task.sleep(for: timeout)
-                        } catch {
-                            return
-                        }
-                        self.timeout(id)
-                    }
+                    let timeoutTask = makeQueueTimeoutTask(id: id, timeout: timeout)
                     waiters.append(Waiter(
                         id: id,
                         continuation: continuation,
@@ -96,6 +89,17 @@ actor ProviderAdmission {
         } catch {
             release()
             throw error
+        }
+    }
+
+    private func makeQueueTimeoutTask(id: UUID, timeout: Duration) -> Task<Void, Never> {
+        Task {
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+            self.timeout(id)
         }
     }
 

@@ -462,7 +462,7 @@ struct AppConfigurationTests {
         #expect(decoded.yearRetrieval.rateLimits.discogsRequestsPerMinute == 50)
         #expect(decoded.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond == 0.75)
         #expect(decoded.yearRetrieval.rateLimits.concurrentAlbums == 4)
-        #expect(decoded.yearRetrieval.rateLimits.concurrentProviderCalls == 6)
+        #expect(decoded.yearRetrieval.rateLimits.concurrentProviderCalls == 4)
         #expect(decoded.yearRetrieval.scriptAPIPriorities["default"]?.primary == ["discogs"])
         #expect(decoded.yearRetrieval.scriptAPIPriorities["default"]?.fallback == ["musicbrainz", "itunes"])
         #expect(decoded.processing.batchSize == 11)

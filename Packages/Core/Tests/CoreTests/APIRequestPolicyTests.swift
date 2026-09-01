@@ -20,7 +20,13 @@ struct APIRequestPolicyTests {
         #expect(legacy.discogsRequestsPerMinute == 42)
         #expect(legacy.itunesRequestsPerSecond == 10)
         #expect(legacy.concurrentAlbums == 4)
-        #expect(legacy.concurrentProviderCalls == 6)
+        #expect(legacy.concurrentProviderCalls == 4)
+        let migrated = try JSONDecoder().decode(
+            APIRateLimits.self,
+            from: JSONEncoder().encode(legacy)
+        )
+        #expect(migrated.concurrentAlbums == 4)
+        #expect(migrated.concurrentProviderCalls == 4)
 
         var tuned = YearRetrievalConfig()
         tuned.rateLimits.itunesRequestsPerSecond = 7.5
