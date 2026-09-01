@@ -201,11 +201,12 @@ public actor APIOrchestrator {
     let dateProvider: @Sendable () -> Date
     private let log = AppLogger.api
 
-    /// Creates an orchestrator with three API sources and a per-source timeout.
+    /// Creates an orchestrator with three API sources and independent queue and execution timeout budgets.
     ///
     /// - Parameters:
     ///   - services: Music metadata API clients.
-    ///   - configuration: Runtime limits, cache policy, and source ordering.
+    ///   - configuration: Runtime limits, cache policy, and source ordering. The provider timeout independently bounds
+    ///     admission queueing and execution, so one lookup may consume both budgets sequentially.
     public init(
         services: APIOrchestratorServices,
         configuration: APIOrchestratorConfiguration = APIOrchestratorConfiguration()
