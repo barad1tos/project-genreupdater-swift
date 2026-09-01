@@ -266,6 +266,24 @@ struct LibrarySyncRepairTests {
         #expect(await fixture.store.stored.map(\.id) == ["MK1"])
     }
 
+    @Test("Scoped metadata coverage cannot retire an unresolved legacy alias")
+    func preservesScopedAlias() async throws {
+        let legacy = legacyTrack(sourceID: "MK-OUT", databaseID: nil, artist: "Target")
+        let fixture = try makeFixture(
+            stored: [legacy],
+            currentIDs: ["AS1"],
+            rows: [row(id: "AS1", name: "Different", artist: "Target")],
+            testArtists: ["Target"],
+            membership: .scoped(unobservedIDs: [])
+        )
+
+        _ = try await fixture.service.synchronizeNow()
+
+        let update = try #require(await fixture.store.updates.first)
+        #expect(update.retiredAliasIDs.isEmpty)
+        #expect(await fixture.store.stored.map(\.id) == ["AS1", "MK-OUT"])
+    }
+
     @Test("Unique metadata identity repairs an artistless legacy row")
     func repairsArtistlessTrack() async throws {
         let legacy = legacyTrack(sourceID: "MK1", databaseID: nil, artist: "")
