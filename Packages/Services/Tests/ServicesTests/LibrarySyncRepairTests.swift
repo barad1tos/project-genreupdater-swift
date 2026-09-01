@@ -391,7 +391,7 @@ struct LibrarySyncRepairTests {
     func groupsSameIDLegacyTarget() async throws {
         let fixture = try makeFixture(
             stored: [
-                legacyTrack(sourceID: "AS1", databaseID: nil),
+                legacyTrack(sourceID: "AS1", databaseID: nil, name: "Stale Song"),
                 legacyTrack(sourceID: "MK1", databaseID: "AS1"),
             ],
             currentIDs: ["AS1"],

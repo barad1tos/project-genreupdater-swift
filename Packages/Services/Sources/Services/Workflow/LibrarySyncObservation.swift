@@ -454,6 +454,9 @@ extension LibrarySyncService {
         for legacy in legacyTracks.sorted(by: { $0.id < $1.id }) {
             if let directID = legacy.databaseID, observedRows[directID] != nil {
                 repairTargets[legacy.id] = directID
+            } else if legacy.databaseID == nil, let targetID = MusicDatabaseTrackID(rawValue: legacy.id),
+                      observedRows[targetID] != nil {
+                repairTargets[legacy.id] = targetID
             } else {
                 unresolvedTracks.append(legacy)
             }
