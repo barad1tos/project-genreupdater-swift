@@ -135,7 +135,7 @@ public struct APIOrchestratorConfiguration: Sendable {
         negativeResultTTL = configuration.caching.negativeResultTTL
         candidateResultTTL = GRDBCacheService.resolvedAPIResultTTL(configuration: configuration)
         timeout = .seconds(configuration.yearRetrieval.providerTimeoutSeconds)
-        maxConcurrentSourceCalls = configuration.yearRetrieval.rateLimits.concurrentAPICalls
+        maxConcurrentSourceCalls = configuration.yearRetrieval.rateLimits.concurrentProviderCalls
         maxAPIRetries = configuration.runtime.maxRetries
         apiRetryDelaySeconds = configuration.runtime.retryDelaySeconds
         sourcePriorityConfiguration = APISourcePriorityConfiguration(configuration: configuration)

@@ -412,7 +412,7 @@ struct FixPlanProducerTests {
         var appConfiguration = AppConfiguration()
         appConfiguration.genreUpdate.concurrentLimit = 2
         appConfiguration.applescript.concurrency = 3
-        appConfiguration.yearRetrieval.rateLimits.concurrentAPICalls = 4
+        appConfiguration.yearRetrieval.rateLimits.concurrentAlbums = 4
 
         _ = try await makeProducer(spy).producePlan(
             sourceRunID: sourceRunID,

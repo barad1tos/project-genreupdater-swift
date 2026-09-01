@@ -9,23 +9,31 @@ struct APIRequestPolicyTests {
         let defaults = AppConfiguration().yearRetrieval
         #expect(defaults.rateLimits.musicbrainzRequestsPerSecond == 1)
         #expect(defaults.rateLimits.itunesRequestsPerSecond == 10)
+        #expect(defaults.rateLimits.concurrentAlbums == 2)
+        #expect(defaults.rateLimits.concurrentProviderCalls == 6)
         #expect(defaults.providerTimeoutSeconds == 15)
 
         let legacy = try JSONDecoder().decode(
             APIRateLimits.self,
-            from: Data(#"{"discogsRequestsPerMinute":42}"#.utf8)
+            from: Data(#"{"discogsRequestsPerMinute":42,"concurrentAPICalls":4}"#.utf8)
         )
         #expect(legacy.discogsRequestsPerMinute == 42)
         #expect(legacy.itunesRequestsPerSecond == 10)
+        #expect(legacy.concurrentAlbums == 4)
+        #expect(legacy.concurrentProviderCalls == 6)
 
         var tuned = YearRetrievalConfig()
         tuned.rateLimits.itunesRequestsPerSecond = 7.5
+        tuned.rateLimits.concurrentAlbums = 3
+        tuned.rateLimits.concurrentProviderCalls = 9
         tuned.providerTimeoutSeconds = 22.5
         let roundTripped = try JSONDecoder().decode(
             YearRetrievalConfig.self,
             from: JSONEncoder().encode(tuned)
         )
         #expect(roundTripped.rateLimits.itunesRequestsPerSecond == 7.5)
+        #expect(roundTripped.rateLimits.concurrentAlbums == 3)
+        #expect(roundTripped.rateLimits.concurrentProviderCalls == 9)
         #expect(roundTripped.providerTimeoutSeconds == 22.5)
 
         let historical = try JSONDecoder().decode(YearRetrievalConfig.self, from: Data("{}".utf8))

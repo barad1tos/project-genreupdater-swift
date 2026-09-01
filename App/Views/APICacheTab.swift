@@ -109,12 +109,22 @@ struct APICacheTab: View {
             }
 
             Stepper(
-                value: configBinding(dependencies, \.yearRetrieval.rateLimits.concurrentAPICalls),
-                in: APIRateLimits.concurrencySettingsRange
+                value: configBinding(dependencies, \.yearRetrieval.rateLimits.concurrentAlbums),
+                in: APIRateLimits.albumConcurrencyRange
             ) {
                 LabeledContent(
-                    "Concurrent API calls",
-                    value: "\(dependencies.config.yearRetrieval.rateLimits.concurrentAPICalls)"
+                    "Concurrent albums",
+                    value: "\(dependencies.config.yearRetrieval.rateLimits.concurrentAlbums)"
+                )
+            }
+
+            Stepper(
+                value: configBinding(dependencies, \.yearRetrieval.rateLimits.concurrentProviderCalls),
+                in: APIRateLimits.providerConcurrencyRange
+            ) {
+                LabeledContent(
+                    "Concurrent provider calls",
+                    value: "\(dependencies.config.yearRetrieval.rateLimits.concurrentProviderCalls)"
                 )
             }
 

@@ -405,9 +405,14 @@ extension AppConfiguration {
             path: "yearRetrieval.providerTimeoutSeconds"
         )
         validation.requireAtLeast(
-            yearRetrieval.rateLimits.concurrentAPICalls,
+            yearRetrieval.rateLimits.concurrentAlbums,
             minimum: 1,
-            path: "yearRetrieval.rateLimits.concurrentAPICalls"
+            path: "yearRetrieval.rateLimits.concurrentAlbums"
+        )
+        validation.requireAtLeast(
+            yearRetrieval.rateLimits.concurrentProviderCalls,
+            minimum: 1,
+            path: "yearRetrieval.rateLimits.concurrentProviderCalls"
         )
     }
 

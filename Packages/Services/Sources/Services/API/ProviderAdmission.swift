@@ -13,6 +13,7 @@ actor ProviderAdmission {
     private struct Waiter {
         let id: UUID
         let continuation: CheckedContinuation<Void, any Error>
+        let timeoutTask: Task<Void, Never>
     }
 
     private let limit: Int
@@ -37,8 +38,8 @@ actor ProviderAdmission {
         timeout: Duration,
         operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
+        try await acquire(timeout: timeout)
         let operationTask: Task<Value, any Error> = Task {
-            try await acquire()
             do {
                 let value = try await operation()
                 release()
@@ -54,7 +55,7 @@ actor ProviderAdmission {
         )
     }
 
-    private func acquire() async throws {
+    private func acquire(timeout: Duration) async throws {
         try Task.checkCancellation()
         if activeCalls < limit {
             activeCalls += 1
@@ -62,16 +63,28 @@ actor ProviderAdmission {
             let id = UUID()
             try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
-                    waiters.append(Waiter(id: id, continuation: continuation))
+                    let timeoutTask = Task {
+                        do {
+                            try await Task.sleep(for: timeout)
+                        } catch {
+                            return
+                        }
+                        self.timeout(id)
+                    }
+                    waiters.append(Waiter(
+                        id: id,
+                        continuation: continuation,
+                        timeoutTask: timeoutTask
+                    ))
                     #if DEBUG
                     hooks?.didEnqueue?()
                     #endif
                     if Task.isCancelled {
-                        cancel(id)
+                        cancel(id, error: CancellationError())
                     }
                 }
             } onCancel: {
-                Task { await self.cancel(id) }
+                Task { await self.cancel(id, error: CancellationError()) }
             }
         }
 
@@ -98,13 +111,21 @@ actor ProviderAdmission {
     private func resumeWaiters() {
         while activeCalls < limit, !waiters.isEmpty {
             activeCalls += 1
-            waiters.removeFirst().continuation.resume()
+            let waiter = waiters.removeFirst()
+            waiter.timeoutTask.cancel()
+            waiter.continuation.resume()
         }
     }
 
-    private func cancel(_ id: UUID) {
+    private func cancel(_ id: UUID, error: any Error) {
         guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
-        waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        let waiter = waiters.remove(at: index)
+        waiter.timeoutTask.cancel()
+        waiter.continuation.resume(throwing: error)
+    }
+
+    private func timeout(_ id: UUID) {
+        cancel(id, error: ProviderCallTimeout())
     }
 }
 

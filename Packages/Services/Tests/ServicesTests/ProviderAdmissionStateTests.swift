@@ -61,6 +61,42 @@ struct ProviderAdmissionStateTests {
         #expect(await order.names == ["first", "third"])
     }
 
+    @Test("Queued work receives a fresh execution timeout after admission")
+    func freshTimeoutAfterAdmission() async throws {
+        let enqueueProbe = AdmissionEnqueueProbe()
+        let order = AdmissionOrderProbe()
+        let firstGate = AdmissionOperationGate()
+        let admission = ProviderAdmission(
+            limit: 1,
+            hooks: (didEnqueue: { enqueueProbe.record() }, afterGrant: nil)
+        )
+        let timeout = Duration.milliseconds(200)
+
+        let first = Task {
+            try await admission.execute(timeout: AdmissionTestTiming.coordinationTimeout) {
+                await order.record("first")
+                await firstGate.wait()
+            }
+        }
+        #expect(await order.waitForCount(1))
+        let second = Task {
+            try await admission.execute(timeout: timeout) {
+                await order.record("second")
+                try await Task.sleep(for: .milliseconds(120))
+                return "completed"
+            }
+        }
+
+        #expect(await enqueueProbe.waitForCount(1))
+        try await Task.sleep(for: .milliseconds(120))
+        await firstGate.open()
+
+        let result = try await taskValue(second, timeout: AdmissionTestTiming.coordinationTimeout)
+        #expect(result == "completed")
+        #expect(await order.names == ["first", "second"])
+        _ = try await first.value
+    }
+
     private func operationTask(
         _ admission: ProviderAdmission,
         name: String,

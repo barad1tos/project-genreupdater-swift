@@ -193,7 +193,7 @@ struct Domain12ParityReplayTests {
         var configuration = AppConfiguration()
         configuration.genreUpdate.concurrentLimit = limits.artist
         configuration.applescript.concurrency = limits.musicApp
-        configuration.yearRetrieval.rateLimits.concurrentAPICalls = limits.provider
+        configuration.yearRetrieval.rateLimits.concurrentAlbums = limits.provider
         return FixPlanConfig.capture(
             configuration: configuration,
             options: UpdateOptions(updateGenre: true, updateYear: true, minConfidence: 60),

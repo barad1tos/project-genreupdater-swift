@@ -89,12 +89,14 @@ public struct APIRateLimits: Sendable, Codable {
     public static let defaultDiscogsPerMinute = 55
     public static let defaultMusicBrainzPerSecond = 1.0
     public static let defaultITunesPerSecond = 10.0
-    public static let defaultConcurrentCalls = 2
+    public static let defaultConcurrentAlbums = 2
+    public static let defaultConcurrentProviderCalls = 6
 
     public static let discogsSettingsRange = 1 ... 120
     public static let musicBrainzSettingsRange = 0.1 ... 5.0
     public static let itunesSettingsRange = 0.1 ... 20.0
-    public static let concurrencySettingsRange = 1 ... 10
+    public static let albumConcurrencyRange = 1 ... 10
+    public static let providerConcurrencyRange = 1 ... 50
 
     /// Returns the runtime MusicBrainz rate, preserving the historical zero-value fallback.
     public static func musicBrainzRate(_ configuredRate: Double) -> Double {
@@ -104,17 +106,21 @@ public struct APIRateLimits: Sendable, Codable {
     public var discogsRequestsPerMinute: Int = Self.defaultDiscogsPerMinute
     public var musicbrainzRequestsPerSecond: Double = Self.defaultMusicBrainzPerSecond
     public var itunesRequestsPerSecond: Double = Self.defaultITunesPerSecond
-    public var concurrentAPICalls: Int = Self.defaultConcurrentCalls
+    /// Maximum album workflows that may plan metadata concurrently.
+    public var concurrentAlbums: Int = Self.defaultConcurrentAlbums
+    /// Maximum provider operations admitted globally across active album workflows.
+    public var concurrentProviderCalls: Int = Self.defaultConcurrentProviderCalls
 
     private enum CodingKeys: String, CodingKey {
         case discogsRequestsPerMinute, musicbrainzRequestsPerSecond, itunesRequestsPerSecond
-        case concurrentAPICalls
+        case concurrentAlbums, concurrentProviderCalls
     }
 
     private enum DecodingKeys: String, CodingKey {
         case discogsRequestsPerMinute, musicbrainzRequestsPerSecond, itunesRequestsPerSecond
-        case concurrentAPICalls
-        case concurrentApiCalls
+        case concurrentAlbums, concurrentProviderCalls
+        case legacyConcurrentAPICalls = "concurrentAPICalls"
+        case legacyConcurrentApiCalls = "concurrentApiCalls"
     }
 
     public init() {
@@ -135,9 +141,12 @@ public struct APIRateLimits: Sendable, Codable {
             Double.self,
             forKey: .itunesRequestsPerSecond
         ) ?? Self.defaultITunesPerSecond
-        concurrentAPICalls = try container.decodeIfPresent(Int.self, forKey: .concurrentAPICalls)
-            ?? container.decodeIfPresent(Int.self, forKey: .concurrentApiCalls)
-            ?? Self.defaultConcurrentCalls
+        concurrentAlbums = try container.decodeIfPresent(Int.self, forKey: .concurrentAlbums)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyConcurrentAPICalls)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyConcurrentApiCalls)
+            ?? Self.defaultConcurrentAlbums
+        concurrentProviderCalls = try container.decodeIfPresent(Int.self, forKey: .concurrentProviderCalls)
+            ?? Self.defaultConcurrentProviderCalls
     }
 
     /// Converts a positive request quota into the conservative one-token refill interval used by API clients.
