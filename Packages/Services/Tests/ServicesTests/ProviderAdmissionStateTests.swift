@@ -90,88 +90,97 @@ struct ProviderAdmissionStateTests {
         #expect(await order.names == ["first", "third", "fourth"])
     }
 
-    @Test("Queued work receives a fresh execution timeout after admission")
-    func freshTimeoutAfterAdmission() async throws {
-        let enqueueProbe = AdmissionEnqueueProbe()
+    @Test("Timed-out request retains its permit until the underlying operation finishes")
+    func timedOutRequestRetainsPermit() async throws {
+        let admission = ProviderAdmission(limit: 1)
+        let requestPolicy = ProviderRequestPolicy(timeoutSeconds: 0.01)
+        let firstStarted = EventCounter()
         let order = AdmissionOrderProbe()
         let firstGate = AdmissionOperationGate()
-        let admission = ProviderAdmission(
-            limit: 1,
-            hooks: (didEnqueue: { enqueueProbe.record() }, afterGrant: nil)
-        )
-        let timeout = Duration.milliseconds(400)
 
         let first = Task {
-            try await admission.execute(timeout: AdmissionTestTiming.coordinationTimeout) {
-                await order.record("first")
-                await firstGate.wait()
+            try await admission.execute {
+                try await requestPolicy.performClientRequest(operation: .appleMusicCatalogSearch) {
+                    firstStarted.record()
+                    await firstGate.wait()
+                }
             }
         }
-        #expect(await order.waitForCount(1))
+        #expect(await firstStarted.wait(for: 1, timeout: .seconds(1)))
+        await #expect(throws: ProviderRequestTimeout.self) {
+            _ = try await taskValue(first, timeout: .seconds(1))
+        }
+
         let second = Task {
-            try await admission.execute(timeout: timeout) {
+            try await admission.execute {
                 await order.record("second")
-                try await Task.sleep(for: .milliseconds(250))
-                return "completed"
             }
         }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await order.names.isEmpty)
 
-        #expect(await enqueueProbe.waitForCount(1))
-        try await Task.sleep(for: .milliseconds(250))
         await firstGate.open()
-
-        let result = try await taskValue(second, timeout: AdmissionTestTiming.coordinationTimeout)
-        #expect(result == "completed")
-        #expect(await order.names == ["first", "second"])
-        _ = try await first.value
+        #expect(await order.waitForCount(1))
+        _ = try await taskValue(second, timeout: .seconds(1))
     }
 
-    @Test("Timeout reports queue saturation before an operation starts")
-    func reportsQueueTimeout() async throws {
-        let enqueueProbe = AdmissionEnqueueProbe()
+    @Test("Cancelled request retains its permit until the underlying operation finishes")
+    func cancelledRequestRetainsPermit() async throws {
+        let admission = ProviderAdmission(limit: 1)
+        let requestPolicy = ProviderRequestPolicy(timeoutSeconds: 30)
+        let firstStarted = EventCounter()
         let order = AdmissionOrderProbe()
         let firstGate = AdmissionOperationGate()
-        let admission = ProviderAdmission(
-            limit: 1,
-            hooks: (didEnqueue: { enqueueProbe.record() }, afterGrant: nil)
-        )
-        let first = operationTask(admission, name: "first", order: order, gate: firstGate)
-        #expect(await order.waitForCount(1))
-        let queued = Task {
-            try await admission.execute(timeout: .milliseconds(50)) {
-                await order.record("queued")
+
+        let first = Task {
+            try await admission.execute {
+                try await requestPolicy.performClientRequest(operation: .appleMusicCatalogSearch) {
+                    firstStarted.record()
+                    await firstGate.wait()
+                }
             }
         }
-        #expect(await enqueueProbe.waitForCount(1))
-
-        do {
-            _ = try await queued.value
-            Issue.record("Queued operation unexpectedly completed")
-        } catch let timeout as ProviderCallTimeout {
-            #expect(timeout.phase == .queue)
-        } catch {
-            Issue.record("Queued operation returned unexpected error: \(error)")
+        #expect(await firstStarted.wait(for: 1, timeout: .seconds(1)))
+        first.cancel()
+        await #expect(throws: CancellationError.self) {
+            _ = try await taskValue(first, timeout: .seconds(1))
         }
+
+        let second = Task {
+            try await admission.execute {
+                await order.record("second")
+            }
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await order.names.isEmpty)
 
         await firstGate.open()
-        _ = try await first.value
-        #expect(await order.names == ["first"])
+        #expect(await order.waitForCount(1))
+        _ = try await taskValue(second, timeout: .seconds(1))
     }
 
-    @Test("Timeout reports provider execution after admission")
-    func reportsExecutionTimeout() async {
+    @Test("Escaped tasks cannot start requests after their call releases admission")
+    func rejectsEscapedRequest() async throws {
         let admission = ProviderAdmission(limit: 1)
+        let requestPolicy = ProviderRequestPolicy(timeoutSeconds: 1)
+        let requestGate = AdmissionOperationGate()
+        let requestStarted = EventCounter()
 
-        do {
-            _ = try await admission.execute(timeout: .milliseconds(50)) {
-                try await Task.sleep(for: .seconds(30))
+        let escapedRequest = try await admission.execute {
+            Task {
+                await requestGate.wait()
+                return try await requestPolicy.performClientRequest(operation: .appleMusicCatalogSearch) {
+                    requestStarted.record()
+                    return 1
+                }
             }
-            Issue.record("Provider operation unexpectedly completed")
-        } catch let timeout as ProviderCallTimeout {
-            #expect(timeout.phase == .execution)
-        } catch {
-            Issue.record("Provider operation returned unexpected error: \(error)")
         }
+
+        await requestGate.open()
+        await #expect(throws: ProviderPermitLeaseError.self) {
+            _ = try await taskValue(escapedRequest, timeout: .seconds(1))
+        }
+        #expect(await !requestStarted.wait(for: 1, timeout: .milliseconds(50)))
     }
 
     private func operationTask(
@@ -181,7 +190,7 @@ struct ProviderAdmissionStateTests {
         gate: AdmissionOperationGate? = nil
     ) -> Task<Void, any Error> {
         Task {
-            try await admission.execute(timeout: AdmissionTestTiming.coordinationTimeout) {
+            try await admission.execute {
                 await order.record(name)
                 await gate?.wait()
             }

@@ -11,7 +11,7 @@ struct APIRequestPolicyTests {
         #expect(defaults.rateLimits.itunesRequestsPerSecond == 10)
         #expect(defaults.rateLimits.concurrentAlbums == 2)
         #expect(defaults.rateLimits.concurrentProviderCalls == 6)
-        #expect(defaults.providerTimeoutSeconds == 15)
+        #expect(defaults.requestTimeoutSeconds == 45)
 
         let legacy = try JSONDecoder().decode(
             APIRateLimits.self,
@@ -50,7 +50,7 @@ struct APIRequestPolicyTests {
         tuned.rateLimits.itunesRequestsPerSecond = 7.5
         tuned.rateLimits.concurrentAlbums = 3
         tuned.rateLimits.concurrentProviderCalls = 9
-        tuned.providerTimeoutSeconds = 22.5
+        tuned.requestTimeoutSeconds = 22.5
         let roundTripped = try JSONDecoder().decode(
             YearRetrievalConfig.self,
             from: JSONEncoder().encode(tuned)
@@ -58,10 +58,23 @@ struct APIRequestPolicyTests {
         #expect(roundTripped.rateLimits.itunesRequestsPerSecond == 7.5)
         #expect(roundTripped.rateLimits.concurrentAlbums == 3)
         #expect(roundTripped.rateLimits.concurrentProviderCalls == 9)
-        #expect(roundTripped.providerTimeoutSeconds == 22.5)
+        #expect(roundTripped.requestTimeoutSeconds == 22.5)
+    }
 
+    @Test("Request timeout migrates from the legacy provider key")
+    func migratesLegacyRequestTimeout() throws {
         let historical = try JSONDecoder().decode(YearRetrievalConfig.self, from: Data("{}".utf8))
-        #expect(historical.providerTimeoutSeconds == 15)
+        #expect(historical.requestTimeoutSeconds == 45)
+        let legacyTimeout = try JSONDecoder().decode(
+            YearRetrievalConfig.self,
+            from: Data(#"{"providerTimeoutSeconds":22.5}"#.utf8)
+        )
+        #expect(legacyTimeout.requestTimeoutSeconds == 22.5)
+        let migratedTimeoutData = try JSONEncoder().encode(legacyTimeout)
+        let migratedTimeoutJSON = try #require(JSONSerialization
+            .jsonObject(with: migratedTimeoutData) as? [String: Any])
+        #expect(migratedTimeoutJSON["requestTimeoutSeconds"] as? Double == 22.5)
+        #expect(migratedTimeoutJSON["providerTimeoutSeconds"] == nil)
     }
 
     @Test("Request quotas produce conservative one-token intervals")
@@ -138,9 +151,9 @@ private enum PolicyFault: CaseIterable, Sendable {
         case .overflowingITunesInterval:
             configuration.yearRetrieval.rateLimits.itunesRequestsPerSecond = 1e-308
         case .zeroTimeout:
-            configuration.yearRetrieval.providerTimeoutSeconds = 0
+            configuration.yearRetrieval.requestTimeoutSeconds = 0
         case .overflowingTimeout:
-            configuration.yearRetrieval.providerTimeoutSeconds = 1e308
+            configuration.yearRetrieval.requestTimeoutSeconds = 1e308
         }
     }
 }

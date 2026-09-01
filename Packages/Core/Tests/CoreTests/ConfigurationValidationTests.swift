@@ -204,7 +204,7 @@ struct ConfigurationValidationTests {
         configuration.yearRetrieval.rateLimits.discogsRequestsPerMinute = 1
         configuration.yearRetrieval.rateLimits.musicbrainzRequestsPerSecond = 0.1
         configuration.yearRetrieval.rateLimits.itunesRequestsPerSecond = 0.1
-        configuration.yearRetrieval.providerTimeoutSeconds = 1
+        configuration.yearRetrieval.requestTimeoutSeconds = 1
         configuration.yearRetrieval.rateLimits.concurrentAlbums = 1
         configuration.yearRetrieval.rateLimits.concurrentProviderCalls = 1
         configuration.yearRetrieval.logic.minValidYear = 3000

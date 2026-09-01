@@ -5,15 +5,29 @@ import Foundation
 // MARK: - Year Retrieval Configuration
 
 public struct YearRetrievalConfig: Sendable, Codable {
-    public static let defaultProviderTimeoutSeconds = 15.0
+    public static let defaultRequestTimeoutSeconds = 45.0
     public static let timeoutSettingsRange = 1.0 ... 120.0
+
+    /// Preserves finite positive seconds whose rounded millisecond count fits runtime integer duration storage.
+    public static func resolvedRequestTimeout(_ seconds: Double) -> Double {
+        let milliseconds = (seconds * 1000).rounded()
+        guard seconds.isFinite,
+              seconds > 0,
+              milliseconds.isFinite,
+              Int(exactly: milliseconds) != nil,
+              Int64(exactly: milliseconds) != nil
+        else {
+            return defaultRequestTimeoutSeconds
+        }
+        return seconds
+    }
 
     public var enabled: Bool = true
     public var preferredAPI: PreferredAPI = .musicbrainz
 
     public var apiAuth = APIAuthConfig()
     public var rateLimits = APIRateLimits()
-    public var providerTimeoutSeconds: Double = Self.defaultProviderTimeoutSeconds
+    public var requestTimeoutSeconds: Double = Self.defaultRequestTimeoutSeconds
     public var logic = YearLogicConfig()
     public var reissueDetection = ReissueDetectionConfig()
     public var scoring = ScoringConfig()
@@ -25,19 +39,20 @@ public struct YearRetrievalConfig: Sendable, Codable {
     public var scriptAPIPriorities: [String: ScriptAPIPriority] = [:]
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, preferredAPI, apiAuth, rateLimits, providerTimeoutSeconds
+        case enabled, preferredAPI, apiAuth, rateLimits, requestTimeoutSeconds
         case logic, reissueDetection, scoring, fallback
         case discogsSearch, itunesSearch, scriptAPIPriorities
     }
 
     private enum DecodingKeys: String, CodingKey {
-        case enabled, preferredAPI, apiAuth, rateLimits, providerTimeoutSeconds
+        case enabled, preferredAPI, apiAuth, rateLimits, requestTimeoutSeconds
         case logic, reissueDetection, scoring, fallback
         case discogsSearch, itunesSearch, scriptAPIPriorities
         case preferredApi
         case scriptApiPriorities
         case legacyPreferredAPI = "preferred_api"
         case legacyScriptAPIPriorities = "script_api_priorities"
+        case legacyProviderTimeoutSeconds = "providerTimeoutSeconds"
     }
 
     public init() {
@@ -53,10 +68,14 @@ public struct YearRetrievalConfig: Sendable, Codable {
             ?? .musicbrainz
         apiAuth = try container.decodeIfPresent(APIAuthConfig.self, forKey: .apiAuth) ?? APIAuthConfig()
         rateLimits = try container.decodeIfPresent(APIRateLimits.self, forKey: .rateLimits) ?? APIRateLimits()
-        providerTimeoutSeconds = try container.decodeIfPresent(
+        // The current key wins; the former provider-level name is a read-only migration source.
+        requestTimeoutSeconds = try container.decodeIfPresent(
             Double.self,
-            forKey: .providerTimeoutSeconds
-        ) ?? Self.defaultProviderTimeoutSeconds
+            forKey: .requestTimeoutSeconds
+        ) ?? container.decodeIfPresent(
+            Double.self,
+            forKey: .legacyProviderTimeoutSeconds
+        ) ?? Self.defaultRequestTimeoutSeconds
         logic = try container.decodeIfPresent(YearLogicConfig.self, forKey: .logic) ?? YearLogicConfig()
         reissueDetection = try container
             .decodeIfPresent(ReissueDetectionConfig.self, forKey: .reissueDetection) ?? ReissueDetectionConfig()
@@ -108,7 +127,7 @@ public struct APIRateLimits: Sendable, Codable {
     public var itunesRequestsPerSecond: Double = Self.defaultITunesPerSecond
     /// Maximum album workflows that may plan metadata concurrently.
     public var concurrentAlbums: Int = Self.defaultConcurrentAlbums
-    /// Maximum provider operations admitted globally across active album workflows.
+    /// Maximum provider operations admitted across album workflows handled by one orchestrator.
     public var concurrentProviderCalls: Int = Self.defaultConcurrentProviderCalls
 
     private enum CodingKeys: String, CodingKey {
@@ -143,6 +162,7 @@ public struct APIRateLimits: Sendable, Codable {
         ) ?? Self.defaultITunesPerSecond
         let decodedAlbums = try container.decodeIfPresent(Int.self, forKey: .concurrentAlbums)
         let decodedProviderCalls = try container.decodeIfPresent(Int.self, forKey: .concurrentProviderCalls)
+        // Each explicit split budget wins independently; the legacy shared value fills only missing budgets.
         let legacyConcurrency = try decodedAlbums == nil || decodedProviderCalls == nil
             ? container.decodeIfPresent(Int.self, forKey: .legacyConcurrentAPICalls)
             ?? container.decodeIfPresent(Int.self, forKey: .legacyConcurrentApiCalls)

@@ -98,13 +98,13 @@ struct APICacheTab: View {
             }
 
             Stepper(
-                value: configBinding(dependencies, \.yearRetrieval.providerTimeoutSeconds),
+                value: configBinding(dependencies, \.yearRetrieval.requestTimeoutSeconds),
                 in: YearRetrievalConfig.timeoutSettingsRange,
                 step: 1
             ) {
                 LabeledContent(
-                    "Provider timeout",
-                    value: Self.providerTimeoutText(dependencies.config.yearRetrieval.providerTimeoutSeconds)
+                    "Request timeout",
+                    value: Self.requestTimeoutText(dependencies.config.yearRetrieval.requestTimeoutSeconds)
                 )
             }
 
@@ -148,7 +148,7 @@ struct APICacheTab: View {
         return configuredRate == 0 ? "\(effectiveRate) (legacy setting: 0)" : effectiveRate
     }
 
-    static func providerTimeoutText(_ seconds: Double) -> String {
+    static func requestTimeoutText(_ seconds: Double) -> String {
         seconds.formatted(.number.precision(.fractionLength(0 ... 1))) + "s"
     }
 
