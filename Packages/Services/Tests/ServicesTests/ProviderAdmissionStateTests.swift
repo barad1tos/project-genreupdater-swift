@@ -126,6 +126,54 @@ struct ProviderAdmissionStateTests {
         _ = try await first.value
     }
 
+    @Test("Timeout reports queue saturation before an operation starts")
+    func reportsQueueTimeout() async throws {
+        let enqueueProbe = AdmissionEnqueueProbe()
+        let order = AdmissionOrderProbe()
+        let firstGate = AdmissionOperationGate()
+        let admission = ProviderAdmission(
+            limit: 1,
+            hooks: (didEnqueue: { enqueueProbe.record() }, afterGrant: nil)
+        )
+        let first = operationTask(admission, name: "first", order: order, gate: firstGate)
+        #expect(await order.waitForCount(1))
+        let queued = Task {
+            try await admission.execute(timeout: .milliseconds(50)) {
+                await order.record("queued")
+            }
+        }
+        #expect(await enqueueProbe.waitForCount(1))
+
+        do {
+            _ = try await queued.value
+            Issue.record("Queued operation unexpectedly completed")
+        } catch let timeout as ProviderCallTimeout {
+            #expect(timeout.phase == .queue)
+        } catch {
+            Issue.record("Queued operation returned unexpected error: \(error)")
+        }
+
+        await firstGate.open()
+        _ = try await first.value
+        #expect(await order.names == ["first"])
+    }
+
+    @Test("Timeout reports provider execution after admission")
+    func reportsExecutionTimeout() async {
+        let admission = ProviderAdmission(limit: 1)
+
+        do {
+            _ = try await admission.execute(timeout: .milliseconds(50)) {
+                try await Task.sleep(for: .seconds(30))
+            }
+            Issue.record("Provider operation unexpectedly completed")
+        } catch let timeout as ProviderCallTimeout {
+            #expect(timeout.phase == .execution)
+        } catch {
+            Issue.record("Provider operation returned unexpected error: \(error)")
+        }
+    }
+
     private func operationTask(
         _ admission: ProviderAdmission,
         name: String,

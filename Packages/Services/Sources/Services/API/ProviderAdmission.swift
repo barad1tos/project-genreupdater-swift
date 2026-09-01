@@ -1,6 +1,13 @@
 import Foundation
 
-struct ProviderCallTimeout: Error {}
+struct ProviderCallTimeout: Error, Equatable, Sendable {
+    enum Phase: Equatable, Sendable {
+        case queue
+        case execution
+    }
+
+    let phase: Phase
+}
 
 actor ProviderAdmission {
     #if DEBUG
@@ -129,7 +136,7 @@ actor ProviderAdmission {
     }
 
     private func timeout(_ id: UUID) {
-        cancel(id, error: ProviderCallTimeout())
+        cancel(id, error: ProviderCallTimeout(phase: .queue))
     }
 }
 
@@ -184,7 +191,7 @@ private final class ProviderCallRace<Value: Sendable>: @unchecked Sendable {
                 return
             }
             resolve(
-                .failure(ProviderCallTimeout()),
+                .failure(ProviderCallTimeout(phase: .execution)),
                 cancelling: operationTask
             )
         }

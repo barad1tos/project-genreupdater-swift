@@ -622,11 +622,17 @@ private func fetchWithTimeout(
             shouldCacheEmptyResult: result.year == nil,
             didCompleteLookup: true
         )
-    } catch is ProviderCallTimeout {
-        log
-            .warning(
-                "\(sourceEntry.source.rawValue, privacy: .public) timed out after \(query.timeout, privacy: .public)"
+    } catch let timeout as ProviderCallTimeout {
+        switch timeout.phase {
+        case .queue:
+            log.warning(
+                "\(sourceEntry.source.rawValue, privacy: .public) admission queue timed out after \(query.timeout, privacy: .public)"
             )
+        case .execution:
+            log.warning(
+                "\(sourceEntry.source.rawValue, privacy: .public) provider request timed out after \(query.timeout, privacy: .public)"
+            )
+        }
         return SourceServiceOutcome(
             result: YearResult(),
             shouldCacheEmptyResult: false,

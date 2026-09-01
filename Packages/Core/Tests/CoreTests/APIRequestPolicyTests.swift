@@ -37,6 +37,15 @@ struct APIRequestPolicyTests {
         #expect(explicit.concurrentAlbums == 3)
         #expect(explicit.concurrentProviderCalls == 9)
 
+        let malformedFallback = try JSONDecoder().decode(
+            APIRateLimits.self,
+            from: Data(
+                #"{"concurrentAPICalls":"invalid","concurrentAlbums":3,"concurrentProviderCalls":9}"#.utf8
+            )
+        )
+        #expect(malformedFallback.concurrentAlbums == 3)
+        #expect(malformedFallback.concurrentProviderCalls == 9)
+
         var tuned = YearRetrievalConfig()
         tuned.rateLimits.itunesRequestsPerSecond = 7.5
         tuned.rateLimits.concurrentAlbums = 3

@@ -189,11 +189,17 @@ private func fetchReleaseCandidatesWithTimeout(
             )
         }
         return ReleaseCandidateFetchOutcome(candidates: candidates, shouldCacheEmptyResult: true)
-    } catch is ProviderCallTimeout {
-        log
-            .warning(
-                "\(sourceEntry.source.rawValue, privacy: .public) candidate fetch timed out after \(query.timeout, privacy: .public)"
+    } catch let timeout as ProviderCallTimeout {
+        switch timeout.phase {
+        case .queue:
+            log.warning(
+                "\(sourceEntry.source.rawValue, privacy: .public) candidate admission queue timed out after \(query.timeout, privacy: .public)"
             )
+        case .execution:
+            log.warning(
+                "\(sourceEntry.source.rawValue, privacy: .public) candidate provider request timed out after \(query.timeout, privacy: .public)"
+            )
+        }
         return ReleaseCandidateFetchOutcome(candidates: [], shouldCacheEmptyResult: false)
     } catch is CancellationError {
         log.debug("\(sourceEntry.source.rawValue, privacy: .public) candidate fetch cancelled")

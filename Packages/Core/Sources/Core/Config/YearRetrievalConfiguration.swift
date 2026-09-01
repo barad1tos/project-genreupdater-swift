@@ -141,12 +141,16 @@ public struct APIRateLimits: Sendable, Codable {
             Double.self,
             forKey: .itunesRequestsPerSecond
         ) ?? Self.defaultITunesPerSecond
-        let legacyConcurrency = try container.decodeIfPresent(Int.self, forKey: .legacyConcurrentAPICalls)
+        let decodedAlbums = try container.decodeIfPresent(Int.self, forKey: .concurrentAlbums)
+        let decodedProviderCalls = try container.decodeIfPresent(Int.self, forKey: .concurrentProviderCalls)
+        let legacyConcurrency = try decodedAlbums == nil || decodedProviderCalls == nil
+            ? container.decodeIfPresent(Int.self, forKey: .legacyConcurrentAPICalls)
             ?? container.decodeIfPresent(Int.self, forKey: .legacyConcurrentApiCalls)
-        concurrentAlbums = try container.decodeIfPresent(Int.self, forKey: .concurrentAlbums)
+            : nil
+        concurrentAlbums = decodedAlbums
             ?? legacyConcurrency
             ?? Self.defaultConcurrentAlbums
-        concurrentProviderCalls = try container.decodeIfPresent(Int.self, forKey: .concurrentProviderCalls)
+        concurrentProviderCalls = decodedProviderCalls
             ?? legacyConcurrency
             ?? Self.defaultConcurrentProviderCalls
     }
